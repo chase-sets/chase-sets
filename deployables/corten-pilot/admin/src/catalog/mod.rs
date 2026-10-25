@@ -43,6 +43,7 @@ use serde_json::{Map, Value};
 
 pub mod api;
 pub mod form;
+pub mod items;
 pub mod views;
 
 use crate::{
@@ -66,6 +67,7 @@ pub mod url {
     use serde::Deserialize;
 
     pub use super::Done;
+    pub use super::items::url::{Items, ItemsBulk, ItemsDrafts, ItemsLive};
 
     /// The area: its routes, stylesheet and guard.
     #[derive(Route)]
@@ -401,7 +403,8 @@ impl Done {
 }
 
 pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session, url::Catalog> {
-    area.route::<url::Catalog>(get(home))
+    let area = area
+        .route::<url::Catalog>(get(home))
         .route::<url::Dimensions>(get(dimensions).post(create_dimension).with_state(shared.clone()))
         .route::<url::DimensionsLive>(get(dimensions_live).with_state(shared.clone()))
         .route::<url::DimensionsBulk>(post(preview_dimensions).with_state(shared.clone()))
@@ -420,7 +423,8 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
         .route::<url::JobLive>(get(job_live).with_state(shared.clone()))
         .route::<url::Field>(get(field).with_state(shared.clone()))
         .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
-        .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared))
+        .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared.clone()));
+    items::routes(area, shared)
 }
 
 /// admin-web's catalog layout opens on the dimensions.
@@ -443,7 +447,7 @@ fn list_query(filters: &[(&str, &Option<String>)], page: u32) -> String {
     query.join("&")
 }
 
-fn screen<T>(list: List<T>, page: u32) -> ListScreen<T> {
+fn screen<T, P>(list: List<T>, page: u32) -> ListScreen<T, P> {
     ListScreen {
         pages: list.total.div_ceil(PAGE_SIZE).max(1),
         total: list.total,
@@ -506,7 +510,7 @@ where
         .filter_map(move |tick| {
             std::future::ready(match tick {
                 Tick::Opened(_) if resumed => None,
-                Tick::Opened(cursor) | Tick::Changed(cursor) => Some(cursor),
+                Tick::Opened(cursor) | Tick::Changed(cursor, _) => Some(cursor),
                 Tick::Refused(_) => None,
             })
         })
@@ -1036,16 +1040,20 @@ fn manages(req: &Req) -> bool {
 
 /// An action's label for records of `kind`, or the action itself when it is not one offered.
 fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
-    let actions = match kind {
-        Kind::Dimensions => views::bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive()),
-        Kind::Fields => views::bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive()),
+    let actions: Vec<(&str, &str)> = match kind {
+        Kind::Dimensions => views::bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive()).to_vec(),
+        Kind::Fields => views::bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive()).to_vec(),
+        // admin-web labels the archive with the item page's Archive.
+        Kind::Items => views::item_operations(t)
+            .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
+            .to_vec(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
 }
 
 /// The job a list page follows (`?job=`), or none when it asks for none or the API does not
 /// know it (the dialog says so).
-async fn follow(caller: &Caller<'_>, id: Option<&str>) -> Option<Job> {
+async fn follow(caller: &Caller<'_>, id: Option<&str>) -> Option<Job<Value>> {
     match caller.job(id?).await {
         Ok(job) => Some(job),
         Err(error) => {
@@ -1057,7 +1065,7 @@ async fn follow(caller: &Caller<'_>, id: Option<&str>) -> Option<Job> {
 
 /// A list page's bulk parts: the bar for staff who may change the records, the preview to draw
 /// open, and the job's dialog when the page follows one (`asked`), its stream while it runs.
-fn bulk<'a>(req: &Req, t: Cat, kind: Kind, asked: bool, preview: Option<Previewed<'a>>, job: Option<&'a Job>) -> Bulk<'a> {
+fn bulk<'a>(req: &Req, t: Cat, kind: Kind, asked: bool, preview: Option<Previewed<'a>>, job: Option<&'a Job<Value>>) -> Bulk<'a> {
     let followed = asked.then(|| Followed {
         job,
         label: job.map_or("", |job| action_label(t, job.of().unwrap_or(kind), &job.action)),
@@ -1259,7 +1267,7 @@ async fn job_live(
 ) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
-    let updates = caller.watch_job::<Job>(&api::job_events(&id), api::CONTEXT, since.0, Job::done);
+    let updates = caller.watch_job::<Job<Value>>(&api::job_events(&id), api::CONTEXT, since.0, Job::done);
     let fragments = updates.map(move |update| match update {
         Update::Job(job, Some(event)) => Fragment::new(views::job_status(t, p, Some(&job)).to_html()).cursor(event),
         Update::Job(job, None) => Fragment::new(views::job_status(t, p, Some(&job)).to_html()),

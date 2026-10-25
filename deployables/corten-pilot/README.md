@@ -12,6 +12,8 @@ stay where they are. The pilot owns only the screens:
 | App | Screen | Ported from | What it covers |
 |---|---|---|---|
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` | admin-web | the list, the policy sheet, create, revise, preview, activate, retire and clone |
+| `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
+| `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts; an item's page is still admin-web's |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
@@ -93,6 +95,8 @@ node scripts/smoke-admin.mjs           # every action in a browser, with and wit
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
+node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimensions list, with and without JavaScript
+node scripts/smoke-items.mjs           # the catalog items list: create, the changes count, a bulk edit, removing drafts, 390 px
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
@@ -150,6 +154,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
+| `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
 | `jsconfig.json` | type-checks the apps' scripts (`tsc -p`, in CI), which `corten check` does not |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
@@ -236,6 +241,35 @@ forward only on purpose, when a fix the pilot needs lands.
     ([`realtime`](platform/src/realtime.rs)). Each drawing carries that stream's cursor, so a
     reconnect resumes from it and draws only what changed meanwhile.
     `scripts/smoke-live.mjs` checks it in a browser.
+16. **The catalog items list counts changes instead of drawing them**, as admin-web's does
+    (`useCatalogRealtimeRevalidation` in manual mode: an import can change many items while a
+    user is checking rows). Its `<corten-live>` (`/catalog/catalog-items/live`) draws
+    admin-web's bar, "N Catalog Items changed" with Reload, counting the distinct record ids in
+    the platform's patches (`Tick::Changed` carries them, [`realtime`](platform/src/realtime.rs)).
+    Each count's event id is `{count}.{sync}.{cursor}`, so a reconnect goes on counting
+    from the browser's `Last-Event-ID`. A record changed both before and after a reconnect counts
+    twice, because the ids are not kept across connections. Reload is a `GET` form: with
+    JavaScript it is a patch with the rows and a new `<corten-live>` (the count starts over, and
+    checked boxes keep their marks); without it, the page. The connection indicator admin-web
+    shows next to it is not ported (see Corten gaps).
+17. **The items' bulk bar is one form for the API's three bulk changes.** Publish, archive and the
+    six edits are one action select, as in admin-web. The preview posts to the operation's own
+    API route (`bulk-publish`, `bulk-lifecycle`, `bulk-edit`) and answers with that route's
+    dialog. A publish's confirm carries the preview's `item_ids`, which is what the API's confirm
+    takes. The value an edit takes (a blueprint, a category, the tags) is an input shown only for
+    the operations that take it, with CSS `:has` and no script; a browser without `:has` shows all
+    three. A publish's result offers "Retry items needing attention", a form that previews the
+    retryable items again. `BulkRows` gained two slots for this (`fields`, `more`), and its
+    script disables a submit marked `data-requires="draft"` unless every checked box is a draft.
+18. **Remove drafts restates a Catalog rule in the web layer**, as admin-web's page does. The API
+    has no bulk route for it, so the pilot reads the page's rows, refuses a selection that is not
+    all drafts, and sends one `DELETE` per item. The first refusal stops it, and the drafts
+    before it stay removed. Filed as
+    [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530);
+    the workaround is `draft_refusal` in [`items`](admin/src/catalog/items.rs).
+19. **Marketplace and admin pages stay responsive.** Every ported page is checked at a phone's
+    width (390 px): the page must not scroll sideways (`scripts/smoke-items.mjs` checks it);
+    wide tables scroll inside their own box.
 
 ## Corten gaps
 
@@ -260,7 +294,18 @@ Open, filed in Corten (one gap each):
 4. [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26)
    (developer loop). `#[component]` treats any identifier `scope` in the body as a request for a
    scope, and the error then talks about refs. Workaround: the bulk form's field is `mode`
-   (`BulkInput`), which also matches the API's `selection.mode`.
+   (`BulkInput`), which also matches the API's `selection.mode`, and the items' publish preview
+   names its scope label `taken`. Closed in Corten at `8c8a878`, after the pin.
+5. [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32)
+   (correctness, then developer time). A list's filters have to be declared again on its live,
+   bulk preview and confirm routes, and a route that leaves one out still compiles but drops
+   that filter. Workaround: the items' five filtered routes come from a `macro_rules!`
+   (`filtered!` in [`items`](admin/src/catalog/items.rs)). The dimensions and fields routes
+   still repeat their fields.
+6. [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33)
+   (correctness, as the user sees it). admin-web's live lists show "Live", "Connecting…" or
+   "Stale since …". The pilot has nothing to read it from, so a dropped live list looks like an
+   unchanged one. No workaround; the indicator is left out.
 
 Also met, and already filed by Corten:
 [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17).

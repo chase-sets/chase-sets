@@ -78,6 +78,112 @@ pub struct Field {
     pub updated_at: String,
 }
 
+/// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ItemRow {
+    pub catalog_item_id: String,
+    pub language_code: String,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub blueprint: Option<BlueprintRef>,
+    pub status: String,
+    #[serde(default)]
+    pub source_providers: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub updated_at: String,
+}
+
+/// `BlueprintRef`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintRef {
+    pub blueprint_id: String,
+    pub name: String,
+}
+
+/// `BulkPublishCandidate`: an item a bulk publish takes, what it would do (`ready`, `blocked`)
+/// or did (`published`, `failed`, `skipped`) and why; `retryable` when publishing it again
+/// may succeed (its display identity was not resolved yet).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PublishCandidate {
+    pub catalog_item_id: String,
+    pub title: String,
+    pub status: String,
+    #[serde(default)]
+    pub source_providers: Vec<String>,
+    pub outcome: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub retryable: bool,
+}
+
+/// `BulkPublishPreview`. The confirm takes its `item_ids`, not the selection.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PublishPreview {
+    #[serde(default)]
+    pub item_ids: Vec<String>,
+    pub total: u32,
+    pub ready_count: u32,
+    pub blocked_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<PublishCandidate>,
+}
+
+/// `BulkPublishResult`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PublishOutcome {
+    pub total: u32,
+    pub published_count: u32,
+    pub failed_count: u32,
+    pub skipped_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<PublishCandidate>,
+}
+
+/// `BulkEditCatalogItemCandidate`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EditCandidate {
+    pub catalog_item_id: String,
+    pub title: String,
+    pub status: String,
+    #[serde(default)]
+    pub blueprint_id: Option<String>,
+    #[serde(default)]
+    pub category_ids: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub outcome: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// `BulkEditCatalogItemPreview`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EditPreview {
+    pub action: String,
+    pub total: u32,
+    pub ready_count: u32,
+    pub blocked_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<EditCandidate>,
+}
+
+/// `BulkEditCatalogItemResult`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EditOutcome {
+    pub action: String,
+    pub total: u32,
+    pub succeeded_count: u32,
+    pub skipped_count: u32,
+    pub failed_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<EditCandidate>,
+}
+
 /// One record of a bulk change: what it is, its status, and what the change does to it
 /// (`BulkLifecycleCandidate`: `ready` or `blocked` in a preview; `succeeded`, `skipped` or
 /// `failed` in a result) and why.
@@ -116,20 +222,26 @@ pub struct Outcome {
     pub candidates: Vec<Candidate>,
 }
 
-/// A bulk change's job (`CatalogAuthoringBulkJob`): queued, running, then completed with its
-/// outcome or failed with a message.
+/// A bulk change's job (`CatalogAuthoringBulkJob<T>`): queued, running, then completed with its
+/// outcome or failed with a message. The outcome's shape is the kind's: a lifecycle change's
+/// [`Outcome`], a catalog item publish's [`PublishOutcome`], an item edit's [`EditOutcome`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Job {
+#[serde(bound(deserialize = "R: Deserialize<'de>", serialize = "R: Serialize"))]
+pub struct Job<R = Outcome> {
     pub job_id: String,
     pub kind: String,
     pub action: String,
     pub status: String,
     pub progress: Progress,
-    #[serde(default)]
-    pub result: Option<Outcome>,
+    #[serde(default = "none")]
+    pub result: Option<R>,
     #[serde(default)]
     pub error_message: Option<String>,
+}
+
+fn none<R>() -> Option<R> {
+    None
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -143,7 +255,11 @@ pub struct Progress {
     pub status: Option<String>,
 }
 
-impl Job {
+/// The job kinds of a catalog item bulk change.
+pub const ITEMS_PUBLISH: &str = "catalog.authoring.items.publish";
+pub const ITEMS_EDIT: &str = "catalog.authoring.items.edit";
+
+impl<R> Job<R> {
     /// Done: completed or failed. Its stream sends nothing after.
     pub fn done(&self) -> bool {
         matches!(self.status.as_str(), "completed" | "failed")
@@ -154,7 +270,23 @@ impl Job {
         match self.kind.as_str() {
             "catalog.authoring.dimensions.lifecycle" => Some(Kind::Dimensions),
             "catalog.authoring.fields.lifecycle" => Some(Kind::Fields),
+            "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
+        }
+    }
+}
+
+impl Job<Value> {
+    /// The job with its outcome read as `S` (none when it is not one).
+    pub fn read<S: DeserializeOwned>(&self) -> Job<S> {
+        Job {
+            job_id: self.job_id.clone(),
+            kind: self.kind.clone(),
+            action: self.action.clone(),
+            status: self.status.clone(),
+            progress: self.progress.clone(),
+            result: self.result.clone().and_then(|result| serde_json::from_value(result).ok()),
+            error_message: self.error_message.clone(),
         }
     }
 }
@@ -177,6 +309,7 @@ pub struct Written {
 pub enum Kind {
     Dimensions,
     Fields,
+    Items,
 }
 
 impl Kind {
@@ -184,6 +317,7 @@ impl Kind {
         match self {
             Kind::Dimensions => "dimensions",
             Kind::Fields => "fields",
+            Kind::Items => "items",
         }
     }
 }
@@ -200,7 +334,10 @@ pub trait Catalog {
     async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError>;
     /// Starts a bulk change of `kind`: its job (202), which runs it.
     async fn bulk_confirm(&self, kind: Kind, body: &Value) -> Result<Job, ApiError>;
-    async fn job(&self, id: &str) -> Result<Job, ApiError>;
+    /// A `POST` to `/api/catalog/{kind}{rest}` that answers with `T`: a catalog item bulk
+    /// change's preview, or its job.
+    async fn post<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<T, ApiError>;
+    async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError>;
 }
 
 impl Catalog for Caller<'_> {
@@ -233,7 +370,13 @@ impl Catalog for Caller<'_> {
         Ok(job)
     }
 
-    async fn job(&self, id: &str) -> Result<Job, ApiError> {
+    async fn post<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<T, ApiError> {
+        let req = self.request(Method::POST, &format!("{API}/{}{rest}", kind.path()), CATALOG);
+        let (answer, _) = self.write(req.json(body)).await?;
+        Ok(answer)
+    }
+
+    async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError> {
         self.read(&format!("{API}/bulk-authoring-jobs/{}", segment(id)), CATALOG).await
     }
 }

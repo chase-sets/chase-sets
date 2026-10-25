@@ -394,11 +394,99 @@ fn job_events(headers: &HeaderMap) -> Response {
     ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
 }
 
+fn item(id: &str, status: &str) -> Value {
+    json!({
+        "catalog_item_id": id, "language_code": "ja", "title_i18n": {}, "title": format!("Title {id}"), "subtitle_i18n": null,
+        "subtitle": null, "display_template_key": null, "display_identity_hash": null, "display_identity_resolved_at": null,
+        "blueprint": { "blueprintId": "bpr_card", "name": "Card" }, "status": status, "source_providers": ["tcgplayer", "pokemon"],
+        "tags": ["foil"], "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+fn publish_candidate(id: &str, outcome: &str, retryable: bool) -> Value {
+    json!({
+        "catalog_item_id": id, "title": format!("Title {id}"), "subtitle": null, "status": "draft", "blueprint_id": "bpr_card",
+        "blueprint_name": "Card", "source_providers": [], "outcome": outcome,
+        "reason": if outcome == "published" { Value::Null } else { json!("Display identity is not resolved yet.") },
+        "reason_code": null, "retryable": retryable, "display_identity_readiness": "degraded", "missing_tokens": [],
+        "required_field_ids": [],
+    })
+}
+
+/// A catalog item bulk job, done: a publish (one published, one to retry) or an edit.
+fn item_job(id: &str, kind: &str, action: &str) -> Value {
+    let result = if kind.ends_with(".publish") {
+        json!({ "item_ids": ["cat_a", "cat_b"], "total": 2, "published_count": 1, "failed_count": 1, "skipped_count": 0,
+                "candidates": [publish_candidate("cat_a", "published", false), publish_candidate("cat_b", "failed", true)] })
+    } else {
+        json!({ "action": action, "item_ids": ["cat_a"], "total": 1, "succeeded_count": 1, "skipped_count": 0, "failed_count": 0,
+                "candidates": [{ "catalog_item_id": "cat_a", "title": "Title cat_a", "status": "draft", "blueprint_id": null,
+                                 "category_ids": [], "tags": ["featured", "foil"], "outcome": "succeeded", "reason": null }] })
+    };
+    json!({
+        "jobId": id, "kind": kind, "action": action, "status": "completed",
+        "progress": { "phase": "completed", "completed": 2, "total": 2, "currentName": null, "status": null },
+        "result": result, "errorMessage": null, "createdAt": "2026-01-01T00:00:00.000Z", "startedAt": null,
+        "completedAt": null, "updatedAt": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+/// The Catalog API's items routes: a page of a draft and an active item (75 in all); `cat_used`
+/// cannot be removed.
+fn items_api(method: Method, rest: &str, body: &str) -> Response {
+    match (method, rest) {
+        (Method::GET, "") => {
+            Json(json!({ "items": [item("cat_a", "draft"), item("cat_b", "active")], "total": 75, "count": 2 })).into_response()
+        }
+        (Method::POST, "/bulk-publish/preview") => {
+            let candidates = [publish_candidate("cat_a", "ready", false), publish_candidate("cat_b", "blocked", true)];
+            Json(json!({ "mode": "ids", "item_ids": ["cat_a", "cat_b"], "total": 2, "ready_count": 1, "blocked_count": 1, "candidates": candidates }))
+                .into_response()
+        }
+        (Method::POST, "/bulk-edit/preview") => {
+            let sent: Value = serde_json::from_str(body).unwrap();
+            let candidates =
+                [json!({ "catalog_item_id": "cat_a", "title": "Title cat_a", "status": "draft", "blueprint_id": null,
+                                      "category_ids": ["ctg_1"], "tags": ["foil"], "outcome": "ready", "reason": null })];
+            Json(
+                json!({ "mode": "ids", "action": sent["operation"]["action"], "item_ids": ["cat_a"], "total": 1, "ready_count": 1,
+                         "blocked_count": 0, "candidates": candidates }),
+            )
+            .into_response()
+        }
+        (Method::POST, "/bulk-publish/confirm") => {
+            (StatusCode::ACCEPTED, Json(item_job("job_publish", "catalog.authoring.items.publish", "publish"))).into_response()
+        }
+        (Method::POST, "/bulk-edit/confirm") => {
+            (StatusCode::ACCEPTED, Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags"))).into_response()
+        }
+        (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
 /// bulk archive cannot start (another change is running).
 fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> Response {
+    if let Some(rest) = rest.strip_prefix("/items")
+        && !rest.starts_with("/bulk-lifecycle")
+    {
+        let answer = items_api(method.clone(), rest, body);
+        if answer.status() != StatusCode::NOT_FOUND {
+            return answer;
+        }
+    }
     match (method, rest) {
-        (Method::POST, "/dimensions/bulk-lifecycle/preview" | "/fields/bulk-lifecycle/preview") => {
+        (Method::GET, "/bulk-authoring-jobs/job_publish") => {
+            Json(item_job("job_publish", "catalog.authoring.items.publish", "publish")).into_response()
+        }
+        (Method::GET, "/bulk-authoring-jobs/job_edit") => {
+            Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags")).into_response()
+        }
+        (
+            Method::POST,
+            "/dimensions/bulk-lifecycle/preview" | "/fields/bulk-lifecycle/preview" | "/items/bulk-lifecycle/preview",
+        ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
             let candidates = [
                 candidate("dim_seed", "active", "ready", None),
@@ -411,9 +499,10 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         (Method::POST, "/dimensions/bulk-lifecycle/confirm") if body.contains(r#""action":"archive""#) => {
             refusal(StatusCode::CONFLICT, "conflict", "Another bulk change is running.")
         }
-        (Method::POST, "/dimensions/bulk-lifecycle/confirm" | "/fields/bulk-lifecycle/confirm") => {
-            (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response()
-        }
+        (
+            Method::POST,
+            "/dimensions/bulk-lifecycle/confirm" | "/fields/bulk-lifecycle/confirm" | "/items/bulk-lifecycle/confirm",
+        ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_done") => Json(job("job_done", true)).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1/events") => job_events(headers),
@@ -440,7 +529,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
         (Method::GET, "/fields") => Json(json!({ "items": [catalog_field("fld_seed")], "total": 1 })).into_response(),
         (Method::GET, "/fields/fld_seed") => Json(catalog_field("fld_seed")).into_response(),
-        (Method::POST | Method::PUT, _) => written(StatusCode::OK, "cmd"),
+        (Method::POST | Method::PUT | Method::DELETE, _) => written(StatusCode::OK, "cmd"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -452,7 +541,7 @@ fn realtime(cookie: &str) -> Response {
     if cookie.contains("chase_sets_session=catalog-reader") {
         return refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden.");
     }
-    let patch = r#"{"kind":"projection.patch","context":"catalog","projection":"catalog-dimensions","topics":["catalog:admin:dimensions"],"changes":[{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:x","value":{}}]}"#;
+    let patch = r#"{"kind":"projection.patch","context":"catalog","projection":"catalog-dimensions","topics":["catalog:admin:dimensions"],"changes":[{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:x","value":{}},{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:y","value":{}}]}"#;
     let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
     ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
 }
@@ -997,4 +1086,243 @@ async fn a_done_job_shows_what_it_did_and_an_unknown_one_says_so() {
     assert!(html.contains("This bulk change is not known."), "{html}");
     let events = pilot.events("/catalog/jobs/job_missing/live", "staff", 2).await;
     assert!(events[0].1.contains("This bulk change is not known.") && events[1].0 == "end", "{events:?}");
+}
+
+// The catalog items list.
+
+fn sent_json(call: &Call) -> Value {
+    serde_json::from_str(&call.body).unwrap()
+}
+
+#[tokio::test]
+async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_columns() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/catalog/catalog-items?status=draft&language=ja&blueprint_state=missing&has_images=false&page=2",
+            Some("staff"),
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.catalog_calls().remove(0);
+    assert_eq!(
+        read.path, "/api/catalog/items?status=draft&language=ja&blueprintState=missing&hasImages=false&limit=50&offset=50",
+        "the API's query names"
+    );
+    assert!(html.contains("<title>Catalog Items | Catalog Admin</title>"), "{html}");
+    assert!(html.contains("75 matching Catalog Items") && html.contains("Page 2 of 2"), "{html}");
+    assert!(
+        html.contains("<td>Title cat_a</td>") && html.contains("<td>Japanese</td>") && html.contains("<td>Card</td>"),
+        "{html}"
+    );
+    assert!(html.contains("<td>tcgplayer, pokemon</td>"), "the sources: {html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/catalog-items/cat_a""#),
+        "the item's page is admin-web's: {html}"
+    );
+    assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
+    assert!(html.contains(r#"value="missing" selected"#), "{html}");
+    assert!(html.contains(r#"data-status="draft""#), "a draft's box says so: {html}");
+    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-requires="draft""#), "{html}");
+    assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
+    assert!(
+        html.contains(r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2">"#),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/catalog-items", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("catalog-bulk\"") && !html.contains("New Catalog Item"), "no writes for catalog.view: {html}");
+    assert!(!html.contains("<details class=\"list-page__more\" open>"), "{html}");
+}
+
+#[tokio::test]
+async fn an_item_is_created_with_its_drawn_id_as_its_english_title() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items", Some("staff"))).await;
+    assert!(html.contains(r#"name="item_id" value="cat_"#) && html.contains(r#"name="language_code" value="en""#), "{html}");
+    let (status, headers, _) = pilot
+        .send(post("/catalog/catalog-items?status=draft", "item_id=cat_new&language_code=ja&description=Booster%20box", true))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap();
+    assert!(to.starts_with("/catalog/catalog-items?status=draft&after_write=") && to.ends_with("&done=created"), "{to}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items");
+    assert_eq!(
+        sent_json(&sent),
+        json!({ "itemId": "cat_new", "languageCode": "ja", "title": { "defaultLocale": "en", "values": { "en": "cat_new" } },
+                "subtitle": null, "description": { "defaultLocale": "en", "values": { "en": "Booster box" } } })
+    );
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?done=created", Some("staff"))).await;
+    assert!(html.contains("Catalog item created"), "{html}");
+}
+
+#[tokio::test]
+async fn each_bulk_operation_previews_through_its_own_api_route() {
+    let pilot = Pilot::new().await;
+    // A publish of the matching items: the filters are the selection.
+    let (status, _, html) =
+        pilot.send(post("/catalog/catalog-items/bulk?status=draft&tag=foil", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Bulk Publish Preview") && html.contains("Matching drafts: 1 ready, 1 need attention."), "{html}");
+    assert!(html.contains("Display identity is not resolved yet."), "{html}");
+    assert!(html.contains(r#"action="/catalog/catalog-items/bulk/confirm?status=draft&amp;tag=foil""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="mode" value="ids"><input type="hidden" name="ids" value="cat_a"><input type="hidden" name="ids" value="cat_b">"#),
+        "the confirm takes the preview's items: {html}"
+    );
+    assert!(html.contains(">Publish or recheck items</button>") && !html.contains("disabled"), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-publish/preview");
+    assert_eq!(
+        sent_json(&sent),
+        json!({ "action": "publish", "selection": { "mode": "filter", "query": { "status": "draft", "tag": "foil" } } })
+    );
+
+    // An edit of the checked rows, its tags as admin-web reads them.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(post("/catalog/catalog-items/bulk", "action=mergeTags&mode=ids&ids=cat_a&tags=foil%2C%20featured%2C%20foil", true))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Bulk Merge Tags Preview") && html.contains("1 ready, 0 need attention."), "{html}");
+    assert!(html.contains("<td>ctg_1</td>") && html.contains(">Apply Edit</button>"), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="tags" value="foil, featured, foil">"#),
+        "the confirm carries the operation: {html}"
+    );
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-edit/preview");
+    assert_eq!(
+        sent_json(&sent),
+        json!({ "operation": { "action": "mergeTags", "tags": ["featured", "foil"] }, "selection": { "mode": "ids", "ids": ["cat_a"] } })
+    );
+
+    // An archive: the lifecycle change, labelled as the item page labels it.
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(post("/catalog/catalog-items/bulk", "action=archive&mode=ids&ids=cat_a", true)).await;
+    assert!(html.contains("Bulk Archive Preview") && html.contains("1 ready, 1 blocked."), "{html}");
+    assert_eq!(pilot.catalog_writes().remove(0).path, "/api/catalog/items/bulk-lifecycle/preview");
+
+    // An edit without the value it takes is the field's message, and the API is not asked.
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/catalog-items/bulk", "action=assignBlueprint&mode=filter&blueprint_id=%20", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter a value.") && html.contains("disabled"), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+}
+
+#[tokio::test]
+async fn a_confirm_starts_the_operations_job_and_the_dialog_shows_its_outcome() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post("/catalog/catalog-items/bulk/confirm?status=draft", "action=publish&mode=ids&ids=cat_a&ids=cat_b", true))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers["corten-location"], "/catalog/catalog-items?status=draft&job=job_publish");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(
+        (sent.path.as_str(), sent_json(&sent)),
+        ("/api/catalog/items/bulk-publish/confirm", json!({ "itemIds": ["cat_a", "cat_b"] }))
+    );
+
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?job=job_publish", Some("staff"))).await;
+    assert!(html.contains("Bulk Publish Result") && html.contains("1 published, 1 failed, 0 skipped."), "{html}");
+    assert!(!html.contains("/catalog/jobs/job_publish/live"), "done: no stream: {html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="action" value="publish"><input type="hidden" name="mode" value="ids"><input type="hidden" name="ids" value="cat_b">"#)
+            && html.contains("Retry items needing attention"),
+        "the items to retry are previewed again: {html}"
+    );
+
+    let pilot = Pilot::new().await;
+    let (_, headers, _) =
+        pilot.send(post("/catalog/catalog-items/bulk/confirm", "action=mergeTags&mode=filter&tags=foil", true)).await;
+    assert_eq!(headers["corten-location"], "/catalog/catalog-items?job=job_edit");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-edit/confirm");
+    assert_eq!(
+        sent_json(&sent),
+        json!({ "operation": { "action": "mergeTags", "tags": ["foil"] }, "selection": { "mode": "filter", "query": {} } })
+    );
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?job=job_edit", Some("staff"))).await;
+    assert!(
+        html.contains("Bulk Merge Tags Result")
+            && html.contains("1 updated, 0 skipped, 0 failed.")
+            && html.contains("<td>featured, foil</td>"),
+        "{html}"
+    );
+
+    let pilot = Pilot::new().await;
+    let (_, headers, _) =
+        pilot.send(post("/catalog/catalog-items/bulk/confirm", "action=archive&mode=ids&ids=cat_b", true)).await;
+    assert_eq!(headers["corten-location"], "/catalog/catalog-items?job=job_1");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent_json(&sent), json!({ "action": "archive", "selection": { "mode": "ids", "ids": ["cat_b"] } }));
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?job=job_1", Some("staff"))).await;
+    // The stand-in's running job is a dimensions' deprecate: labelled by its own kind.
+    assert!(html.contains("Bulk Deprecate Result") && html.contains(r#"<corten-live src="/catalog/jobs/job_1/live">"#), "{html}");
+}
+
+#[tokio::test]
+async fn checked_drafts_are_removed_one_by_one_and_only_drafts() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("Remove Draft Catalog Items") && html.contains("Remove 1 draft Catalog Items from the grid."),
+        "{html}"
+    );
+    assert!(html.contains(r#"action="/catalog/catalog-items/drafts/confirm?status=draft""#), "{html}");
+
+    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Check only draft Catalog Items to remove them.") && html.contains("disabled"), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let (status, headers, _) = pilot.send(post("/catalog/catalog-items/drafts/confirm?status=draft", "ids=cat_a", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap();
+    assert!(
+        to.starts_with("/catalog/catalog-items?status=draft&after_write=") && to.ends_with("&done=drafts_removed&removed=1"),
+        "{to}"
+    );
+    let removed: Vec<_> = pilot.catalog_writes().iter().map(|c| (c.method.clone(), c.path.clone())).collect();
+    assert_eq!(removed, [(Method::DELETE, "/api/catalog/items/cat_a".to_owned())]);
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?done=drafts_removed&removed=1", Some("staff"))).await;
+    assert!(html.contains("1 draft Catalog Items removed"), "{html}");
+}
+
+#[tokio::test]
+async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events_with_ids(get("/catalog/catalog-items/live?status=draft", Some("staff")), 2).await;
+    assert_eq!(events.len(), 2, "{events:?}");
+    let (event, id, data) = &events[0];
+    assert_eq!((event.as_str(), id.as_str()), ("patch", "2.0.c2"), "the count rides on the cursor: {events:?}");
+    assert!(data.starts_with(r#"<div id="catalog-changes""#) && data.contains("2 Catalog Items changed"), "{data}");
+    assert!(data.contains(r#"<input type="hidden" name="status" value="draft">"#) && data.contains(">Reload</button>"), "{data}");
+    assert_eq!(events[1].1, "2.0.c2", "the same records again after a reconnect: still two");
+    assert_eq!(pilot.calls_to("/api/realtime/")[0].path, "/api/realtime/public/events?topic=catalog%3Aadmin%3Acatalog-items");
+    assert!(pilot.catalog_calls().is_empty(), "a change is counted, not read");
+
+    // The browser reconnects with the count it shows: it goes on from there.
+    let mut req = get("/catalog/catalog-items/live", Some("staff"));
+    req.headers_mut().insert("last-event-id", "5.0.c2".parse().unwrap());
+    let resumed = pilot.events_with_ids(req, 1).await;
+    assert!(resumed[0].2.contains("7 Catalog Items changed") && resumed[0].1 == "7.0.c2", "{resumed:?}");
+    assert!(pilot.calls_to("/api/realtime/").iter().any(|c| c.path.ends_with("&cursor=c2")), "from its cursor");
+
+    // Reload, with the script: the rows, and a new element to stream from, counting from none.
+    let mut req = get("/catalog/catalog-items?status=draft", Some("staff"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
+    assert!(html.contains(r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft"><div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#), "{html}");
+    assert!(!html.contains(r#"role="search""#), "not the filters: {html}");
 }

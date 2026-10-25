@@ -6,7 +6,8 @@
 //! Like the web client it resumes after a dropped connection from the last event's cursor, backs
 //! off a second after an error, and treats `sync.required` as a change. The changes in a short
 //! window are one tick (admin-web debounces its revalidation by 150 ms). Each tick carries the
-//! stream's cursor after it, so a caller can resume from there later (`Caller::changes`'s `from`).
+//! stream's cursor after it, so a caller can resume from there later (`Caller::changes`'s `from`),
+//! and what changed: the ids of the changed records, as admin-web's manual mode counts them.
 use std::{collections::VecDeque, time::Duration};
 
 use bytes::Bytes;
@@ -30,9 +31,44 @@ pub enum Tick {
     Opened(Option<String>),
     /// The topics changed (a `projection.patch`, or a `sync.required`): read again. `cursor`
     /// is the stream's position after the change.
-    Changed(Option<String>),
+    Changed(Option<String>, Changes),
     /// The API refused the stream (signed out, or not allowed): it will not send changes.
     Refused(StatusCode),
+}
+
+/// What a tick's changes were: the ids of the records the patches name (`changes[].id`), each
+/// once, and whether the stream asked for a full read (`sync.required`: it cannot say what
+/// changed).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Changes {
+    pub ids: Vec<String>,
+    pub sync: bool,
+}
+
+impl Changes {
+    fn add(&mut self, event: &Event) {
+        #[derive(serde::Deserialize)]
+        struct Patch {
+            #[serde(default)]
+            changes: Vec<Change>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Change {
+            id: String,
+        }
+        match event.event.as_str() {
+            "sync.required" => self.sync = true,
+            "projection.patch" => {
+                let patch: Patch = serde_json::from_str(&event.data).unwrap_or(Patch { changes: Vec::new() });
+                for change in patch.changes {
+                    if !self.ids.contains(&change.id) {
+                        self.ids.push(change.id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// One server-sent event: its type, id and data.
@@ -94,8 +130,8 @@ impl Upstream {
             };
             match tokio::time::timeout(SILENCE, events.next()).await {
                 Ok(Some(Ok(event))) => {
-                    if let Some(id) = event.id {
-                        self.cursor = Some(id);
+                    if let Some(id) = &event.id {
+                        self.cursor = Some(id.clone());
                     }
                     let change = matches!(event.event.as_str(), "projection.patch" | "sync.required");
                     // The API sends a heartbeat as soon as a stream opens.
@@ -105,6 +141,8 @@ impl Upstream {
                     if !change {
                         continue;
                     }
+                    let mut changes = Changes::default();
+                    changes.add(&event);
                     // The changes in the window are one tick.
                     let window = tokio::time::sleep(DEBOUNCE);
                     tokio::pin!(window);
@@ -112,8 +150,12 @@ impl Upstream {
                         tokio::select! {
                             () = &mut window => break,
                             more = events.next() => match more {
-                                Some(Ok(Event { id: Some(id), .. })) => self.cursor = Some(id),
-                                Some(Ok(_)) => {}
+                                Some(Ok(more)) => {
+                                    changes.add(&more);
+                                    if let Some(id) = more.id {
+                                        self.cursor = Some(id);
+                                    }
+                                }
                                 Some(Err(())) | None => {
                                     self.events = None;
                                     self.failed = true;
@@ -123,7 +165,7 @@ impl Upstream {
                         }
                     }
                     let cursor = self.cursor.clone();
-                    return Some((Tick::Changed(cursor), self));
+                    return Some((Tick::Changed(cursor, changes), self));
                 }
                 // Ended, broke, or went quiet: connect again from the cursor.
                 Ok(Some(Err(()))) | Ok(None) | Err(_) => {
@@ -227,6 +269,24 @@ mod tests {
     async fn parse(chunks: &[&str]) -> Vec<Event> {
         let body = futures_util::stream::iter(chunks.iter().map(|c| Ok(Bytes::from(c.to_string()))).collect::<Vec<_>>());
         events(body).map(|e| e.unwrap()).collect().await
+    }
+
+    #[test]
+    fn a_ticks_changes_name_each_record_once_and_a_sync_asks_for_a_full_read() {
+        let patch = |ids: &[&str]| {
+            Event {
+            event: "projection.patch".into(),
+            id: None,
+            data: serde_json::json!({ "changes": ids.iter().map(|id| serde_json::json!({ "op": "summary", "id": id })).collect::<Vec<_>>() }).to_string(),
+        }
+        };
+        let mut changes = Changes::default();
+        changes.add(&patch(&["a", "b"]));
+        changes.add(&patch(&["b", "c"]));
+        changes.add(&Event { event: "heartbeat".into(), id: None, data: "{}".into() });
+        assert_eq!(changes, Changes { ids: vec!["a".into(), "b".into(), "c".into()], sync: false });
+        changes.add(&Event { event: "sync.required".into(), id: None, data: "{}".into() });
+        assert!(changes.sync);
     }
 
     #[tokio::test]

@@ -29,8 +29,21 @@ pub struct Bar<'a> {
 ///
 /// The count's text for each number of rows is drawn here, in a `<template>`, since a script
 /// has no typed way to show text it computes (todd-skelton/corten#17).
+///
+/// `fields` are drawn after the action (what an action takes, such as the catalog items' tags)
+/// and `more` after the preview buttons (another submit of the form, with its `formaction`).
+/// A submit marked `data-requires="draft"` is enabled only while every checked row's box is
+/// marked `data-status="draft"` (admin-web's Remove Drafts); without the script the server
+/// checks it.
 #[component(css, js)]
-pub fn BulkRows<'a, C: Render>(t: Cat, p: Pilot, bar: Bar<'a>, children: C) -> impl Render {
+pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
+    t: Cat,
+    p: Pilot,
+    bar: Bar<'a>,
+    fields: F,
+    more: M,
+    children: C,
+) -> impl Render {
     let (form, count, labels, preview, clear) = refs();
     let sel = js::Selection { form, count, labels, preview, clear };
     let f = BulkInput::FIELDS;
@@ -68,10 +81,12 @@ pub fn BulkRows<'a, C: Render>(t: Cat, p: Pilot, bar: Bar<'a>, children: C) -> i
                             }
                         </select>
                     </label>
+                    {fields}
                     <button ref={preview} type="submit" class={Small} name={f.mode} value="ids">{t.bulk_preview()}</button>
                     <button type="submit" class={(Small, Secondary)} name={f.mode} value="filter">
                         {t.bulk_preview_matching()}
                     </button>
+                    {more}
                     <button ref={clear} type="reset" class={(Small, Secondary)}>{t.bulk_clear_selection()}</button>
                 </div>
             </form>
@@ -90,12 +105,12 @@ pub fn SelectAll(p: Pilot) -> impl Render {
     }
 }
 
-/// A row's box, in the bulk form.
+/// A row's box, in the bulk form; `status`, the row's, for a submit that needs one.
 #[component(css = BulkRows)]
-pub fn SelectRow<'a>(p: Pilot, id: &'a str) -> impl Render {
+pub fn SelectRow<'a>(p: Pilot, id: &'a str, status: Option<&'a str>) -> impl Render {
     let f = BulkInput::FIELDS;
     let label = p.bulk_select_row(id).to_string();
     html! {
-        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label}>
+        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label} data-status={status}>
     }
 }

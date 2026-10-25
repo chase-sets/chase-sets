@@ -14,6 +14,7 @@ fn served(path: &str) -> Option<String> {
         (<url::Policies as Route>::PATH, url::Policies::default().href()),
         (<catalog::url::Dimensions as Route>::PATH, catalog::url::Dimensions::default().href()),
         (<catalog::url::Fields as Route>::PATH, catalog::url::Fields::default().href()),
+        (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }
@@ -47,8 +48,8 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 }
 
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
-/// (catalog or commerce). The pilot serves postage policies and the catalog's dimensions and
-/// fields; every other entry links to admin-web.
+/// (catalog or commerce). The pilot serves postage policies and the catalog's dimensions, fields
+/// and items list; every other entry links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {
     let sections = auth::sections(viewer);

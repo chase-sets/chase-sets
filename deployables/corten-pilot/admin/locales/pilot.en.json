@@ -38,7 +38,8 @@
     "breadcrumbs": "Breadcrumbs",
     "action": "This action is not available here.",
     "edit_option": "Edit {code}",
-    "options_label": "Options of {name}"
+    "options_label": "Options of {name}",
+    "drafts_only": "Check only draft Catalog Items to remove them."
   },
   "bulk": {
     "label": "Bulk changes",

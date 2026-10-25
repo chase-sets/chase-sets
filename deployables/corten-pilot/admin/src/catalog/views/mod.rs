@@ -7,6 +7,8 @@
 //! answers with, and its job's dialog follows the job's progress (`<corten-live>`).
 use corten::{Component, prelude::*};
 
+use serde_json::Value;
+
 use super::{
     api::{Dimension, DimensionDetail, Field, Job},
     form::{DimensionInput, FieldInput, OptionInput, ReorderInput},
@@ -19,18 +21,24 @@ mod bulk_dialogs;
 mod bulk_rows;
 mod detail_page;
 mod dialog;
+mod item_list;
 mod list_page;
 mod status_pill;
 
-pub use bulk_dialogs::{JobDialog, PreviewDialog, Previewed, job_status};
+pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use detail_page::{ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, Transition};
-pub use dialog::{Dialog, DimensionForm, FieldForm, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types};
-pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, Pager, Pick, Search, Table};
+pub use dialog::{Dialog, DimensionForm, FieldForm, Input, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types};
+pub use item_list::{
+    DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
+    item_list, item_live, item_operations, item_rows,
+};
+pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
 pub use status_pill::StatusPill;
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
-pub const COMPONENTS: &[Component] = &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, corten_ui::Toaster];
+pub const COMPONENTS: &[Component] =
+    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, ItemForm, corten_ui::Toaster];
 
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {
@@ -53,6 +61,10 @@ pub mod ids {
     pub const JOB_DIALOG: &str = "catalog-bulk-job";
     /// A job's status in its dialog: what each change to the job draws again.
     pub const JOB_STATUS: &str = "catalog-bulk-status";
+    /// The element that streams a list's changes, and what it draws (the catalog items say how
+    /// many changed rather than drawing the rows again).
+    pub const LIVE: &str = "catalog-live";
+    pub const CHANGES: &str = "catalog-changes";
 
     pub fn option_form(option_id: &str) -> String {
         format!("option-{option_id}")
@@ -68,17 +80,17 @@ pub mod ids {
 }
 
 /// A list page's view model: its rows, the total, which page of how many, and the bulk change
-/// the page shows (its preview, or its job).
+/// the page shows (its preview, or its job, whose outcome is the kind's).
 #[derive(serde::Serialize)]
-pub struct ListScreen<T> {
+pub struct ListScreen<T, P = super::api::Preview> {
     pub items: Vec<T>,
     pub total: u32,
     pub page: u32,
     pub pages: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview: Option<super::api::Preview>,
+    pub preview: Option<P>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub job: Option<Job>,
+    pub job: Option<Job<Value>>,
 }
 
 /// A list page's bulk parts: whether the viewer may change the records (the bar and the boxes),
@@ -93,7 +105,7 @@ pub struct Bulk<'a> {
 /// A job the list page shows, after its confirm: the job (none when the API does not know it),
 /// the action's label, and its stream while it runs.
 pub struct Followed<'a> {
-    pub job: Option<&'a Job>,
+    pub job: Option<&'a Job<Value>>,
     pub label: &'a str,
     pub live: Option<String>,
 }
@@ -142,7 +154,7 @@ fn statuses(t: Cat) -> [(&'static str, &'static str); 4] {
 }
 
 /// A page's link, or none for the page itself.
-fn pages_around<Q>(screen: &ListScreen<Q>, at: impl Fn(u32) -> String) -> (Option<String>, Option<String>) {
+fn pages_around<Q, P>(screen: &ListScreen<Q, P>, at: impl Fn(u32) -> String) -> (Option<String>, Option<String>) {
     let previous = (screen.page > 1).then(|| at(screen.page - 1));
     let next = (screen.page < screen.pages).then(|| at(screen.page + 1));
     (previous, next)
@@ -348,7 +360,7 @@ pub fn dimension_rows<'a>(
         };
         if manage {
             let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
-            <BulkRows t={t} p={p} bar={bar}>{body}</BulkRows>
+            <BulkRows t={t} p={p} bar={bar} fields={()} more={()}>{body}</BulkRows>
         } else {
             <div id={ids::ROWS}>{body}</div>
         }
@@ -398,7 +410,7 @@ pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a List
         };
         if manage {
             let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
-            <BulkRows t={t} p={p} bar={bar}>{body}</BulkRows>
+            <BulkRows t={t} p={p} bar={bar} fields={()} more={()}>{body}</BulkRows>
         } else {
             <div id={ids::ROWS}>{body}</div>
         }

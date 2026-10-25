@@ -1,9 +1,11 @@
 use corten::prelude::*;
 
-use super::{Dialog, StatusPill, Table, ids};
+use serde_json::Value;
+
+use super::{Dialog, ItemJobOutcome, StatusPill, Table, ids};
 use crate::{
     catalog::{
-        api::{Candidate, Job, Preview},
+        api::{Candidate, ITEMS_EDIT, ITEMS_PUBLISH, Job, Outcome, Preview},
         form::BulkInput,
     },
     text::{Cat, Pilot},
@@ -69,7 +71,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Render 
 /// A bulk change's job, after the confirm: its progress, kept current until it is done, then
 /// what it did. `live` is its stream (none once it is done, or when the job is not known).
 #[component(css = PreviewDialog)]
-pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job>, label: &'a str, live: Option<&'a str>) -> impl Render {
+pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job<Value>>, label: &'a str, live: Option<&'a str>) -> impl Render {
     let title = t.bulk_result_title(label).to_string();
     html! {
         <Dialog id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
@@ -82,11 +84,19 @@ pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job>, label: &'a str, liv
     }
 }
 
-/// A job's status (`ids::JOB_STATUS`): drawn in its dialog, and again on each change.
-pub fn job_status<'a>(t: Cat, p: Pilot, job: Option<&'a Job>) -> impl Render + 'a {
+/// A job's status (`ids::JOB_STATUS`): drawn in its dialog, and again on each change. A
+/// catalog item publish or edit that completed shows its own outcome; every other job's outcome
+/// is a lifecycle change's.
+pub fn job_status<'a>(t: Cat, p: Pilot, job: Option<&'a Job<Value>>) -> impl Render + 'a {
+    let items = job.filter(|job| job.status == "completed" && matches!(job.kind.as_str(), ITEMS_PUBLISH | ITEMS_EDIT));
+    let lifecycle = job.map(Job::read::<Outcome>);
     html! {
         <div id={ids::JOB_STATUS}>
-            <JobStatus t={t} p={p} job={job} />
+            if let Some(job) = items {
+                <ItemJobOutcome t={t} job={job} />
+            } else {
+                <JobStatus t={t} p={p} job={lifecycle.as_ref()} />
+            }
         </div>
     }
 }
@@ -121,7 +131,7 @@ fn JobStatus<'a>(t: Cat, p: Pilot, job: Option<&'a Job>) -> impl Render {
 
 /// The records of a preview or a result: the first 20, and how many there are when there are more.
 #[component(css = PreviewDialog)]
-fn Candidates<'a>(t: Cat, candidates: &'a [Candidate]) -> impl Render {
+pub fn Candidates<'a>(t: Cat, candidates: &'a [Candidate]) -> impl Render {
     let head = [t.bulk_record(), t.bulk_status(), t.bulk_outcome(), t.bulk_reason()];
     let shown = &candidates[..candidates.len().min(SHOWN)];
     html! {

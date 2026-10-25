@@ -60,6 +60,28 @@ pub fn Pick<'a>(label: &'a str, name: FieldName, all: &'a str, options: &'a [(&'
     }
 }
 
+/// A filter typed in (a source, an id, a tag).
+#[component(css = ListPage)]
+pub fn TextFilter<'a>(label: &'a str, name: FieldName, value: &'a str, placeholder: &'a str) -> impl Render {
+    html! {
+        <label class={Filter}>
+            <span class={Label}>{label}</span>
+            <input type="text" name={name} value={value} placeholder={placeholder}>
+        </label>
+    }
+}
+
+/// Filters folded away until opened (admin-web's More filters); open when one of them is set.
+#[component(css = ListPage)]
+pub fn MoreFilters<C: Render>(t: Cat, open: bool, children: C) -> impl Render {
+    html! {
+        <details class={More} open={open}>
+            <summary>{t.list_more_filters()}</summary>
+            <div class={MoreGrid}>{children}</div>
+        </details>
+    }
+}
+
 /// A table with these column headings; with `all`, a first column whose head is the bulk
 /// form's select-all box (each row then starts with its own box).
 #[component(css = ListPage)]
@@ -89,7 +111,7 @@ pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension, select: Option<Pilot>) -> im
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.dimension_id} /></td>
+                <td><SelectRow p={p} id={&row.dimension_id} status={None} /></td>
             }
             <td>{&row.key}</td>
             <td>{&row.name}</td>
@@ -110,7 +132,7 @@ pub fn FieldRow<'a>(t: Cat, row: &'a Field, select: Option<Pilot>) -> impl Rende
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.field_id} /></td>
+                <td><SelectRow p={p} id={&row.field_id} status={None} /></td>
             }
             <td>{&row.key}</td>
             <td>{&row.name}</td>

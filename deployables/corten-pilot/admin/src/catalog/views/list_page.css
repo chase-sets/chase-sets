@@ -52,3 +52,6 @@
 .empty p { margin: 0; }
 .empty-title { font-weight: 600; color: var(--color-text); }
 .pages { display: flex; gap: var(--space-3); align-items: center; justify-content: center; margin-block: var(--space-5); }
+.more { grid-column: 1 / -1; }
+.more summary { cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--color-text-secondary); }
+.more-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--space-3); margin-block-start: var(--space-3); }

@@ -287,6 +287,136 @@ impl BulkInput {
     }
 }
 
+/// A catalog item's create form (admin-web's create dialog): its language and description. The
+/// title starts as the item's id, in English, as admin-web's create sends it.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ItemInput {
+    pub item_id: String,
+    pub language_code: String,
+    pub description: String,
+}
+
+impl ItemInput {
+    pub fn blank() -> Self {
+        ItemInput { item_id: new_id("cat"), language_code: "en".into(), description: String::new() }
+    }
+
+    /// `createCatalogItem`'s body.
+    pub fn body(&self) -> Value {
+        json!({
+            "itemId": self.item_id,
+            "languageCode": self.language_code,
+            "title": english(&self.item_id),
+            "subtitle": null,
+            "description": english(&self.description),
+        })
+    }
+}
+
+/// The operations the catalog items' bulk bar offers (`catalogItemBulkOperationOptions`): a
+/// publish, an archive (a lifecycle change), and the bulk edits.
+pub const ITEM_OPERATIONS: [&str; 8] =
+    ["publish", "archive", "assignBlueprint", "assignCategory", "removeCategory", "setTags", "mergeTags", "clearTags"];
+
+/// Which of the API's bulk changes an operation is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Family {
+    Publish,
+    Lifecycle,
+    Edit,
+}
+
+/// The catalog items' bulk form: `BulkInput`'s fields, and the value an edit takes (the
+/// blueprint, the category, or the tags, comma-separated, as admin-web's inputs take them).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+pub struct ItemBulkInput {
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub ids: Vec<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub all: bool,
+    #[serde(default)]
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub category_id: String,
+    #[serde(default)]
+    pub tags: String,
+}
+
+impl ItemBulkInput {
+    pub fn family(&self) -> Option<Family> {
+        match self.action.as_str() {
+            "publish" => Some(Family::Publish),
+            "archive" => Some(Family::Lifecycle),
+            action if ITEM_OPERATIONS.contains(&action) => Some(Family::Edit),
+            _ => None,
+        }
+    }
+
+    /// `tagsFromInput`: the tags, trimmed, each once, sorted.
+    pub fn tag_list(&self) -> Vec<String> {
+        let mut tags: Vec<String> = self.tags.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned).collect();
+        tags.sort();
+        tags.dedup();
+        tags
+    }
+
+    /// The pilot's own checks, before the API is asked: an operation the bar offers, a scope, a
+    /// row for the checked rows, and the value an edit needs (admin-web disables the preview
+    /// without it).
+    pub fn refusal(&self, p: Pilot) -> Option<Errors> {
+        let mut errors = Errors::new();
+        let f = Self::FIELDS;
+        if self.family().is_none() || !matches!(self.mode.as_str(), "ids" | "filter") {
+            errors.add_form(p.catalog_action());
+        } else if self.mode == "ids" && self.ids.is_empty() {
+            errors.add_form(p.bulk_none_selected());
+        } else {
+            match self.action.as_str() {
+                "assignBlueprint" if self.blueprint_id.trim().is_empty() => errors.add(f.blueprint_id, p.check_required()),
+                "assignCategory" | "removeCategory" if self.category_id.trim().is_empty() => {
+                    errors.add(f.category_id, p.check_required())
+                }
+                "setTags" | "mergeTags" if self.tag_list().is_empty() => errors.add(f.tags, p.check_required()),
+                _ => {}
+            }
+        }
+        (!errors.is_empty()).then_some(errors)
+    }
+
+    /// The selection, the list's filters being `filter` (`BulkSelection`).
+    pub fn selection(&self, filter: Value) -> Value {
+        if self.mode == "filter" {
+            json!({ "mode": "filter", "query": filter })
+        } else {
+            json!({ "mode": "ids", "ids": self.ids })
+        }
+    }
+
+    /// `BulkEditCatalogItemOperation` (`buildBulkEditOperation`).
+    pub fn operation(&self) -> Value {
+        match self.action.as_str() {
+            "assignBlueprint" => json!({ "action": self.action, "blueprintId": self.blueprint_id.trim() }),
+            "assignCategory" | "removeCategory" => json!({ "action": self.action, "categoryId": self.category_id.trim() }),
+            "setTags" | "mergeTags" => json!({ "action": self.action, "tags": self.tag_list() }),
+            _ => json!({ "action": self.action }),
+        }
+    }
+
+    /// The preview's body for the operation's API route.
+    pub fn preview_body(&self, filter: Value) -> Value {
+        match self.family() {
+            Some(Family::Edit) => json!({ "operation": self.operation(), "selection": self.selection(filter) }),
+            _ => json!({ "action": self.action, "selection": self.selection(filter) }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +455,36 @@ mod tests {
         let removed = OptionInput { relabel: Some("0".into()), ..added }.relabeled().unwrap();
         assert_eq!(removed.labels(), [("", "")]);
         assert!(new_id("dim").starts_with("dim_") && new_id("dim").len() == 30);
+    }
+
+    #[test]
+    fn an_item_bulk_form_builds_admin_webs_operation_and_checks_only_shape() {
+        let p = Pilot::default();
+        let tags = ItemBulkInput {
+            action: "mergeTags".into(),
+            mode: "ids".into(),
+            ids: vec!["cat_1".into()],
+            tags: " foil, featured,,foil ".into(),
+            ..Default::default()
+        };
+        assert_eq!(tags.operation(), json!({ "action": "mergeTags", "tags": ["featured", "foil"] }));
+        assert!(tags.refusal(p).is_none());
+        let empty = ItemBulkInput { tags: " , ".into(), ..tags.clone() };
+        assert!(empty.refusal(p).is_some_and(|e| e.has(ItemBulkInput::FIELDS.tags)), "the tags it needs");
+        let clear = ItemBulkInput { action: "clearTags".into(), tags: String::new(), ..tags.clone() };
+        assert_eq!(
+            clear.preview_body(json!({})),
+            json!({ "operation": { "action": "clearTags" }, "selection": { "mode": "ids", "ids": ["cat_1"] } })
+        );
+        let archive = ItemBulkInput { action: "archive".into(), mode: "filter".into(), ..Default::default() };
+        assert_eq!(archive.family(), Some(Family::Lifecycle));
+        assert_eq!(
+            archive.preview_body(json!({ "status": "draft" })),
+            json!({ "action": "archive", "selection": { "mode": "filter", "query": { "status": "draft" } } })
+        );
+        assert!(ItemBulkInput { action: "retire".into(), mode: "filter".into(), ..Default::default() }.refusal(p).is_some());
+        let created = ItemInput { item_id: "cat_1".into(), language_code: "ja".into(), description: " Box ".into() }.body();
+        assert_eq!(created["title"], json!({ "defaultLocale": "en", "values": { "en": "cat_1" } }));
+        assert_eq!((created["subtitle"].clone(), created["description"]["values"]["en"].clone()), (Value::Null, json!("Box")));
     }
 }
