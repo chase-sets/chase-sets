@@ -115,6 +115,31 @@ describe("campaign start gate checklist", () => {
     expect(checklist.errors).toEqual(expect.arrayContaining([expect.stringContaining("adminVisible must be true")]));
   });
 
+  it("keeps the production row pending when confirmation delivery is false", () => {
+    const checklist = buildCampaignStartGateChecklist({
+      repoRoot,
+      reference: "CAMPAIGN-START-GATE-2026-07-13",
+      owner: "Operations",
+      checkedAt,
+      operatorEvidence: {
+        waitlistProductionVerification: {
+          verifiedAt: "2026-07-13T11:00:00.000Z",
+          evidenceReference: "CAMPAIGN-START-WAITLIST-PROD-2026-07-13",
+          signupCompleted: true,
+          adminVisible: true,
+          confirmationDelivered: false,
+        },
+      },
+    });
+
+    const productionRow = checklist.checklist.find((row) => row.key === "waitlist-signup-verified-in-production");
+    expect(productionRow.status).toBe("pending");
+    expect(checklist.passesCampaignStartGate).toBe(false);
+    expect(checklist.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("confirmationDelivered must be true")]),
+    );
+  });
+
   it("rejects a placeholder reference and non-ISO checkedAt", () => {
     const checklist = buildCampaignStartGateChecklist({
       repoRoot,

@@ -146,7 +146,7 @@ export function ReferenceRecordListPage({
     setRelationships([]);
     setRelationshipType("");
     setRelationshipReferenceId("");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   function handleAddRelationship() {

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 import { operatorEvidenceIdentity } from "../../../../scripts/prepare-operator-extension-evidence.mjs";
+import { operatorExtensionChromiumTestTitle } from "./operator-extension-test-titles";
 
 export default class OperatorArtifactReporter implements Reporter {
   private readonly root = resolve(import.meta.dirname, "../../../..");
@@ -18,8 +19,7 @@ export default class OperatorArtifactReporter implements Reporter {
     const id =
       test.title === "operator-extension-deterministic-build @tcgplayer-operator-extension"
         ? "build"
-        : test.title ===
-            "operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension"
+        : test.title === operatorExtensionChromiumTestTitle
           ? "chromium"
           : null;
     if (!id) {

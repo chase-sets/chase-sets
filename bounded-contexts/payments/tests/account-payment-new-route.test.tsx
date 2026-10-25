@@ -59,6 +59,7 @@ vi.mock("react-router", async () => {
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useNavigation: mockUseNavigation,
+    useFormAction: () => "/",
     useSubmit: mockUseSubmit,
   };
 });

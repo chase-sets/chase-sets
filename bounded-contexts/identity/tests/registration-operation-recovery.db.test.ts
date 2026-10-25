@@ -2,9 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { assertBoundedStreamReadContract } from "@chase-sets/event-core/test-support";
-import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  type EventStoreContext,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import {
   closeMultiContextTestPools,
@@ -15,10 +19,6 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildIdentityApi } from "../api";
-import { createAccountRuntime } from "../features/accounts/api/runtime";
-import { createConsentRuntime } from "../features/consents/api/runtime";
-import { createMembershipRuntime } from "../features/memberships/api/runtime";
-import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
@@ -33,9 +33,11 @@ import {
   type RegistrationOperationClaim,
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import type { IdentityServices } from "../support/runtime-support/services";
+import { createIdentityServices, type IdentityServices } from "../support/runtime-support/services";
 import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
+import * as consentBundle from "../features/consents/domain/consent-bundle";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
 
 // Exercised against a real Postgres sandbox, never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -66,6 +68,7 @@ describeDb("registration operation recovery", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let resolveBundleMock: { mockRestore(): void } | undefined;
   const context: EventStoreContext = createBootstrapContext();
 
   beforeAll(async () => {
@@ -85,21 +88,19 @@ describeDb("registration operation recovery", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
-    const deps = {
-      eventStore,
-      checkpointStore: createPostgresProjectionStore({ db: pool }),
-      db: pool,
-    } as const;
+    resolveBundleMock?.mockRestore();
+    const fixture = await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" });
+    resolveBundleMock = vi
+      .spyOn(consentBundle, "resolveConsentBundle")
+      .mockImplementation((authority, bundleKey) =>
+        consentBundle.resolveConsentBundleAgainstCorpus(authority, bundleKey, fixture.publications),
+      );
     services = {
-      ...(await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" })),
+      ...createIdentityServices(pool, {
+        capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+      }),
       eventStore,
-      db: pool,
-      accounts: createAccountRuntime(deps),
-      users: createUserRuntime(deps),
-      memberships: createMembershipRuntime(deps),
-      consents: createConsentRuntime(deps),
-      projectors: [],
-    } as unknown as IdentityServices;
+    };
   });
 
   afterAll(async () => {
@@ -264,8 +265,24 @@ describeDb("registration operation recovery", () => {
     return { accountId, userId, membershipId, consents };
   }
 
+  async function readCompleteEventHistory(): Promise<readonly StoredEvent[]> {
+    const events: StoredEvent[] = [];
+    let afterGlobalPosition: StoredEvent["globalPosition"] | undefined;
+    while (true) {
+      const page = await eventStore.readAll({
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+        ...(afterGlobalPosition ? { afterGlobalPosition } : {}),
+      });
+      events.push(...page);
+      if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) return events;
+      const lastEvent = page.at(-1);
+      if (!lastEvent) throw new Error("A full event-store page must have a final event.");
+      afterGlobalPosition = lastEvent.globalPosition;
+    }
+  }
+
   async function streamIds(prefix: string) {
-    const events = await eventStore.readAll({ limit: 500 });
+    const events = await readCompleteEventHistory();
     return [...new Set(events.filter((e: StoredEvent) => e.streamId.startsWith(prefix)).map((e) => e.streamId))];
   }
 
@@ -281,7 +298,7 @@ describeDb("registration operation recovery", () => {
     expect(first.status).toBe(201);
     const isParticipant = (event: StoredEvent) =>
       /^identity\.(registration-operation|account|user|membership|consent)-/.test(event.streamId);
-    const history = (await eventStore.readAll({ limit: 500 })).filter(isParticipant);
+    const history = (await readCompleteEventHistory()).filter(isParticipant);
     const expectedGuards = [...new Set(history.map(({ streamId }) => streamId))].map((streamId) => ({
       streamId,
       expectedVersion: history.filter((event) => event.streamId === streamId).at(-1)!.streamVersion,
@@ -309,7 +326,7 @@ describeDb("registration operation recovery", () => {
     expect(resolve).not.toHaveBeenCalled();
     expect(bind).not.toHaveBeenCalled();
     expect(authority).not.toHaveBeenCalled();
-    expect((await eventStore.readAll({ limit: 500 })).filter(isParticipant)).toEqual(history);
+    expect((await readCompleteEventHistory()).filter(isParticipant)).toEqual(history);
   });
 
   it("rejects a stale committed retry before reading the claim or current authority", async () => {
@@ -347,7 +364,7 @@ describeDb("registration operation recovery", () => {
       { actorUserId: "usr_test_operator" },
       context,
     );
-    const before = await eventStore.readAll({ limit: 500 });
+    const before = await readCompleteEventHistory();
     const bind = vi.spyOn(services.registrationConsentBundles, "forRegistration");
     const append = vi.spyOn(eventStore, "appendToStreams");
     const rejected = await register([TERMS_V1]);
@@ -355,7 +372,7 @@ describeDb("registration operation recovery", () => {
     expect(rejected.body.error).toMatchObject({ code: "registration_operation_consent_disagreement" });
     expect(bind).toHaveBeenCalledOnce();
     expect(append).not.toHaveBeenCalled();
-    expect(await eventStore.readAll({ limit: 500 })).toEqual(before);
+    expect(await readCompleteEventHistory()).toEqual(before);
   });
 
   const partialShapes = [
@@ -432,7 +449,7 @@ describeDb("registration operation recovery", () => {
 
   it("appends nothing and fails closed when the claimed bundle disagrees on a policy version", async () => {
     const partial = await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
-    const before = await eventStore.readAll({ limit: 500 });
+    const before = await readCompleteEventHistory();
 
     const disagreed = await register([TERMS_V2, PRIVACY_V3]);
 
@@ -440,7 +457,7 @@ describeDb("registration operation recovery", () => {
     expect((disagreed.body.error as { code?: string } | undefined)?.code).toBe(
       "registration_operation_consent_disagreement",
     );
-    const after = await eventStore.readAll({ limit: 500 });
+    const after = await readCompleteEventHistory();
     expect(after.length, "a version disagreement must append nothing").toBe(before.length);
     expect(await streamIds("identity.user-")).toEqual([]);
     expect(await streamIds("identity.membership-")).toEqual([]);
@@ -450,12 +467,12 @@ describeDb("registration operation recovery", () => {
 
   it("appends nothing when the claimed bundle disagrees on requirement count", async () => {
     await writePartialRegistration([TERMS_V1, PRIVACY_V3], { account: true });
-    const before = await eventStore.readAll({ limit: 500 });
+    const before = await readCompleteEventHistory();
 
     const disagreed = await register([TERMS_V1]);
 
     expect(disagreed.status).toBe(409);
-    expect(await eventStore.readAll({ limit: 500 })).toHaveLength(before.length);
+    expect(await readCompleteEventHistory()).toHaveLength(before.length);
   });
 
   it("reclaims a reservation left behind before operations were recorded, when its account never committed", async () => {

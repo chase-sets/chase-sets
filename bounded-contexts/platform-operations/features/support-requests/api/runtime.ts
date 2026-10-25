@@ -231,6 +231,7 @@ export type SupportRequestServices = Readonly<{
    * can never diverge.
    */
   listFlowDefinitions: () => Promise<readonly SupportFlowDefinition[]>;
+  resolveSupportFlowDefinition: (flowType: SupportFlowType) => Promise<SupportFlowDefinition>;
   openSupportRequest: (
     params: Readonly<{
       orderId: string;
@@ -642,7 +643,7 @@ function fractionalPointIso(fromIso: string, toIso: string, fraction: number): s
   return new Date(Date.parse(fromIso) + (Date.parse(toIso) - Date.parse(fromIso)) * fraction).toISOString();
 }
 
-function accountRoleForSupportRequest(
+export function accountRoleForSupportRequest(
   supportRequest: Awaited<ReturnType<typeof getAccountSupportRequest>>,
   accountId: string,
 ): Exclude<SupportRequesterRole, "support"> {
@@ -794,6 +795,14 @@ export function createSupportAttachmentReferenceLifecycle(eventStore: EventStore
 }
 
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
+  const resolveFlowDefinitions = async () => {
+    if (!deps.policies) return supportFlowCatalog;
+    const resolved = await deps.policies.resolvePolicy(supportDeadlinePolicy);
+    return supportFlowCatalog.map((flow) => {
+      const hours = resolveSupportFlowDeadlineHours(flow.flowType, resolved.value);
+      return { ...flow, sellerResponseHours: hours.sellerResponseHours, supportReviewHours: hours.supportReviewHours };
+    });
+  };
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler: aggregateCommandHandler } = createAggregateCommandHandler<
     SupportRequestState,
@@ -1163,18 +1172,12 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     getParticipantAttempt: participantRuntime.lookup,
     commandHandler,
     listFlowDefinitions: async () => {
-      if (!deps.policies) {
-        return supportFlowCatalog;
-      }
-      const resolved = await deps.policies.resolvePolicy(supportDeadlinePolicy);
-      return supportFlowCatalog.map((flow) => {
-        const hours = resolveSupportFlowDeadlineHours(flow.flowType, resolved.value);
-        return {
-          ...flow,
-          sellerResponseHours: hours.sellerResponseHours,
-          supportReviewHours: hours.supportReviewHours,
-        };
-      });
+      return resolveFlowDefinitions();
+    },
+    resolveSupportFlowDefinition: async (flowType) => {
+      const definition = (await resolveFlowDefinitions()).find((flow) => flow.flowType === flowType);
+      if (!definition) throw new SupportDomainError("Support flow type is not configured.");
+      return definition;
     },
     getSupportOrderContext: async (params) => {
       const orderId = normalizeOrderId(params.orderId);

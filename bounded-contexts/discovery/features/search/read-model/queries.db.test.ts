@@ -10,6 +10,7 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as discoveryModule } from "../../../index";
 import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
+import { refreshAllSearchIndexMarketSignals } from "./market-signals";
 import { discoverySearchCursorState, searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
 
 // Rank ties are the failure mode from issue #3397: identical weight-class matches
@@ -212,6 +213,169 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
 
     expect(result.category_counts).toEqual([{ slug: "singles", count: 2 }]);
     expect(result.category_counts.find((category) => category.slug === "sealed")?.count ?? 0).toBe(0);
+  });
+});
+
+describe("searchDiscoveryItems category sets and native-currency bounds", () => {
+  let categoryPool: PgTransactionalPool;
+
+  beforeAll(async () => {
+    if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for the Discovery category-set DB lane.");
+    const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl, ["discovery"], "category_price_bounds");
+    await ensureMultiContextTestDatabases(databaseBaseUrl, databaseUrls);
+    const pools = createMultiContextTestPools(databaseUrls);
+    categoryPool = pools.discovery;
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(discoveryModule, categoryPool);
+
+    const rows = [
+      ["set_a", "A-only", ["A"], "12.00", "USD"],
+      ["set_b", "Z B-only", ["B"], "12.00", "EUR"],
+      ["set_ab", "Combined A+B", ["A", "B"], null, null],
+      ["set_neither", "Neither", ["C"], "12.00", "USD"],
+      ["set_unknown", "Unknown", ["unknown"], "12.00", "USD"],
+    ] as const;
+    for (const [id, title, categories, price, currency] of rows) {
+      await categoryPool.query(
+        `INSERT INTO discovery_search_items
+           (catalog_item_id, slug, title, status, category_names, category_slugs, dimension_filter_values,
+            lowest_price_amount, lowest_price_currency_code, search_text, search_text_simple)
+         VALUES ($1, $1, $2, 'active', $3::jsonb, $3::jsonb,
+                 '[{"dimensionId":"finish","optionId":"foil","label":"Finish","optionLabel":"Foil"}]'::jsonb,
+                 $4::numeric, $5, to_tsvector('english', 'category'), to_tsvector('simple', 'category'))`,
+        [id, title, JSON.stringify(categories), price, currency],
+      );
+    }
+    for (let index = 0; index < 21; index += 1) {
+      const id = `page_a_${String(index).padStart(2, "0")}`;
+      await categoryPool.query(
+        `INSERT INTO discovery_search_items
+           (catalog_item_id, slug, title, status, category_names, category_slugs, search_text, search_text_simple)
+         VALUES ($1, $1, $2, 'active', '["A"]'::jsonb, '["A"]'::jsonb,
+                 to_tsvector('english', 'category'), to_tsvector('simple', 'category'))`,
+        [id, `Page A ${String(index).padStart(2, "0")}`],
+      );
+    }
+    await categoryPool.query(`INSERT INTO discovery_market_accounts (account_id) VALUES ('category-seller')`);
+    for (const [id, currencies] of [
+      ["set_a", ["USD"]],
+      ["set_b", ["EUR"]],
+      ["set_ab", ["USD", "EUR"]],
+      ["set_neither", ["USD"]],
+      ["set_unknown", ["USD"]],
+    ] as const) {
+      for (const currency of currencies) {
+        await categoryPool.query(
+          `INSERT INTO discovery_market_listings
+             (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id,
+              price_amount, price_currency_code, listing_stream_version, quantity_cap, status,
+              product_measure_snapshot, selected_options)
+           VALUES ($1, 'category-seller', $1, $2, $1, 12.00, $3, 1, 1, 'active', '{}',
+                   '[{"dimensionId":"finish","optionId":"foil"}]'::jsonb)`,
+          [`${id}_${currency}`, id, currency],
+        );
+      }
+    }
+    await refreshAllSearchIndexMarketSignals(categoryPool);
+  }, 120_000);
+
+  afterAll(async () => {
+    if (categoryPool) await closeMultiContextTestPools({ discovery: categoryPool });
+  });
+
+  it("matches A/B category sets once, leaves empty sets unconstrained, and walks a B-only row beyond page one", async () => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const ids = result.items.map((item) => item.catalog_item_id);
+    expect(ids).toContain("set_a");
+    expect(ids).toContain("set_b");
+    expect(ids).toContain("set_ab");
+    expect(ids).not.toContain("set_neither");
+    expect(ids).not.toContain("set_unknown");
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const unconstrained = await searchDiscoveryItems(
+      categoryPool,
+      { categories: [], limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(unconstrained.items.map((item) => item.catalog_item_id)).toEqual(
+      expect.arrayContaining(["set_neither", "set_unknown"]),
+    );
+
+    const pageIds = Array.from({ length: 21 }, (_, index) => `page_a_${String(index).padStart(2, "0")}`);
+    const expected = ["set_a", "set_ab", ...pageIds, "set_b"];
+    const firstPage = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], sort: "title_asc", limit: 20 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(firstPage.items.map((item) => item.catalog_item_id)).toEqual(expected.slice(0, 20));
+    expect(firstPage.nextCursor).not.toBeNull();
+    const cursors: string[] = [];
+    const walked = await walkAllPages({ categories: ["A", "B"], sort: "title_asc" }, 20, categoryPool, cursors);
+    expect(walked).toEqual(expected);
+    expect(cursors).toHaveLength(1);
+  });
+
+  it("applies native-currency minimums without dropping foreign or mixed rows", async () => {
+    const all = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "10.00", limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    const expected = [
+      "set_a",
+      "set_b",
+      "set_ab",
+      ...Array.from({ length: 21 }, (_, index) => `page_a_${String(index).padStart(2, "0")}`),
+    ];
+    expect(all.items.map((item) => item.catalog_item_id).sort()).toEqual(expected.sort());
+
+    const bounded = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "13.00", limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(bounded.items.map((item) => item.catalog_item_id).sort()).toEqual(expected.filter((id) => id !== "set_b"));
+  });
+
+  it("uses the same category predicate for dimension facet counts", async () => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
+    expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: 3, selected: false }]);
+    expect(result.category_counts).toEqual([
+      { slug: "A", count: 23 },
+      { slug: "B", count: 2 },
+      { slug: "C", count: 1 },
+      { slug: "unknown", count: 1 },
+    ]);
+  });
+
+  it.each([
+    { priceMin: "10.00", foilCount: 3, aCount: 23, bCount: 2 },
+    { priceMin: "13.00", foilCount: 2, aCount: 23, bCount: 1 },
+  ])("uses native-currency bounds for category and dimension facet counts at $priceMin", async (expected) => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: expected.priceMin, limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
+    expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: expected.foilCount, selected: false }]);
+    expect(result.category_counts).toEqual([
+      { slug: "A", count: expected.aCount },
+      { slug: "B", count: expected.bCount },
+      { slug: "C", count: 1 },
+      { slug: "unknown", count: 1 },
+    ]);
   });
 });
 

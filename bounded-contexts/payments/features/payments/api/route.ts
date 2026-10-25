@@ -14,6 +14,8 @@ import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request"
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
+import { ProviderWriteRefused } from "@chase-sets/evidence-window-provider-write";
+import { PaymentsDomainError } from "../../../support/runtime-support/common";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -31,16 +33,24 @@ export type CreateAccountPaymentRequest = Readonly<{
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
 }>;
 
-export type CreateSavedPaymentSetupSessionRequest = Readonly<{ returnUrlPath?: string | null }>;
+/**
+ * One Saved Checkout Instrument Attempt: the loader's account and a canonical UUIDv4 minted per
+ * form before its first submit. Retrying with the same pair replays; it never re-sends.
+ */
+export type SavedPaymentMethodAttempt = Readonly<{ accountId: string; attemptId: string }>;
+
+export type CreateSavedPaymentSetupSessionRequest = SavedPaymentMethodAttempt &
+  Readonly<{ returnUrlPath?: string | null }>;
 
 /**
  * Declares the JSON body a client sends so the route-typed payments client checks it, and returns the handler
  * unchanged. Nothing is validated: handlers still parse `c.req.json()` leniently, after their access checks. It
  * wraps the handler rather than adding a middleware, because a second handler on a route is a collision in the
- * platform API route-table census.
+ * platform API route-table census. The wrapped handler cannot see its route's path, so a route that reads path
+ * params repeats that path as `P` to keep `c.req.param` typed.
  */
-function jsonInput<T>() {
-  return <R>(handler: (c: Context<PaymentsApiEnv, string, { in: { json: T }; out: {} }>) => R) => handler;
+function jsonInput<T, P extends string = string>() {
+  return <R>(handler: (c: Context<PaymentsApiEnv, P, { in: { json: T }; out: {} }>) => R) => handler;
 }
 
 type PaymentsActor = NonNullable<PaymentsApiEnv["Variables"]["actor"]>;
@@ -159,6 +169,63 @@ function errorCode(error: unknown) {
   return error instanceof Error && "code" in error && typeof error.code === "string" && error.code.trim()
     ? error.code
     : "validation_failed";
+}
+
+/**
+ * Reads a saved payment method command body. The form carries the loader's `accountId`; a
+ * mismatch with the acting account is `account_changed` before any read or write.
+ */
+async function readSavedCheckoutInstrumentCommand(c: Context<PaymentsApiEnv>, accountId: string) {
+  const body = await c.req.json<unknown>().catch(() => ({}));
+  const fields = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  if (fields.accountId !== accountId) {
+    return {
+      response: c.json(
+        {
+          error: {
+            code: "account_changed",
+            message: t("payments.features.payments.api.route.saved.payment.method.account.changed"),
+          },
+        },
+        409,
+      ),
+      fields,
+      attemptId: "",
+    };
+  }
+  return { response: null, fields, attemptId: typeof fields.attemptId === "string" ? fields.attemptId : "" };
+}
+
+/**
+ * Maps a saved payment method command failure. Only a pre-send refusal answers 400, which lets the
+ * caller retry with a fresh attempt id; any other failure is the closed unconfirmed outcome, never
+ * reported as refused and never echoed or rethrown to the framework error handler.
+ */
+function savedCheckoutInstrumentCommandFailure(c: Context<PaymentsApiEnv>, error: unknown) {
+  const code = errorCode(error);
+  if (code === "attempt_conflict") {
+    return c.json(
+      {
+        error: { code, message: t("payments.features.payments.api.route.saved.payment.method.attempt.conflict") },
+      },
+      409,
+    );
+  }
+  if (
+    code !== "attempt_unconfirmed" &&
+    (error instanceof PaymentsDomainError || error instanceof ProviderWriteRefused)
+  ) {
+    return c.json({ error: { code: "validation_failed", message: error.message } }, 400);
+  }
+  return c.json(
+    {
+      error: {
+        code: "attempt_unconfirmed",
+        message: t("payments.features.payments.api.route.saved.payment.method.attempt.unconfirmed"),
+      },
+    },
+    503,
+  );
 }
 
 function requireEventStoreContext(c: { get(key: "context"): EventStoreContext | null | undefined }) {
@@ -556,23 +623,31 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
         if (access.reply) {
           return access.reply;
         }
-        const body = await c.req.json().catch(() => ({}));
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
         try {
-          const setup = await services.createSavedCheckoutSetupSession({
-            accountId: access.actor.accountId as AccountId,
-            returnUrlBase: resolvePublicOrigin(c.req.raw),
-            returnUrlPath:
-              body.returnUrlPath === null || body.returnUrlPath === undefined
-                ? "/account/payment-methods"
-                : String(body.returnUrlPath),
-            // The authenticated account page always uses the embedded SetupIntent
-            // surface. Hosted setup remains available through the agent URL-
-            // elicitation MCP tool, which calls the runtime directly.
-            uiMode: "embedded",
-          });
+          const setup = await services.createSavedCheckoutSetupSession(
+            {
+              accountId: access.actor.accountId as AccountId,
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                command.fields.returnUrlPath === null || command.fields.returnUrlPath === undefined
+                  ? "/account/payment-methods"
+                  : String(command.fields.returnUrlPath),
+              // The authenticated account page always uses the embedded SetupIntent
+              // surface. Hosted setup remains available through the agent URL-
+              // elicitation MCP tool, which calls the runtime directly.
+              uiMode: "embedded",
+            },
+            requireEventStoreContext(c),
+          );
           return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
         } catch (error) {
-          return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+          return savedCheckoutInstrumentCommandFailure(c, error);
         }
       }),
     )
@@ -598,56 +673,84 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
         return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
       }
     })
-    .post("/payment-methods/:instrumentId/default", async (c) => {
-      const access = paymentAccess(c, "orders.manage");
-      if (access.reply) {
-        return access.reply;
-      }
-      const instrument = await services.setSavedCheckoutInstrumentDefault(
-        {
-          accountId: access.actor.accountId as AccountId,
-          instrumentId: c.req.param("instrumentId"),
-        },
-        requireEventStoreContext(c),
-      );
-      if (!instrument) {
-        return c.json(
-          {
-            error: {
-              code: "not_found",
-              message: t("payments.features.payments.api.route.saved.payment.method.not.found"),
+    .post(
+      "/payment-methods/:instrumentId/default",
+      jsonInput<SavedPaymentMethodAttempt, "/payment-methods/:instrumentId/default">()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
+        let instrument: Awaited<ReturnType<PaymentServices["setSavedCheckoutInstrumentDefault"]>>;
+        try {
+          instrument = await services.setSavedCheckoutInstrumentDefault(
+            {
+              accountId: access.actor.accountId as AccountId,
+              instrumentId: c.req.param("instrumentId"),
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
             },
-          },
-          404,
-        );
-      }
-      return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
-    })
-    .post("/payment-methods/:instrumentId/remove", async (c) => {
-      const access = paymentAccess(c, "orders.manage");
-      if (access.reply) {
-        return access.reply;
-      }
-      const instrument = await services.removeSavedCheckoutInstrument(
-        {
-          accountId: access.actor.accountId as AccountId,
-          instrumentId: c.req.param("instrumentId"),
-        },
-        requireEventStoreContext(c),
-      );
-      if (!instrument) {
-        return c.json(
-          {
-            error: {
-              code: "not_found",
-              message: t("payments.features.payments.api.route.saved.payment.method.not.found.2"),
+            requireEventStoreContext(c),
+          );
+        } catch (error) {
+          return savedCheckoutInstrumentCommandFailure(c, error);
+        }
+        if (!instrument) {
+          return c.json(
+            {
+              error: {
+                code: "not_found",
+                message: t("payments.features.payments.api.route.saved.payment.method.not.found"),
+              },
             },
-          },
-          404,
-        );
-      }
-      return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
-    })
+            404,
+          );
+        }
+        return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
+      }),
+    )
+    .post(
+      "/payment-methods/:instrumentId/remove",
+      jsonInput<SavedPaymentMethodAttempt, "/payment-methods/:instrumentId/remove">()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
+        let instrument: Awaited<ReturnType<PaymentServices["removeSavedCheckoutInstrument"]>>;
+        try {
+          instrument = await services.removeSavedCheckoutInstrument(
+            {
+              accountId: access.actor.accountId as AccountId,
+              instrumentId: c.req.param("instrumentId"),
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
+            },
+            requireEventStoreContext(c),
+          );
+        } catch (error) {
+          return savedCheckoutInstrumentCommandFailure(c, error);
+        }
+        if (!instrument) {
+          return c.json(
+            {
+              error: {
+                code: "not_found",
+                message: t("payments.features.payments.api.route.saved.payment.method.not.found.2"),
+              },
+            },
+            404,
+          );
+        }
+        return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
+      }),
+    )
     .post("/payment-methods/reconcile", async (c) => {
       const access = paymentAccess(c, "orders.manage");
       if (access.reply) {

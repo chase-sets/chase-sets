@@ -48,8 +48,13 @@ function isolatedGeneratorSource(original) {
     "@chase-sets/typescript-compiler-api",
     "prettier",
     "./fixtures/guard-import-candidate-emission/importer-specifier-fixture.mjs",
+    "../lib/git-listing.mjs",
   ]) {
-    isolated = isolated.replace(JSON.stringify(specifier), JSON.stringify(import.meta.resolve(specifier)));
+    const resolved =
+      specifier === "../lib/git-listing.mjs"
+        ? pathToFileURL(path.join(repoRoot, "scripts/lib/git-listing.mjs")).href
+        : import.meta.resolve(specifier);
+    isolated = isolated.replace(JSON.stringify(specifier), JSON.stringify(resolved));
   }
   return isolated;
 }
@@ -830,15 +835,23 @@ const tree = (...names) => Buffer.from(`${names.join("\0")}\0`);
 
 const neutralityForkPoint = "406d9bf5d82cbee79fcc5b295c67aa7cc9f35bb9";
 const neutralityLanding = "c08e1e4ec547dcbd70959874b48afd70931026cc";
-function pinnedProvenance(readGit = git) {
+function pinnedProvenance(readGit) {
   return deriveGuardCandidateProvenance({
     env: { GITHUB_EVENT_NAME: "merge_group" },
     execGit: (args) =>
-      args.length === 2 && args[0] === "rev-parse" && args[1] === "HEAD" ? neutralityLanding : readGit(args),
+      args.length === 2 && args[0] === "rev-parse" && args[1] === "HEAD"
+        ? neutralityLanding
+        : readGit
+          ? readGit(args)
+          : execFileSync("git", args, {
+              cwd: repoRoot,
+              maxBuffer: 32 * 1024 * 1024,
+              windowsHide: true,
+            }),
     readEventPayload: () => ({ merge_group: { head_sha: neutralityLanding, base_sha: neutralityForkPoint } }),
   });
 }
-function assertPinnedProvenance(readGit = git) {
+function assertPinnedProvenance(readGit) {
   const record = pinnedProvenance(readGit);
   const { landingCandidate, baseTipAtAnalysis, forkPoint } = record.roles;
   expect({ landingCandidate, baseTipAtAnalysis, forkPoint }).toEqual({
@@ -849,27 +862,46 @@ function assertPinnedProvenance(readGit = git) {
   expect(record.environment).toBe("merge-group");
   emit("H1_PINNED_PROVENANCE", { environment: record.environment, roles: record.roles });
 }
-function assertPinnedNeutrality(readGit = git) {
+function assertPinnedNeutrality(readGit) {
   for (const sha of [neutralityForkPoint, neutralityLanding]) {
     try {
-      readGit(["cat-file", "-e", `${sha}^{commit}`]);
+      if (readGit) readGit(["cat-file", "-e", `${sha}^{commit}`]);
+      else git(["cat-file", "-e", `${sha}^{commit}`]);
     } catch {
       neutralityError("NEUTRALITY_PINNED_OBJECT_MISSING", "pinned-object-existence");
     }
   }
   let parentage;
   try {
-    parentage = readGit(["rev-list", "--parents", "-n", "1", neutralityLanding]).toString("utf8").trim().split(/\s+/);
+    parentage = (
+      readGit
+        ? readGit(["rev-list", "--parents", "-n", "1", neutralityLanding])
+        : git(["rev-list", "--parents", "-n", "1", neutralityLanding])
+    )
+      .toString("utf8")
+      .trim()
+      .split(/\s+/);
   } catch {
     neutralityError("NEUTRALITY_PINNED_PARENTAGE_MISMATCH", "pinned-parentage");
   }
   if (JSON.stringify(parentage) !== JSON.stringify([neutralityLanding, neutralityForkPoint]))
     neutralityError("NEUTRALITY_PINNED_PARENTAGE_MISMATCH", "pinned-parentage");
-  const read = (sha) => () => readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
+  const read = (sha) => () =>
+    readGit
+      ? readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha])
+      : execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], {
+          cwd: repoRoot,
+          maxBuffer: 32 * 1024 * 1024,
+          windowsHide: true,
+        });
   const members = compareTrees(read(neutralityForkPoint), read(neutralityLanding));
   expect(members.length).toBeGreaterThan(0);
   emit("N1_NEUTRALITY", { candidate: neutralityLanding, forkPoint: neutralityForkPoint, members: members.length });
-  const added = readGit(["diff", "--name-only", "--diff-filter=A", neutralityForkPoint, neutralityLanding])
+  const added = (
+    readGit
+      ? readGit(["diff", "--name-only", "--diff-filter=A", neutralityForkPoint, neutralityLanding])
+      : git(["diff", "--name-only", "--diff-filter=A", neutralityForkPoint, neutralityLanding])
+  )
     .toString("utf8")
     .trim()
     .split("\n")
@@ -896,7 +928,7 @@ describe("candidate-specific inventory neutrality", () => {
     const calls = [];
     assertPinnedNeutrality((args) => {
       calls.push(args);
-      return git(args);
+      return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
     });
     expect(calls).toEqual([
       ["cat-file", "-e", `${neutralityForkPoint}^{commit}`],
@@ -926,7 +958,10 @@ describe("candidate-specific inventory neutrality", () => {
       if (args[0] === "rev-parse") return "true";
       throw new Error("pinned object unavailable");
     };
-    for (const readGit of [failingReader, (args) => git(args, empty)]) {
+    for (const readGit of [
+      failingReader,
+      (args) => execFileSync("git", args, { cwd: empty, maxBuffer: 32 * 1024 * 1024, windowsHide: true }),
+    ]) {
       refusal(() => assertPinnedNeutrality(readGit), "NEUTRALITY_PINNED_OBJECT_MISSING", "pinned-object-existence");
       refusal(() => assertPinnedProvenance(readGit), "guard-provenance-unavailable", "git-parentage");
     }
@@ -937,7 +972,7 @@ describe("candidate-specific inventory neutrality", () => {
           assertPinnedNeutrality((args) => {
             calls.push(args);
             if (args[0] === "cat-file" && args[2] === `${missing}^{commit}`) throw new Error("missing pin");
-            return git(args);
+            return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
           }),
         "NEUTRALITY_PINNED_OBJECT_MISSING",
         "pinned-object-existence",
@@ -955,7 +990,7 @@ describe("candidate-specific inventory neutrality", () => {
           assertPinnedNeutrality((args) => {
             if (args[0] === "rev-list") return Buffer.from(parentage);
             expect(args[0]).toBe("cat-file");
-            return git(args);
+            return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
           }),
         "NEUTRALITY_PINNED_PARENTAGE_MISMATCH",
         "pinned-parentage",
@@ -966,7 +1001,7 @@ describe("candidate-specific inventory neutrality", () => {
         assertPinnedNeutrality((args) => {
           if (args[0] === "rev-list") throw new Error("parentage unavailable");
           expect(args[0]).toBe("cat-file");
-          return git(args);
+          return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
         }),
       "NEUTRALITY_PINNED_PARENTAGE_MISMATCH",
       "pinned-parentage",

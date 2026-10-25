@@ -2,7 +2,11 @@ import { hc } from "hono/client";
 import type { ZodType } from "zod";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildPaymentsApi } from "./api";
-import type { CreateAccountPaymentRequest, CreateSavedPaymentSetupSessionRequest } from "./features/payments/api/route";
+import type {
+  CreateAccountPaymentRequest,
+  CreateSavedPaymentSetupSessionRequest,
+  SavedPaymentMethodAttempt,
+} from "./features/payments/api/route";
 import {
   paymentsCheckoutRecoveryOptionsSchema,
   paymentsCheckoutStatusSchema,
@@ -17,7 +21,7 @@ import {
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
-export type { CreateAccountPaymentRequest, CreateSavedPaymentSetupSessionRequest };
+export type { CreateAccountPaymentRequest, CreateSavedPaymentSetupSessionRequest, SavedPaymentMethodAttempt };
 
 export type PaymentsSavedCheckoutInstrument = Readonly<{
   instrument_id: string;
@@ -236,7 +240,7 @@ export function createPaymentsApiClient({
       return parseJsonResponse(await client.account["payment-methods"].$get());
     },
     async createSavedPaymentSetupSession(
-      body: CreateSavedPaymentSetupSessionRequest = {},
+      body: CreateSavedPaymentSetupSessionRequest,
     ): Promise<PaymentsSavedCheckoutSetupSession> {
       return parseJsonResponse(
         await client.account["payment-methods"]["setup-sessions"].$post({
@@ -253,17 +257,25 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async setDefaultPaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async setDefaultPaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].default.$post({
           param: { instrumentId },
+          json: attempt,
         }),
       );
     },
-    async removePaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async removePaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].remove.$post({
           param: { instrumentId },
+          json: attempt,
         }),
       );
     },

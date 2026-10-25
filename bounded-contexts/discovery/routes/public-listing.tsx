@@ -30,12 +30,14 @@ import {
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import { isProductionMarketplaceUrl, serializeJsonLd } from "../support/route-support/seo";
+import { EntryAttemptKeyField, EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { formatMoney } from "../support/ui-support/formatting";
 
 function parseRating(value: string | null | undefined): number | undefined {
@@ -274,6 +276,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       listing,
       notFound: false,
       canonicalUrl: new URL(`/listings/${listing.listing_slug}`, url.origin).toString(),
+      entryAttemptKey: createId("chkentry"),
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
@@ -325,10 +328,15 @@ export default function PublicListingRoute() {
   const data = useLoaderData<typeof loader>();
 
   return (
-    <PublicListingRealtimeView
-      key={[data.listing?.listing_id ?? "empty", data.listing?.updated_at ?? data.listing?.status ?? ""].join("\n")}
-      data={data}
-    />
+    <EntryAttemptKeyScope
+      key={data.listing?.listing_id ?? "empty"}
+      loaderKey={"entryAttemptKey" in data ? data.entryAttemptKey : null}
+    >
+      <PublicListingRealtimeView
+        key={[data.listing?.listing_id ?? "empty", data.listing?.updated_at ?? data.listing?.status ?? ""].join("\n")}
+        data={data}
+      />
+    </EntryAttemptKeyScope>
   );
 }
 
@@ -447,6 +455,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               primaryAction={
                 canPurchase ? (
                   <Form spacing="none" method="post" action={checkoutHref}>
+                    <EntryAttemptKeyField formId="public-listing-buy" inputs={{ listingId: listing.listing_id }} />
                     <Button type="submit" size="lg" leadingIcon="lock">
                       {t("discovery.routes.publicListing.buy.this.listing")}
                     </Button>

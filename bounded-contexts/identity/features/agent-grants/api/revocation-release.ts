@@ -58,6 +58,11 @@ export function createAgentGrantRevocationRelease(
     if (event.payload.proofDigest !== digest(proof)) throw new Error("revocation_support_floor");
     return event;
   };
+  // The exclusive lock waits for an in-flight activation to commit or roll back.
+  const readActivation = async (db: PgQueryable) => {
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [streamId]);
+    return read(db);
+  };
 
   return {
     requireActivated: async (db: PgQueryable) => {
@@ -65,10 +70,11 @@ export function createAgentGrantRevocationRelease(
     },
     isActivated: async () => Boolean(await read(pool)),
     activationProof: () =>
-      withPgTransaction(pool, async (db) => {
-        await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [streamId]);
-        return (await read(db))?.payload.proof as RevocationActivationProof | undefined;
-      }),
+      withPgTransaction(
+        pool,
+        async (db) => (await readActivation(db))?.payload.proof as RevocationActivationProof | undefined,
+      ),
+    readActivation,
     withMode: async <T>(work: (activated: boolean) => Promise<T>): Promise<T> => {
       const requestId = randomUUID();
       const activated = await withPgTransaction(pool, async (db) => {

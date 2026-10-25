@@ -453,7 +453,6 @@ describe("MCP service catalog", () => {
       adapter_version: 1,
       quantity_mode: "add",
       default_storage_location_id: null,
-      source_filename: null,
       total_count: 1,
       accepted_count: 1,
       rejected_count: 0,
@@ -808,7 +807,7 @@ describe("MCP service catalog", () => {
   });
 
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
-    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual([
+    expect(findMcpTool("identity.create-invitation")?.audit.sensitiveInputFields).toEqual([
       "confirmationText",
       "email",
       "idempotencyKey",

@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { t } from "@chase-sets/localization";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
 
 const { auth } = vi.hoisted(() => ({ auth: vi.fn() }));
 vi.mock("@chase-sets/platform-runtime/auth", async () => ({
@@ -47,6 +48,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
           ...detail(),
           checklist: [],
           flow_type: "product-damaged",
+          flow: getSupportFlowDefinition("product-damaged"),
           status: reflected ? "waiting-on-buyer" : "waiting-on-seller",
         }),
       );
@@ -78,7 +80,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     router.dispose();
   });
-  it("actual submit disables busy, lost response announces/focuses ambiguity, check-status token drives second loader and authoritative timeline", async () => {
+  it("participant form busies only its own submission without disabling, suppresses a second submit, and recovers ambiguity", async () => {
     auth.mockResolvedValue(actor);
     let release: (() => void) | undefined;
     let check = false;
@@ -143,15 +145,15 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(reads).toHaveLength(1);
     expect(screen.queryByText("No delivery recorded")).toBeNull();
     await user.click(submit);
-    await waitFor(() =>
-      expect(
-        screen
-          .getByRole("button", {
-            name: t("support.features.supportRequests.ui.supportRequestDetailPage.evidence.submit"),
-          })
-          .matches(":disabled"),
-      ).toBe(true),
-    );
+    const pendingSubmit = screen.getByRole("button", {
+      name: t("support.features.supportRequests.ui.supportRequestDetailPage.evidence.submit"),
+    });
+    await waitFor(() => {
+      expect(pendingSubmit.closest("form")?.getAttribute("aria-busy")).toBe("true");
+      expect(pendingSubmit.matches(":disabled")).toBe(false);
+    });
+    await user.click(pendingSubmit);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     await waitFor(() => expect(release).toBeDefined());
     release!();
     const announcement = await screen.findByRole("heading", { name: t("support.participantAttempt.checkBeforeRetry") });
@@ -176,7 +178,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(router.state.location.search).toContain("action=evidence");
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST").length;
-    router.revalidate();
+    await router.revalidate();
     await waitFor(() => expect(router.state.revalidation).toBe("idle"));
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(posts);
     expect(document.querySelector('[name="participantRecovery"]')).toBeNull();

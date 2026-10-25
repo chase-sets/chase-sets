@@ -5,7 +5,15 @@ export function installOperatorBridge(
   frame: HTMLIFrameElement,
   send: (command: OperatorCommand) => Promise<unknown>,
 ) {
-  const receive = async (event: MessageEvent<unknown>) => {
+  const relay = async (id: number, command: OperatorCommand) => {
+    try {
+      const status = await send(command);
+      if (isStatus(status)) frame.contentWindow?.postMessage({ id, status }, "*");
+    } catch {
+      /* The sandbox deadline supplies a closed UI error, never an exception echo. */
+    }
+  };
+  const receive = (event: MessageEvent<unknown>) => {
     if (
       event.source !== frame.contentWindow ||
       event.origin !== "null" ||
@@ -14,13 +22,7 @@ export function installOperatorBridge(
       !isCommand(event.data.command)
     )
       return;
-    const id = event.data.id;
-    try {
-      const status = await send(event.data.command);
-      if (isStatus(status)) frame.contentWindow?.postMessage({ id, status }, "*");
-    } catch {
-      /* The sandbox deadline supplies a closed UI error, never an exception echo. */
-    }
+    void relay(event.data.id, event.data.command);
   };
   host.addEventListener("message", receive);
   return () => host.removeEventListener("message", receive);

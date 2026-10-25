@@ -230,7 +230,15 @@ function receiptCollection(collectedAt: string) {
 
 // Original #9520 AC6 floor: each owned guard, disabled alone, admits its hostile case.
 describe("guard-disabled bypass mutants", () => {
-  const sessionBindings = { z, ...plan, ...receipt, ...http, ...transport, ...acquisition };
+  const sessionBindings = {
+    z,
+    ...plan,
+    ...receipt,
+    ...http,
+    ...transport,
+    ...acquisition,
+    countCaptureSealSchema: storeModule.countCaptureSealSchema,
+  };
   const sessionGuards = {
     staging: ['environment !== "staging"', "a non-staging environment"],
     session: ["!actor || !actor.sessionId", "no session"],

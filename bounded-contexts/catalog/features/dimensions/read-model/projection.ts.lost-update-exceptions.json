@@ -1,0 +1,90 @@
+[
+  {
+    "id": "exception-4b7f04b6c6888c38",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimensions",
+      "digest": "ec5d8adfeb31b73e7f18e7ad869c19c603a0d886ccf2e68f52ce2db9b2e49e5f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:50 directly synchronizes catalog_dimensions from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-76edf953bd1cb3b0",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimension_options",
+      "digest": "517a6de7a0cd0bd49c32caa5ba0af0ca68773a1e3865ba31418fa6220664a9c2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:111 directly synchronizes catalog_dimension_options from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-892b80af78d60216",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimension_options",
+      "digest": "b8611088136f40747cac2f7082a33777091280079a011f82b843e1d35383c0f5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:133 directly synchronizes catalog_dimension_options from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ede713256b307b91",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimension_options",
+      "digest": "87dc67c6430b98dd86beeff024964ed691e15de7037408685764f2457fbd7d53"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:144 directly synchronizes catalog_dimension_options from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e391155f56d15ab0",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimension_options",
+      "digest": "384d1560f0d5dffe6b6d3eab9c34ec2688259520f4ce726fbff2f703b91ec51d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:154 directly synchronizes catalog_dimension_options from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f1a0a8cbb97fbe4e",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimensions",
+      "digest": "d7ebbde941c317e8d6517fd6f814a6f6ede5feaa77a320ef92a1c8b7fa78368e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:162 directly synchronizes catalog_dimensions from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c20a668202b7cd04",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimensions",
+      "digest": "03c2f8920caf29a4961a2f69aff1f7448d0beff81a67da74ac09c44ffa065d23"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:171 directly synchronizes catalog_dimensions from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-92d908cfefeaa986",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/dimensions/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_dimensions",
+      "digest": "c206afcdb6ed897662d5b3a2e54a30a85c2050f73d25b6b5741d6ee62e655349"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/dimensions/read-model/projection.ts:180 directly synchronizes catalog_dimensions from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

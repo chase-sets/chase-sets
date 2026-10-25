@@ -556,3 +556,47 @@ describe("admission webhook root cause", () => {
     }
   });
 });
+
+describe("Agent Grant revocation activation root cause", () => {
+  const status = (refusal) => ({ schemaVersion: "agent-grant-revocation-status/v1", result: "refused", refusal });
+
+  it("classifies an activation refusal ahead of unrelated diagnostic text, carrying only its bounded code", () => {
+    const result = classifyDeploymentRootCause({
+      phase: "agent-grant-revocation-activation",
+      diagnostics: ["lock_timeout during migration failed", status("revocation_membership_changed")],
+    });
+    expect(result).toMatchObject({
+      rootCauseCode: "agent-grant-revocation-activation-refused",
+      affectedComponent: "agent-grant-revocation",
+      phase: "agent-grant-revocation-activation",
+      providerReason: "revocation_membership_changed",
+      blocking: true,
+    });
+    expect(result.remediation).toContain("do not retry a non-transient refusal");
+  });
+
+  it("falls back to a fixed code when no bounded refusal was recorded", () => {
+    for (const diagnostics of [[], [status("synthetic raw failure postgres://user:secret@db")], [status(null)]])
+      expect(
+        classifyDeploymentRootCause({ phase: "agent-grant-revocation-activation", diagnostics }).providerReason,
+      ).toBe("revocation_release_refused");
+  });
+
+  it("never classifies an ordinary deploy failure as an activation refusal", () => {
+    for (const phase of ["production-deploy", "staging-deploy"])
+      expect(
+        classifyDeploymentRootCause({ phase, diagnostics: [status("revocation_membership_changed")] }).rootCauseCode,
+      ).not.toBe("agent-grant-revocation-activation-refused");
+  });
+
+  it("keeps the code stable through the run-level incident classification", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "success",
+        deployStagingResult: "failure",
+        stagingRootCauseCode: "agent-grant-revocation-activation-refused",
+      }),
+    ).toMatchObject({ action: "create-or-update", reason: "agent-grant-revocation-activation-refused" });
+  });
+});

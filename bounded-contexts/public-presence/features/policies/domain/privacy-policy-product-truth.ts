@@ -296,9 +296,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "chase-sets:review-draft:*",
     evidenceRefs: [
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:101",
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:127",
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:161-164",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:108",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:134",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:168-171",
     ],
     factualSummary:
       "The review submission page reads, writes, and removes sessionStorage entries in the order-scoped chase-sets:review-draft: key family holding an unfinished review's rating, feedback text, and problem categories.",
@@ -309,8 +309,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "agent-grant-revocation:*",
     evidenceRefs: [
-      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:269",
-      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:273",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:275",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:279",
     ],
     factualSummary:
       "The connected-agent page reads and writes an Account-and-Grant-scoped sessionStorage entry holding only a revocation attempt UUID, so a reload can retain the same attempt without storing receipts or credentials.",
@@ -482,7 +482,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:213-216",
+      "deployables/platform-api/src/main.ts:218-221",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -497,7 +497,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:221-224",
+      "deployables/platform-api/src/main.ts:226-229",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

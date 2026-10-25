@@ -4,11 +4,36 @@ import { CHANNELS_EBAY_ACCOUNT_DELETION_PATH } from "../api/provider-webhook-pat
 export type EbayAccountDeletionConfiguration = Readonly<{
   verificationToken: string;
   endpoint: string;
+  applicationAuthority?: EbayApplicationKeyAuthorityConfiguration;
 }>;
+
+export type EbayApplicationKeyAuthorityConfiguration = Readonly<{
+  clientId: string;
+  clientSecret: string;
+  environment: "sandbox" | "production";
+}>;
+
+export function parseEbayApplicationKeyAuthorityConfiguration(
+  clientId: string | undefined,
+  clientSecret: string | undefined,
+  environment: EbayApplicationKeyAuthorityConfiguration["environment"],
+): EbayApplicationKeyAuthorityConfiguration | null {
+  if (!clientId && !clientSecret) return null;
+  if (
+    !clientId ||
+    !clientSecret ||
+    !/^[\x21-\x7e]{1,2048}$/.test(clientId) ||
+    clientId.includes(":") ||
+    !/^[\x21-\x7e]{1,2048}$/.test(clientSecret)
+  )
+    throw new Error("ebay_application_key_authority_configuration_invalid");
+  return { clientId, clientSecret, environment };
+}
 
 export function parseEbayAccountDeletionConfiguration(
   endpoint: string | undefined,
   verificationToken: string | undefined,
+  applicationAuthority: EbayApplicationKeyAuthorityConfiguration | null = null,
 ): EbayAccountDeletionConfiguration | null {
   if (!endpoint && !verificationToken) return null;
   const invalid = () => new Error("ebay_account_deletion_configuration_invalid");
@@ -37,5 +62,5 @@ export function parseEbayAccountDeletionConfiguration(
     url.pathname !== CHANNELS_EBAY_ACCOUNT_DELETION_PATH
   )
     throw invalid();
-  return { endpoint, verificationToken };
+  return { endpoint, verificationToken, ...(applicationAuthority ? { applicationAuthority } : {}) };
 }

@@ -103,13 +103,24 @@ export function getListingAvailableQuantity(listing: DiscoveryItemDetail["market
 
 export function findSelectedListingForAction(item: DiscoveryItemDetail, listingId: string) {
   const normalizedListingId = listingId.trim();
-  const listing = item.market_listings.find((candidate) => candidate.listing_id === normalizedListingId);
+  const listing = [...item.market_listings, ...(item.market_product_listings ?? [])].find(
+    (candidate) => candidate.listing_id === normalizedListingId,
+  );
 
   if (!normalizedListingId || !listing || listing.status !== "active" || getListingAvailableQuantity(listing) < 1) {
     throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
   }
 
   return listing;
+}
+
+export function findLowestListingForProductAction(item: DiscoveryItemDetail, productId: string) {
+  const lowestListingId = item.market_products?.find((product) => product.product_id === productId)?.lowest_listing_id;
+  if (!lowestListingId) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+  }
+
+  return findSelectedListingForAction(item, lowestListingId);
 }
 
 export function assertSelectedListingQuantityAvailable(

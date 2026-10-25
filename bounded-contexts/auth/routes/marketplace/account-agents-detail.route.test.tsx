@@ -7,13 +7,15 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import Route, { action, loader } from "./account-agents-detail";
 import { AuthApiError } from "../../support/request-support/api-client";
-import type { AgentGrant } from "../../features/agent-grants/ui/contracts";
+import type { AgentGrant, AgentGrantWebhook } from "../../features/agent-grants/ui/contracts";
 
 const { api } = vi.hoisted(() => ({
   api: {
     getAgentGrant: vi.fn(),
     listAgentGrantActivity: vi.fn(),
     getAgentGrantWebhook: vi.fn(),
+    updateAgentGrantMandate: vi.fn(),
+    updateAgentGrantWebhook: vi.fn(),
     revokeAgentGrant: vi.fn(),
     getAgentGrantRevocation: vi.fn(),
   },
@@ -44,17 +46,24 @@ const grant: AgentGrant = {
   revocation_reason: null,
   updated_at: "2026-10-12T00:00:00.000Z",
 };
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
+const webhookA = {
+  callback_url: "https://synthetic.example/hooks/a",
+  signing_secret_preview: "whsec_...a",
+  signing_secret_created_at: "2026-10-12T00:00:00.000Z",
+} as const;
+const webhookB = { ...webhookA, callback_url: "https://synthetic.example/hooks/b" } as const;
+const webhookC = { ...webhookA, callback_url: "https://synthetic.example/hooks/c" } as const;
+function deferred<T = void>() {
+  let resolve!: (value?: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = (value?: T) => done(value as T);
   });
   return { promise, resolve };
 }
-async function mount() {
+async function mount(initialWebhook: AgentGrantWebhook | null = null) {
   api.getAgentGrant.mockResolvedValue({ authorization: grant, revocation_available: true, revocation_active: true });
   api.listAgentGrantActivity.mockResolvedValue({ activity: [], total: 0 });
-  api.getAgentGrantWebhook.mockResolvedValue({ webhook: null });
+  api.getAgentGrantWebhook.mockResolvedValue({ webhook: initialWebhook });
   const router = createMemoryRouter([{ path: "/account/agents/:id", loader, action, element: createElement(Route) }], {
     initialEntries: ["/account/agents/grant_a"],
   });
@@ -80,6 +89,63 @@ async function revoke() {
 }
 
 describe("agent-grant-revocation-real-route", () => {
+  it("each connected-agent form busies only itself", async () => {
+    const mandate = deferred();
+    const disable = deferred<{ webhook: null }>();
+    api.updateAgentGrantMandate.mockReturnValue(mandate.promise);
+    api.updateAgentGrantWebhook.mockReturnValue(disable.promise);
+    const router = await mount(webhookA);
+    const mandateButton = screen.getByRole("button", { name: "Save spending mandate" });
+    const mandateForm = mandateButton.closest("form")!;
+    fireEvent.click(mandateButton);
+    await waitFor(() => expect(api.updateAgentGrantMandate).toHaveBeenCalledOnce());
+    expect(mandateForm.getAttribute("aria-busy")).toBe("true");
+    expect(mandateButton.getAttribute("aria-busy")).toBe("true");
+    const saveWebhook = screen.getByRole("button", { name: "Save webhook endpoint" });
+    const disableWebhook = screen.getByRole("button", { name: "Disable webhook" });
+    const webhookForm = saveWebhook.closest("form")!;
+    expect(webhookForm.getAttribute("aria-busy")).toBeNull();
+    expect(saveWebhook.getAttribute("aria-busy")).toBeNull();
+    expect(disableWebhook.getAttribute("aria-busy")).toBeNull();
+    await act(async () => mandate.resolve());
+    await waitFor(() => expect(mandateForm.getAttribute("aria-busy")).toBeNull());
+    fireEvent.click(disableWebhook);
+    await waitFor(() => expect(api.updateAgentGrantWebhook).toHaveBeenCalledOnce());
+    expect(webhookForm.getAttribute("aria-busy")).toBe("true");
+    expect(disableWebhook.getAttribute("aria-busy")).toBe("true");
+    expect(saveWebhook.getAttribute("aria-busy")).toBeNull();
+    expect(mandateForm.getAttribute("aria-busy")).toBeNull();
+    await act(async () => disable.resolve({ webhook: null }));
+    await waitFor(() => expect(webhookForm.getAttribute("aria-busy")).toBeNull());
+    expect(document.querySelector<HTMLInputElement>('input[name="callback_url"]')?.value).toBe("");
+    expect(screen.queryByRole("button", { name: "Disable webhook" })).toBeNull();
+
+    const firstSave = deferred<{ webhook: typeof webhookB }>();
+    const secondSave = deferred<{ webhook: typeof webhookC }>();
+    api.updateAgentGrantWebhook.mockReset();
+    api.updateAgentGrantWebhook.mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(secondSave.promise);
+    const callback = document.querySelector<HTMLInputElement>('input[name="callback_url"]')!;
+    fireEvent.change(callback, { target: { value: webhookB.callback_url } });
+    fireEvent.click(screen.getByRole("button", { name: "Save webhook endpoint" }));
+    await waitFor(() => expect(api.updateAgentGrantWebhook).toHaveBeenCalledOnce());
+    await act(async () => firstSave.resolve({ webhook: webhookB }));
+    await waitFor(() =>
+      expect(document.querySelector<HTMLInputElement>('input[name="callback_url"]')?.value).toBe(webhookB.callback_url),
+    );
+
+    const stableForm = screen.getByRole("button", { name: "Save webhook endpoint" }).closest("form")!;
+    fireEvent.change(document.querySelector<HTMLInputElement>('input[name="callback_url"]')!, {
+      target: { value: webhookC.callback_url },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save webhook endpoint" }));
+    await waitFor(() => expect(api.updateAgentGrantWebhook).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Save webhook endpoint" }).closest("form")).toBe(stableForm);
+    expect(stableForm.getAttribute("aria-busy")).toBe("true");
+    await act(async () => secondSave.resolve({ webhook: webhookC }));
+    await waitFor(() => expect(stableForm.getAttribute("aria-busy")).toBeNull());
+    router.dispose();
+  });
+
   it("mount waits for the held initial Grant load past any async-util budget", async () => {
     const initialLoad = deferred();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });

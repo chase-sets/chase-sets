@@ -73,6 +73,22 @@ export function scopeRecordDetailFromRow(row: CatalogScopeRecordRow): CatalogSco
   };
 }
 
+export function scopeRecordListParamsFromRecord(
+  record: Readonly<Record<string, unknown>>,
+): CatalogScopeRecordListParams {
+  const text = (key: string) =>
+    typeof record[key] === "string" && String(record[key]).trim() ? String(record[key]).trim() : undefined;
+  return {
+    limit: clampScopeListLimit(record.limit === undefined ? undefined : String(record.limit)),
+    offset: clampScopeListOffset(record.offset === undefined ? undefined : String(record.offset)),
+    search: text("search"),
+    productDomain: matchEnum(text("productDomain"), catalogScopeProductDomains),
+    scopeKind: matchEnum(text("scopeKind"), catalogScopeRecordKinds),
+    lifecycleStatus: matchEnum(text("status"), catalogLifecycleStatuses),
+    referenceRecordId: text("referenceRecordId"),
+  };
+}
+
 /** The canonical Scope Record list page the browser receives. */
 export type CatalogScopeRecordListResponse = Readonly<{
   items: readonly CatalogScopeRecordDetail[];
@@ -94,7 +110,7 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
       return permissionError;
     }
 
-    const params = scopeRecordListParamsFromQuery(c);
+    const params = scopeRecordListParamsFromRecord(c.req.query());
     const { items, total } = await services.listScopeRecords(params);
     const mapped = items.map(scopeRecordDetailFromRow);
 
@@ -124,39 +140,6 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
   });
 
   return app;
-}
-
-function scopeRecordListParamsFromQuery(c: Context<CatalogAuthoringEnv>): CatalogScopeRecordListParams {
-  const query = c.req.query();
-  const params: {
-    -readonly [K in keyof CatalogScopeRecordListParams]: CatalogScopeRecordListParams[K];
-  } = {
-    limit: clampScopeListLimit(query.limit),
-    offset: clampScopeListOffset(query.offset),
-  };
-
-  const search = query.search?.trim();
-  if (search) {
-    params.search = search;
-  }
-  const productDomain = matchEnum(query.productDomain, catalogScopeProductDomains);
-  if (productDomain) {
-    params.productDomain = productDomain;
-  }
-  const scopeKind = matchEnum(query.scopeKind, catalogScopeRecordKinds);
-  if (scopeKind) {
-    params.scopeKind = scopeKind;
-  }
-  const lifecycleStatus = matchEnum(query.status, catalogLifecycleStatuses);
-  if (lifecycleStatus) {
-    params.lifecycleStatus = lifecycleStatus;
-  }
-  const referenceRecordId = query.referenceRecordId?.trim();
-  if (referenceRecordId) {
-    params.referenceRecordId = referenceRecordId;
-  }
-
-  return params;
 }
 
 function matchEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {

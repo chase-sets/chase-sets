@@ -1,5 +1,5 @@
-// Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
-export const UCP_VERSION = "2026-04-08";
+// Universal Commerce Protocol (UCP) shopping profile for the 2026-08-25 spec.
+export const UCP_VERSION = "2026-08-25";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
 
@@ -18,8 +18,26 @@ export const UCP_REST_ENDPOINT_PATH = "/ucp/v1";
 export const UCP_MCP_ENDPOINT_PATH = "/ucp/mcp";
 
 export type UcpTransport = "rest" | "mcp";
-export type UcpResponseStatus = "ok" | "error" | "requires_action";
-export type UcpMessageSeverity = "info" | "warning" | "error";
+export type UcpResponseStatus = "success" | "error";
+export type UcpMessageSeverity = "recoverable" | "requires_buyer_input" | "requires_buyer_review" | "unrecoverable";
+
+export type UcpErrorSeverity = UcpMessageSeverity;
+
+export function ucpErrorSeverity(code: string): UcpErrorSeverity {
+  if (
+    code.startsWith("invalid_") ||
+    code === "quantity_unit_mismatch" ||
+    code === "validation_failed" ||
+    code.startsWith("idempotency_key_") ||
+    code === "signed_request_required" ||
+    code === "authentication_required" ||
+    code.endsWith("_limited") ||
+    code === "profile_unreachable"
+  ) {
+    return code === "authentication_required" ? "requires_buyer_input" : "recoverable";
+  }
+  return "unrecoverable";
+}
 
 export type UcpServiceDeclaration = Readonly<{
   version: string;
@@ -44,21 +62,29 @@ export type UcpSigningJsonWebKey = Readonly<
 >;
 
 export type UcpBusinessProfile = Readonly<{
-  signing_keys?: readonly UcpSigningJsonWebKey[];
+  keys?: readonly UcpSigningJsonWebKey[];
   ucp: Readonly<{
     version: string;
     services: Readonly<Record<string, readonly UcpServiceDeclaration[]>>;
     capabilities: Readonly<Record<string, readonly UcpCapabilityDeclaration[]>>;
-    supported_versions: Readonly<Record<string, string>>;
-    signing_keys?: readonly UcpSigningJsonWebKey[];
+    payment_handlers: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
   }>;
 }>;
 
 export type UcpMessage = Readonly<{
-  severity: UcpMessageSeverity;
+  type: "error" | "warning" | "info";
+  severity?: UcpMessageSeverity;
   code: string;
-  message: string;
-  target?: string;
+  content: string;
+  path?: string;
+}>;
+
+export type UcpMessageInput = Readonly<{
+  type?: "error" | "warning" | "info";
+  severity?: UcpMessageSeverity;
+  code: string;
+  content?: string;
+  path?: string;
 }>;
 
 export type UcpEnvelope<TPayload extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>> =
@@ -67,6 +93,7 @@ export type UcpEnvelope<TPayload extends Readonly<Record<string, unknown>> = Rea
       ucp: Readonly<{
         version: string;
         status: UcpResponseStatus;
+        payment_handlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
       }>;
       messages?: readonly UcpMessage[];
     } & TPayload
@@ -79,8 +106,6 @@ export type UcpMcpToolDescriptor = Readonly<{
   description: string;
   idempotencyKeyRequired: boolean;
   resultResourceUri?: string;
-  inputSchema: Readonly<Record<string, unknown>>;
-  outputSchema: Readonly<Record<string, unknown>>;
   securitySchemes: readonly UcpMcpSecurityScheme[];
   annotations: Readonly<{
     readOnlyHint: boolean;
@@ -103,26 +128,6 @@ export type UcpMcpResourceDescriptor = Readonly<{
 export type UcpMcpSecurityScheme =
   | Readonly<{ type: "noauth" }>
   | Readonly<{ type: "oauth2"; scopes: readonly string[] }>;
-
-const UCP_ENVELOPE_OUTPUT_SCHEMA = {
-  type: "object",
-  additionalProperties: true,
-  properties: {
-    ucp: {
-      type: "object",
-      properties: {
-        version: { type: "string" },
-        status: { type: "string" },
-      },
-      required: ["version", "status"],
-    },
-    messages: {
-      type: "array",
-      items: { type: "object", additionalProperties: true },
-    },
-  },
-  required: ["ucp"],
-} as const;
 
 const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
 const CHECKOUT_MANAGE_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }] as const;
@@ -182,31 +187,6 @@ export const UCP_MCP_RESOURCES = [
   },
 ] as const satisfies readonly UcpMcpResourceDescriptor[];
 
-const checkoutResourceSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    line_items: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          item: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-          quantity: { type: "integer", minimum: 1 },
-          quantity_unit: {
-            type: "object",
-            properties: { unit: { const: "C62" }, scale: { const: 0 } },
-            required: ["unit", "scale"],
-          },
-        },
-        required: ["item", "quantity"],
-      },
-    },
-  },
-  required: ["line_items"],
-} as const;
-
 export const UCP_MCP_TOOLS = [
   {
     name: "search_catalog",
@@ -216,26 +196,6 @@ export const UCP_MCP_TOOLS = [
       "Use this when a ChatGPT user wants to find public Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        query: { type: "string", description: "Search text such as a card name, set, tag, or category." },
-        limit: { type: "number", minimum: 1, maximum: 50 },
-        cursor: { type: "string" },
-        filters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            category: { type: "string" },
-            tag: { type: "string" },
-            blueprintId: { type: "string" },
-            language: { type: "string" },
-          },
-        },
-      },
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Searching marketplace products",
@@ -249,20 +209,6 @@ export const UCP_MCP_TOOLS = [
       "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs public marketplace product details.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Single catalog item or product identifier to resolve." },
-        ids: {
-          type: "array",
-          items: { type: "string" },
-          maxItems: 20,
-          description: "Catalog item or product identifiers to resolve.",
-        },
-      },
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Looking up marketplace products",
@@ -276,15 +222,6 @@ export const UCP_MCP_TOOLS = [
       "Use this when a ChatGPT user needs one public marketplace product detail, variants, account availability, and option-selection context.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Catalog item or product identifier to retrieve." },
-      },
-      required: ["id"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Loading product detail",
@@ -298,13 +235,6 @@ export const UCP_MCP_TOOLS = [
       "Use this after the user chooses marketplace items to create a Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: { checkout: checkoutResourceSchema },
-      required: ["checkout"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Creating checkout session",
@@ -318,15 +248,6 @@ export const UCP_MCP_TOOLS = [
       "Use this to read a checkout session for the linked buyer account. Do not use it for public product discovery.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Checkout session id." },
-      },
-      required: ["id"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading checkout session",
@@ -340,16 +261,6 @@ export const UCP_MCP_TOOLS = [
       "Use this to submit unchanged line items on an existing checkout session. Line changes are not supported. This does not move money.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Checkout session id." },
-        checkout: checkoutResourceSchema,
-      },
-      required: ["id", "checkout"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Updating checkout session",
@@ -360,21 +271,9 @@ export const UCP_MCP_TOOLS = [
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this after the user asks to place the order to read checkout state and its trusted buyer continuation URL. This never creates orders or moves money.",
+      "Use this after the user asks to place the order to prepare a trusted buyer handoff. The returned continue_url opens Chase Sets checkout; this never creates orders or moves money.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: true,
-      properties: {
-        id: { type: "string", description: "Checkout session id." },
-        shipping_address: { type: "object", additionalProperties: true },
-        acknowledged_material_changes: { type: "boolean" },
-        marketplace_checkout_fee_quote_fingerprint: { type: "string" },
-      },
-      required: ["id"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
@@ -385,18 +284,9 @@ export const UCP_MCP_TOOLS = [
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only when the user asks to cancel or abandon checkout. Cancelling releases active checkout reservations before order or payment commitment.",
+      "Use this only when the user asks to cancel or abandon checkout. An unsigned OAuth call is read-only; a signed buyer call cancels the session and releases active checkout reservations.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Checkout session id." },
-      },
-      required: ["id"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
     invoking: "Cancelling checkout session",
@@ -408,15 +298,6 @@ export const UCP_MCP_TOOLS = [
     capability: UCP_CAPABILITIES.order,
     description: "Use this to retrieve a purchase or sale order for the linked buyer or seller account.",
     idempotencyKeyRequired: false,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", description: "Order id." },
-      },
-      required: ["id"],
-    },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: ORDER_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading marketplace order",
@@ -437,10 +318,9 @@ export function buildUcpBusinessProfile(
   const baseUrl = normalizeUcpOrigin(origin);
   const signingKeys = options.signingKeys?.length ? options.signingKeys : undefined;
   return {
-    ...(signingKeys ? { signing_keys: signingKeys } : {}),
+    ...(signingKeys ? { keys: signingKeys } : {}),
     ucp: {
       version: UCP_VERSION,
-      ...(signingKeys ? { signing_keys: signingKeys } : {}),
       services: {
         [UCP_SHOPPING_SERVICE]: [
           {
@@ -470,9 +350,7 @@ export function buildUcpBusinessProfile(
           }),
         ],
       },
-      supported_versions: {
-        [UCP_VERSION]: `${baseUrl}/.well-known/ucp`,
-      },
+      payment_handlers: {},
     },
   };
 }
@@ -480,24 +358,51 @@ export function buildUcpBusinessProfile(
 export function createUcpEnvelope<TPayload extends Readonly<Record<string, unknown>>>(
   status: UcpResponseStatus,
   payload: TPayload,
-  messages: readonly UcpMessage[] = [],
+  messages: readonly UcpMessageInput[] = [],
+  options: Readonly<{ paymentHandlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>> }> = {},
 ): UcpEnvelope<TPayload> {
+  const normalizedMessages = messages.map((message) => {
+    const type = message.type ?? "error";
+    const severity = type === "error" ? (message.severity ?? ucpErrorSeverity(message.code)) : undefined;
+    return {
+      type,
+      code: message.code,
+      content: message.content ?? fixedMessageContent(message.code),
+      ...(message.path ? { path: message.path } : {}),
+      ...(severity ? { severity } : {}),
+    } as UcpMessage;
+  });
   return {
     ucp: {
       version: UCP_VERSION,
       status,
+      ...(options.paymentHandlers ? { payment_handlers: options.paymentHandlers } : {}),
     },
-    ...(messages.length > 0 ? { messages } : {}),
+    ...(normalizedMessages.length > 0 ? { messages: normalizedMessages } : {}),
     ...payload,
   };
+}
+
+function fixedMessageContent(code: string) {
+  const content: Readonly<Record<string, string>> = {
+    authentication_required: "Authentication is required for this UCP operation.",
+    authorization_forbidden: "The linked account is not authorized for this UCP operation.",
+    checkout_closed: "Checkout is currently unavailable.",
+    invalid_request: "The UCP request is invalid.",
+    not_found: "The requested UCP resource was not found.",
+    product_not_found: "The requested product was not found.",
+    signed_request_required: "A valid signed UCP request is required.",
+    operation_not_wired: "The requested UCP operation is not supported.",
+    unsupportedUcpOperation: "The requested UCP operation is not supported.",
+  };
+  return content[code] ?? "The UCP operation could not be completed.";
 }
 
 export function unsupportedUcpOperation(operation: string): UcpEnvelope {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "operation_not_wired",
-      message: `${operation} is advertised by the UCP contract but is not wired to an owning bounded-context handler in this runtime yet.`,
+      content: fixedMessageContent("operation_not_wired"),
     },
   ]);
 }

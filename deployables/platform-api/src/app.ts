@@ -92,6 +92,8 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  deriveProjectionTriage,
+  deriveWakeAttentionItems,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -169,6 +171,7 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import { createPlatformApiInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import {
   createEvidenceWindowRegistrationRoutes,
   createEvidenceWindowSourceAdmissionMiddleware,
@@ -321,6 +324,9 @@ export function createPlatformApiHost(
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
+  const inventoryDraftListingConsumer = createPlatformApiInventoryDraftListingConsumer(
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
@@ -667,8 +673,6 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
         channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
           const services = runtime?.services.channels;
@@ -688,6 +692,7 @@ export function createPlatformApiHost(
     ...options,
     runtimeProfile,
     hostPorts: {
+      inventoryDraftListingConsumer,
       ...options.hostPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
@@ -1002,6 +1007,16 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                   readyForFulfillmentAt: fact.ready_for_fulfillment_at,
                   label: `${fact.display_reference}`,
                   permalinkUrl: `/account/purchases/${fact.order_id}`,
+                  totals: {
+                    itemSubtotal: fact.item_subtotal_amount,
+                    shipping: fact.shipping_charge_amount,
+                    tax: fact.sales_tax_amount,
+                    total: fact.total_amount,
+                  },
+                  lines: fact.lines.map((line) => ({
+                    listingId: line.listing_id,
+                    unitPrice: line.unit_price_amount,
+                  })),
                 }));
             }
           : async () => [],
@@ -1113,6 +1128,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
       workSignalStore: options.workSignalStore,
+      deriveProjectionTriage,
+      deriveWakeAttentionItems,
     }),
   );
   if (marketplacePlatformRoutesEnabled) {

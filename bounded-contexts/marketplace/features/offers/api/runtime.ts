@@ -716,6 +716,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (
         exactListing.listingId !== params.listingId ||
         exactListing.accountId !== params.sellerAccountId ||
+        exactListing.publicationScope === "channel-only" ||
         exactListing.status !== "active" ||
         !exactListing.productId ||
         !exactListing.catalogItemId ||
