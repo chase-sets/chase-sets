@@ -192,7 +192,7 @@ export default function MarketplaceInventoryItemRoute() {
       return;
     }
     handledReceipt.current = receiptKey;
-    navigate(navigateAfterWrite(offlineSaleAction, currentPath), {
+    void navigate(navigateAfterWrite(offlineSaleAction, currentPath), {
       replace: true,
       state: { offlineSaleResult: offlineSaleAction.offlineSale },
     });

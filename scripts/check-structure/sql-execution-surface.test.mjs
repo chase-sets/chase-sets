@@ -369,7 +369,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const file of files.slice(0, -1)) {
       expect(result.modules.find((module) => module.file === file)?.outcome, file).toBe("sql-executing");
     }
-    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 125)).toMatchObject({
+    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 130)).toMatchObject({
       receiver: "client",
       outcome: "not-sql",
     });
@@ -439,7 +439,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       [fixtureFile, 85, "unprovable-form"],
       [fixtureFile, 90, "not-sql"],
       [fixtureFile, 94, "not-sql"],
-      ["infrastructure/event-core-postgres/pool.ts", 125, "not-sql"],
+      ["infrastructure/event-core-postgres/pool.ts", 130, "not-sql"],
     ];
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);

@@ -487,6 +487,11 @@ export const VERIFY_STATIC_SURFACES = {
       ),
     ],
   },
+  "lint:async": {
+    classification: ALWAYS_RUN,
+    rule: "type-aware promise rules resolve types through imported files outside the changed set",
+    evidence: ["package.json:69", ".oxlintrc.json:13-20"],
+  },
   "test:scripts": {
     classification: ALWAYS_RUN,
     rule: "script tests read repository inputs dynamically outside their static import graph",

@@ -837,7 +837,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update and #9878 TCGplayer guard surface.
-  [citationFencePaths.staticSurfaces]: "1f9f136b4c8dc0ee9903e8883b983b67d52f891a268addebf4c5ff55d217af61",
+  [citationFencePaths.staticSurfaces]: "b978ae0a019e9ce9d9cbd07caa92098cbe1d9252061ecf4b3168e576738e9511",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

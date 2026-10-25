@@ -290,7 +290,7 @@ export function useAdminResourceListPageChange(
       const searchParams = new URLSearchParams(location.search);
       searchParams.set("limit", String(pagination.limit));
       searchParams.set("offset", String((page - 1) * pagination.limit));
-      navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+      void navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
     },
     [navigate, location, pagination],
   );
