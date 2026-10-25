@@ -224,7 +224,7 @@ pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> cort
 }
 
 /// The screen's view model: what the page shows and what a data client gets.
-#[derive(Serialize)]
+#[derive(Serialize, ToJson)]
 pub struct Screen {
     pub policies: PolicyList,
     pub selected: Option<Policy>,

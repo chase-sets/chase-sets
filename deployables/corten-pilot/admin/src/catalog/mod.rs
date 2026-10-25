@@ -43,6 +43,7 @@ use serde_json::{Map, Value};
 
 pub mod api;
 pub mod form;
+pub mod item;
 pub mod items;
 pub mod views;
 
@@ -67,6 +68,7 @@ pub mod url {
     use serde::Deserialize;
 
     pub use super::Done;
+    pub use super::item::url as item;
     pub use super::items::url::{Items, ItemsBulk, ItemsDrafts, ItemsLive};
 
     /// The area: its routes, stylesheet and guard.
@@ -424,7 +426,7 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
         .route::<url::Field>(get(field).with_state(shared.clone()))
         .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
         .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared.clone()));
-    items::routes(area, shared)
+    item::routes(items::routes(area, shared.clone()), shared)
 }
 
 /// admin-web's catalog layout opens on the dimensions.
@@ -1047,6 +1049,8 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         Kind::Items => views::item_operations(t)
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
             .to_vec(),
+        // No bulk changes.
+        Kind::ProductContents | Kind::ReferenceRecords => Vec::new(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
 }

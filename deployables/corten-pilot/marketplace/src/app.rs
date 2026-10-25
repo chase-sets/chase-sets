@@ -147,7 +147,7 @@ fn sign_in(req: &Req) -> corten::Result {
 }
 
 /// The screen's view model: what the page shows and what a data client gets.
-#[derive(Serialize)]
+#[derive(Serialize, ToJson)]
 pub struct Screen {
     pub locations: Vec<Location>,
     /// The locations are not readable yet after a write (marketplace's `onPending`).

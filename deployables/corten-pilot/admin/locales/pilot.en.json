@@ -22,7 +22,8 @@
   },
   "check": {
     "required": "Enter a value.",
-    "number": "Enter a number."
+    "number": "Enter a number.",
+    "json_object": "Enter a JSON object, such as {{}}."
   },
   "error": {
     "forbidden_title": "Not allowed",
@@ -48,5 +49,8 @@
     "none_selected": "Select at least one row to preview.",
     "failed": "The bulk change failed.",
     "unknown_job": "This bulk change is not known."
+  },
+  "item": {
+    "contents_unavailable": "Product Contents could not be loaded. Refresh in a moment."
   }
 }

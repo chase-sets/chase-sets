@@ -407,6 +407,10 @@ async fn the_pilots_own_checks_call_nothing() {
     let (status, _, html) = pilot.send(post(SCREEN, "seller", &body, true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"id="ship_from_city-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(
+        html.contains(r#"</label><p class="field-error" id="ship_from_city-error">"#),
+        "the error is not in the label: {html}"
+    );
     assert!(pilot.inventory_calls().is_empty(), "nothing is sent to the API");
 }
 

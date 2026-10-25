@@ -256,6 +256,10 @@ async fn the_pilots_own_check_names_the_field_and_calls_nothing() {
     let (status, _, html) = pilot.send(post("/commerce/postage-policies", &create_body("Draft", ""), true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"id="max_letter_units-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(
+        html.contains(r#"</label><p class="field-error" id="max_letter_units-error">"#),
+        "the error is not in the label: {html}"
+    );
     assert!(!pilot.policy_calls().iter().any(|c| c.method == Method::POST), "nothing is sent to the API");
 }
 
@@ -1116,10 +1120,7 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
         "{html}"
     );
     assert!(html.contains("<td>tcgplayer, pokemon</td>"), "the sources: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/catalog-items/cat_a""#),
-        "the item's page is admin-web's: {html}"
-    );
+    assert!(html.contains(r#"href="/catalog/catalog-items/cat_a""#), "the item's page is the pilot's: {html}");
     assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
     assert!(html.contains(r#"value="missing" selected"#), "{html}");
     assert!(html.contains(r#"data-status="draft""#), "a draft's box says so: {html}");

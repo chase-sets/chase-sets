@@ -16,14 +16,14 @@ use crate::{
         url,
     },
     text::{Cat, Pilot},
-    views::{Draft, admin_web},
+    views::Draft,
 };
 
 /// How many records a preview or a result lists (admin-web's dialogs show the first 20).
 const SHOWN: usize = 20;
 
 /// What a bulk preview of the items answered, by the API's route it came from.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, ToJson)]
 #[serde(untagged)]
 pub enum ItemPreview {
     Publish(PublishPreview),
@@ -62,7 +62,7 @@ pub fn item_operations(t: Cat) -> [(&'static str, &'static str); 8] {
 }
 
 /// `formatLanguageCodeLabel`: the language's name, or its code.
-fn language(t: Cat, code: &str) -> &str {
+pub(super) fn language(t: Cat, code: &str) -> &str {
     match code.trim().to_lowercase().as_str() {
         "en" => t.item_list_english(),
         "ja" => t.item_list_japanese(),
@@ -324,12 +324,11 @@ fn DraftsButton<'a>(t: Cat, action: &'a str) -> impl Render {
     }
 }
 
-/// An item's row; its page is admin-web's until the pilot draws it.
+/// An item's row, which links its page.
 #[component(css = ItemForm)]
 fn ItemTableRow<'a>(t: Cat, row: &'a ItemRow, select: Option<Pilot>) -> impl Render {
     let dash = "\u{2014}";
-    let page =
-        admin_web(&format!("/catalog/catalog-items/{}", row.catalog_item_id)).map(|uri| uri.to_string()).unwrap_or_default();
+    let page = url::item::Item::of(&row.catalog_item_id).href();
     let sources = row.source_providers.join(", ");
     html! {
         <tr>

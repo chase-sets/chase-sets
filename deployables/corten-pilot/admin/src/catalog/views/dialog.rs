@@ -47,15 +47,18 @@ pub fn Trigger<'a>(dialog: &'a str, label: &'a str, secondary: bool) -> impl Ren
     }
 }
 
-/// A labelled text input, its error next to it.
+/// A labelled text input, its error next to it. The error is outside the label, so it is not
+/// part of the input's name (it describes it).
 #[component(css = Dialog)]
 pub fn Input<'a>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Errors) -> impl Render {
     html! {
-        <label class={Field}>
-            <span class={Label}>{label}</span>
-            <input type="text" name={name} value={value} {..errors.aria(name)}>
+        <div class={Field}>
+            <label class={Field}>
+                <span class={Label}>{label}</span>
+                <input type="text" name={name} value={value} {..errors.aria(name)}>
+            </label>
             {errors.message(name)}
-        </label>
+        </div>
     }
 }
 
@@ -69,15 +72,17 @@ pub fn Choice<'a>(
     errors: &'a Errors,
 ) -> impl Render {
     html! {
-        <label class={Field}>
-            <span class={Label}>{label}</span>
-            <select name={name} {..errors.aria(name)}>
-                for (option, text) in options {
-                    <option value={*option} selected={*option == value}>{*text}</option>
-                }
-            </select>
+        <div class={Field}>
+            <label class={Field}>
+                <span class={Label}>{label}</span>
+                <select name={name} {..errors.aria(name)}>
+                    for (option, text) in options {
+                        <option value={*option} selected={*option == value}>{*text}</option>
+                    }
+                </select>
+            </label>
             {errors.message(name)}
-        </label>
+        </div>
     }
 }
 

@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
+use corten::prelude::ToJson;
+
 use crate::api::{ApiError, Caller, Method, segment};
 use platform::receipt::Receipt;
 
@@ -20,7 +22,7 @@ pub struct List<T> {
 }
 
 /// `Dimension` (features/dimensions/ui/contracts.ts), the fields shown.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct Dimension {
     pub dimension_id: String,
     pub key: String,
@@ -39,6 +41,14 @@ pub struct DimensionDetail {
     pub dimension: Dimension,
     #[serde(default)]
     pub options: Vec<DimensionOption>,
+}
+
+/// Written by serde_json: `#[derive(ToJson)]` does not follow `#[serde(flatten)]`, which keeps the
+/// dimension's fields beside its options as the API sends them (todd-skelton/corten#34).
+impl ToJson for DimensionDetail {
+    fn write_json(&self, out: &mut Vec<u8>) {
+        serde_json::to_writer(out, self).expect("a dimension is JSON");
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -63,7 +73,7 @@ pub struct LocalizedText {
 }
 
 /// `Field` (features/fields/ui/contracts.ts).
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct Field {
     pub field_id: String,
     pub key: String,
@@ -79,7 +89,7 @@ pub struct Field {
 }
 
 /// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ItemRow {
     pub catalog_item_id: String,
     pub language_code: String,
@@ -97,10 +107,187 @@ pub struct ItemRow {
 }
 
 /// `BlueprintRef`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct BlueprintRef {
     pub blueprint_id: String,
+    pub name: String,
+}
+
+/// `CatalogItemDetail` (features/catalog-items/ui/contracts.ts), the fields the item's page shows,
+/// and the title and subtitle in each locale, which a metadata revision sends back as they are.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ItemDetail {
+    pub catalog_item_id: String,
+    pub language_code: String,
+    #[serde(default)]
+    pub title_i18n: Value,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle_i18n: Value,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub display_identity_publication: Option<Readiness>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub blueprint: Option<BlueprintRef>,
+    pub status: String,
+    #[serde(default)]
+    pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub categories: Vec<CategoryRef>,
+    #[serde(default)]
+    pub external_catalog_item_references: Vec<ExternalRef>,
+    #[serde(default)]
+    pub external_product_references: Vec<ExternalRef>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+    #[serde(default)]
+    pub image_fallback: Option<ImageFallback>,
+    pub updated_at: String,
+}
+
+/// `DisplayIdentityPublicationReadiness`: whether the item's display identity lets it publish.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct Readiness {
+    pub status: String,
+    #[serde(default)]
+    pub reason_code: Option<String>,
+    #[serde(default)]
+    pub missing_tokens: Vec<String>,
+    #[serde(default)]
+    pub retryable: bool,
+}
+
+impl Readiness {
+    /// What the page says when the API has none (admin-web's fallback).
+    pub fn unavailable() -> Self {
+        Readiness {
+            status: "unavailable".into(),
+            reason_code: Some("display-identity-unavailable".into()),
+            missing_tokens: Vec::new(),
+            retryable: true,
+        }
+    }
+}
+
+/// A field's value on the item, and the reference record it names, if it is a reference.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldValue {
+    pub field_id: String,
+    #[serde(default)]
+    pub field_name: String,
+    #[serde(default)]
+    pub value: Value,
+    #[serde(default)]
+    pub reference: Option<Reference>,
+}
+
+/// `CatalogReferenceRecordRef`: a reference record and the records it relates to.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Reference {
+    pub reference_id: String,
+    pub type_key: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub attributes: Value,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Relationship {
+    pub relationship_type: String,
+    pub reference_id: String,
+    #[serde(default)]
+    pub reference: Option<Box<Reference>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryRef {
+    pub category_id: String,
+    pub name: String,
+}
+
+/// An external reference: a provider's key for the item (a catalog item reference), or for one
+/// of its products, with the options that pick it (a product reference).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalRef {
+    pub provider_key: String,
+    pub external_key: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_options: Vec<SelectedOption>,
+}
+
+/// A dimension's option (`ProductContentSelectedOption`, and a product reference's options).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectedOption {
+    pub dimension_id: String,
+    pub option_id: String,
+}
+
+/// `CatalogItemImageFallback`.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ImageFallback {
+    pub url: String,
+    pub alt: String,
+    pub usage: String,
+    #[serde(default)]
+    pub variants: Value,
+}
+
+/// `ProductContentLineDetail`: a line of what a product contains, resolved to a catalog item or
+/// left as the provider's evidence.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentLine {
+    pub line_id: String,
+    pub container_catalog_item_id: String,
+    #[serde(default)]
+    pub container_selected_options: Option<Vec<SelectedOption>>,
+    #[serde(default)]
+    pub contained_catalog_item_id: Option<String>,
+    #[serde(default)]
+    pub contained_selected_options: Option<Vec<SelectedOption>>,
+    #[serde(default)]
+    pub quantity: Option<f64>,
+    pub content_type_id: String,
+    #[serde(default)]
+    pub inclusion_policy_id: Option<String>,
+    #[serde(default)]
+    pub provenance: Value,
+    pub resolution_status: String,
+}
+
+/// `ProductContentTypeRef` and `ProductContentInclusionPolicyRef`: a choice for a content line.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ContentChoice {
+    #[serde(alias = "content_type_id", alias = "inclusion_policy_id")]
+    pub id: String,
+    pub key: String,
+    #[serde(default)]
+    pub display_name: Value,
+    pub status: String,
+}
+
+/// A reference record, as a field value's picker lists it (`ReferenceRecord`, the fields shown).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReferenceRow {
+    pub reference_record_id: String,
+    pub type_key: String,
+    pub key: String,
     pub name: String,
 }
 
@@ -198,7 +385,7 @@ pub struct Candidate {
 }
 
 /// What a bulk change would do (`BulkLifecyclePreview`). The API decides which records are ready.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct Preview {
     pub action: String,
     #[serde(default)]
@@ -310,6 +497,8 @@ pub enum Kind {
     Dimensions,
     Fields,
     Items,
+    ProductContents,
+    ReferenceRecords,
 }
 
 impl Kind {
@@ -318,6 +507,8 @@ impl Kind {
             Kind::Dimensions => "dimensions",
             Kind::Fields => "fields",
             Kind::Items => "items",
+            Kind::ProductContents => "product-contents",
+            Kind::ReferenceRecords => "reference-records",
         }
     }
 }
@@ -338,6 +529,8 @@ pub trait Catalog {
     /// change's preview, or its job.
     async fn post<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<T, ApiError>;
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError>;
+    /// A read of `/api/catalog/{kind}{rest}`, `rest` encoded by the caller (`under`).
+    async fn read_at<T: DeserializeOwned>(&self, kind: Kind, rest: &str) -> Result<T, ApiError>;
 }
 
 impl Catalog for Caller<'_> {
@@ -378,6 +571,10 @@ impl Catalog for Caller<'_> {
 
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError> {
         self.read(&format!("{API}/bulk-authoring-jobs/{}", segment(id)), CATALOG).await
+    }
+
+    async fn read_at<T: DeserializeOwned>(&self, kind: Kind, rest: &str) -> Result<T, ApiError> {
+        self.read(&format!("{API}/{}{rest}", kind.path()), CATALOG).await
     }
 }
 

@@ -22,6 +22,7 @@ mod bulk_rows;
 mod detail_page;
 mod dialog;
 mod item_list;
+mod item_page;
 mod list_page;
 mod status_pill;
 
@@ -33,12 +34,17 @@ pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
     item_list, item_live, item_operations, item_rows,
 };
+pub use item_page::{
+    ContentChoices, ContentDialog, ContentForm, FallbackForm, FieldChoices, FieldDialog, FieldValueForm, Fold, IdForm, ItemBack,
+    ItemPage, ItemScreen, Labels, ListForm, MetadataForm, PublishForm, ReferenceForm, RowForm, choice_label, item_page,
+    item_transitions,
+};
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
 pub use status_pill::StatusPill;
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
 pub const COMPONENTS: &[Component] =
-    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, ItemForm, corten_ui::Toaster];
+    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, ItemForm, ItemPage, corten_ui::Toaster];
 
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {
@@ -66,6 +72,49 @@ pub mod ids {
     pub const LIVE: &str = "catalog-live";
     pub const CHANGES: &str = "catalog-changes";
 
+    /// The catalog item page's dialogs and their forms (`item` = the form, `*_DIALOG` its dialog).
+    pub mod item {
+        pub const PUBLISH: &str = "item-publish";
+        pub const PUBLISH_DIALOG: &str = "item-publish-dialog";
+        pub const BLUEPRINT: &str = "item-blueprint";
+        pub const BLUEPRINT_DIALOG: &str = "item-blueprint-dialog";
+        /// Set Field Value: drawn by the server when it is opened (its lists are long).
+        pub const FIELD: &str = "item-field";
+        pub const FIELD_DIALOG: &str = "item-field-dialog";
+        pub const CATEGORY: &str = "item-category";
+        pub const CATEGORY_DIALOG: &str = "item-category-dialog";
+        pub const METADATA: &str = "item-metadata";
+        pub const METADATA_DIALOG: &str = "item-metadata-dialog";
+        pub const TAGS: &str = "item-tags";
+        pub const TAGS_DIALOG: &str = "item-tags-dialog";
+        pub const URLS: &str = "item-image-urls";
+        pub const URLS_DIALOG: &str = "item-image-urls-dialog";
+        pub const FALLBACK: &str = "item-fallback";
+        pub const FALLBACK_DIALOG: &str = "item-fallback-dialog";
+        pub const CATALOG_REF: &str = "item-catalog-ref";
+        pub const CATALOG_REF_DIALOG: &str = "item-catalog-ref-dialog";
+        pub const PRODUCT_REF: &str = "item-product-ref";
+        pub const PRODUCT_REF_DIALOG: &str = "item-product-ref-dialog";
+        /// Add content line: drawn by the server when it is opened.
+        pub const CONTENT: &str = "item-content";
+        pub const CONTENT_DIALOG: &str = "item-content-dialog";
+        /// The image fallback's clear form.
+        pub const FALLBACK_CLEAR: &str = "item-fallback-clear";
+
+        /// A row's form: a field value's clear, a category's remove, a reference's unlink, a
+        /// content line's remove.
+        pub fn row(kind: &str, key: &str) -> String {
+            // Hex, so two keys never share an id (a provider's keys may hold any character).
+            let key: String = key.bytes().map(|b| format!("{b:02x}")).collect();
+            format!("item-{kind}-{key}")
+        }
+
+        /// A reference record's detail dialog.
+        pub fn reference(id: &str) -> String {
+            row("reference", id)
+        }
+    }
+
     pub fn option_form(option_id: &str) -> String {
         format!("option-{option_id}")
     }
@@ -81,7 +130,7 @@ pub mod ids {
 
 /// A list page's view model: its rows, the total, which page of how many, and the bulk change
 /// the page shows (its preview, or its job, whose outcome is the kind's).
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, ToJson)]
 pub struct ListScreen<T, P = super::api::Preview> {
     pub items: Vec<T>,
     pub total: u32,

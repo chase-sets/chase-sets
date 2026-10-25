@@ -23,25 +23,28 @@ pub enum Kind {
     Area,
 }
 
-/// A labelled input, its error next to it.
+/// A labelled input, its error next to it. The error is outside the label, so it is not part of
+/// the input's name (it describes it).
 #[component(css = LocationCard)]
 pub fn Field<'a>(label: &'a str, name: FieldName, value: &'a str, kind: Kind, required: bool, errors: &'a Errors) -> impl Render {
     html! {
-        <label class={Field}>
-            <span class={Label}>{label}</span>
-            match kind {
-                Kind::Area => {
-                    <textarea name={name} rows="3" required={required} {..errors.aria(name)}>{value}</textarea>
+        <div class={Field}>
+            <label class={Field}>
+                <span class={Label}>{label}</span>
+                match kind {
+                    Kind::Area => {
+                        <textarea name={name} rows="3" required={required} {..errors.aria(name)}>{value}</textarea>
+                    }
+                    Kind::Email => {
+                        <input type="email" name={name} value={value} required={required} {..errors.aria(name)}>
+                    }
+                    Kind::Text => {
+                        <input type="text" name={name} value={value} required={required} {..errors.aria(name)}>
+                    }
                 }
-                Kind::Email => {
-                    <input type="email" name={name} value={value} required={required} {..errors.aria(name)}>
-                }
-                Kind::Text => {
-                    <input type="text" name={name} value={value} required={required} {..errors.aria(name)}>
-                }
-            }
+            </label>
             {errors.message(name)}
-        </label>
+        </div>
     }
 }
 

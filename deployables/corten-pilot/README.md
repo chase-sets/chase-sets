@@ -13,7 +13,8 @@ stay where they are. The pilot owns only the screens:
 |---|---|---|---|
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` | admin-web | the list, the policy sheet, create, revise, preview, activate, retire and clone |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
-| `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts; an item's page is still admin-web's |
+| `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts |
+| `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
@@ -97,6 +98,7 @@ node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a f
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
 node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimensions list, with and without JavaScript
 node scripts/smoke-items.mjs           # the catalog items list: create, the changes count, a bulk edit, removing drafts, 390 px
+node scripts/smoke-item.mjs            # a catalog item's page: a draft through every dialog, with and without JavaScript, 390 px
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
@@ -136,6 +138,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `860d985` | [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12) closed two of the pilot's gaps (the workaround in `recovery.js` is gone), and [todd-skelton/corten#8 Less work per page: escape, route parameters and module tags](https://github.com/todd-skelton/corten/pull/8); no breaking change for the pilot |
 | `733fdd4` | [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14) closed [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13): the lifecycle button is `action` again and its router test is gone; no breaking change for the pilot |
 | `6f2ba32` | [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21) closed [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15). Breaking for the pilot only in a test: a live route the API refuses now draws nothing (a stand-in session the stream accepts, `catalog-viewer`, checks a viewer's rows). Also brings [todd-skelton/corten#16 Write JSON with a derive whose layout is fixed at compile time](https://github.com/todd-skelton/corten/pull/16) (`Json` and `ToJson` move to the end of the prelude; nothing in the pilot changed) and [todd-skelton/corten#19 Copy a route parameter at once when nothing in it needs encoding](https://github.com/todd-skelton/corten/pull/19) |
+| `f80d4a1` | Corten `main` with the pilot's earlier gaps closed: [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9) (`SubmitKey`), [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20), [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24) and [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26). Breaking: `Json`, `req.screen` and `json_ld` take `ToJson`, so the screens and the catalog's read types derive it. `DimensionDetail` flattens a struct, which the derive refuses ([todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)), so it writes itself through serde. `SubmitKey` is not used yet: it was 32 hex digits and the Inventory API takes a UUID ([todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)) |
 
 ## What lives where
 
@@ -155,7 +158,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
 | `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
-| `jsconfig.json` | type-checks the apps' scripts (`tsc -p`, in CI), which `corten check` does not |
+| `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
+| `jsconfig.json` | type-checks the apps' scripts (`tsc -p`, in CI); `corten check` at the pin only does it inside an app's directory |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -189,8 +193,7 @@ forward only on purpose, when a fix the pilot needs lands.
    before the post, with marketplace's key and record, and the next page asks the API about any
    record it does not settle. While the answer is uncertain the page's writes are off until the
    seller checks again or discards the record. Without JavaScript the server still confirms the
-   attempt after the redirect. Corten has no per-submission idempotency key for forms; see Corten
-   gaps.
+   attempt after the redirect. Corten's `SubmitKey` is not used yet; see Corten gaps.
 8. **`target` cannot name a handler argument**: in a handler call it is the event's target, so
    `WriteForm` passes its record id as `record` ([`WriteForm`](marketplace/src/views/recovery.rs)).
    Corten documents this; not a gap.
@@ -268,44 +271,86 @@ forward only on purpose, when a fix the pilot needs lands.
     [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530);
     the workaround is `draft_refusal` in [`items`](admin/src/catalog/items.rs).
 19. **Marketplace and admin pages stay responsive.** Every ported page is checked at a phone's
-    width (390 px): the page must not scroll sideways (`scripts/smoke-items.mjs` checks it);
-    wide tables scroll inside their own box.
+    width (390 px): the page must not scroll sideways (`scripts/smoke-items.mjs` and
+    `smoke-item.mjs` check it); wide tables scroll inside their own box, and a title that is
+    one long id (a new draft's) wraps.
+20. **An item's page is one read and a route per write.** The page reads the item, the lines it
+    contains and the products that contain it at once, and the names of content types, policies
+    and items only when it has lines (admin-web reads the same lists). Each of admin-web's
+    dialogs is a `<dialog>` with its own form and route; Set Field Value is drawn by the server
+    when it opens (`GET /fields`, a patch with JavaScript, the page with it open without),
+    because its choices need the blueprint's fields. A reference field's record select is shown
+    only when a reference field is picked, with CSS `:has` and no script. Folds are
+    `<details>`, and the one a write changed comes back open. Publish's Recheck is the same
+    form sent with `formmethod="get"`: it reads the display identity's readiness again and
+    writes nothing.
+21. **Publish sends the preconditions the API asks for**, as admin-web does: the single-item
+    publish takes `blueprintIsActive` and `requiredFieldIds` from the caller, where the bulk
+    publish decides both itself. The pilot sends `blueprintIsActive: true` and no field ids,
+    so the API's own checks decide. Filed as
+    [chase-sets/chase-sets#10535 Decide a Catalog Item's publish preconditions in the API instead of taking them from the caller](https://github.com/chase-sets/chase-sets/issues/10535)
+    (`PublishInput` in [`form`](admin/src/catalog/form.rs)).
+22. **Image URLs are one per line.** admin-web's dialog has one line for all of them; the pilot's
+    is a textarea. Filed as
+    [chase-sets/chase-sets#10537 Let the Catalog Item Set Image URLs dialog take one URL per line](https://github.com/chase-sets/chase-sets/issues/10537).
+23. **Product contents are read again when written.** The API replaces the whole list and takes
+    no version, so two editors drop each other's lines. The pilot reads the list at write time,
+    not from the page, which narrows the window but does not close it. Filed as
+    [chase-sets/chase-sets#10538 Stop concurrent Product Contents edits from silently dropping each other's lines](https://github.com/chase-sets/chase-sets/issues/10538).
+24. **A field's error is outside its label.** A label that wraps its control names it with all
+    of its text, so an error inside it became part of the field's name ("Variants JSON Enter a
+    JSON object…"). Every pilot field now puts the message after the label, where
+    `aria-describedby` points to it, as Corten's examples do.
+25. **A write's page can be drawn from the read before it.** The Catalog API declares no exact
+    freshness routes, so a receipted item read waits on every catalog projection, and locally
+    one unrelated projection can keep it 503 "preparing" for 30 s and more (after one image URLs
+    write: the item's own data was current at 10 s and the receipted read at 27 s; measured
+    once). Filed as
+    [chase-sets/chase-sets#10549 Wait only on a Catalog Item's own projections when reading it after a write](https://github.com/chase-sets/chase-sets/issues/10549);
+    the wait also never wakes a projection, because wake-before-wait is off by default
+    ([chase-sets/chase-sets#2512 [Projection Performance] Roll out read-consistency wake-before-wait for critical routes](https://github.com/chase-sets/chase-sets/issues/2512)).
+    After 30 s the receipt is dropped, as admin-web drops it, and the page can show the record
+    from before the write with no notice. Separately, the admin item projection can rebuild an
+    item's page from the row before an event and never apply it, so a saved change may not show
+    at all:
+    [chase-sets/chase-sets#10554 Keep the admin Catalog Item pages current when the item projection applies an event after them](https://github.com/chase-sets/chase-sets/issues/10554).
+    `smoke-item.mjs` reloads for up to 90 s before it checks a write's result, and reports a step
+    as blocked (not passed) when the API's own item lacks the change too.
 
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9)
-   (correctness). Corten's rule 3 asks actions to
-   carry one, but a `data-patch` form cannot get one from Corten, and the runtime aborts a pending
-   submit when a newer one differs, which does not stop the first write on the server. The
-   pilot's workaround is item 7 above.
-2. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
-   (correctness). A handler's call is checked when the crate compiles, but nothing in an app's
-   loop checks a script's body: a misspelled property in the bulk-selection script passed
-   `corten check` and failed `tsc --checkJs`. Workaround: [`jsconfig.json`](jsconfig.json) and a
-   CI step that runs the repo's `tsc` over the apps' scripts (none imports from `corten` yet,
-   so the DOM's types are enough).
-3. [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24)
-   (end-user performance). `text/event-stream` is left out of compression, so each live event is
-   sent raw: 16,979 B for the full dimensions list. Simulated with a compressor that keeps its
-   context across events, zstd 1 gives 2,238 B for the first event and 20 B for a near-identical
-   second one. No workaround; the pilot accepts the bytes.
-4. [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26)
-   (developer loop). `#[component]` treats any identifier `scope` in the body as a request for a
-   scope, and the error then talks about refs. Workaround: the bulk form's field is `mode`
-   (`BulkInput`), which also matches the API's `selection.mode`, and the items' publish preview
-   names its scope label `taken`. Closed in Corten at `8c8a878`, after the pin.
-5. [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32)
+1. [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32)
    (correctness, then developer time). A list's filters have to be declared again on its live,
    bulk preview and confirm routes, and a route that leaves one out still compiles but drops
    that filter. Workaround: the items' five filtered routes come from a `macro_rules!`
    (`filtered!` in [`items`](admin/src/catalog/items.rs)). The dimensions and fields routes
-   still repeat their fields.
-6. [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33)
+   still repeat their fields. Closed in Corten after the pin (`#[route(query)]`).
+2. [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33)
    (correctness, as the user sees it). admin-web's live lists show "Live", "Connecting…" or
    "Stale since …". The pilot has nothing to read it from, so a dropped live list looks like an
-   unchanged one. No workaround; the indicator is left out.
+   unchanged one. No workaround; the indicator is left out. Closed in Corten after the pin
+   (`status` and `stale-since` on the element).
+3. [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)
+   (developer time). `DimensionDetail` flattens `Dimension` into itself, and the derive
+   refuses it. Workaround: a hand-written `ToJson` that writes through `serde_json`
+   ([`api`](admin/src/catalog/api.rs)).
+4. [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)
+   (correctness). The Inventory API takes a UUID v4 attempt id, so marketplace keeps its own
+   (item 7 above). Closed in Corten after the pin (`SubmitKey` is a UUID v4).
+5. [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39)
+   (correctness). Workaround: CI still runs `tsc -p jsconfig.json`. Closed in Corten after the
+   pin.
+6. [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44)
+   (correctness). The runtime reads a patched form's id as `form.id`, which a control named
+   `id` shadows, so the 422 that comes back is dropped and the dialog shows no error.
+   Workaround: the one-id dialogs (Assign Blueprint, Assign Category) name their control
+   `chosen_id` (`IdInput` in [`form`](admin/src/catalog/form.rs)).
+7. [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45)
+   (correctness, for a screen reader). Set Tags and Set Image URLs both have field `text`;
+   refuse both in one page view and there are two `text-error` ids. No workaround; in practice
+   one dialog is refused at a time.
 
 Also met, and already filed by Corten:
 [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17).
@@ -335,6 +380,19 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `f80d4a1` pin:
+
+1. [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9)
+   (correctness): Corten has `SubmitKey`, renewed after each answer. Not adopted yet; see
+   [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35).
+2. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
+   (correctness): `corten check` in an app's directory runs `tsc` over its scripts when `tsc`
+   is on `PATH`. At the workspace root it does not yet (see the open gaps).
+3. [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24)
+   (end-user performance): live events are compressed.
+4. [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26)
+   (developer loop). The `mode` and `taken` names stay; they match the API's words.
 
 Fixed in [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21), at the pin, workaround removed:
 

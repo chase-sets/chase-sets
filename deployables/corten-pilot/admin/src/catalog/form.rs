@@ -6,7 +6,7 @@ use corten::prelude::*;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use super::api::{Dimension, DimensionOption, Field};
+use super::api::{ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption};
 use crate::text::Pilot;
 
 /// A new id for a form about to be drawn, as `createId(prefix)` makes it: the API takes the id
@@ -417,6 +417,269 @@ impl ItemBulkInput {
     }
 }
 
+/// `parseFieldValueInput`: text as typed, or the JSON it holds when it starts with `{` or `[`
+/// and parses.
+pub fn field_value(text: &str) -> Value {
+    let trimmed = text.trim();
+    if (trimmed.starts_with('{') || trimmed.starts_with('['))
+        && let Ok(value) = serde_json::from_str(trimmed)
+    {
+        return value;
+    }
+    Value::String(text.to_owned())
+}
+
+/// Text split on `sep`, each part trimmed, the empty ones dropped (admin-web's tag, id and URL
+/// inputs).
+pub fn parts(text: &str, sep: char) -> Vec<String> {
+    text.split(sep).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned).collect()
+}
+
+/// `parseSelectedOptionsInput`: `dimensionId:optionId` pairs separated by commas; a pair
+/// missing either half is dropped.
+pub fn selected_options(text: &str) -> Vec<SelectedOption> {
+    parts(text, ',')
+        .iter()
+        .filter_map(|entry| {
+            let (dimension, option) = entry.split_once(':').unwrap_or((entry, ""));
+            let (dimension, option) = (dimension.trim(), option.split(':').next().unwrap_or("").trim());
+            (!dimension.is_empty() && !option.is_empty())
+                .then(|| SelectedOption { dimension_id: dimension.into(), option_id: option.into() })
+        })
+        .collect()
+}
+
+/// `localizedTextMapFromUnknown`: a localized text the API sent, as it is, or `fallback` in English.
+pub fn localized_or(value: &Value, fallback: &str) -> Value {
+    let valid = value.get("defaultLocale").is_some_and(Value::is_string) && value.get("values").is_some_and(Value::is_object);
+    if valid { value.clone() } else { english(fallback) }
+}
+
+/// A text a field needs, or its error.
+fn required(errors: &mut Errors, field: FieldName, text: &str, p: Pilot) {
+    if text.trim().is_empty() {
+        errors.add(field, p.check_required());
+    }
+}
+
+/// The publish dialog: the required field ids an operator types, as admin-web's dialog asks for
+/// them (chase-sets/chase-sets#10535 asks the API to decide them).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct PublishInput {
+    pub required_field_ids: String,
+}
+
+impl PublishInput {
+    /// `publishCatalogItem`'s body: the blueprint is said to be active, as admin-web says it.
+    pub fn body(&self) -> Value {
+        json!({ "blueprintIsActive": true, "requiredFieldIds": parts(&self.required_field_ids, ',') })
+    }
+}
+
+/// One id a dialog takes: a blueprint's, a category's.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct IdInput {
+    /// Not `id`: a control named `id` shadows the form's id, and the runtime cannot patch it
+    /// (todd-skelton/corten#44).
+    pub chosen_id: String,
+}
+
+impl IdInput {
+    pub fn check(&self, p: Pilot) -> Result<&str, Errors> {
+        let mut errors = Errors::new();
+        required(&mut errors, Self::FIELDS.chosen_id, &self.chosen_id, p);
+        errors.into_result(self.chosen_id.trim())
+    }
+}
+
+/// Set Field Value: the field, and its value as text or the reference record it names (only
+/// read for a reference field; the API says which fields are).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct FieldValueInput {
+    pub field_id: String,
+    pub value: String,
+    pub reference_id: String,
+}
+
+impl FieldValueInput {
+    /// `setFieldValue`'s body: `{ value }`, a reference field's `{ referenceId }` when one was
+    /// picked, as admin-web sends them.
+    pub fn body(&self, reference: bool, p: Pilot) -> Result<Value, Errors> {
+        let mut errors = Errors::new();
+        required(&mut errors, Self::FIELDS.field_id, &self.field_id, p);
+        let value = if reference && !self.reference_id.trim().is_empty() {
+            json!({ "referenceId": self.reference_id.trim() })
+        } else {
+            field_value(&self.value)
+        };
+        errors.into_result(json!({ "value": value }))
+    }
+}
+
+/// Edit Description: the language and the description. The title and subtitle are sent back as
+/// the API holds them when the write is sent (`localized_or`).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct MetadataInput {
+    pub language_code: String,
+    pub description: String,
+}
+
+impl MetadataInput {
+    pub fn of(item: &ItemDetail) -> Self {
+        MetadataInput { language_code: item.language_code.clone(), description: item.description.clone().unwrap_or_default() }
+    }
+
+    /// `reviseMetadata`'s body, for `item` as it is now.
+    pub fn body(&self, item: &ItemDetail) -> Value {
+        let subtitle = if item.subtitle_i18n.is_null() { Value::Null } else { localized_or(&item.subtitle_i18n, "") };
+        let language = self.language_code.trim();
+        json!({
+            "title": localized_or(&item.title_i18n, &item.catalog_item_id),
+            "subtitle": subtitle,
+            "description": english(&self.description),
+            "languageCode": if language.is_empty() { "en" } else { language },
+        })
+    }
+}
+
+/// Set Tags (comma-separated) or Set Image URLs (one per line).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ListInput {
+    pub text: String,
+}
+
+/// Set image fallback. `usage` is `permanent` or `loading-only`; `variants` a JSON object.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct FallbackInput {
+    pub url: String,
+    pub alt: String,
+    pub usage: String,
+    pub variants: String,
+}
+
+impl FallbackInput {
+    /// The dialog for `item` (admin-web's `startSetImageFallback`).
+    pub fn of(item: &ItemDetail) -> Self {
+        let fallback = item.image_fallback.as_ref();
+        let variants = fallback.map(|f| &f.variants).filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
+        FallbackInput {
+            url: fallback.map(|f| f.url.clone()).unwrap_or_default(),
+            alt: fallback.map_or_else(|| item.title.clone(), |f| f.alt.clone()),
+            usage: fallback.map_or_else(|| "permanent".into(), |f| f.usage.clone()),
+            variants: serde_json::to_string_pretty(&variants).unwrap_or_else(|_| "{}".into()),
+        }
+    }
+
+    /// `setImageFallback`'s body. Variants that are not a JSON object are the field's error
+    /// (admin-web sends `{}` instead, dropping what was typed).
+    pub fn body(&self, p: Pilot) -> Result<Value, Errors> {
+        let f = Self::FIELDS;
+        let mut errors = Errors::new();
+        let variants = match self.variants.trim() {
+            "" => Some(json!({})),
+            text => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        };
+        if variants.is_none() {
+            errors.add(f.variants, p.check_json_object());
+        }
+        let usage = if self.usage == "loading-only" { "loading-only" } else { "permanent" };
+        let fallback = json!({ "url": self.url, "alt": self.alt, "usage": usage, "variants": variants.unwrap_or_default() });
+        errors.into_result(json!({ "imageFallback": fallback }))
+    }
+}
+
+/// Link an external reference: the provider, its key, and (a product reference) the options.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ReferenceInput {
+    pub provider_key: String,
+    pub external_key: String,
+    pub selected_options: String,
+}
+
+impl ReferenceInput {
+    /// The dialog's defaults: admin-web's provider.
+    pub fn blank() -> Self {
+        ReferenceInput { provider_key: "tcgplayer".into(), ..Default::default() }
+    }
+
+    /// The provider and key, which name the reference in the API's path.
+    pub fn check(&self, p: Pilot) -> Result<(&str, &str), Errors> {
+        let f = Self::FIELDS;
+        let mut errors = Errors::new();
+        required(&mut errors, f.provider_key, &self.provider_key, p);
+        required(&mut errors, f.external_key, &self.external_key, p);
+        errors.into_result((self.provider_key.trim(), self.external_key.trim()))
+    }
+
+    /// A product reference's body.
+    pub fn product_body(&self) -> Value {
+        json!({ "selectedOptions": selected_options(&self.selected_options) })
+    }
+}
+
+/// Add content line: the type, the policy, the contained item and its options, and the quantity
+/// (empty for none).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ContentLineInput {
+    pub content_type_id: String,
+    pub inclusion_policy_id: String,
+    pub contained_catalog_item_id: String,
+    pub contained_options: String,
+    pub quantity: String,
+}
+
+impl ContentLineInput {
+    pub fn blank() -> Self {
+        ContentLineInput { quantity: "1".into(), ..Default::default() }
+    }
+
+    /// The new line (`ProductContentLineInput`), or what is missing: admin-web's Add is off
+    /// until a type and an item are chosen.
+    pub fn line(&self, p: Pilot) -> Result<Value, Errors> {
+        let f = Self::FIELDS;
+        let mut errors = Errors::new();
+        required(&mut errors, f.content_type_id, &self.content_type_id, p);
+        required(&mut errors, f.contained_catalog_item_id, &self.contained_catalog_item_id, p);
+        let quantity = match self.quantity.trim() {
+            "" => Some(Value::Null),
+            text => text.parse::<f64>().ok().filter(|q| q.is_finite()).map(|q| json!(q)),
+        };
+        if quantity.is_none() {
+            errors.add(f.quantity, p.check_number());
+        }
+        let options = selected_options(&self.contained_options);
+        let policy = self.inclusion_policy_id.trim();
+        errors.into_result(json!({
+            "containedCatalogItemId": self.contained_catalog_item_id.trim(),
+            "containedSelectedOptions": if options.is_empty() { Value::Null } else { json!(options) },
+            "quantity": quantity.unwrap_or_default(),
+            "contentTypeId": self.content_type_id.trim(),
+            "inclusionPolicyId": if policy.is_empty() { Value::Null } else { json!(policy) },
+            "provenance": { "source": "operator" },
+        }))
+    }
+}
+
+/// A line the API holds, as a replace sends it back (`productContentLineToInput`).
+pub fn line_input(line: &ContentLine) -> Value {
+    json!({
+        "containedCatalogItemId": line.contained_catalog_item_id,
+        "containedSelectedOptions": line.contained_selected_options,
+        "quantity": line.quantity,
+        "contentTypeId": line.content_type_id,
+        "inclusionPolicyId": line.inclusion_policy_id,
+        "provenance": line.provenance,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +749,52 @@ mod tests {
         let created = ItemInput { item_id: "cat_1".into(), language_code: "ja".into(), description: " Box ".into() }.body();
         assert_eq!(created["title"], json!({ "defaultLocale": "en", "values": { "en": "cat_1" } }));
         assert_eq!((created["subtitle"].clone(), created["description"]["values"]["en"].clone()), (Value::Null, json!("Box")));
+    }
+
+    #[test]
+    fn the_item_pages_forms_send_what_admin_webs_dialogs_send() {
+        let p = Pilot::default();
+        assert_eq!(field_value("{\"a\": 1}"), json!({ "a": 1 }));
+        assert_eq!(field_value(" [oops"), json!(" [oops"), "not JSON: the text as typed");
+        assert_eq!(field_value("Near Mint"), json!("Near Mint"));
+        let reference = FieldValueInput { field_id: "fld_1".into(), value: "x".into(), reference_id: "ref_1".into() };
+        assert_eq!(reference.body(true, p).unwrap(), json!({ "value": { "referenceId": "ref_1" } }));
+        assert_eq!(reference.body(false, p).unwrap(), json!({ "value": "x" }), "a text field ignores a picked record");
+        assert!(FieldValueInput::default().body(false, p).is_err_and(|e| e.has(FieldValueInput::FIELDS.field_id)));
+
+        assert_eq!(
+            selected_options("dim_a:opt_1, dim_b, :opt_2, dim_c:opt_3:x"),
+            [
+                SelectedOption { dimension_id: "dim_a".into(), option_id: "opt_1".into() },
+                SelectedOption { dimension_id: "dim_c".into(), option_id: "opt_3".into() },
+            ]
+        );
+        assert_eq!(parts(" a,, b ,", ','), ["a", "b"]);
+        assert_eq!(
+            PublishInput { required_field_ids: "fld_1, ,fld_2".into() }.body(),
+            json!({ "blueprintIsActive": true, "requiredFieldIds": ["fld_1", "fld_2"] })
+        );
+
+        let bad = FallbackInput { url: "u".into(), alt: "a".into(), usage: "other".into(), variants: "[1]".into() };
+        assert!(bad.body(p).is_err_and(|e| e.has(FallbackInput::FIELDS.variants)));
+        let good = FallbackInput { variants: " ".into(), ..bad };
+        assert_eq!(
+            good.body(p).unwrap()["imageFallback"],
+            json!({ "url": "u", "alt": "a", "usage": "permanent", "variants": {} })
+        );
+
+        let line = ContentLineInput {
+            content_type_id: "pct_1".into(),
+            contained_catalog_item_id: "cat_2".into(),
+            ..ContentLineInput::blank()
+        };
+        assert_eq!(
+            line.line(p).unwrap(),
+            json!({ "containedCatalogItemId": "cat_2", "containedSelectedOptions": null, "quantity": 1.0, "contentTypeId": "pct_1",
+                    "inclusionPolicyId": null, "provenance": { "source": "operator" } })
+        );
+        assert!(ContentLineInput { quantity: "two".into(), ..line.clone() }.line(p).is_err());
+        assert_eq!(ContentLineInput { quantity: " ".into(), ..line }.line(p).unwrap()["quantity"], Value::Null);
+        assert_eq!(localized_or(&json!({ "values": {} }), "cat_1"), english("cat_1"), "not a localized text");
     }
 }
