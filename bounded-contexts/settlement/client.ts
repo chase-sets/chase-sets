@@ -79,6 +79,13 @@ export type SettlementPayoutPreview = Readonly<{
   }>[];
 }>;
 
+export type SettlementPayoutQuickAmounts = Readonly<{
+  currency_code: string;
+  minimum_amount: string;
+  maximum_amount: string;
+  full_available_amount: string;
+}>;
+
 export type SettlementPayoutEmbeddedSession = Readonly<{
   clientSecret: string;
   providerReference: string;
@@ -202,6 +209,9 @@ export function createSettlementApiClient({
     },
     async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
       return parseJsonResponse(await client["payout-readiness"].$get({ header: headers }));
+    },
+    async getPayoutQuickAmounts(): Promise<SettlementPayoutQuickAmounts> {
+      return parseJsonResponse(await client.payouts["quick-amounts"].$get({ header: headers }));
     },
     async getPayoutSetupProgress(): Promise<PayoutSetupProgress> {
       return parseJsonResponse(await client["payout-setup"].progress.$get({ header: headers }));

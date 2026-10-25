@@ -49,6 +49,12 @@ describe("Seller Desk money route", () => {
       listWalletEntries: vi.fn(async () => ({ items: [], total: 0 })),
       listPayouts: vi.fn(async () => ({ items: [], total: 0 })),
       getPayoutReadiness: vi.fn(async () => ({ account_id: "acc_seller", status: "ready" })),
+      getPayoutQuickAmounts: vi.fn(async () => ({
+        currency_code: "usd",
+        minimum_amount: "1.00",
+        maximum_amount: "10000.00",
+        full_available_amount: "125.00",
+      })),
     };
     mockCreateSettlementRequestApiClient.mockReturnValue(api);
 
@@ -66,11 +72,13 @@ describe("Seller Desk money route", () => {
       entries: { items: [] },
       payouts: { items: [] },
       payoutReadiness: { status: "ready" },
+      quickAmounts: { full_available_amount: "125.00" },
     });
     expect(api.getWallet).toHaveBeenCalledOnce();
     expect(api.listWalletEntries).toHaveBeenCalledOnce();
     expect(api.listPayouts).toHaveBeenCalledOnce();
     expect(api.getPayoutReadiness).toHaveBeenCalledOnce();
+    expect(api.getPayoutQuickAmounts).toHaveBeenCalledOnce();
   });
 
   it("sets the Stripe Connect CSP for payout account notifications", () => {
@@ -111,6 +119,7 @@ describe("Seller Desk money route", () => {
   it("returns the authoritative payout preview on the dashboard", async () => {
     const previewPayout = vi.fn(async () => ({
       can_request: true,
+      requested_amount: "12.50",
       estimated_wallet_balance_after: "87.50",
       unavailable_reason_details: [],
     }));
@@ -131,35 +140,34 @@ describe("Seller Desk money route", () => {
     });
   });
 
-  it("payout preview resolves the full-available shortcut through the route action", async () => {
-    const previewPayout = vi.fn(async () => ({
+  it("payout preview sends quick amount selections to the Settlement API", async () => {
+    const previewPayout = vi.fn(async ({ amount, amountSelection }: { amount?: string; amountSelection?: string }) => ({
       can_request: true,
+      requested_amount: amountSelection === "minimum" ? "1.00" : amountSelection === "available" ? "125.00" : amount,
       estimated_wallet_balance_after: "0.00",
       unavailable_reason_details: [],
     }));
     mockRequireActorFromAuthApi.mockResolvedValue(actor(["payouts.view", "payouts.request"]));
     mockCreateSettlementRequestApiClient.mockReturnValue({ previewPayout });
 
-    for (const [availableAmount, expectedAmount] of [
-      ["999999.00", "10000.00"],
-      ["10.005", "0.00"],
-      ["99999999999.00", "0.00"],
+    for (const [quickAmount, expectedAmount] of [
+      ["minimum", "1.00"],
+      ["available", "125.00"],
     ] as const) {
       const result = await action({
         request: formRequest(
           new URLSearchParams({
             intent: "preview-payout",
-            quickAmount: "available",
-            availableAmount,
+            quickAmount,
+            availableAmount: "999999.00",
           }),
         ),
         params: {},
         context: undefined,
       } as never);
 
-      expect(previewPayout).toHaveBeenLastCalledWith({ amount: expectedAmount });
+      expect(previewPayout).toHaveBeenLastCalledWith({ amountSelection: quickAmount });
       expect(result).toMatchObject({ confirmation: { amount: expectedAmount } });
-      expect(previewPayout).not.toHaveBeenLastCalledWith({ amount: availableAmount });
     }
 
     const manualResult = await action({
@@ -169,32 +177,49 @@ describe("Seller Desk money route", () => {
     } as never);
     expect(previewPayout).toHaveBeenLastCalledWith({ amount: "12.50" });
     expect(manualResult).toMatchObject({ confirmation: { amount: "12.50" } });
+  });
 
-    await action({
-      request: formRequest(
-        new URLSearchParams({
-          intent: "preview-payout",
-          quickAmount: "available",
-          renamedAvailableAmount: "999999.00",
-        }),
-      ),
+  it("confirms the server-resolved preview amount without forwarding browser balance", async () => {
+    const previewPayout = vi.fn(async () => ({
+      can_request: true,
+      requested_amount: "125.00",
+      estimated_wallet_balance_after: "0.00",
+      unavailable_reason_details: [],
+    }));
+    const createPayout = vi.fn(async () => ({
+      id: "pyo_selected",
+      version: 1,
+      status: "in-transit",
+      commitPosition: "43",
+      commitPositions: [],
+    }));
+    mockRequireActorFromAuthApi.mockResolvedValue(actor(["payouts.view", "payouts.request"]));
+    mockCreateSettlementRequestApiClient.mockReturnValue({ previewPayout, createPayout });
+
+    const previewResult = (await action({
+      request: formRequest(new URLSearchParams({ intent: "preview-payout", quickAmount: "available" })),
       params: {},
       context: undefined,
-    } as never);
-    expect(previewPayout).toHaveBeenLastCalledWith({ amount: "0.00" });
+    } as never)) as { confirmation: { amount: string } };
 
     await action({
       request: formRequest(
         new URLSearchParams({
-          intent: "preview-payout",
-          renamedQuickAmount: "available",
+          intent: "confirm-payout",
+          amount: previewResult.confirmation.amount,
           availableAmount: "999999.00",
         }),
       ),
       params: {},
       context: undefined,
     } as never);
-    expect(previewPayout).toHaveBeenLastCalledWith({ amount: "" });
+
+    expect(createPayout).toHaveBeenCalledWith({
+      amount: "125.00",
+      destinationReference: null,
+      note: null,
+    });
+    expect(createPayout.mock.calls[0]?.[0]).not.toHaveProperty("availableAmount");
   });
 
   it("queues the settlement reconciliation workflow for a retry action", async () => {

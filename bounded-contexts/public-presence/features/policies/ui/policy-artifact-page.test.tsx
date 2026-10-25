@@ -30,6 +30,12 @@ const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", 
 
 const payoutPanelProps: Parameters<typeof SettlementPayoutRequestPanel>[0] = {
   canRequestPayouts: true,
+  quickAmounts: {
+    currency_code: "usd",
+    minimum_amount: "5.00",
+    maximum_amount: "10000.00",
+    full_available_amount: "125.00",
+  },
   wallet: {
     account_id: "synthetic-payout-disclosure-account",
     currency_code: "usd",
