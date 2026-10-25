@@ -17,7 +17,7 @@ import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
 import { SettlementDomainError } from "../../../support/runtime-support/common";
-import type { SettlementPayoutFeePolicyValue } from "../domain/payout-policy";
+import type { SettlementPayoutBoundsPolicyValue, SettlementPayoutFeePolicyValue } from "../domain/payout-policy";
 import type { SettlementOperationsRecorder } from "./operations";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -117,6 +117,7 @@ function createPayoutArithmeticRuntime(
     spendHoldAmount?: string;
     platformAvailableAmount?: string;
     inTransitAmounts?: readonly string[];
+    boundsPolicy?: SettlementPayoutBoundsPolicyValue;
     feePolicy?: SettlementPayoutFeePolicyValue;
     moneyMovementGateway?: MoneyMovementGateway;
   }> = {},
@@ -219,17 +220,25 @@ function createPayoutArithmeticRuntime(
     moneyMovementGateway:
       options.moneyMovementGateway ??
       createSyntheticPlatformBalanceGateway(options.platformAvailableAmount ?? "999999.00"),
-    ...(options.feePolicy
+    ...(options.feePolicy || options.boundsPolicy
       ? {
           policies: {
             resolvePolicy: async (definition: { policyKey: string }, input?: { at?: string }) => ({
               policyKey: definition.policyKey,
               value:
                 definition.policyKey === "settlement.payout-fee"
-                  ? options.feePolicy
-                  : { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+                  ? (options.feePolicy ?? {
+                      label: "Payout fee",
+                      percentageBps: 25,
+                      fixedAmount: "0.25",
+                      firstPayoutOfMonthFixedAmount: "0.00",
+                    })
+                  : (options.boundsPolicy ?? { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" }),
               source: "policy",
-              documentId: "pol_synthetic_payout_fee",
+              documentId:
+                definition.policyKey === "settlement.payout-fee"
+                  ? "pol_synthetic_payout_fee"
+                  : "pol_synthetic_payout_bounds",
               resolvedAt: input?.at ?? new Date().toISOString(),
             }),
           } as never,
@@ -383,6 +392,88 @@ function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknow
 }
 
 describe("settlement payout runtime", () => {
+  it("returns policy bounds and the capped payable balance for quick amounts", async () => {
+    const runtime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "500.00",
+      supportHoldAmount: "30.00",
+      spendHoldAmount: "20.00",
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+    });
+
+    await expect(runtime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never })).resolves.toEqual({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "250.00",
+    });
+
+    for (const walletAvailableAmount of ["0.00", "-5.00"]) {
+      const zeroRuntime = createPayoutArithmeticRuntime({
+        walletAvailableAmount,
+        boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+      });
+      await expect(
+        zeroRuntime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never }),
+      ).resolves.toMatchObject({
+        full_available_amount: "0.00",
+      });
+    }
+  });
+
+  it("resolves preview amount selections after policy and holds and ignores a posted available balance", async () => {
+    const options = {
+      walletAvailableAmount: "180.00",
+      supportHoldAmount: "30.00",
+      spendHoldAmount: "20.00",
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "100.00" } as const,
+    };
+    const runtime = createPayoutArithmeticRuntime(options);
+    const minimum = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "minimum" },
+      context,
+    );
+    const directMinimum = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "7.00" },
+      context,
+    );
+    expect(minimum).toEqual(directMinimum);
+
+    const available = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+      context,
+    );
+    const directAvailable = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "100.00" },
+      context,
+    );
+    expect(available).toEqual(directAvailable);
+    expect(available.requested_amount).toBe("100.00");
+
+    const zeroRuntime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "20.00",
+      supportHoldAmount: "20.00",
+      boundsPolicy: options.boundsPolicy,
+    });
+    await expectNamedSettlementRejection(
+      zeroRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+
+    const zeroMinimumRuntime = createPayoutArithmeticRuntime({
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "0.00", maximumAmount: "100.00" },
+    });
+    await expectNamedSettlementRejection(
+      zeroMinimumRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "minimum" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+  });
+
   it("settlement payout money consolidation preserves in-range and negative results", async () => {
     const schedules = [
       {
