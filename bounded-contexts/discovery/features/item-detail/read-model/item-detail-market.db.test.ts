@@ -46,7 +46,7 @@ describeDb("Discovery item-detail market ordering and product facts on Postgres"
   });
 
   it("keeps the canonical boundary order, guards invalid prices, and returns out-of-window product facts", async () => {
-    const normalListings = Array.from({ length: 23 }, (_, index) => {
+    const normalListings = Array.from({ length: 24 }, (_, index) => {
       const number = String(index + 1).padStart(2, "0");
       return `('listing_${number}', 'listing-${number}', 'market-item', 'acc_seller', 'inv_${number}', 'cat_market', 'product_${number}',
          'Market item', '10.00', 'USD', 1, 1, 1, 0, '{}'::jsonb, 'active',
