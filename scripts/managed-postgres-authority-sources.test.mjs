@@ -544,6 +544,9 @@ const reviewedRetiredVerifierRemovals = new Set([
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
 const uploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const reviewedStepInsertions = [
+  // #10591: preflight and inspected-plan steps ahead of the DOKS apply path.
+  { file: ".github/workflows/platform-doks-foundation.yml", jobId: "apply", position: 8 },
+  { file: ".github/workflows/platform-doks-foundation.yml", jobId: "apply", position: 11 },
   // #10259: scheduled batch download, batch resolution and target-number steps ahead of destroy-preview cleanup.
   { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
   { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
