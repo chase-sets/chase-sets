@@ -10,6 +10,7 @@ import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
@@ -2062,7 +2063,7 @@ describe("checkout session runtime", () => {
         })),
         purchaseUspsLabel: vi.fn(),
         voidLabel: vi.fn(),
-      } as never,
+      } satisfies PostageLabelProvider,
     });
     const readiness = createCartReadinessSnapshot([readyCartLine]);
     const created = await services.createFromCart(
@@ -2126,7 +2127,7 @@ describe("checkout session runtime", () => {
         })),
         purchaseUspsLabel: vi.fn(),
         voidLabel: vi.fn(),
-      } as never,
+      } satisfies PostageLabelProvider,
     });
     const readiness = createCartReadinessSnapshot([readyCartLine]);
     const created = await services.createFromCart(
@@ -2192,13 +2193,47 @@ describe("checkout session runtime", () => {
     expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
-  it("retains the order-creation defense for legacy pre-guard addresses", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it.each([
+    ["required", { ...serviceableShippingAddress, postalCode: "" }, "shipping_address_required"],
+    ["region", { ...serviceableShippingAddress, state: "PR" }, "shipping_address_unsupported"],
+    ["country", { ...serviceableShippingAddress, country: "CA" }, "shipping_address_unsupported"],
+    ["restricted", { ...serviceableShippingAddress, line1: "PO Box 100" }, "shipping_address_restricted"],
+  ] as const)("appends zero events for rejected %s addresses", async (_name, shippingAddress, code) => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: { query: vi.fn(async () => ({ rows: [] })) },
       cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const { sessionId } = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    const before = [...allEvents];
+    const error = await services
+      .setShippingAddress({ sessionId, accountId: "acc_buyer" as never, shippingAddress }, context)
+      .then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+    expect(allEvents).toEqual(before);
+    expect(error).toMatchObject({ code });
+  });
+
+  it("retains the order-creation defense for legacy pre-guard addresses", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const cart = createCartServices();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
     });
     const readiness = createCartReadinessSnapshot([readyCartLine]);
     const created = await services.createFromCart(
@@ -2236,6 +2271,20 @@ describe("checkout session runtime", () => {
       message:
         "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
     } satisfies Partial<CheckoutDomainError>);
+    const before = [...allEvents];
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: ["cli_1"],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" });
+    expect(allEvents).toEqual(before);
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("rejects PO box delivery addresses at the address write", async () => {

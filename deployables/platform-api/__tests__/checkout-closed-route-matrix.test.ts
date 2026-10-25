@@ -1177,7 +1177,8 @@ describe("checkout-closed-session-lifecycle", () => {
       { sessionId: a, shippingAddressId: restrictedAddressId },
       "lifecycle-open-restricted-select",
     );
-    expect(await restrictedSelect.json()).toMatchObject({
+    const restrictedBody = await restrictedSelect.json();
+    expect(restrictedBody).toMatchObject({
       result: {
         isError: true,
         content: [
@@ -1191,6 +1192,8 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(store.allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(
       beforeRestrictedAddressEvents,
     );
+    expect(restrictedBody.result).not.toHaveProperty("structuredContent");
+    await expect(setAddress.mock.results[1]!.value).rejects.toMatchObject({ code: "shipping_address_restricted" });
     const closedSelect = await nativeTool(
       f.closed,
       "checkout.select-saved-address",
