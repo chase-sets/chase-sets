@@ -18,7 +18,10 @@
 //! (`use-item-detail-page-model.tsx`, `item-detail-market.ts`, `product-resolution.ts`), which
 //! the scope decision on chase-sets/chase-sets#10558 (item-detail Listings and Offers in canonical
 //! order) leaves in the web layer as presentation.
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use corten::{
     axum::{
@@ -28,17 +31,18 @@ use corten::{
     prelude::*,
     route::Params,
 };
+use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
-        StandardTerms,
+        ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
+        SellerOverlay, StandardTerms,
     },
     app::{Shared, marketplace_origin, url},
     auth::Session,
     buying::{self, ADDED, BuyNotice},
-    selling,
+    listing, selling,
     text::ItemMsg,
     views, watching,
 };
@@ -73,6 +77,14 @@ impl url::items::Handlers for Pages {
 
     fn item_watch(&self) -> MethodRouter {
         post(watching::watch).with_state(self.0.clone())
+    }
+
+    fn item_list(&self) -> MethodRouter {
+        post(listing::list).with_state(self.0.clone())
+    }
+
+    fn item_ship_from(&self) -> MethodRouter {
+        post(listing::ship_from).with_state(self.0.clone())
     }
 }
 
@@ -492,6 +504,16 @@ pub struct ItemScreen {
     pub offer_terms: Option<StandardTerms>,
     /// The viewer sees the item as a seller (`canUseSellerFeatures`).
     pub seller_features: bool,
+    /// The viewer may list at a price (`canUseListingFeatures`: `listings.view` and
+    /// `listings.manage`).
+    pub listing_features: bool,
+    /// The viewer has no account sell list (a guest), so a listing is a draft they register to
+    /// claim (`canUseGuestListingDraft`).
+    pub guest_listing_draft: bool,
+    /// The listing the address names was just published and the item's read is behind it: its id.
+    pub listing_pending: Option<String>,
+    /// Whether a seller who may list has their ship-from setup.
+    pub listing_setup: ListingSetup,
 }
 
 impl ItemScreen {
@@ -609,6 +631,10 @@ impl ItemScreen {
             product_summary,
             offer_terms: None,
             seller_features: false,
+            listing_features: false,
+            guest_listing_draft: false,
+            listing_pending: None,
+            listing_setup: ListingSetup::NotApplicable,
             picks,
             item,
         }
@@ -620,6 +646,17 @@ impl ItemScreen {
 
     pub fn selected_offer(&self) -> Option<&Offer> {
         self.offer_id.as_ref().and_then(|id| self.offers.iter().find(|o| &o.offer_id == id))
+    }
+
+    /// The viewer's own listing of the product shown (marketplace's `ownListing`): the listing
+    /// the address chose when it is theirs, else their listing of the product among the buyable
+    /// ones. Only for a viewer who may list.
+    pub fn own_listing(&self) -> Option<&Listing> {
+        let viewer = self.viewer_account_id.as_deref().filter(|_| self.listing_features)?;
+        let product = self.product_id.as_deref()?;
+        self.selected_listing()
+            .filter(|l| self.listing_explicit && l.account_id == viewer)
+            .or_else(|| self.listings.iter().find(|l| l.account_id == viewer && l.product_id == product))
     }
 
     /// The options a listing or an offer names, as "Dimension: Option" pairs in order
@@ -708,11 +745,32 @@ async fn page(
     Path(id): Path<String>,
     Query(raw): Query<Raw>,
 ) -> corten::Result {
-    let caller = config.platform.caller(&headers, config.proto, None);
-    let item = match caller.item(&id).await {
-        Ok(Some(item)) => item,
-        Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
+    // After a seller's write (a listing, the ship-from setup), the page reads with its receipt, so
+    // the listing or the setup is there. A read the write's projection has not caught up with yet
+    // is the page as it is now, read again shortly until the receipt is too old to wait for.
+    let receipt = first(listing::WRITTEN).and_then(|r| Receipt::from_param(Some(r)));
+    let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    let address = Address::read(&raw);
+    // The item and the seller overlay at once: with a receipt, each may wait on the API for the
+    // write's projection (2.5 s at most), and one after the other would wait twice.
+    let (read, overlay) = tokio::join!(caller.item(&id), read_overlay(&req, &caller, &id, &address));
+    let (item, behind) = match read {
+        Ok(Some(item)) => (Some(item), false),
+        Ok(None) if receipt.is_none() => (None, false),
+        Err(error) if receipt.is_none() || !error.catching_up() => {
+            return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY));
+        }
+        _ => (None, true),
+    };
+    let item = match item {
+        Some(item) => item,
+        None if !behind => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
+        None => match config.platform.caller(&headers, config.proto, None).item(&id).await {
+            Ok(Some(item)) => item,
+            Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
+            Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        },
     };
     // An id or an old slug moves to the item's slug for good, its parameters kept as sent.
     if let Some(slug) = item.slug.as_deref().filter(|slug| *slug != id) {
@@ -724,15 +782,82 @@ async fn page(
         let to: Uri = to.parse().map_err(corten::Error::new)?;
         return req.moved(&to);
     }
-    let address = Address::read(&raw);
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
-    let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
     // After Set alert, the page says so; the alerts' settings wait for the write's receipt.
     let notice = first(ADDED)
         .map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)))
         .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))));
     let terms = offer_terms(&req, &caller, &item, &address).await;
-    render(&req, item, &address, notice.as_ref(), StatusCode::OK, terms)
+    let setup = listing_setup(&req, overlay, receipt.is_some());
+    // The listing the address names was just published and the item's read is behind it.
+    let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
+    let reads = SellReads { terms, behind: behind || setup == ListingSetup::Recovering, setup, listing_pending };
+    render(&req, item, &address, notice.as_ref(), StatusCode::OK, reads)
+}
+
+/// What the Sell tab reads beyond the item: a guest's offer terms (`offer_terms`), and for a
+/// seller who may list, their ship-from setup (the seller overlay). `after_write`: the read
+/// carries a write's receipt, so a read that is not caught up is the setup still updating.
+#[derive(Default)]
+pub struct SellReads {
+    pub terms: Option<StandardTerms>,
+    pub setup: ListingSetup,
+    /// A read is behind the write the address carries: the page asks to be read again.
+    pub behind: bool,
+    /// The listing the address names was just published and the item's read has not caught up:
+    /// the page says so instead of offering to list again. Its id.
+    pub listing_pending: Option<String>,
+}
+
+/// Whether a seller who may list can list now (marketplace's `ListingSetupLoadState`): their
+/// quick listings ship from a Listing stock location, which the seller overlay says they have.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ListingSetup {
+    /// The viewer may not list, or the page is not on its Sell tab.
+    #[default]
+    NotApplicable,
+    Ready,
+    /// No Listing stock location: the ship-from setup form is shown.
+    Missing,
+    /// The setup was just saved and its read has not caught up yet.
+    Recovering,
+    /// The overlay's read failed, for this reason; neither form can be used.
+    Failed(String),
+}
+
+/// The Sell tab's reads for `item` at `address` (`sell_reads` without a receipt for a
+/// refused form).
+pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address, after_write: bool) -> SellReads {
+    let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
+    let (terms, overlay) = tokio::join!(offer_terms(req, caller, item, address), read_overlay(req, caller, id, address));
+    let setup = listing_setup(req, overlay, after_write);
+    SellReads { terms, behind: setup == ListingSetup::Recovering, setup, listing_pending: None }
+}
+
+/// The seller overlay of item `id` (a slug or an id), when the page shows it: on the Sell tab,
+/// to a seller who may list.
+async fn read_overlay(req: &Req, caller: &Caller<'_>, id: &str, address: &Address) -> Option<Result<SellerOverlay, ApiError>> {
+    if address.market != Market::Sell || !listing::listing_features(req) {
+        return None;
+    }
+    Some(caller.seller_overlay(id).await)
+}
+
+/// The ship-from setup the overlay's read says (`after_write`: the read carries a write's
+/// receipt, so one that is not caught up is the setup still updating).
+fn listing_setup(req: &Req, overlay: Option<Result<SellerOverlay, ApiError>>, after_write: bool) -> ListingSetup {
+    let t: ItemMsg = req.t();
+    match overlay {
+        None => ListingSetup::NotApplicable,
+        Some(Ok(overlay)) if overlay.has_listing_stock_location => ListingSetup::Ready,
+        Some(Ok(_)) => ListingSetup::Missing,
+        Some(Err(error)) if after_write && error.catching_up() => ListingSetup::Recovering,
+        Some(Err(error)) => {
+            tracing::warn!("the seller overlay's read failed: {error}");
+            ListingSetup::Failed(error.refusal().unwrap_or(t.route_ship_from_setup_required()).to_owned())
+        }
+    }
 }
 
 /// The standard terms for the offer a guest's Sell rail shows (marketplace reads them for every
@@ -753,23 +878,30 @@ pub async fn offer_terms(req: &Req, caller: &Caller<'_>, item: &Item, address: &
     }
 }
 
-/// The page for `item` at `address`, with what a buy or sell write came to, and a guest's offer
-/// terms (`offer_terms`).
+/// The page for `item` at `address`, with what a buy or sell write came to, and what the Sell tab
+/// read (`sell_reads`).
 pub fn render(
     req: &Req,
     item: Item,
     address: &Address,
     notice: Option<&BuyNotice>,
     status: StatusCode,
-    terms: Option<StandardTerms>,
+    reads: SellReads,
 ) -> corten::Result {
     let viewer = match req.context::<Session>() {
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
         _ => None,
     };
     let mut screen = ItemScreen::of(item, address, viewer);
-    screen.offer_terms = terms;
+    screen.offer_terms = reads.terms;
     screen.seller_features = selling::seller_features(req);
+    screen.listing_features = listing::listing_features(req);
+    screen.guest_listing_draft = !selling::account_sell_list(req);
+    screen.listing_setup = reads.setup;
+    // A listing still catching up is not "unavailable": the rail says it is on its way.
+    screen.stale_listing &= reads.listing_pending.is_none();
+    screen.listing_pending = reads.listing_pending;
+    let behind = reads.behind;
     let t: ItemMsg = req.t();
     let item = &screen.item;
     let slug = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
@@ -795,6 +927,11 @@ pub fn render(
         }
         if let Some(ld) = &breadcrumb {
             <JsonLd value={ld} />
+        }
+        // Read again in 2 s while a read is behind the write the address carries, as the cart
+        // does, until the receipt is too old to wait for.
+        if behind {
+            <ReadAgain after={Duration::from_secs(2)} />
         }
     };
     let view = views::item_page(t, &screen, address, slug, notice);

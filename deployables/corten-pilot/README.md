@@ -19,7 +19,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
-| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration (not ported yet: listing at a price, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
+| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration (not ported yet: a graded product's listing; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -161,8 +161,9 @@ node scripts/smoke-cart.mjs --write     # also steps a one-line card's quantity 
                                         # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
 node scripts/smoke-market-item.mjs    # an item's page beside the API and marketplace's: a guest without JavaScript, the collector with it, options, a long-list form, Select, sell, 301, 404, 390 px (only reads)
 node scripts/smoke-market-item-buy.mjs http://localhost:7793  # the rail's buy forms: listing, product, Buy best match (a refusal too), Buy this listing, Make an offer (a price past the field's step, then marketplace's offer checkout), a guest's cart and checkout, 390 px with every fold open (writes cart lines and removes them; starts checkout sessions)
-node scripts/smoke-market-item-sell.mjs http://localhost:7793  # the rail's sell forms: a guest's payout and adds, a seller's Sell now, a collector refused, 390 px (writes sell-list lines and removes them)
+node scripts/smoke-market-item-sell.mjs http://localhost:7793  # the rail's sell forms: a guest's payout and adds, a seller's Sell now, a collector refused, 390 px (writes sell-list lines and removes them; marketplace's own Sell List, where a guest's add lands, sometimes answers 500 while a checkout projection is behind: [chase-sets/chase-sets#10600 [checkout] Sell List page answers 500 after a guest add when the offer-reviews read is behind](https://github.com/chase-sets/chase-sets/issues/10600))
 node scripts/smoke-market-item-watch.mjs http://localhost:7793  # the Watch tab: a guest's intent and marketplace's registration, the collector's alert with the catalog's words and the saved notice, a threshold past the field's step, 390 px (writes an alert and deletes it; a guest intent expires on its own)
+node scripts/smoke-market-item-list.mjs http://localhost:7793  # List this product as the seed seller: the post, the page while Discovery catches up and after, the same form again, the API's waits with the receipt, 390 px (lists below 250.00 and withdraws each listing)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -244,6 +245,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/cart_attempt.rs` | a cart write (`api::CartWrite`: the cart's commands or an item page's new line, for an account or a guest) as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
 | `marketplace/src/watching.rs` | the item page's Watch writes: an account's alert or a guest's intent for the product the page showed, the threshold's checks, and what the page says after each |
 | `marketplace/src/selling.rs` | the item page's sell writes: the sell-list line built from the item read again (an offer or a product), the guest sell list, the payout terms, and what the page says after each |
+| `marketplace/src/listing.rs` | the item page's List this product writes: the ship-from setup, the stock, the listing and its publication as one attempt, a guest's draft, and what the page says after each |
 | `marketplace/src/buying.rs` | the item page's buy writes: the cart line built from the item read again, the guest cart, Buy best match, Buy this listing, and what the page says after each |
 | `platform/src/money.rs` | what an amount the APIs send is (decimal text, at most two fraction digits, read as cents); Corten writes it (`t.money`) |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
@@ -625,6 +627,31 @@ forward only on purpose, when a fix the pilot needs lands.
     goes to marketplace's `/register` with the return address marketplace builds. Marketplace's
     item page claims the intent on the way back. A create takes no attempt id, so a form sent
     twice is two alerts ([chase-sets/chase-sets#10596 [discovery] Create an account Product Alert once when the same create is sent twice](https://github.com/chase-sets/chase-sets/issues/10596)).
+36. **List this product is the pilot's, one plain form, written as one attempt.** Marketplace's
+    action (`list-at-price`) makes three writes: it ensures the account's Listing stock holds the
+    product, creates the listing from the stock's snapshot, then publishes it. The pilot
+    ([`listing`](marketplace/src/listing.rs)) makes the same three, with one `SubmitKey` for all
+    of them. The stock's ensure takes it as its attempt, and the listing's id is made from it
+    (`listingIdOverride`, `lst_` and the UUID's digits). So a form sent again (its answer lost)
+    is the same stock and the same listing. The create then answers the listing as it is now,
+    and when it is already active the pilot does not publish it again, which the API would
+    refuse. The fold shows one of four things. An account that may not list sees registration.
+    A seller with their own listing of the product sees it and Manage listing. Without the
+    ship-from setup, the button is disabled and the setup's form is shown (a Listing stock
+    location, its own attempt). Otherwise the price (starting at the best listing's), currency
+    and quantity are shown. A guest's listing is a draft intent, kept in marketplace's cookie
+    (`chase_sets_anonymous_listing_drafts`) and claimed after `/register`, as marketplace does.
+    A refusal shows in the form, and a publish refusal (a price that needs photo evidence) also
+    links to the draft. After a listing, the post redirects (303) to the item with the listing
+    chosen and the write's receipt. The page reads the item and the seller overlay at once, since
+    each may wait 2.5 s on the API for the receipt, so the page waits once rather than twice
+    (measured on the sandbox: 2.6 s with both behind, where the earlier page took 4.3 s). Until
+    Discovery has caught up, the fold says the listing was published (the pilot's own words,
+    `item.listing_published`), links to it, offers no second listing and reads again in 2 s.
+    Marketplace's Create listing fails today for every product, because the create refuses two
+    keys the stock's snapshot now has ([chase-sets/chase-sets#10599 [marketplace] Accept the Listing stock snapshot Inventory returns when creating a listing (two new keys are refused)](https://github.com/chase-sets/chase-sets/issues/10599)). The pilot leaves each out when it is null
+    (`accepted_snapshot`). A graded product is not listed: the ensure needs graded details the
+    form does not collect ([chase-sets/chase-sets#10598 [discovery] Let List for sale on the item page list a graded product (it never sends graded card details)](https://github.com/chase-sets/chase-sets/issues/10598)).
 
 ## Corten gaps
 

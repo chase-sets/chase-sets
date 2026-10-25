@@ -167,7 +167,7 @@
    share the row from 30rem and stack below it. */
 .buy { display: grid; gap: var(--space-3); margin: 0; min-width: 0; }
 .quantity-field { display: grid; gap: var(--space-1); }
-.quantity-field input, .offer-fields input {
+.quantity-field input, .offer-fields input, .text-field input {
   width: 100%;
   max-width: 8rem;
   min-height: var(--control-height, 2.75rem);
@@ -234,3 +234,9 @@
 .product-buy[open] > summary { margin-bottom: var(--space-3); }
 .wide { width: 100%; }
 .offer-fields { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+/* The ship-from setup's address (marketplace's ListingStockShipFromSetupSection): text fields as
+   wide as their column, two to a row where they fit, the name and street on rows of their own. */
+.address-fields { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+.text-field { display: grid; gap: var(--space-1); min-width: 0; }
+.text-field input { max-width: none; }
+.full { grid-column: 1 / -1; }

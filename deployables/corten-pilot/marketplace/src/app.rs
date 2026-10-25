@@ -20,6 +20,8 @@
 //! | `POST /account/cart/lock` | lock a line to its preferred listing |
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
+//! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
+//! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
 //! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`.
@@ -168,6 +170,31 @@ pub mod url {
         #[route("/items/{slug}/watch")]
         pub struct ItemWatch<'a> {
             pub slug: &'a str,
+        }
+
+        /// List the product the Sell tab shows at a price: an account's listing, published, or a
+        /// guest's draft and then marketplace's registration.
+        #[route("/items/{slug}/list")]
+        pub struct ItemList<'a> {
+            pub slug: &'a str,
+        }
+
+        /// Save the ship-from address an account's quick listings ship from (its Listing stock
+        /// location).
+        #[route("/items/{slug}/ship-from")]
+        pub struct ItemShipFrom<'a> {
+            pub slug: &'a str,
+        }
+
+        /// A link (the item's route serves it): the item after a seller's write (ship-from setup, a
+        /// listing), whose reads wait for the write's receipt (empty for none).
+        #[derive(Route)]
+        #[route("/items/{slug}")]
+        pub struct ItemWritten<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+            pub after_write: &'a str,
         }
 
         /// A link (the item's route serves it): the item on its Watch tab after Set alert: the page says the alert was saved, with the

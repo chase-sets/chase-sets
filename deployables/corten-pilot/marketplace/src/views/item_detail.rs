@@ -8,13 +8,14 @@ use serde_json::{Value, json};
 
 use super::on_marketplace;
 use crate::{
-    api::{FieldValue, Item, Listing, Offer, Reference},
+    api::{FieldValue, Item, Listing, Offer, Reference, segment},
     app::url,
     buying::{BuyFields, BuyNotice, RailForm, field},
     items::{
-        Address, Book, ItemScreen, Market, OptionMarket, Picks, active_dimensions, available, normalize, option_label,
-        ordered_options,
+        Address, Book, ItemScreen, ListingSetup, Market, OptionMarket, Picks, active_dimensions, available, normalize,
+        option_label, ordered_options,
     },
+    listing::{self, ListFields},
     selling::{self, SellForm, SellIntent},
     text::{ItemMsg, Pilot},
     watching::{self, Side},
@@ -632,7 +633,8 @@ fn Rail<'a>(
         (_, Some(_)) => t.route_best_offer_heading(),
         _ => t.route_selected_product(),
     };
-    let continue_on = on_marketplace(&url::Item { slug, state: address.clone() }.href());
+    let here = url::Item { slug, state: address.clone() }.href();
+    let continue_on = on_marketplace(&here);
     let buying = screen.market == Market::Buy;
     let product = screen.product_id.as_deref().filter(|_| buying);
     let refused = match notice {
@@ -814,7 +816,7 @@ fn Rail<'a>(
                 </details>
             }
             if sell {
-                <SellForms t={t} screen={screen} page={&page} slug={slug} notice={notice} />
+                <SellForms t={t} screen={screen} page={&page} slug={slug} here={&here} notice={notice} />
             }
             if watch {
                 <WatchForms t={t} screen={screen} page={&page} slug={slug} notice={notice} />
@@ -877,6 +879,7 @@ fn SellForms<'a>(
     screen: &'a ItemScreen,
     page: &'a [(String, String)],
     slug: &'a str,
+    here: &'a str,
     notice: Option<&'a BuyNotice>,
 ) -> impl Render {
     let offer = screen.selected_offer();
@@ -955,7 +958,230 @@ fn SellForms<'a>(
                     </button>
                 </form>
             </details>
+            <ListForms t={t} screen={screen} page={page} slug={slug} here={here} product={product} notice={notice} />
         }
+    }
+}
+
+/// List this product, the Sell tab's third action (marketplace's `MarketplaceListingSubmissionSection`
+/// and `ListingStockShipFromSetupSection`, or its listing registration panel), folded like the
+/// others and open when the address chose the seller's own listing or a listing form was refused.
+///
+/// A seller who may list sees their own listing of the product and Manage listing, or the form:
+/// the price (the best listing's to start), the currency and the quantity. Without a Listing
+/// stock location the form says the ship-from setup comes first, its button is disabled, and the
+/// setup's form follows. A guest drafts the listing without a ship-from and registers to publish
+/// it. Any other account is sent to marketplace's registration, as marketplace sends it. Plain
+/// forms (`listing`).
+#[component(css = ItemDetail)]
+fn ListForms<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    page: &'a [(String, String)],
+    slug: &'a str,
+    here: &'a str,
+    product: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render {
+    let own = screen.own_listing();
+    let may_list = screen.listing_features || screen.guest_listing_draft;
+    let (refused, typed, draft) = match notice {
+        Some(BuyNotice::ListRefused { message, input, draft }) => (Some(message.as_str()), Some(input), draft.as_deref()),
+        _ => (None, None, None),
+    };
+    let ship = match notice {
+        Some(BuyNotice::ShipFromRefused { message, input }) => Some((message.as_str(), input)),
+        _ => None,
+    };
+    let needs_setup = screen.listing_features && screen.listing_setup != ListingSetup::Ready;
+    let setup_note = match &screen.listing_setup {
+        ListingSetup::Recovering => t.route_ship_from_setup_pending_fresh_write(),
+        ListingSetup::Failed(message) => message.as_str(),
+        _ => t.route_ship_from_setup_required(),
+    };
+    let pending = screen.listing_pending.as_deref();
+    let open = refused.is_some() || ship.is_some() || pending.is_some() || (own.is_some() && screen.listing_explicit);
+    let p = Pilot::default();
+    let best = screen.listings.first();
+    let price = typed.map(|i| i.price.as_str()).or(best.map(|l| l.price_amount.as_str()));
+    // A listing's currency starts as the listings' (marketplace's field starts empty).
+    let currency = typed.map(|i| i.currency.as_str()).or(screen.summary.lowest_price_currency_code.as_deref()).unwrap_or("USD");
+    let quantity = typed.map_or("1", |i| i.quantity.as_str());
+    let manage = |id: &str| on_marketplace(&format!("/account/listings/{}", segment(id)));
+    let register = on_marketplace(&format!("/register?returnTo={}", segment(here)));
+    let register_label =
+        if screen.selected_offer().is_some() { t.route_sign_in_or_register_to_list() } else { t.route_register_to_sell() };
+    let action = url::ItemList { slug }.href();
+    let ship_action = url::ItemShipFrom { slug }.href();
+    let typed_ship = move |pick: fn(&listing::ShipFromInput) -> &str| ship.map(|(_, i)| pick(i));
+    let f = ListFields::FIELDS;
+    html! {
+        <details class={ProductBuy} open={open}>
+            <summary>
+                <span class={Strong}>{t.route_sell_on_chase_sets()}</span>
+                <span class={Muted}>{t.route_list_for_sale_action_description()}</span>
+            </summary>
+            if !may_list {
+                <dl class={Pairs}>
+                    <div>
+                        <dt>{t.route_asking_price()}</dt>
+                        <dd>{t.route_set_after_registration()}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.route_inventory()}</dt>
+                        <dd>{t.route_confirm_after_registration()}</dd>
+                    </div>
+                </dl>
+                <p class={Muted}>{t.route_reference_info_create_listing_summary()}</p>
+                <a class={(Button, Primary)} href={&register}>{register_label}</a>
+            } else if let Some(id) = pending {
+                <div role="status">
+                    <p class={Strong}>{p.item_listing_published()}</p>
+                    <p class={Muted}>{p.item_listing_published_description()}</p>
+                </div>
+                <a class={Button} href={&manage(id)}>{t.route_manage_listing()}</a>
+            } else if let Some(l) = own {
+                <p class={Muted}>{t.route_your_listing_summary(&l.status, &listing_price(t, l))}</p>
+                <a class={Button} href={&manage(&l.listing_id)}>{t.route_manage_listing()}</a>
+            } else {
+                <form class={Buy} method="post" action={&action}>
+                    {SubmitKey::field(f.attempt)}
+                    <Hidden pairs={page} />
+                    <input type="hidden" name={listing::field::PRODUCT} value={product}>
+                    if let Some(l) = best {
+                        <p class={Muted}>{t.route_current_best_listing_summary(&listing_price(t, l))}</p>
+                    }
+                    <p class={Muted}>
+                        {if screen.guest_listing_draft {
+                            t.route_reference_info_create_listing_line1()
+                        } else {
+                            t.route_reference_info_create_listing_summary()
+                        }}
+                    </p>
+                    if let Some(message) = refused {
+                        <p class={Error} role="alert">{message}</p>
+                    }
+                    if let Some(id) = draft {
+                        <a class={Button} href={&manage(id)}>{t.route_manage_listing()}</a>
+                    }
+                    <div class={OfferFields}>
+                        <div class={QuantityField}>
+                            <label class={Label} for="list-price">{t.route_listing_price()}</label>
+                            <input
+                                id="list-price"
+                                type="number"
+                                name={listing::field::PRICE}
+                                min="0"
+                                step="0.01"
+                                inputmode="decimal"
+                                placeholder="24.99"
+                                required
+                                value={price}
+                            >
+                        </div>
+                        <div class={QuantityField}>
+                            <label class={Label} for="list-currency">{t.route_listing_price_currency_code()}</label>
+                            <input
+                                id="list-currency"
+                                type="text"
+                                name={listing::field::CURRENCY}
+                                minlength="3"
+                                maxlength="3"
+                                autocapitalize="characters"
+                                placeholder={t.route_listing_price_currency_code_placeholder()}
+                                required
+                                value={currency}
+                            >
+                        </div>
+                    </div>
+                    <Quantity t={t} id="list-quantity" value={quantity} />
+                    if needs_setup {
+                        <p class={Muted}>{setup_note}</p>
+                    }
+                    <button type="submit" class={(Button, Primary)} disabled={needs_setup}>{t.route_list_for_sale()}</button>
+                </form>
+                if screen.listing_features && screen.listing_setup == ListingSetup::Missing {
+                    <form class={Buy} method="post" action={&ship_action}>
+                        {SubmitKey::field(f.attempt)}
+                        <Hidden pairs={page} />
+                        <p class={Strong}>{t.route_ship_from_setup()}</p>
+                        <p class={Muted}>{t.route_ship_from_setup_description()}</p>
+                        if let Some((message, _)) = ship {
+                            <p class={Error} role="alert">{message}</p>
+                        }
+                        <div class={AddressFields}>
+                            <div class={(TextField, Full)}>
+                                <label class={Label} for="ship-from-name">{t.route_ship_from_name()}</label>
+                                <input
+                                    id="ship-from-name"
+                                    type="text"
+                                    name={listing::field::NAME}
+                                    autocomplete="name"
+                                    required
+                                    value={typed_ship(|i| &i.name)}
+                                >
+                            </div>
+                            <div class={(TextField, Full)}>
+                                <label class={Label} for="ship-from-line1">{t.route_ship_from_line1()}</label>
+                                <input
+                                    id="ship-from-line1"
+                                    type="text"
+                                    name={listing::field::LINE1}
+                                    autocomplete="address-line1"
+                                    required
+                                    value={typed_ship(|i| &i.line1)}
+                                >
+                            </div>
+                            <div class={TextField}>
+                                <label class={Label} for="ship-from-city">{t.route_ship_from_city()}</label>
+                                <input
+                                    id="ship-from-city"
+                                    type="text"
+                                    name={listing::field::CITY}
+                                    autocomplete="address-level2"
+                                    required
+                                    value={typed_ship(|i| &i.city)}
+                                >
+                            </div>
+                            <div class={TextField}>
+                                <label class={Label} for="ship-from-state">{t.route_ship_from_state()}</label>
+                                <input
+                                    id="ship-from-state"
+                                    type="text"
+                                    name={listing::field::STATE}
+                                    autocomplete="address-level1"
+                                    required
+                                    value={typed_ship(|i| &i.state)}
+                                >
+                            </div>
+                            <div class={TextField}>
+                                <label class={Label} for="ship-from-postal-code">{t.route_ship_from_postal_code()}</label>
+                                <input
+                                    id="ship-from-postal-code"
+                                    type="text"
+                                    name={listing::field::POSTAL_CODE}
+                                    autocomplete="postal-code"
+                                    required
+                                    value={typed_ship(|i| &i.postal_code)}
+                                >
+                            </div>
+                            <div class={TextField}>
+                                <label class={Label} for="ship-from-country">{t.route_ship_from_country()}</label>
+                                <input
+                                    id="ship-from-country"
+                                    type="text"
+                                    name={listing::field::COUNTRY}
+                                    autocomplete="country"
+                                    required
+                                    value={typed_ship(|i| &i.country).unwrap_or("US")}
+                                >
+                            </div>
+                        </div>
+                        <button type="submit" class={Button}>{t.route_save_ship_from_setup()}</button>
+                    </form>
+                }
+            }
+        </details>
     }
 }
 

@@ -48,6 +48,126 @@ struct Stand {
     applied: Arc<Mutex<HashMap<String, (String, String)>>>,
     /// The cart attempts the Checkout API kept, by id.
     kept: Arc<Mutex<HashMap<String, Value>>>,
+    /// The listings created here, by id: what was sent, and `published` once it is.
+    listings: Arc<Mutex<HashMap<String, Value>>>,
+    /// The Listing stock ensures applied, by attempt.
+    ensured: Arc<Mutex<HashMap<String, Value>>>,
+}
+
+const OVERLAY: &str = "/api/marketplace/items/charizard/seller-overlay";
+const ENSURE: &str = "/api/inventory/items/listing-stock/ensure";
+const CREATE_LISTING: &str = "/api/marketplace/account/listings";
+const DRAFT_INTENTS: &str = "/api/marketplace/guest/listing-draft-intents";
+
+/// A write's answer with a receipt at `position` in `context`.
+fn committed(status: StatusCode, context: &str, position: &str, body: Value) -> Response {
+    let receipt =
+        format!(r#"[{{"sourceContextName":"{context}","maxGlobalPosition":"{position}","eventIds":["evt_{position}"]}}]"#);
+    let receipt = percent_encoding::utf8_percent_encode(&receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", position.to_owned()), ("chase-sets-commit-receipt", receipt)];
+    (status, headers, Json(body)).into_response()
+}
+
+/// A quick listing's calls, as the stand-in answers them. The seller overlay says `lister` has a
+/// Listing stock location, and `starter` has one once a read waits for its setup's write
+/// (position 42; 43 is still catching up). The stock's ensure is one attempt, refused for a
+/// graded product and for `starter`; a create with `listingIdOverride` sent again is the same
+/// listing, and one priced `1.00` is refused; a listing priced `2.00` is created but its
+/// publication refused. A guest's draft needs its owner.
+fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if path == OVERLAY {
+        let has = match (session, waits_for(headers).as_deref()) {
+            (_, Some("43")) => {
+                return Some(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_freshness_timeout",
+                    "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+                ));
+            }
+            ("lister", _) | ("starter", Some("42")) => true,
+            _ => false,
+        };
+        let overlay = json!({
+            "accountOfferMatches": [], "sellerInventoryItems": [], "hasListingStockLocation": has, "selectedSellerListing": null,
+        });
+        return Some(Json(overlay).into_response());
+    }
+    if *method != Method::POST {
+        return None;
+    }
+    if path == ENSURE {
+        let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+        if sent["selectedOptions"].to_string().contains("chc_graded") {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "validation_failed",
+                "Graded listing stock requires graded card details.",
+            ));
+        }
+        if session == "starter" {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "validation_failed",
+                "Ship-from address is required before creating listing stock.",
+            ));
+        }
+        let snapshot = json!({ "inventoryItemId": "inv_stock", "quantity": sent["quantity"], "attempt": attempt, "acquisitionCostCurrencyCode": null, "shipFromAddress": { "line1": "1 Test Way", "verification": null } });
+        let mut ensured = stand.ensured.lock().unwrap();
+        let first = ensured.entry(attempt).or_insert(snapshot).clone();
+        return Some((StatusCode::CREATED, Json(json!({ "inventoryItemId": "inv_stock", "snapshot": first }))).into_response());
+    }
+    if path == CREATE_LISTING {
+        // The create's closed snapshot refuses what the ensure now writes (chase-sets/chase-sets#10599).
+        let snapshot = &sent["inventorySnapshot"];
+        if snapshot.get("acquisitionCostCurrencyCode").is_some() || snapshot["shipFromAddress"].get("verification").is_some() {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "listing_request_unknown_field",
+                "Remove unrecognized fields and try again.",
+            ));
+        }
+        if sent["priceAmount"] == "1.00" {
+            return Some(refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum."));
+        }
+        let id = sent["listingIdOverride"].as_str().unwrap_or("lst_new").to_owned();
+        let mut listings = stand.listings.lock().unwrap();
+        let listing = listings.entry(id.clone()).or_insert(sent);
+        // The same id again answers the listing as it now is: active once published.
+        let status = if listing["published"] == true { "active" } else { "draft" };
+        let created =
+            json!({ "id": id, "version": 1, "status": "draft", "feeQuoteFingerprint": "fq_1", "state": { "status": status } });
+        return Some(committed(StatusCode::CREATED, "marketplace", "30", created));
+    }
+    if let Some(id) = path.strip_prefix("/api/marketplace/account/listings/").and_then(|p| p.strip_suffix("/publish")) {
+        let mut listings = stand.listings.lock().unwrap();
+        let listing = listings.get_mut(id)?;
+        if listing["published"] == true {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "listing_command_rejected",
+                "This listing change is not available. Check the listing details and try again.",
+            ));
+        }
+        if listing["priceAmount"] == "2.00" {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "command-rejected",
+                "Listings require a resolved shipping measure before publication.",
+            ));
+        }
+        listing["published"] = json!(true);
+        listing["publishedWith"] = sent["feeQuoteFingerprint"].clone();
+        return Some(committed(StatusCode::OK, "marketplace", "31", json!({ "listingId": id, "version": 2 })));
+    }
+    if path == DRAFT_INTENTS {
+        let owner = headers.get("x-marketplace-anonymous-listing-draft-id").and_then(|v| v.to_str().ok());
+        if !owner.is_some_and(|o| o.starts_with("anon_")) {
+            return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Anonymous listing draft owner is required."));
+        }
+        return Some((StatusCode::CREATED, Json(json!({ "intent_id": "ldi_1", "status": "active" }))).into_response());
+    }
+    None
 }
 
 fn location(id: &str, name: &str, archived: bool) -> Value {
@@ -237,6 +357,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
             "watcher" => actor(&["accounts.view"]),
+            // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
+            // none until its ship-from setup is saved.
+            "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -250,8 +373,19 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
     }
+    if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
-        return discovery_item(id);
+        // Discovery has not caught up with a listing published at 44.
+        if waits_for(&headers).as_deref() == Some("44") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return discovery_item(&stand, id);
     }
     if let Some(answer) = cart_add(&stand, &method, uri.path(), &headers, &body) {
         return answer;
@@ -1599,10 +1733,26 @@ fn item() -> Value {
     })
 }
 
-/// The Discovery API's item read: `charizard` (or its id), `down` fails, anything else is unknown.
-fn discovery_item(id: &str) -> Response {
+/// The Discovery API's item read: `charizard` (or its id), with the listings published here as
+/// the seller's; `down` fails, anything else is unknown.
+fn discovery_item(stand: &Stand, id: &str) -> Response {
     match id {
-        "charizard" | "cat_charizard" => Json(item()).into_response(),
+        "charizard" | "cat_charizard" => {
+            let mut item = item();
+            let raw = json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }]);
+            for (id, listing) in stand.listings.lock().unwrap().iter().filter(|(_, l)| l["published"] == true) {
+                item["market_listings"].as_array_mut().unwrap().push(json!({
+                    "listing_id": id, "account_id": "acc_seller", "catalog_catalog_item_id": "cat_charizard",
+                    "product_id": OFFERED, "selected_options": raw, "product_summary": "Form: raw",
+                    "price_amount": listing["priceAmount"], "price_currency_code": listing["priceCurrencyCode"],
+                    "quantity_cap": listing["quantityCap"], "visible_quantity": listing["quantityCap"],
+                    "max_units_per_order": null, "max_units_per_day": null, "max_units_per_customer_account": null,
+                    "seller_slug": "seller", "seller_display_name": "You", "seller_average_rating": null,
+                    "seller_review_count": 0, "status": "active", "listing_stream_version": 2, "seller_at_capacity": false,
+                }));
+            }
+            Json(item).into_response()
+        }
         "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Item not found."),
     }
@@ -2420,4 +2570,290 @@ async fn a_guest_saves_a_watch_alert_as_an_intent_and_registers_to_claim_it() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::SET_COOKIE].to_str().unwrap().starts_with(&format!("chase_sets_anonymous_product_alerts={owner};")));
     assert_eq!(alert_calls(&pilot)[1].headers["x-discovery-anonymous-product-alert-id"], owner.as_str());
+}
+
+const LIST: &str = "/items/charizard/list";
+const SHIP_FROM: &str = "/items/charizard/ship-from";
+const ATTEMPT: &str = "0b6f3c1e-4d2a-4b8e-9f00-1234567890ab";
+const LISTED: &str = "lst_0b6f3c1e4d2a4b8e9f001234567890ab";
+
+/// A List this product form's body: the Sell tab's address, the product it showed, the attempt,
+/// the price, currency and quantity.
+fn list_body(attempt: &str, price: &str, currency: &str, quantity: &str) -> String {
+    format!(
+        "market=sell&product={}&attempt={attempt}&price={price}&currency={currency}&quantity={quantity}",
+        crate::api::segment(OFFERED)
+    )
+}
+
+/// The calls to a quick listing's APIs, in order, as (path, body).
+fn listing_calls(pilot: &Pilot) -> Vec<(String, Value)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST)
+        .filter(|c| c.path == ENSURE || c.path.starts_with(CREATE_LISTING) || c.path == DRAFT_INTENTS || c.path == LOCATIONS)
+        .map(|c| (c.path.clone(), serde_json::from_str(&c.body).unwrap_or_default()))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_seller_without_a_ship_from_sees_its_setup_before_they_can_list() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SELL_PAGE, Some("starter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let overlay = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path == OVERLAY).cloned().expect("the overlay is read");
+    assert_eq!(overlay.headers["chase-sets-read-target-context"], "discovery");
+    let page = text(&html);
+    assert!(page.contains("List this product Set price and quantity to create a listing."), "{page}");
+    assert!(page.contains("Current best listing is $389.00."), "the price starts as the best listing's: {page}");
+    assert!(html.contains(r#"action="/items/charizard/list""#), "{html}");
+    assert!(
+        html.contains(r#"name="price" min="0" step="0.01" inputmode="decimal" placeholder="24.99" required value="389.00""#),
+        "{html}"
+    );
+    assert!(page.contains("Ship-from setup is required before quick listing."), "{page}");
+    assert!(
+        html.contains(
+            r#"<button type="submit" class="item-detail__button item-detail__primary" disabled>Create listing</button>"#
+        ),
+        "{html}"
+    );
+    // The setup's own form, after it.
+    assert!(html.contains(r#"action="/items/charizard/ship-from""#), "{html}");
+    assert!(page.contains("Ship-from setup Create the Listing stock origin used by quick listings."), "{page}");
+    assert!(
+        html.contains(r#"id="ship-from-country" type="text" name="country" autocomplete="country" required value="US""#),
+        "{html}"
+    );
+    // Nothing typed is refused here; the rest is the API's to check.
+    let (status, _, html) =
+        pilot.send(post(SHIP_FROM, "starter", "market=sell&name=&line1=&city=&state=&postal_code=&country=US", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        html.contains(r#"<p class="item-detail__error" role="alert">Ship-from setup is required before quick listing.</p>"#),
+        "{html}"
+    );
+    assert!(listing_calls(&pilot).is_empty(), "nothing is written");
+}
+
+#[tokio::test]
+async fn the_ship_from_setup_is_the_listing_stock_location_and_the_page_waits_for_it() {
+    let pilot = Pilot::new().await;
+    let body = format!(
+        "market=sell&attempt={ATTEMPT}&name=Synthetic+Seller&line1=1+Test+Way&city=Austin&state=TX&postal_code=78701&country=US"
+    );
+    let (status, headers, html) = pilot.send(post(SHIP_FROM, "starter", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let write = pilot.writes().into_iter().find(|c| c.path == LOCATIONS).expect("the location is created");
+    assert_eq!(write.headers["inventory-mutation-attempt"], ATTEMPT);
+    let sent: Value = serde_json::from_str(&write.body).unwrap();
+    assert_eq!(sent["name"], "Listing stock");
+    assert_eq!(sent["shipFromCode"], "LISTING-STOCK");
+    assert_eq!(sent["description"], "Auto-managed stock backing standard marketplace listings.");
+    assert_eq!(sent["shipFromAddress"]["postalCode"], "78701");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/items/charizard?market=sell&after_write=%7B"), "{to}");
+    // The page after it reads the overlay with the write's receipt: the form can list now.
+    let (_, _, html) = pilot.send(get(to, Some("starter"))).await;
+    let overlay = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == OVERLAY).cloned().unwrap();
+    assert_eq!(waits_for(&overlay.headers).as_deref(), Some("42"));
+    assert!(
+        html.contains(r#"<button type="submit" class="item-detail__button item-detail__primary">Create listing</button>"#),
+        "{html}"
+    );
+    assert!(!html.contains(r#"action="/items/charizard/ship-from""#) && !html.contains("data-corten-read-again"), "{html}");
+}
+
+#[tokio::test]
+async fn a_setup_whose_read_has_not_caught_up_says_so_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let receipt = r#"{"observedAtMs":OBSERVED,"commitPosition":"43","sources":[]}"#.replace(
+        "OBSERVED",
+        &std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis().to_string(),
+    );
+    let to = format!("{SELL_PAGE}&after_write={}", crate::api::segment(&receipt));
+    let (status, _, html) = pilot.send(get(&to, Some("starter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Ship-from setup is still updating."), "{html}");
+    assert!(!html.contains(r#"action="/items/charizard/ship-from""#), "no second setup while the first is catching up: {html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "the page reads again: {html}");
+}
+
+#[tokio::test]
+async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, "400", "usd", "2"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let calls = listing_calls(&pilot);
+    let paths: Vec<&str> = calls.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(paths, [ENSURE, CREATE_LISTING, &format!("{CREATE_LISTING}/{LISTED}/publish") as &str], "{calls:?}");
+    let ensure = pilot.inventory_calls().into_iter().find(|c| c.path == ENSURE).unwrap();
+    assert_eq!(ensure.headers["inventory-mutation-attempt"], ATTEMPT, "the stock is the form's attempt");
+    assert_eq!(
+        calls[0].1,
+        json!({
+            "catalogItemId": "cat_charizard",
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "quantity": 2,
+        })
+    );
+    assert_eq!(
+        calls[1].1,
+        json!({
+            "inventoryItemId": "", "priceAmount": "400.00", "priceCurrencyCode": "USD", "quantityCap": 2,
+            "inventorySnapshot": { "inventoryItemId": "inv_stock", "quantity": 2, "attempt": ATTEMPT, "shipFromAddress": { "line1": "1 Test Way" } },
+            "listingIdOverride": LISTED,
+        })
+    );
+    assert_eq!(calls[2].1, json!({ "feeQuoteFingerprint": "fq_1" }));
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with(&format!("/items/charizard?market=sell&listing={LISTED}&after_write=%7B")), "{to}");
+    // The page after it has the listing as the seller's own: its price and Manage listing, open.
+    let (_, _, html) = pilot.send(get(to, Some("lister"))).await;
+    let item_read = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.starts_with("/api/marketplace/items/charizard") && c.path != OVERLAY)
+        .cloned()
+        .unwrap();
+    assert_eq!(waits_for(&item_read.headers).as_deref(), Some("31"), "the item waits for the publication");
+    assert!(text(&html).contains("Your active listing is $400.00. Manage listing"), "{html}");
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("http://localhost:7753/account/listings/{LISTED}")]);
+    assert!(
+        html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">List this product")),
+        "{html}"
+    );
+    // The same form sent again (its answer lost) is the same stock and the same listing, already
+    // published, so it is not published again (which the API refuses).
+    let (status, headers, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, "400", "usd", "2"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let again = headers[header::LOCATION].to_str().unwrap();
+    assert!(again.starts_with(&format!("/items/charizard?market=sell&listing={LISTED}&after_write=%7B")), "{again}");
+    let publishes = listing_calls(&pilot).iter().filter(|(p, _)| p.ends_with("/publish")).count();
+    assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
+    assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
+    assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_listing_whose_read_has_not_caught_up_says_it_was_published_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let receipt = r#"{"observedAtMs":OBSERVED,"commitPosition":"44","sources":[]}"#.replace(
+        "OBSERVED",
+        &std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis().to_string(),
+    );
+    let to = format!("{SELL_PAGE}&listing={LISTED}&after_write={}", crate::api::segment(&receipt));
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Listing published It shows here in a moment"), "{html}");
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("http://localhost:7753/account/listings/{LISTED}")]);
+    assert!(html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
+    assert!(!page.contains("Listing unavailable"), "a listing on its way is not unavailable: {html}");
+    assert!(!html.contains(r#"action="/items/charizard/list""#), "no second listing while the first catches up: {html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "the page reads again: {html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let reads: Vec<_> =
+        calls.iter().filter(|c| c.path == "/api/marketplace/items/charizard").map(|c| waits_for(&c.headers)).collect();
+    assert_eq!(reads, [Some("44".to_owned()), None], "the item with the receipt, then as it is now");
+}
+
+#[tokio::test]
+async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
+    let pilot = Pilot::new().await;
+    // A price past the field's step, or none: nothing is written.
+    for price in ["1.234", "", "0"] {
+        let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, price, "USD", "1"), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{price}: {html}");
+        assert!(text(&html).contains("Enter a price greater than $0.00 using dollars and cents."), "{price}: {html}");
+    }
+    let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, "10", "USD", "0"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a quantity of 1 or more."), "{html}");
+    assert!(listing_calls(&pilot).is_empty());
+    // The API refuses the listing: the form says so, with what was typed.
+    let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, "1", "USD", "3"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        html.contains(r#"<p class="item-detail__error" role="alert">Listing price is below the marketplace minimum.</p>"#),
+        "{html}"
+    );
+    assert!(
+        html.contains(r#"value="1""#)
+            && html.contains(
+                r#"id="list-quantity" type="number" name="quantity" min="1" step="1" inputmode="numeric" required value="3""#
+            ),
+        "{html}"
+    );
+    // A publication refused leaves the draft, which the form links to.
+    let attempt = "1b6f3c1e-4d2a-4b8e-9f00-1234567890ab";
+    let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(attempt, "2", "USD", "1"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Listings require a resolved shipping measure before publication. Manage listing"), "{html}");
+    assert_eq!(hrefs(&html, "Manage listing"), ["http://localhost:7753/account/listings/lst_1b6f3c1e4d2a4b8e9f001234567890ab"]);
+    // A graded product's stock is refused, as on marketplace (chase-sets/chase-sets#10598).
+    let address = "market=sell&dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7";
+    let (_, _, html) = pilot.send(get(&format!("/items/charizard?{address}"), Some("lister"))).await;
+    let form = html.split(r#"action="/items/charizard/list""#).nth(1).expect("the listing form");
+    let product = form.split(r#"name="product" value=""#).nth(1).and_then(|s| s.split('"').next()).unwrap().replace("&amp;", "&");
+    assert!(product.contains("chc_graded"), "{product}");
+    let graded =
+        format!("{address}&product={}&attempt={ATTEMPT}&price=700&currency=USD&quantity=1", crate::api::segment(&product));
+    let (status, _, html) = pilot.send(post(LIST, "lister", &graded, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Graded listing stock requires graded card details."), "{html}");
+}
+
+#[tokio::test]
+async fn a_guest_drafts_a_listing_and_registers_to_claim_it() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(SELL_PAGE, None)).await;
+    let page = text(&html);
+    assert!(page.contains("Guests can draft the price and quantity before registration."), "{page}");
+    assert!(!page.contains("Ship-from setup"), "a guest needs no ship-from: {page}");
+    assert!(!pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == OVERLAY), "a guest's page reads no overlay");
+    let req = post(LIST, "nobody", &list_body(ATTEMPT, "25.5", "usd", "1"), false);
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Faccount%2Flistings%2Fnew%3FclaimListingIntent%3Dldi_1"
+    );
+    let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(
+        cookie.starts_with("chase_sets_anonymous_listing_drafts=anon_cmd_") && cookie.contains("Max-Age=2592000"),
+        "{cookie}"
+    );
+    let calls = listing_calls(&pilot);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(
+        calls[0].1,
+        json!({
+            "sourcePath": "/items/charizard?market=sell", "catalogItemId": "cat_charizard", "productId": OFFERED,
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            // No options chosen: the product and its words are the offer's, as the page showed them.
+            "productSummary": "Form: Raw | Condition: Near Mint", "priceAmount": "25.50", "priceCurrencyCode": "USD", "quantityCap": 1,
+        })
+    );
+}
+
+#[tokio::test]
+async fn an_account_that_may_not_list_is_sent_to_registration_and_cannot_post() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("watcher"))).await;
+    let page = text(&html);
+    assert!(page.contains("Asking price Set before publishing Inventory Confirm before publishing"), "{page}");
+    assert_eq!(
+        hrefs(&html, "Continue to create listing"),
+        ["http://localhost:7753/register?returnTo=%2Fitems%2Fcharizard%3Fmarket%3Dsell"]
+    );
+    assert!(!html.contains(r#"action="/items/charizard/list""#), "{html}");
+    let (status, _, _) = pilot.send(post(LIST, "watcher", &list_body(ATTEMPT, "10", "USD", "1"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(listing_calls(&pilot).is_empty());
 }

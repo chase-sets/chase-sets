@@ -166,7 +166,7 @@ fn guest_owner(headers: &HeaderMap) -> String {
 fn refused(req: &Req, item: Item, address: &Address, input: WatchInput, message: String, status: StatusCode) -> corten::Result {
     let notice = BuyNotice::WatchRefused { message, input };
     let address = address.with_market(Market::Watch);
-    items::render(req, item, &address, Some(&notice), status, None)
+    items::render(req, item, &address, Some(&notice), status, Default::default())
 }
 
 /// Watch listings and Watch offers (the action's `create-product-alert`).

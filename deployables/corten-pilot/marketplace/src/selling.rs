@@ -232,8 +232,8 @@ async fn refused(
     message: String,
 ) -> corten::Result {
     let notice = BuyNotice::SellRefused { message, form, quantity: typed };
-    let terms = items::offer_terms(req, caller, &item, address).await;
-    items::render(req, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, terms)
+    let reads = items::sell_reads(req, caller, &item, address, false).await;
+    items::render(req, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
 }
 
 /// Accept offer, Add offer to Sell List and Add product to Sell List (the action's `sell-now`,

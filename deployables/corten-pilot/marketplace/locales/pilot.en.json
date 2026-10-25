@@ -17,7 +17,9 @@
     "continue_on_marketplace": "Continue on marketplace",
     "watch_saved": "Watch alert saved",
     "watch_saved_description": "We will notify you when this product matches your alert.",
-    "manage_alerts": "Manage alerts"
+    "manage_alerts": "Manage alerts",
+    "listing_published": "Listing published",
+    "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up."
   },
   "error": {
     "forbidden_title": "Not allowed",

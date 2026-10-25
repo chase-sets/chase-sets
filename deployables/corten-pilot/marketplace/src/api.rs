@@ -886,6 +886,8 @@ pub struct Offer {
 pub trait Discovery {
     /// The item by its slug or its id; `None` when the API has no such item.
     async fn item(&self, id: &str) -> Result<Option<Item>, ApiError>;
+    /// What the page shows a seller who may list (`SellerOverlay`).
+    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
 }
 
 impl Discovery for Caller<'_> {
@@ -895,5 +897,106 @@ impl Discovery for Caller<'_> {
             Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError> {
+        self.read(&format!("{ITEMS}/{}/seller-overlay", segment(id)), DISCOVERY).await
+    }
+}
+
+/// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,
+/// `DiscoveryItemDetailSellerOverlay`), the field the pilot reads: whether the account has the
+/// Listing stock location quick listings ship from. Its offer matches and inventory are not
+/// ported.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SellerOverlay {
+    pub has_listing_stock_location: bool,
+}
+
+/// The stock an account's quick listing sells (`POST /api/inventory/items/listing-stock/ensure`,
+/// `InventoryEnsuredListingStock`): its snapshot, which the listing is created from.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingStock {
+    pub snapshot: serde_json::Value,
+}
+
+/// A created listing (`POST /api/marketplace/account/listings`): its id, the fee quote it is
+/// published with, and its state. The same `listingIdOverride` sent again answers the listing as it
+/// now is, so a resent form finds it already published.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedListing {
+    pub id: String,
+    pub fee_quote_fingerprint: Option<String>,
+    #[serde(default)]
+    pub state: Option<CreatedListingState>,
+}
+
+/// A created listing's current state; the pilot reads only its status.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CreatedListingState {
+    pub status: String,
+}
+
+impl CreatedListing {
+    /// Whether the listing is already published (a resent form): publishing it again is refused.
+    pub fn is_active(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.status == "active")
+    }
+}
+
+/// A guest's listing draft (`MarketplaceAnonymousListingDraftIntent`), which an account claims
+/// after registering; the pilot reads only its id.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DraftIntent {
+    pub intent_id: String,
+}
+
+/// The header a guest's listing draft names its owner in (the anonymous draft cookie's value).
+const ANONYMOUS_LISTING_DRAFT_HEADER: &str = "x-marketplace-anonymous-listing-draft-id";
+
+/// A quick listing's calls: its stock, the listing, its publication, and a guest's draft.
+pub trait Listings {
+    /// Ensures the account's Listing stock holds `body`'s product and quantity, as one inventory
+    /// attempt (applied once however often `attempt` is sent).
+    async fn ensure_listing_stock(&self, attempt: &str, body: &serde_json::Value) -> Result<ListingStock, ApiError>;
+    /// Creates the listing, a draft. With `listingIdOverride` in `body`, the same id sent again is
+    /// the same listing.
+    async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError>;
+    /// Publishes a draft with the fee quote it was created with.
+    async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
+    /// Saves a guest's listing as a draft intent owned by `guest`.
+    async fn listing_draft_intent(&self, guest: &str, body: &serde_json::Value) -> Result<DraftIntent, ApiError>;
+}
+
+impl Listings for Caller<'_> {
+    async fn ensure_listing_stock(&self, attempt: &str, body: &serde_json::Value) -> Result<ListingStock, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/inventory/items/listing-stock/ensure", INVENTORY)
+            .header(ATTEMPT_HEADER, attempt)
+            .json(body);
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError> {
+        let req = self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).json(body);
+        self.write(req).await
+    }
+
+    async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError> {
+        let body = serde_json::json!({ "feeQuoteFingerprint": fee_quote_fingerprint });
+        let path = format!("/api/marketplace/account/listings/{}/publish", segment(id));
+        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn listing_draft_intent(&self, guest: &str, body: &serde_json::Value) -> Result<DraftIntent, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/marketplace/guest/listing-draft-intents", MARKETPLACE)
+            .header(ANONYMOUS_LISTING_DRAFT_HEADER, guest)
+            .json(body);
+        Ok(self.write(req).await?.0)
     }
 }

@@ -196,6 +196,11 @@ pub enum BuyNotice {
     Watched(String),
     /// A Watch form's alert was not saved, for this reason (`watching`); `input` is what was typed.
     WatchRefused { message: String, input: crate::watching::WatchInput },
+    /// List this product did not list, for this reason (`listing`); `draft` is the listing it
+    /// left unpublished, if any.
+    ListRefused { message: String, input: crate::listing::ListInput, draft: Option<String> },
+    /// The ship-from setup was not saved, for this reason (`listing`).
+    ShipFromRefused { message: String, input: crate::listing::ShipFromInput },
 }
 
 /// A cart line as an item page adds it (`AddCheckoutCartLineRequest`): the catalog's words and
@@ -398,7 +403,7 @@ async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Erro
 fn refused(req: &Req, item: Item, input: BuyInput, message: String) -> corten::Result {
     let address = input.address.clone();
     let notice = BuyNotice::Refused { message, input };
-    items::render(req, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, None)
+    items::render(req, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, Default::default())
 }
 
 /// Marketplace's sign-in, back to the item: the session ended between the page and the post.
@@ -447,7 +452,7 @@ pub(crate) async fn add(
         Attempted::Ambiguous => {
             let address = input.address.clone();
             let notice = BuyNotice::Ambiguous { cart: cart_href(&req, ""), resend: input };
-            items::render(&req, item, &address, Some(&notice), StatusCode::CONFLICT, None)?
+            items::render(&req, item, &address, Some(&notice), StatusCode::CONFLICT, Default::default())?
         }
         Attempted::Partial | Attempted::FailedSafe => {
             let message = outcome

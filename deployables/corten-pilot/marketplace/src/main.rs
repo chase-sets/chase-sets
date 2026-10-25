@@ -11,6 +11,7 @@ mod cart;
 mod cart_attempt;
 mod form;
 mod items;
+mod listing;
 mod locations;
 mod recovery;
 mod restock;
