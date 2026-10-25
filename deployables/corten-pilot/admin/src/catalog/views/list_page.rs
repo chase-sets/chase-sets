@@ -1,6 +1,6 @@
 use corten::prelude::*;
 
-use super::StatusPill;
+use super::{SelectAll, SelectRow, StatusPill};
 use crate::{
     catalog::{
         api::{Dimension, Field},
@@ -60,14 +60,18 @@ pub fn Pick<'a>(label: &'a str, name: FieldName, all: &'a str, options: &'a [(&'
     }
 }
 
-/// A table with these column headings.
+/// A table with these column headings; with `all`, a first column whose head is the bulk
+/// form's select-all box (each row then starts with its own box).
 #[component(css = ListPage)]
-pub fn Table<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> impl Render {
+pub fn Table<'a, C: Render>(label: &'a str, head: &'a [&'a str], all: Option<Pilot>, children: C) -> impl Render {
     html! {
         <div class={Scroll}>
             <table class={Table} aria-label={label}>
                 <thead>
                     <tr>
+                        if let Some(p) = all {
+                            <th scope="col"><SelectAll p={p} /></th>
+                        }
                         for heading in head {
                             <th scope="col">{*heading}</th>
                         }
@@ -79,11 +83,14 @@ pub fn Table<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) ->
     }
 }
 
-/// A dimension's row.
+/// A dimension's row; with `select`, its box in the bulk form first.
 #[component(css = ListPage)]
-pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension) -> impl Render {
+pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension, select: Option<Pilot>) -> impl Render {
     html! {
         <tr>
+            if let Some(p) = select {
+                <td><SelectRow p={p} id={&row.dimension_id} /></td>
+            }
             <td>{&row.key}</td>
             <td>{&row.name}</td>
             <td>{&row.value_kind}</td>
@@ -97,11 +104,14 @@ pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension) -> impl Render {
     }
 }
 
-/// A field's row.
+/// A field's row; with `select`, its box in the bulk form first.
 #[component(css = ListPage)]
-pub fn FieldRow<'a>(t: Cat, row: &'a Field) -> impl Render {
+pub fn FieldRow<'a>(t: Cat, row: &'a Field, select: Option<Pilot>) -> impl Render {
     html! {
         <tr>
+            if let Some(p) = select {
+                <td><SelectRow p={p} id={&row.field_id} /></td>
+            }
             <td>{&row.key}</td>
             <td>{&row.name}</td>
             <td>{&row.value_type}</td>

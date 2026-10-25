@@ -134,6 +134,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `platform/src/api.rs` | the platform API as the signed-in user (`Caller`): reads, writes with their receipt, who is asking (`identify`) |
 | `platform/src/receipt.rs` | read after write: the write's receipt rides the redirect and the next read waits for it |
 | `platform/src/realtime.rs` | the platform's realtime stream as the signed-in user: a tick per change to a topic, resuming from the last cursor |
+| `platform/src/jobs.rs` | a durable job's status stream as the signed-in user: the job's record after each change until it is done, resuming from the last event |
 | `platform/src/session.rs`, `nav.rs` | the session cookie, the color mode, and the React apps' nav rules |
 | `platform/src/theme.rs`, `section.rs` | the design system's tokens, and the page header, sections and banner both screens use |
 | `*/src/app.rs` | routes, access (sign-in at the React app, 403, 502), and the handlers |
@@ -142,6 +143,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/recovery.rs` | the write's attempt id, and confirming a write the browser did not hear back about |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
+| `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
+| `jsconfig.json` | type-checks the apps' scripts (`tsc -p`, in CI), which `corten check` does not |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -196,8 +199,26 @@ forward only on purpose, when a fix the pilot needs lands.
 13. **New records keep the id they were drawn with.** The create forms carry a `dim_`, `fld_` or
     `chc_` ULID made when the form is drawn (`createId`), so the same form posted twice names the
     same record and the Catalog API refuses the second.
-14. **Not ported**: bulk lifecycle changes (the selection, preview, confirm and job progress), a
-    larger slice of its own.
+14. **Bulk lifecycle changes** are admin-web's `BulkLifecycleActionBar` on both lists: check rows
+    (or take every record the filters match), pick an action, preview it, confirm it, and follow
+    the job. The rows' boxes belong to the bar's form (`form="catalog-bulk"`), so without
+    JavaScript the form posts the checked ids, Clear Selection is the form's reset and the
+    select-all box is hidden. With it, a 70-line script ([`bulk_rows.js`](admin/src/catalog/views/bulk_rows.js))
+    keeps the count, the select-all box (mixed when some rows are checked) and the buttons in step,
+    with no request; that is the work the browser does fastest. The bar is drawn with the rows,
+    so a live change redraws its "matching" count, and a box the user checked keeps its mark
+    through it (the runtime keeps edited fields). The API decides which records are ready: the
+    preview is the API's `bulk-lifecycle/preview`, answered as a dialog (a patch, or the list with
+    it open), and its confirm form carries the preview's ids (or the filter, which the API
+    resolves again, as admin-web's does). The confirm starts the API's job and redirects to the
+    list with `?job=`; the job's dialog follows the job's own status stream
+    (`/api/catalog/bulk-authoring-jobs/{id}/events`, resumed from its last event id after a drop,
+    [`jobs`](platform/src/jobs.rs)), drawn by the server on each change until it is done. The
+    selection resets with the redirect, as admin-web clears it. Staff with `catalog.view` only
+    get the rows without the bar or the boxes (the bar's posts need `catalog.manage`, as the
+    API's do); admin-web shows them a bar whose preview the API refuses. Not ported: shift-click
+    ranges (admin-web has none either). The job dialog's title is the result's ("Bulk Deprecate
+    Result") from the start; admin-web shows the preview's title until the job is done.
 15. **The lists are live**, as admin-web's are (`useCatalogRealtimeRevalidation` on the
     dimensions and fields lists; their detail pages are not live in admin-web either). The rows
     and pager are a `<corten-live>` whose route (`/catalog/dimensions/live`, with the list's
@@ -222,7 +243,20 @@ Open, filed in Corten (one gap each):
    `Last-Event-ID` and the route cannot tell it from a first connection. Workaround: the live
    lists draw their rows on every connection, so each page view and reconnect costs one more
    Catalog list read and render (`live_rows`); a dropped connection is then never left showing
-   rows that changed meanwhile.
+   rows that changed meanwhile. A bulk job's dialog has the same gap; its route follows the
+   job's own stream, which resumes, so a reconnect to the pilot replays the job's status.
+3. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
+   (correctness). A handler's call is checked when the crate compiles, but nothing in an app's
+   loop checks a script's body: a misspelled property in the bulk-selection script passed
+   `corten check` and failed `tsc --checkJs`. Workaround: [`jsconfig.json`](jsconfig.json) and a
+   CI step that runs the repo's `tsc` over the apps' scripts (none imports from `corten` yet,
+   so the DOM's types are enough).
+
+Also met, and already filed by Corten:
+[todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17).
+The bulk bar's "N Dimensions selected" is text a script computes. Workaround: the server draws
+the count's text for 0 to the number of rows on the page in a `<template>`, and the script shows
+the one for the count (`BulkRows`).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

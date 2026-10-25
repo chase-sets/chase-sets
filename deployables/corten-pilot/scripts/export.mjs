@@ -4,7 +4,7 @@
 // - admin/locales/en.json: the postage-policy screen's English catalog (ordering.features.postagePolicies.ui.*
 //   and the route title), keys and arguments in the snake case `messages!` takes.
 // - admin/locales/catalog.en.json: the catalog area's English catalog (the dimension and field pages,
-//   the shared list, detail and lifecycle controls, and the routes' titles).
+//   the shared list, detail, lifecycle and bulk lifecycle controls, and the routes' titles).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -205,6 +205,7 @@ const outputs = [
         ["catalog.support.shellSupport.ui.entityListPage.", "list"],
         ["catalog.support.shellSupport.ui.entityDetailPage.", "detail"],
         ["catalog.support.shellSupport.ui.lifecycleControls.", "lifecycle"],
+        ["catalog.support.shellSupport.ui.bulkLifecycleActions.", "bulk"],
         ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],
         ["catalog.routes.admin.dimensionsDetail.dimension.catalog.admin", "route.dimension"],
         ["catalog.routes.admin.fields.fields.catalog.admin", "route.fields"],

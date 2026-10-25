@@ -9,8 +9,9 @@ use crate::{
 
 /// A dialog around a form, opened by its [`Trigger`] (`command="show-modal"`, no script). It is
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
-/// removed), so the form is in front of the user either way.
-#[component(css)]
+/// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
+/// either way; its script reopens a dialog drawn open as a modal.
+#[component(css, js)]
 pub fn Dialog<'a, C: Render>(
     id: &'a str,
     title: &'a str,
@@ -21,7 +22,7 @@ pub fn Dialog<'a, C: Render>(
 ) -> impl Render {
     let heading = format!("{id}-title");
     html! {
-        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open}>
+        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={js::modal(target)}>
             <header class={Head}>
                 <h2 class={Title} id={&heading}>{title}</h2>
                 <button type="button" class={(Small, Secondary)} command="close" commandfor={id}>{close}</button>

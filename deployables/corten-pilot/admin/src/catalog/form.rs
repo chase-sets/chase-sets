@@ -256,6 +256,37 @@ impl ActionInput {
     }
 }
 
+/// A bulk change's form: the action, and which records (`mode`, as the API's `selection.mode`):
+/// the checked rows (`mode=ids`, their boxes join the form with `form=`) or every record the
+/// list's filters match (`mode=filter`).
+/// `all` is the select-all box, which joins the form so its script finds it; it is not read.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+pub struct BulkInput {
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub ids: Vec<String>,
+    /// Only its name is used (the select-all box's), so markup and script agree on it.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub all: bool,
+}
+
+impl BulkInput {
+    /// The API's `{ action, selection }`, the filter's query being `filter`
+    /// (`BulkLifecycleSelection`).
+    pub fn body(&self, filter: Value) -> Value {
+        let selection = if self.mode == "filter" {
+            json!({ "mode": "filter", "query": filter })
+        } else {
+            json!({ "mode": "ids", "ids": self.ids })
+        };
+        json!({ "action": self.action, "selection": selection })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,28 +3,34 @@
 //! Every dialog is a `<dialog>` its button opens with `command="show-modal"` and every write a
 //! form, so the pages work without JavaScript; with it, a refused form is patched in place, and a
 //! list's rows are drawn again when the Catalog API says the list changed (`<corten-live>`).
+//! A bulk change is a form too: the rows' boxes join it, its preview is a dialog the server
+//! answers with, and its job's dialog follows the job's progress (`<corten-live>`).
 use corten::{Component, prelude::*};
 
 use super::{
-    api::{Dimension, DimensionDetail, Field},
+    api::{Dimension, DimensionDetail, Field, Job},
     form::{DimensionInput, FieldInput, OptionInput, ReorderInput},
     url,
 };
 use crate::text::{Cat, Pilot};
 pub use crate::views::Draft;
 
+mod bulk_dialogs;
+mod bulk_rows;
 mod detail_page;
 mod dialog;
 mod list_page;
 mod status_pill;
 
+pub use bulk_dialogs::{JobDialog, PreviewDialog, Previewed, job_status};
+pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use detail_page::{ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, Transition};
 pub use dialog::{Dialog, DimensionForm, FieldForm, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types};
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, Pager, Pick, Search, Table};
 pub use status_pill::StatusPill;
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
-pub const COMPONENTS: &[Component] = &[StatusPill, ListPage, DetailPage, Dialog, corten_ui::Toaster];
+pub const COMPONENTS: &[Component] = &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, corten_ui::Toaster];
 
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {
@@ -39,6 +45,14 @@ pub mod ids {
     pub const REORDER_DIALOG: &str = "catalog-reorder-dialog";
     /// A list's rows (or its empty state) and pager: what a change to the list re-renders.
     pub const ROWS: &str = "catalog-rows";
+    /// The bulk bar's form, which the rows' boxes join.
+    pub const BULK: &str = "catalog-bulk";
+    pub const PREVIEW_DIALOG: &str = "catalog-bulk-preview";
+    /// The preview's confirm form.
+    pub const CONFIRM: &str = "catalog-bulk-confirm";
+    pub const JOB_DIALOG: &str = "catalog-bulk-job";
+    /// A job's status in its dialog: what each change to the job draws again.
+    pub const JOB_STATUS: &str = "catalog-bulk-status";
 
     pub fn option_form(option_id: &str) -> String {
         format!("option-{option_id}")
@@ -53,13 +67,40 @@ pub mod ids {
     }
 }
 
-/// A list page's view model: its rows, the total, and which page of how many.
+/// A list page's view model: its rows, the total, which page of how many, and the bulk change
+/// the page shows (its preview, or its job).
 #[derive(serde::Serialize)]
 pub struct ListScreen<T> {
     pub items: Vec<T>,
     pub total: u32,
     pub page: u32,
     pub pages: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<super::api::Preview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<Job>,
+}
+
+/// A list page's bulk parts: whether the viewer may change the records (the bar and the boxes),
+/// a preview the API answered (its dialog drawn open), and the job the page follows.
+#[derive(Default)]
+pub struct Bulk<'a> {
+    pub manage: bool,
+    pub preview: Option<Previewed<'a>>,
+    pub job: Option<Followed<'a>>,
+}
+
+/// A job the list page shows, after its confirm: the job (none when the API does not know it),
+/// the action's label, and its stream while it runs.
+pub struct Followed<'a> {
+    pub job: Option<&'a Job>,
+    pub label: &'a str,
+    pub live: Option<String>,
+}
+
+/// The lifecycle actions a bulk change offers, with their labels (admin-web's `lifecycleActions`).
+pub fn bulk_actions(activate: &'static str, deprecate: &'static str, archive: &'static str) -> [(&'static str, &'static str); 3] {
+    [("activate", activate), ("deprecate", deprecate), ("archive", archive)]
 }
 
 /// A dimension page's forms that came back from a submit (refused, or a label row added), in
@@ -112,18 +153,21 @@ fn value(of: &Option<String>) -> &str {
     of.as_deref().unwrap_or("")
 }
 
-/// The dimensions list, its filters, and the create dialog with `create` (open when it came back).
+/// The dimensions list, its filters, and the create dialog (with `create`, the form that came
+/// back, drawn open).
 pub fn dimension_list<'a>(
     t: Cat,
     p: Pilot,
     query: &'a url::Dimensions,
     screen: &'a ListScreen<Dimension>,
-    create: Draft<DimensionInput>,
-    open: bool,
+    create: Option<Draft<DimensionInput>>,
     notice: Option<String>,
+    bulk: Bulk<'a>,
 ) -> impl Render + 'a {
+    let open = create.is_some();
+    let create = create.unwrap_or_else(|| Draft::new(DimensionInput::blank()));
     let title = t.dimension_list_dimensions();
-    let list = url::Dimensions { after_write: None, done: None, ..query.clone() };
+    let list = url::Dimensions { after_write: None, done: None, job: None, ..query.clone() };
     let create_action = list.href();
     let live = url::DimensionsLive::of(query).href();
     let filters = url::Dimensions::default().href();
@@ -150,7 +194,7 @@ pub fn dimension_list<'a>(
                 value={value(&query.value_kind)}
             />
         </Filters>
-        <corten-live src={&live}>{dimension_rows(t, p, query, screen)}</corten-live>
+        <corten-live src={&live}>{dimension_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <Dialog
             id={ids::CREATE_DIALOG}
             title={t.dimension_list_create_dimension()}
@@ -160,6 +204,7 @@ pub fn dimension_list<'a>(
         >
             <DimensionForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
         </Dialog>
+        {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
 }
@@ -170,12 +215,14 @@ pub fn field_list<'a>(
     p: Pilot,
     query: &'a url::Fields,
     screen: &'a ListScreen<Field>,
-    create: Draft<FieldInput>,
-    open: bool,
+    create: Option<Draft<FieldInput>>,
     notice: Option<String>,
+    bulk: Bulk<'a>,
 ) -> impl Render + 'a {
+    let open = create.is_some();
+    let create = create.unwrap_or_else(|| Draft::new(FieldInput::blank()));
     let title = t.field_list_fields();
-    let list = url::Fields { after_write: None, done: None, ..query.clone() };
+    let list = url::Fields { after_write: None, done: None, job: None, ..query.clone() };
     let create_action = list.href();
     let live = url::FieldsLive::of(query).href();
     let filters = url::Fields::default().href();
@@ -224,7 +271,7 @@ pub fn field_list<'a>(
                 value={value(&query.sortable)}
             />
         </Filters>
-        <corten-live src={&live}>{field_rows(t, p, query, screen)}</corten-live>
+        <corten-live src={&live}>{field_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <Dialog
             id={ids::CREATE_DIALOG}
             title={t.field_list_create_field()}
@@ -234,13 +281,36 @@ pub fn field_list<'a>(
         >
             <FieldForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
         </Dialog>
+        {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
 }
 
+/// A list page's bulk dialogs: the preview (closed and empty until a preview answers) and the
+/// job it follows.
+fn bulk_dialogs<'a>(t: Cat, p: Pilot, preview: Option<Previewed<'a>>, job: Option<Followed<'a>>) -> impl Render + 'a {
+    html! {
+        if let Some(shown) = preview {
+            <PreviewDialog t={t} p={p} shown={shown} />
+        } else {
+            <dialog id={ids::PREVIEW_DIALOG}></dialog>
+        }
+        if let Some(followed) = job {
+            <JobDialog t={t} p={p} job={followed.job} label={followed.label} live={followed.live.as_deref()} />
+        }
+    }
+}
+
 /// The dimensions list's rows (or its empty state) and pager, by `ids::ROWS`: drawn in the page,
-/// and again on each change to the list (`dimensions_live`).
-pub fn dimension_rows<'a>(t: Cat, p: Pilot, query: &'a url::Dimensions, screen: &'a ListScreen<Dimension>) -> impl Render + 'a {
+/// and again on each change to the list (`dimensions_live`). With `manage`, the bulk bar above
+/// them and a box on each row.
+pub fn dimension_rows<'a>(
+    t: Cat,
+    p: Pilot,
+    query: &'a url::Dimensions,
+    screen: &'a ListScreen<Dimension>,
+    manage: bool,
+) -> impl Render + 'a {
     let title = t.dimension_list_dimensions();
     let filtered = query.search.is_some() || query.status.is_some() || query.value_kind.is_some();
     let empty_title = t.list_none_found(title.to_lowercase()).to_string();
@@ -250,17 +320,20 @@ pub fn dimension_rows<'a>(t: Cat, p: Pilot, query: &'a url::Dimensions, screen: 
         t.list_create_first(t.dimension_dimension().to_lowercase()).to_string()
     };
     let head = [t.dimension_list_key(), t.dimension_list_name(), t.dimension_list_value_kind(), t.dimension_list_status(), ""];
-    let list = url::Dimensions { after_write: None, done: None, ..query.clone() };
+    let list = url::Dimensions { after_write: None, done: None, job: None, ..query.clone() };
     let (previous, next) =
         pages_around(screen, |page| url::Dimensions { page: (page > 1).then_some(page), ..list.clone() }.href());
+    let preview = url::DimensionsBulk::of(query).href();
+    let actions = bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive());
+    let select = manage.then_some(p);
     html! {
-        <div id={ids::ROWS}>
+        let body = html! {
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head}>
+                <Table label={title} head={&head} all={select}>
                     for row in &screen.items {
-                        <DimensionRow t={t} row={row} />
+                        <DimensionRow t={t} row={row} select={select} />
                     }
                 </Table>
                 <Pager
@@ -272,12 +345,18 @@ pub fn dimension_rows<'a>(t: Cat, p: Pilot, query: &'a url::Dimensions, screen: 
                     next={next.as_deref()}
                 />
             }
-        </div>
+        };
+        if manage {
+            let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
+            <BulkRows t={t} p={p} bar={bar}>{body}</BulkRows>
+        } else {
+            <div id={ids::ROWS}>{body}</div>
+        }
     }
 }
 
 /// The fields list's rows and pager, by `ids::ROWS` (see `dimension_rows`).
-pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a ListScreen<Field>) -> impl Render + 'a {
+pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a ListScreen<Field>, manage: bool) -> impl Render + 'a {
     let title = t.field_list_fields();
     let filtered = query.search.is_some()
         || query.status.is_some()
@@ -292,16 +371,19 @@ pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a List
         t.list_create_first(t.field_field().to_lowercase()).to_string()
     };
     let head = [t.field_list_key(), t.field_list_name(), t.field_list_type(), t.field_list_status(), ""];
-    let list = url::Fields { after_write: None, done: None, ..query.clone() };
+    let list = url::Fields { after_write: None, done: None, job: None, ..query.clone() };
     let (previous, next) = pages_around(screen, |page| url::Fields { page: (page > 1).then_some(page), ..list.clone() }.href());
+    let preview = url::FieldsBulk::of(query).href();
+    let actions = bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive());
+    let select = manage.then_some(p);
     html! {
-        <div id={ids::ROWS}>
+        let body = html! {
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head}>
+                <Table label={title} head={&head} all={select}>
                     for row in &screen.items {
-                        <FieldRow t={t} row={row} />
+                        <FieldRow t={t} row={row} select={select} />
                     }
                 </Table>
                 <Pager
@@ -313,7 +395,13 @@ pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a List
                     next={next.as_deref()}
                 />
             }
-        </div>
+        };
+        if manage {
+            let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
+            <BulkRows t={t} p={p} bar={bar}>{body}</BulkRows>
+        } else {
+            <div id={ids::ROWS}>{body}</div>
+        }
     }
 }
 

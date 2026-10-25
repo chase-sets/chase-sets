@@ -18,12 +18,17 @@
 //! | `GET /catalog/fields?search&status&value_type&filterable&searchable&sortable&page` | the list; `POST` creates |
 //! | `GET /catalog/fields/live?...` | the list's rows, again on each change |
 //! | `GET /catalog/fields/{id}`, `POST .../edit`, `.../lifecycle` | the field; configure; its status |
+//! | `POST /catalog/dimensions/bulk?search&status&value_kind&page` | a bulk change's preview (`/catalog/fields/bulk` for fields) |
+//! | `POST /catalog/dimensions/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
+//! | `GET /catalog/jobs/{id}/live` | the job's status, again on each change until it is done (`<corten-live>`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
 //! server sends the rows it draws. The detail pages are not live in admin-web either.
 //!
-//! Not ported: bulk lifecycle changes with job progress (see README.md).
+//! A bulk change is admin-web's `BulkLifecycleActionBar`: the checked rows (or every record the
+//! filters match) and an action, previewed by the API, then confirmed; the API runs it as a job,
+//! whose progress the list's dialog follows from the job's own stream.
 use std::fmt;
 
 use corten::{
@@ -31,9 +36,9 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{jobs::Update, realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 pub mod api;
 pub mod form;
@@ -45,9 +50,9 @@ use crate::{
     auth::Session,
     text::{Cat, Pilot},
 };
-use api::{Catalog as _, Dimension, DimensionDetail, Field, Kind, List, Written, under};
-use form::{ActionInput, DimensionInput, FieldInput, OptionInput, ReorderInput};
-use views::{DimensionForms, Draft, FieldForms, ListScreen, ids};
+use api::{Catalog as _, Dimension, DimensionDetail, Field, Job, Kind, List, Preview, Written, under};
+use form::{ActionInput, BulkInput, DimensionInput, FieldInput, OptionInput, ReorderInput};
+use views::{Bulk, DimensionForms, Draft, FieldForms, Followed, ListScreen, Previewed, ids};
 
 pub const VIEW: &str = "catalog.view";
 pub const MANAGE: &str = "catalog.manage";
@@ -77,6 +82,8 @@ pub mod url {
         pub page: Option<u32>,
         pub after_write: Option<String>,
         pub done: Option<Done>,
+        /// The bulk change's job the page follows, after its confirm.
+        pub job: Option<String>,
     }
 
     /// The dimensions list's rows, streamed again on each change: the list's filters and page.
@@ -97,6 +104,51 @@ pub mod url {
 
         pub fn list(self) -> Dimensions {
             let DimensionsLive { search, status, value_kind, page } = self;
+            Dimensions { search, status, value_kind, page, ..Dimensions::default() }
+        }
+    }
+
+    /// A bulk change of the dimensions: its preview. The list's filters (what a filter scope
+    /// takes) and page (without JavaScript the answer is the list, with the preview open).
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/dimensions/bulk")]
+    pub struct DimensionsBulk {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_kind: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    /// The preview's confirm: it starts the change.
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/dimensions/bulk/confirm")]
+    pub struct DimensionsBulkConfirm {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_kind: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    impl DimensionsBulk {
+        pub fn of(list: &Dimensions) -> Self {
+            let Dimensions { search, status, value_kind, page, .. } = list.clone();
+            DimensionsBulk { search, status, value_kind, page }
+        }
+
+        pub fn list(self) -> Dimensions {
+            let DimensionsBulk { search, status, value_kind, page } = self;
+            Dimensions { search, status, value_kind, page, ..Dimensions::default() }
+        }
+
+        pub fn confirm(&self) -> DimensionsBulkConfirm {
+            let DimensionsBulk { search, status, value_kind, page } = self.clone();
+            DimensionsBulkConfirm { search, status, value_kind, page }
+        }
+    }
+
+    impl DimensionsBulkConfirm {
+        pub fn list(self) -> Dimensions {
+            let DimensionsBulkConfirm { search, status, value_kind, page } = self;
             Dimensions { search, status, value_kind, page, ..Dimensions::default() }
         }
     }
@@ -160,6 +212,8 @@ pub mod url {
         pub page: Option<u32>,
         pub after_write: Option<String>,
         pub done: Option<Done>,
+        /// The bulk change's job the page follows.
+        pub job: Option<String>,
     }
 
     /// The fields list's rows, streamed again on each change.
@@ -185,6 +239,62 @@ pub mod url {
             let FieldsLive { search, status, value_type, filterable, searchable, sortable, page } = self;
             Fields { search, status, value_type, filterable, searchable, sortable, page, ..Fields::default() }
         }
+    }
+
+    /// A bulk change of the fields: its preview, with the list's filters and page.
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/fields/bulk")]
+    pub struct FieldsBulk {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_type: Option<String>,
+        pub filterable: Option<String>,
+        pub searchable: Option<String>,
+        pub sortable: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/fields/bulk/confirm")]
+    pub struct FieldsBulkConfirm {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_type: Option<String>,
+        pub filterable: Option<String>,
+        pub searchable: Option<String>,
+        pub sortable: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    impl FieldsBulk {
+        pub fn of(list: &Fields) -> Self {
+            let Fields { search, status, value_type, filterable, searchable, sortable, page, .. } = list.clone();
+            FieldsBulk { search, status, value_type, filterable, searchable, sortable, page }
+        }
+
+        pub fn list(self) -> Fields {
+            let FieldsBulk { search, status, value_type, filterable, searchable, sortable, page } = self;
+            Fields { search, status, value_type, filterable, searchable, sortable, page, ..Fields::default() }
+        }
+
+        pub fn confirm(&self) -> FieldsBulkConfirm {
+            let FieldsBulk { search, status, value_type, filterable, searchable, sortable, page } = self.clone();
+            FieldsBulkConfirm { search, status, value_type, filterable, searchable, sortable, page }
+        }
+    }
+
+    impl FieldsBulkConfirm {
+        pub fn list(self) -> Fields {
+            let FieldsBulkConfirm { search, status, value_type, filterable, searchable, sortable, page } = self;
+            Fields { search, status, value_type, filterable, searchable, sortable, page, ..Fields::default() }
+        }
+    }
+
+    /// A bulk change's job status, streamed again on each change until it is done.
+    #[derive(Route)]
+    #[route("/catalog/jobs/{id}/live")]
+    pub struct JobLive<'a> {
+        pub id: &'a str,
     }
 
     #[derive(Route)]
@@ -293,6 +403,8 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
     area.route::<url::Catalog>(get(home))
         .route::<url::Dimensions>(get(dimensions).post(create_dimension).with_state(shared.clone()))
         .route::<url::DimensionsLive>(get(dimensions_live).with_state(shared.clone()))
+        .route::<url::DimensionsBulk>(post(preview_dimensions).with_state(shared.clone()))
+        .route::<url::DimensionsBulkConfirm>(post(confirm_dimensions).with_state(shared.clone()))
         .route::<url::Dimension>(get(dimension).with_state(shared.clone()))
         .route::<url::DimensionEdit>(post(edit_dimension).with_state(shared.clone()))
         .route::<url::DimensionLifecycle>(post(dimension_lifecycle).with_state(shared.clone()))
@@ -302,6 +414,9 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
         .route::<url::OptionLifecycle>(post(option_lifecycle).with_state(shared.clone()))
         .route::<url::Fields>(get(fields).post(create_field).with_state(shared.clone()))
         .route::<url::FieldsLive>(get(fields_live).with_state(shared.clone()))
+        .route::<url::FieldsBulk>(post(preview_fields).with_state(shared.clone()))
+        .route::<url::FieldsBulkConfirm>(post(confirm_fields).with_state(shared.clone()))
+        .route::<url::JobLive>(get(job_live).with_state(shared.clone()))
         .route::<url::Field>(get(field).with_state(shared.clone()))
         .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
         .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared))
@@ -328,7 +443,14 @@ fn list_query(filters: &[(&str, &Option<String>)], page: u32) -> String {
 }
 
 fn screen<T>(list: List<T>, page: u32) -> ListScreen<T> {
-    ListScreen { pages: list.total.div_ceil(PAGE_SIZE).max(1), total: list.total, items: list.items, page }
+    ListScreen {
+        pages: list.total.div_ceil(PAGE_SIZE).max(1),
+        total: list.total,
+        items: list.items,
+        page,
+        preview: None,
+        job: None,
+    }
 }
 
 /// What a command came to.
@@ -391,16 +513,18 @@ async fn dimensions(
     headers: HeaderMap,
     Query(query): Query<url::Dimensions>,
 ) -> corten::Result {
-    dimension_list(&req, &config, &headers, &query, None).await
+    dimension_list(&req, &config, &headers, &query, None, None).await
 }
 
-/// The dimensions page; `create` is a create form that came back, drawn open.
+/// The dimensions page; `create` is a create form that came back, drawn open, and `preview` a
+/// bulk preview's answer, drawn open.
 async fn dimension_list(
     req: &Req,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::Dimensions,
     create: Option<Draft<DimensionInput>>,
+    preview: Option<Previewed<'_>>,
 ) -> corten::Result {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -410,12 +534,13 @@ async fn dimension_list(
         Ok(list) => list,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let screen = screen(list, page);
+    let mut screen = screen(list, page);
+    screen.preview = preview.and_then(|shown| shown.preview.cloned());
+    screen.job = follow(&caller, query.job.as_deref()).await;
     let t: Cat = req.t();
-    let open = create.is_some();
-    let create = create.unwrap_or_else(|| Draft::new(DimensionInput::blank()));
     let notice = query.done.map(|done| done.dimension(t));
-    let view = views::dimension_list(t, req.t(), query, &screen, create, open, notice);
+    let bulk = bulk(req, t, Kind::Dimensions, query.job.is_some(), preview, screen.job.as_ref());
+    let view = views::dimension_list(t, req.t(), query, &screen, create, notice, bulk);
     req.screen(Meta::new(t.route_dimensions()), &screen, view)
 }
 
@@ -426,6 +551,7 @@ async fn dimensions_live(
     Query(query): Query<url::DimensionsLive>,
 ) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let manage = manages(&req);
     let query = query.list();
     live_rows(config, headers, DIMENSIONS_TOPIC, move |config, headers| {
         let query = query.clone();
@@ -434,7 +560,7 @@ async fn dimensions_live(
             let page = query.page.unwrap_or(1).max(1);
             let api = list_query(&[("search", &query.search), ("status", &query.status), ("valueKind", &query.value_kind)], page);
             match caller.list::<Dimension>(Kind::Dimensions, &api).await {
-                Ok(list) => Some(views::dimension_rows(t, p, &query, &screen(list, page)).to_html()),
+                Ok(list) => Some(views::dimension_rows(t, p, &query, &screen(list, page), manage).to_html()),
                 Err(error) => {
                     tracing::warn!("dimensions list read for a change failed: {error}");
                     None
@@ -462,7 +588,7 @@ async fn create_dimension(
     let draft = Draft { input, errors };
     let action = url::Dimensions { after_write: None, done: None, ..query.clone() }.href();
     let form = views::DimensionForm { t: req.t(), id: ids::CREATE, action: &action, create: true, form: &draft };
-    req.invalid(&draft.errors, form, || dimension_list(&req, &config, &headers, &query, Some(draft.clone()))).await
+    req.invalid(&draft.errors, form, || dimension_list(&req, &config, &headers, &query, Some(draft.clone()), None)).await
 }
 
 async fn dimension(
@@ -700,7 +826,7 @@ async fn reorder_options(
 // Fields.
 
 async fn fields(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<url::Fields>) -> corten::Result {
-    field_list(&req, &config, &headers, &query, None).await
+    field_list(&req, &config, &headers, &query, None, None).await
 }
 
 async fn field_list(
@@ -709,6 +835,7 @@ async fn field_list(
     headers: &HeaderMap,
     query: &url::Fields,
     create: Option<Draft<FieldInput>>,
+    preview: Option<Previewed<'_>>,
 ) -> corten::Result {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -717,12 +844,13 @@ async fn field_list(
         Ok(list) => list,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let screen = screen(list, page);
+    let mut screen = screen(list, page);
+    screen.preview = preview.and_then(|shown| shown.preview.cloned());
+    screen.job = follow(&caller, query.job.as_deref()).await;
     let t: Cat = req.t();
-    let open = create.is_some();
-    let create = create.unwrap_or_else(|| Draft::new(FieldInput::blank()));
     let notice = query.done.map(|done| done.field(t));
-    let view = views::field_list(t, req.t(), query, &screen, create, open, notice);
+    let bulk = bulk(req, t, Kind::Fields, query.job.is_some(), preview, screen.job.as_ref());
+    let view = views::field_list(t, req.t(), query, &screen, create, notice, bulk);
     req.screen(Meta::new(t.route_fields()), &screen, view)
 }
 
@@ -746,6 +874,7 @@ async fn fields_live(
     Query(query): Query<url::FieldsLive>,
 ) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let manage = manages(&req);
     let query = query.list();
     live_rows(config, headers, FIELDS_TOPIC, move |config, headers| {
         let query = query.clone();
@@ -753,7 +882,7 @@ async fn fields_live(
             let caller = config.platform.caller(&headers, config.proto, None);
             let page = query.page.unwrap_or(1).max(1);
             match caller.list::<Field>(Kind::Fields, &field_query(&query, page)).await {
-                Ok(list) => Some(views::field_rows(t, p, &query, &screen(list, page)).to_html()),
+                Ok(list) => Some(views::field_rows(t, p, &query, &screen(list, page), manage).to_html()),
                 Err(error) => {
                     tracing::warn!("fields list read for a change failed: {error}");
                     None
@@ -781,7 +910,7 @@ async fn create_field(
     let draft = Draft { input, errors };
     let action = url::Fields { after_write: None, done: None, ..query.clone() }.href();
     let form = views::FieldForm { t: req.t(), id: ids::CREATE, action: &action, create: true, form: &draft };
-    req.invalid(&draft.errors, form, || field_list(&req, &config, &headers, &query, Some(draft.clone()))).await
+    req.invalid(&draft.errors, form, || field_list(&req, &config, &headers, &query, Some(draft.clone()), None)).await
 }
 
 async fn field(
@@ -871,4 +1000,241 @@ async fn field_lifecycle(
     let forms = FieldForms { lifecycle: Some(errors.clone()), ..Default::default() };
     let after = url::After::default();
     req.invalid(&errors, form, || field_page(&req, &config, &headers, &id, &after, forms)).await
+}
+
+// Bulk changes.
+
+/// The actions a bulk change offers (`lifecycleActions` on both lists).
+const BULK_ACTIONS: [&str; 3] = ["activate", "deprecate", "archive"];
+
+/// Whether the viewer may change the area's records: the bulk bar is theirs (its posts need
+/// `catalog.manage`, as the API's do).
+fn manages(req: &Req) -> bool {
+    matches!(req.context::<Session>(), Some(Session::Staff(viewer)) if viewer.can(MANAGE))
+}
+
+/// An action's label for records of `kind`, or the action itself when it is not one offered.
+fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
+    let actions = match kind {
+        Kind::Dimensions => views::bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive()),
+        Kind::Fields => views::bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive()),
+    };
+    actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
+}
+
+/// The job a list page follows (`?job=`), or none when it asks for none or the API does not
+/// know it (the dialog says so).
+async fn follow(caller: &Caller<'_>, id: Option<&str>) -> Option<Job> {
+    match caller.job(id?).await {
+        Ok(job) => Some(job),
+        Err(error) => {
+            tracing::warn!("bulk job read failed: {error}");
+            None
+        }
+    }
+}
+
+/// A list page's bulk parts: the bar for staff who may change the records, the preview to draw
+/// open, and the job's dialog when the page follows one (`asked`), its stream while it runs.
+fn bulk<'a>(req: &Req, t: Cat, kind: Kind, asked: bool, preview: Option<Previewed<'a>>, job: Option<&'a Job>) -> Bulk<'a> {
+    let followed = asked.then(|| Followed {
+        job,
+        label: job.map_or("", |job| action_label(t, job.of().unwrap_or(kind), &job.action)),
+        live: job.filter(|job| !job.done()).map(|job| url::JobLive { id: &job.job_id }.href()),
+    });
+    Bulk { manage: manages(req), preview, job: followed }
+}
+
+/// The filters set on a list, as the API's bulk selection reads them (`dimensionListQueryFromRecord`).
+fn filter_query(filters: &[(&str, &Option<String>)]) -> Value {
+    let set = filters.iter().filter_map(|(key, value)| {
+        let value = value.as_deref()?.trim();
+        (!value.is_empty()).then(|| ((*key).to_owned(), Value::String(value.to_owned())))
+    });
+    Value::Object(set.collect::<Map<_, _>>())
+}
+
+fn dimension_filter(query: &url::Dimensions) -> Value {
+    filter_query(&[("search", &query.search), ("status", &query.status), ("valueKind", &query.value_kind)])
+}
+
+fn field_filter(query: &url::Fields) -> Value {
+    filter_query(&[
+        ("search", &query.search),
+        ("status", &query.status),
+        ("valueType", &query.value_type),
+        ("filterable", &query.filterable),
+        ("searchable", &query.searchable),
+        ("sortable", &query.sortable),
+    ])
+}
+
+/// The form's message when it is not a change the bar offers, or the checked rows when there
+/// are none; the API decides the rest (which records are ready).
+fn bulk_refusal(p: Pilot, input: &BulkInput) -> Option<Errors> {
+    let mut errors = Errors::new();
+    if !BULK_ACTIONS.contains(&input.action.as_str()) || !matches!(input.mode.as_str(), "ids" | "filter") {
+        errors.add_form(p.catalog_action());
+    } else if input.mode == "ids" && input.ids.is_empty() {
+        errors.add_form(p.bulk_none_selected());
+    }
+    (!errors.is_empty()).then_some(errors)
+}
+
+/// What a preview came to.
+enum Previewing {
+    Shown(Preview),
+    Refused(Errors),
+    Denied(Denied),
+}
+
+async fn preview(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, filter: Value) -> Previewing {
+    if let Some(errors) = bulk_refusal(req.t(), input) {
+        return Previewing::Refused(errors);
+    }
+    match caller.bulk_preview(kind, &input.body(filter)).await {
+        Ok(preview) => Previewing::Shown(preview),
+        Err(error) => match refused(error) {
+            Ok(errors) => Previewing::Refused(errors),
+            Err(denied) => Previewing::Denied(denied),
+        },
+    }
+}
+
+/// A preview's answer: its dialog as a patch, or the list page with it open; a refusal is the
+/// dialog with the message (422).
+async fn answer_preview<'a, F, Fut>(req: &Req, shown: Previewed<'a>, page: F) -> corten::Result
+where
+    F: FnOnce(Previewed<'a>) -> Fut,
+    Fut: Future<Output = corten::Result>,
+{
+    let dialog = views::PreviewDialog { t: req.t(), p: req.t(), shown };
+    if !shown.errors.is_empty() {
+        return req.invalid(shown.errors, dialog, || page(shown)).await;
+    }
+    if req.mode == Mode::Action {
+        return req.patch(dialog);
+    }
+    page(shown).await
+}
+
+async fn preview_dimensions(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(at): Query<url::DimensionsBulk>,
+    Form(input): Form<BulkInput>,
+) -> corten::Result {
+    let confirm = at.confirm().href();
+    let query = at.list();
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (preview, errors) = match preview(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
+        Previewing::Shown(preview) => (Some(preview), Errors::new()),
+        Previewing::Refused(errors) => (None, errors),
+        Previewing::Denied(denied) => return denied.answer(&req),
+    };
+    let label = action_label(req.t(), Kind::Dimensions, &input.action);
+    let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &confirm, label };
+    answer_preview(&req, shown, |shown| dimension_list(&req, &config, &headers, &query, None, Some(shown))).await
+}
+
+async fn preview_fields(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(at): Query<url::FieldsBulk>,
+    Form(input): Form<BulkInput>,
+) -> corten::Result {
+    let confirm = at.confirm().href();
+    let query = at.list();
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (preview, errors) = match preview(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
+        Previewing::Shown(preview) => (Some(preview), Errors::new()),
+        Previewing::Refused(errors) => (None, errors),
+        Previewing::Denied(denied) => return denied.answer(&req),
+    };
+    let label = action_label(req.t(), Kind::Fields, &input.action);
+    let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &confirm, label };
+    answer_preview(&req, shown, |shown| field_list(&req, &config, &headers, &query, None, Some(shown))).await
+}
+
+/// What a confirm came to: the job the API started, or the refusal and the preview again (for
+/// the dialog it is drawn in).
+enum Confirming {
+    Started(Job),
+    Refused(Errors, Option<Preview>),
+    Denied(Denied),
+}
+
+async fn confirm(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, filter: Value) -> Confirming {
+    let errors = match bulk_refusal(req.t(), input) {
+        Some(errors) => errors,
+        None => match caller.bulk_confirm(kind, &input.body(filter.clone())).await {
+            Ok(job) => return Confirming::Started(job),
+            Err(error) => match refused(error) {
+                Ok(errors) => errors,
+                Err(denied) => return Confirming::Denied(denied),
+            },
+        },
+    };
+    let again = match preview(req, caller, kind, input, filter).await {
+        Previewing::Shown(preview) => Some(preview),
+        _ => None,
+    };
+    Confirming::Refused(errors, again)
+}
+
+async fn confirm_dimensions(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(at): Query<url::DimensionsBulkConfirm>,
+    Form(input): Form<BulkInput>,
+) -> corten::Result {
+    let action = at.clone().href();
+    let query = at.list();
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (errors, preview) = match confirm(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
+        Confirming::Started(job) => return req.redirect(&url::Dimensions { job: Some(job.job_id), ..query }),
+        Confirming::Refused(errors, preview) => (errors, preview),
+        Confirming::Denied(denied) => return denied.answer(&req),
+    };
+    let label = action_label(req.t(), Kind::Dimensions, &input.action);
+    let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &action, label };
+    answer_preview(&req, shown, |shown| dimension_list(&req, &config, &headers, &query, None, Some(shown))).await
+}
+
+async fn confirm_fields(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(at): Query<url::FieldsBulkConfirm>,
+    Form(input): Form<BulkInput>,
+) -> corten::Result {
+    let action = at.clone().href();
+    let query = at.list();
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (errors, preview) = match confirm(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
+        Confirming::Started(job) => return req.redirect(&url::Fields { job: Some(job.job_id), ..query }),
+        Confirming::Refused(errors, preview) => (errors, preview),
+        Confirming::Denied(denied) => return denied.answer(&req),
+    };
+    let label = action_label(req.t(), Kind::Fields, &input.action);
+    let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &action, label };
+    answer_preview(&req, shown, |shown| field_list(&req, &config, &headers, &query, None, Some(shown))).await
+}
+
+/// A job's status for `<corten-live>`: each change the job's stream sends, drawn, until the job
+/// is done (the stream then ends, so the element stays as it is). The stream resumes itself from
+/// the last event after a drop, so the browser's own reconnect is only for a dropped connection
+/// to the pilot, and draws the status the stream replays (todd-skelton/corten#15).
+async fn job_live(req: Req, State(config): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let updates = caller.watch_job::<Job>(&api::job_events(&id), api::CONTEXT, Job::done);
+    let fragments = updates.map(move |update| match update {
+        Update::Job(job) => views::job_status(t, p, Some(&job)).to_html(),
+        Update::Refused(_) => views::job_status(t, p, None).to_html(),
+    });
+    corten::live(fragments)
 }

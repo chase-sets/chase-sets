@@ -78,13 +78,102 @@ pub struct Field {
     pub updated_at: String,
 }
 
+/// One record of a bulk change: what it is, its status, and what the change does to it
+/// (`BulkLifecycleCandidate`: `ready` or `blocked` in a preview; `succeeded`, `skipped` or
+/// `failed` in a result) and why.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Candidate {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub outcome: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// What a bulk change would do (`BulkLifecyclePreview`). The API decides which records are ready.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Preview {
+    pub action: String,
+    #[serde(default)]
+    pub ids: Vec<String>,
+    pub total: u32,
+    pub ready_count: u32,
+    pub blocked_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<Candidate>,
+}
+
+/// What a bulk change did (`BulkLifecycleResult`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Outcome {
+    pub action: String,
+    pub total: u32,
+    pub succeeded_count: u32,
+    pub skipped_count: u32,
+    pub failed_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<Candidate>,
+}
+
+/// A bulk change's job (`CatalogAuthoringBulkJob`): queued, running, then completed with its
+/// outcome or failed with a message.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Job {
+    pub job_id: String,
+    pub kind: String,
+    pub action: String,
+    pub status: String,
+    pub progress: Progress,
+    #[serde(default)]
+    pub result: Option<Outcome>,
+    #[serde(default)]
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    pub completed: u32,
+    pub total: u32,
+    #[serde(default)]
+    pub current_name: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+impl Job {
+    /// Done: completed or failed. Its stream sends nothing after.
+    pub fn done(&self) -> bool {
+        matches!(self.status.as_str(), "completed" | "failed")
+    }
+
+    /// The kind of record the job changes, when it is one the area edits.
+    pub fn of(&self) -> Option<Kind> {
+        match self.kind.as_str() {
+            "catalog.authoring.dimensions.lifecycle" => Some(Kind::Dimensions),
+            "catalog.authoring.fields.lifecycle" => Some(Kind::Fields),
+            _ => None,
+        }
+    }
+}
+
+/// A job's status stream (`/bulk-authoring-jobs/{id}/events`), for `Caller::watch_job`.
+pub fn job_events(id: &str) -> String {
+    format!("{API}/bulk-authoring-jobs/{}/events", segment(id))
+}
+
+/// The context the catalog's reads name (`chase-sets-read-target-context`).
+pub const CONTEXT: &str = CATALOG;
+
 /// A write the API accepted: the receipt the next read waits for.
 pub struct Written {
     pub receipt: Option<Receipt>,
 }
 
 /// The kinds the catalog area edits, by their API path.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Dimensions,
     Fields,
@@ -107,6 +196,11 @@ pub trait Catalog {
     /// A command: `POST` or `PUT` to `/api/catalog/{kind}{rest}` with `body` (`rest` starts with
     /// `/`, or is empty for a create).
     async fn command(&self, method: Method, kind: Kind, rest: &str, body: Option<&Value>) -> Result<Written, ApiError>;
+    /// What a bulk change of `kind` would do: `body` is `{ action, selection }`.
+    async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError>;
+    /// Starts a bulk change of `kind`: its job (202), which runs it.
+    async fn bulk_confirm(&self, kind: Kind, body: &Value) -> Result<Job, ApiError>;
+    async fn job(&self, id: &str) -> Result<Job, ApiError>;
 }
 
 impl Catalog for Caller<'_> {
@@ -125,6 +219,22 @@ impl Catalog for Caller<'_> {
         }
         let (_, receipt): (Value, _) = self.write(req).await?;
         Ok(Written { receipt })
+    }
+
+    async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError> {
+        let req = self.request(Method::POST, &format!("{API}/{}/bulk-lifecycle/preview", kind.path()), CATALOG);
+        let (preview, _) = self.write(req.json(body)).await?;
+        Ok(preview)
+    }
+
+    async fn bulk_confirm(&self, kind: Kind, body: &Value) -> Result<Job, ApiError> {
+        let req = self.request(Method::POST, &format!("{API}/{}/bulk-lifecycle/confirm", kind.path()), CATALOG);
+        let (job, _) = self.write(req.json(body)).await?;
+        Ok(job)
+    }
+
+    async fn job(&self, id: &str) -> Result<Job, ApiError> {
+        self.read(&format!("{API}/bulk-authoring-jobs/{}", segment(id)), CATALOG).await
     }
 }
 

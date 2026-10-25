@@ -91,7 +91,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         return realtime(cookie);
     }
     if let Some(rest) = uri.path().strip_prefix(CATALOG) {
-        return catalog_api(method, rest, &body);
+        return catalog_api(method, rest, &headers, &body);
     }
     let Some(rest) = uri.path().strip_prefix(POLICIES) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -358,9 +358,68 @@ fn catalog_field(id: &str) -> Value {
     })
 }
 
-/// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages).
-fn catalog_api(method: Method, rest: &str, body: &str) -> Response {
+fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
+    json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
+}
+
+/// A bulk job (`CatalogAuthoringBulkJob`): running (1 of 2), or completed with its outcome.
+fn job(id: &str, done: bool) -> Value {
+    let (status, completed, result) = if done {
+        let candidates = [
+            candidate("dim_seed", "deprecated", "succeeded", None),
+            candidate("dim_b", "draft", "skipped", Some("Only an active dimension can be deprecated.")),
+        ];
+        let result = json!({ "action": "deprecate", "ids": ["dim_seed", "dim_b"], "total": 2, "succeeded_count": 1,
+                             "skipped_count": 1, "failed_count": 0, "candidates": candidates });
+        ("completed", 2, result)
+    } else {
+        ("running", 1, Value::Null)
+    };
+    json!({
+        "jobId": id, "kind": "catalog.authoring.dimensions.lifecycle", "action": "deprecate", "status": status,
+        "progress": { "phase": status, "completed": completed, "total": 2, "currentName": "Label dim_seed", "status": "succeeded" },
+        "result": result, "errorMessage": null, "createdAt": "2026-01-01T00:00:00.000Z", "startedAt": null,
+        "completedAt": null, "updatedAt": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+/// The job's status stream: the running record, then the stream ends (the pilot connects again
+/// from the last id), then the completed one.
+fn job_events(headers: &HeaderMap) -> Response {
+    let body = if headers.get("last-event-id").is_some_and(|id| id == "1") {
+        format!("id: 2\nevent: job.completed\ndata: {}\n\n", job("job_1", true))
+    } else {
+        format!(": keepalive\n\nid: 1\nevent: job.progress\ndata: {}\n\n", job("job_1", false))
+    };
+    ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+}
+
+/// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
+/// bulk archive cannot start (another change is running).
+fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> Response {
     match (method, rest) {
+        (Method::POST, "/dimensions/bulk-lifecycle/preview" | "/fields/bulk-lifecycle/preview") => {
+            let sent: Value = serde_json::from_str(body).unwrap();
+            let candidates = [
+                candidate("dim_seed", "active", "ready", None),
+                candidate("dim_b", "draft", "blocked", Some("Only an active dimension can be deprecated.")),
+            ];
+            Json(json!({ "mode": sent["selection"]["mode"], "action": sent["action"], "ids": ["dim_seed", "dim_b"], "total": 2,
+                         "ready_count": 1, "blocked_count": 1, "candidates": candidates }))
+            .into_response()
+        }
+        (Method::POST, "/dimensions/bulk-lifecycle/confirm") if body.contains(r#""action":"archive""#) => {
+            refusal(StatusCode::CONFLICT, "conflict", "Another bulk change is running.")
+        }
+        (Method::POST, "/dimensions/bulk-lifecycle/confirm" | "/fields/bulk-lifecycle/confirm") => {
+            (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response()
+        }
+        (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
+        (Method::GET, "/bulk-authoring-jobs/job_done") => Json(job("job_done", true)).into_response(),
+        (Method::GET, "/bulk-authoring-jobs/job_1/events") => job_events(headers),
+        (Method::GET, "/bulk-authoring-jobs/job_missing" | "/bulk-authoring-jobs/job_missing/events") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Bulk authoring job not found.")
+        }
         (Method::GET, "/dimensions") => Json(json!({ "items": [dimension("dim_seed", "active")], "total": 120 })).into_response(),
         (Method::GET, "/dimensions/dim_pending") => refusal(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -681,7 +740,7 @@ async fn a_list_draws_its_rows_on_open_and_again_on_each_change_resuming_after_a
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/catalog/dimensions?status=active&page=2", Some("staff"))).await;
     assert!(
-        html.contains(r#"<corten-live src="/catalog/dimensions/live?status=active&amp;page=2"><div id="catalog-rows">"#),
+        html.contains(r#"<corten-live src="/catalog/dimensions/live?status=active&amp;page=2"><div data-scope="bulk-rows" id="catalog-rows""#),
         "the rows are live, with the list's filters and page: {html}"
     );
     let before = pilot.catalog_calls().len();
@@ -691,8 +750,15 @@ async fn a_list_draws_its_rows_on_open_and_again_on_each_change_resuming_after_a
     assert_eq!(events.len(), 3, "{events:?}");
     for (event, data) in &events {
         assert_eq!(event, "patch");
-        assert!(data.starts_with(r#"<div id="catalog-rows">"#) && data.contains("/catalog/dimensions/dim_seed"), "{data}");
-        assert!(data.contains("Page 2 of 3") && !data.contains("<form"), "only the rows and pager, not the filters: {data}");
+        assert!(
+            data.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#) && data.contains("/catalog/dimensions/dim_seed"),
+            "{data}"
+        );
+        assert!(
+            data.contains("Page 2 of 3") && !data.contains(r#"role="search""#),
+            "the rows, pager and bulk bar, not the filters: {data}"
+        );
+        assert!(data.contains("120 matching Dimensions"), "the bar's count is drawn with the rows: {data}");
     }
     let reads: Vec<_> = pilot.catalog_calls()[before..].iter().map(|c| c.path.clone()).collect();
     assert_eq!(reads, vec!["/api/catalog/dimensions?status=active&limit=50&offset=50"; 3], "the same list each time");
@@ -710,4 +776,179 @@ async fn a_live_list_ends_when_the_api_refuses_its_stream() {
     let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
     assert_eq!(kinds, ["patch", "end"], "the rows once, then the element stops: {events:?}");
     assert!(events[0].1.contains("/catalog/fields/fld_seed"), "{events:?}");
+}
+
+// Bulk changes.
+
+#[tokio::test]
+async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<form data-ref="form" id="catalog-bulk" class="bulk-rows__bar" method="post" action="/catalog/dimensions/bulk?status=active" data-patch"#), "{html}");
+    assert!(html.contains(r#"name="ids" value="dim_seed" form="catalog-bulk" aria-label="Select row dim_seed""#), "{html}");
+    assert!(
+        html.contains(r#"name="all" form="catalog-bulk" aria-label="Select all rows" hidden"#),
+        "select-all needs the script: {html}"
+    );
+    assert!(
+        html.contains(
+            r#"<template data-ref="labels"><span>120 matching Dimensions</span><span>1 Dimensions selected</span></template>"#
+        ),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="mode" value="ids">Preview</button>"#) && html.contains(r#"type="reset""#), "{html}");
+    assert!(html.contains(r#"<dialog id="catalog-bulk-preview"></dialog>"#), "the preview's place: {html}");
+
+    // catalog.view only: the rows, without the bar or the boxes (its posts need catalog.manage).
+    let (status, _, html) = pilot.send(get("/catalog/dimensions", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<div id="catalog-rows">"#) && !html.contains("catalog-bulk\""), "{html}");
+    assert!(!html.contains(r#"name="ids""#), "{html}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/dimensions/bulk", "action=deprecate&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (_, rows) = pilot.events("/catalog/fields/live", "catalog-reader", 1).await.remove(0);
+    assert!(rows.starts_with(r#"<div id="catalog-rows">"#) && !rows.contains("catalog-bulk"), "{rows}");
+}
+
+#[tokio::test]
+async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_with_its_dialog() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot
+        .send(post("/catalog/dimensions/bulk?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.starts_with(r#"<dialog class="dialog__dialog" id="catalog-bulk-preview""#) && html.contains(" open "), "{html}");
+    assert!(html.contains("Bulk Deprecate Preview") && html.contains("1 ready, 1 blocked."), "{html}");
+    assert!(html.contains("Label dim_b") && html.contains("Only an active dimension can be deprecated."), "{html}");
+    assert!(html.contains(r#"action="/catalog/dimensions/bulk/confirm?status=active""#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="ids" value="dim_b">"#), "the confirm takes the preview's ids: {html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/dimensions/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "deprecate", "selection": { "mode": "ids", "ids": ["dim_seed", "dim_b"] } })
+    );
+
+    // Every field the filters match: the list's filters are the selection's query.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(post("/catalog/fields/bulk?search=lang&value_type=string&sortable=true", "action=archive&mode=filter", true))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains(r#"name="ids""#), "a filter is confirmed as a filter: {html}");
+    assert!(html.contains(r#"<input type="hidden" name="mode" value="filter">"#), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/fields/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "archive", "selection": { "mode": "filter", "query": { "search": "lang", "valueType": "string", "sortable": "true" } } })
+    );
+
+    // Without JavaScript: the list, with the preview open.
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids&ids=dim_seed", false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.starts_with("<!DOCTYPE html>")
+            && html.contains(r#"id="catalog-bulk-preview" aria-labelledby="catalog-bulk-preview-title" open"#),
+        "{html}"
+    );
+    assert!(html.contains("/catalog/dimensions/dim_seed"), "the list behind it: {html}");
+}
+
+#[tokio::test]
+async fn a_preview_of_nothing_or_of_an_action_not_offered_is_refused_without_asking_the_api() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"<p class="form-error" role="alert">Select at least one row to preview.</p>"#), "{html}");
+    assert!(html.contains("disabled") && !html.contains("ready,"), "nothing to confirm: {html}");
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=delete&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+}
+
+#[tokio::test]
+async fn a_confirm_starts_the_job_and_the_list_follows_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post("/catalog/dimensions/bulk/confirm?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers["corten-location"], "/catalog/dimensions?status=active&job=job_1");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/dimensions/bulk-lifecycle/confirm");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "deprecate", "selection": { "mode": "ids", "ids": ["dim_seed", "dim_b"] } })
+    );
+
+    let (status, _, html) = pilot.send(get("/catalog/dimensions?status=active&job=job_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"id="catalog-bulk-job" aria-labelledby="catalog-bulk-job-title" open"#), "{html}");
+    assert!(html.contains("Bulk Deprecate Result"), "{html}");
+    assert!(html.contains(r#"<corten-live src="/catalog/jobs/job_1/live"><div id="catalog-bulk-status">"#), "{html}");
+    assert!(html.contains("1 of 2 processed.") && html.contains("Current: Label dim_seed"), "{html}");
+    assert!(
+        html.contains(r#"href="/catalog/dimensions?status=active&amp;page=2" rel="next""#),
+        "the pages leave the job: {html}"
+    );
+
+    let mut req = get("/catalog/dimensions?job=job_1", Some("staff"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["job"]["jobId"], "job_1", "data clients get the job: {body}");
+
+    // Without JavaScript the same confirm is a redirect.
+    let (status, headers, _) = pilot.send(post("/catalog/dimensions/bulk/confirm", "action=deprecate&mode=filter", false)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/catalog/dimensions?job=job_1"));
+}
+
+#[tokio::test]
+async fn a_refused_confirm_is_the_preview_again_with_the_apis_message() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/dimensions/bulk/confirm", "action=archive&mode=ids&ids=dim_seed", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.starts_with(r#"<dialog class="dialog__dialog" id="catalog-bulk-preview""#), "{html}");
+    assert!(html.contains(r#"<p class="form-error" role="alert">Another bulk change is running.</p>"#), "{html}");
+    assert!(html.contains("1 ready, 1 blocked."), "the preview is drawn again: {html}");
+    let paths: Vec<_> = pilot.catalog_writes().iter().map(|c| c.path.clone()).collect();
+    assert_eq!(paths, ["/api/catalog/dimensions/bulk-lifecycle/confirm", "/api/catalog/dimensions/bulk-lifecycle/preview"]);
+}
+
+#[tokio::test]
+async fn a_jobs_status_is_streamed_until_it_is_done_resuming_after_a_drop() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events("/catalog/jobs/job_1/live", "staff", 3).await;
+    let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "patch", "end"], "{events:?}");
+    assert!(
+        events[0].1.starts_with(r#"<div id="catalog-bulk-status">"#) && events[0].1.contains("1 of 2 processed."),
+        "{events:?}"
+    );
+    assert!(events[1].1.contains("1 succeeded, 1 skipped, 0 failed.") && events[1].1.contains("Label dim_b"), "{events:?}");
+    let streams = pilot.calls_to("/api/catalog/bulk-authoring-jobs/job_1/events");
+    assert_eq!(streams.len(), 2, "{streams:?}");
+    assert!(!streams[0].headers.contains_key("last-event-id"));
+    assert_eq!(streams[1].headers["last-event-id"], "1", "it resumes from the last event");
+    assert_eq!(streams[1].headers[header::COOKIE], "chase_sets_session=staff", "as the signed-in user");
+}
+
+#[tokio::test]
+async fn a_done_job_shows_what_it_did_and_an_unknown_one_says_so() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/dimensions?job=job_done", Some("staff"))).await;
+    assert!(
+        html.contains("1 succeeded, 1 skipped, 0 failed.") && !html.contains("/catalog/jobs/"),
+        "no stream once done: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/catalog/dimensions?job=job_missing", Some("staff"))).await;
+    assert!(html.contains("This bulk change is not known."), "{html}");
+    let events = pilot.events("/catalog/jobs/job_missing/live", "staff", 2).await;
+    assert!(events[0].1.contains("This bulk change is not known.") && events[1].0 == "end", "{events:?}");
 }

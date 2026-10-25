@@ -158,7 +158,7 @@ pub fn OptionTable<'a>(
         if dimension.options.is_empty() {
             <Empty title={t.dimension_no_options()} description={t.dimension_add_an_option_to_this_dimension()} />
         } else {
-            <Table label={&label} head={&head}>
+            <Table label={&label} head={&head} all={None}>
                 for option in &dimension.options {
                     <OptionRow t={t} p={p} dimension={dimension} option={option} editing={editing} refused={refused} />
                 }
