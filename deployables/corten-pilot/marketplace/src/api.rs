@@ -284,13 +284,95 @@ pub struct Money {
     pub currency: String,
 }
 
-/// The cart page's call.
+/// The decisions a readiness snapshot is computed with (`CartReadinessDecisionInput`): the
+/// lower-price offer accepted or declined, for its line and listing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Decisions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optimization: Option<OptimizationDecision>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptimizationDecision {
+    /// `accepted` or `declined`.
+    pub decision: &'static str,
+    pub line_id: String,
+    pub listing_id: String,
+}
+
+/// A checkout session the Checkout API started (`POST /account/checkout-sessions`).
+#[derive(Clone, Debug, Deserialize)]
+pub struct Started {
+    pub session_id: String,
+}
+
+#[derive(Deserialize)]
+struct ReadinessBody {
+    readiness: Snapshot,
+}
+
+/// The guest cart a browser presents (`x-checkout-anonymous-cart-id`).
+const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
+
+/// The cart page's calls.
 pub trait Checkout {
     async fn cart(&self) -> Result<Cart, ApiError>;
+    /// Moves a guest cart's lines into the account's cart.
+    async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError>;
+    /// The account's cart's readiness now, with `decisions` (and the guest cart's lines).
+    async fn cart_readiness(&self, decisions: &Decisions, anonymous_cart: Option<&str>) -> Result<Snapshot, ApiError>;
+    /// Starts a checkout session for the cart as `snapshot` saw it. A session started again from
+    /// the same snapshot is the same session.
+    async fn start_checkout(
+        &self,
+        snapshot: &Snapshot,
+        decisions: &Decisions,
+        anonymous_cart: Option<&str>,
+    ) -> Result<(Started, Option<Receipt>), ApiError>;
 }
 
 impl Checkout for Caller<'_> {
     async fn cart(&self) -> Result<Cart, ApiError> {
         self.read(CART, CHECKOUT).await
+    }
+
+    async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError> {
+        let req = self
+            .request(Method::POST, "/api/marketplace/guest/cart/merge-to-account", CHECKOUT)
+            .header(ANONYMOUS_CART_HEADER, anonymous_cart)
+            .json(&serde_json::json!({}));
+        self.write::<serde::de::IgnoredAny>(req).await?;
+        Ok(())
+    }
+
+    async fn cart_readiness(&self, decisions: &Decisions, anonymous_cart: Option<&str>) -> Result<Snapshot, ApiError> {
+        let mut req = self.request(Method::POST, &format!("{CART}/readiness"), CHECKOUT).json(decisions);
+        if let Some(id) = anonymous_cart {
+            req = req.header(ANONYMOUS_CART_HEADER, id);
+        }
+        let (body, _): (ReadinessBody, _) = self.write(req).await?;
+        Ok(body.readiness)
+    }
+
+    async fn start_checkout(
+        &self,
+        snapshot: &Snapshot,
+        decisions: &Decisions,
+        anonymous_cart: Option<&str>,
+    ) -> Result<(Started, Option<Receipt>), ApiError> {
+        let source = serde_json::json!({
+            "type": "cart",
+            "readinessSnapshotId": snapshot.snapshot_id,
+            "readinessSourceRevision": snapshot.source_revision,
+            "readinessDecisions": decisions,
+        });
+        let mut req = self
+            .request(Method::POST, "/api/marketplace/account/checkout-sessions", CHECKOUT)
+            .json(&serde_json::json!({ "source": source }));
+        if let Some(id) = anonymous_cart {
+            req = req.header(ANONYMOUS_CART_HEADER, id);
+        }
+        self.write(req).await
     }
 }

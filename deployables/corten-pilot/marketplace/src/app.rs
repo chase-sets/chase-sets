@@ -15,6 +15,7 @@
 //! | `POST /account/inventory/restock-decisions/{id}/restock` | restock a decision's items |
 //! | `POST /account/inventory/restock-decisions/{id}/write-off` | write them off, with a damage note |
 //! | `GET /account/cart` | the account's cart, its readiness and total |
+//! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`.
 use std::sync::Arc;
@@ -86,6 +87,11 @@ pub mod url {
     #[route("/account/cart")]
     pub struct Cart;
 
+    /// Check out the account's cart: starts a checkout session and sends the buyer to it.
+    #[derive(Route)]
+    #[route("/account/cart/checkout")]
+    pub struct CartCheckout;
+
     /// The storage locations, and the write to confirm.
     #[derive(Clone, Debug, Default, Route)]
     #[route("/account/inventory/locations")]
@@ -150,8 +156,8 @@ pub fn app(config: Config) -> App<Session> {
             }
         })
         // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
-        // default policy takes any https image).
-        .policy(corten::security::Policy::new().img_src(marketplace_origin()))
+        // default policy takes any https image), and Check out redirects to its checkout.
+        .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))
         .shell(views::shell)
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)

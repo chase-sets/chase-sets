@@ -5,8 +5,9 @@ use corten::prelude::*;
 
 use super::marketplace;
 use crate::{
-    api::segment,
-    cart::{Line, Price, Reason, Seller},
+    api::{Snapshot, segment},
+    app::url,
+    cart::{CheckoutInput, Line, Price, Reason, Seller},
     text::CartMsg,
 };
 
@@ -185,6 +186,17 @@ pub fn CartNotice<'a, C: Render>(title: &'a str, warning: bool, children: C) -> 
     }
 }
 
+/// Why checkout did not start (the cart page's "Checkout issue"): the API's reason.
+#[component(css = CartItem)]
+pub fn CartIssue<'a>(title: &'a str, text: &'a str) -> impl Render {
+    html! {
+        <div class={(Notice, Danger)} role="alert">
+            <p class={NoticeTitle}>{title}</p>
+            <p>{text}</p>
+        </div>
+    }
+}
+
 /// The items, shipping and the estimated total (`CheckoutTotals`).
 #[component(css = CartItem)]
 pub fn CartTotals<'a>(t: CartMsg, items: u64, total: &'a str, known: bool) -> impl Render {
@@ -232,15 +244,29 @@ pub fn CheckoutBar<'a, A: Render, B: Render>(
     }
 }
 
-/// A link styled as a button, to a marketplace page: Keep shopping, and Check out and Use lower
-/// price. marketplace's Check out and Use lower price are forms that post the readiness snapshot
-/// and the optimization choice to its `/checkout/buy/readiness`, but a Corten page cannot send a
-/// form to another origin (todd-skelton/corten#64). So Check out links to that page, which reads
-/// the readiness again, and Use lower price to marketplace's own cart, where the offer is chosen.
-/// Make them the forms again when that issue lands.
+/// A link styled as a button, to a marketplace page: Keep shopping, and Continue to checkout for a
+/// cart that is not ready (marketplace's `LinkButton`s).
 #[component(css = CartItem)]
 pub fn CheckoutLink<'a>(href: &'a str, label: &'a str, primary: bool) -> impl Render {
     html! { <a class={(Button, primary.then_some(Primary))} href={href}>{label}</a> }
+}
+
+/// Check out, or Use lower price (marketplace's `CheckoutForm`): posts the offer's decision as
+/// `snapshot` was read with it. The pilot starts the checkout session and the browser follows the
+/// redirect to marketplace's checkout, which the app's policy allows (`form_action`). A plain
+/// form, so the browser leaves the page whether or not the script runs.
+#[component(css = CartItem)]
+pub fn CheckoutForm<'a>(snapshot: &'a Snapshot, label: &'a str, primary: bool) -> impl Render {
+    let input = CheckoutInput::of(snapshot);
+    let f = CheckoutInput::FIELDS;
+    html! {
+        <form class={Post} method="post" action={url::CartCheckout}>
+            <input type="hidden" name={f.offer} value={&input.offer}>
+            <input type="hidden" name={f.line} value={&input.line}>
+            <input type="hidden" name={f.listing} value={&input.listing}>
+            <button type="submit" class={(Button, primary.then_some(Primary))}>{label}</button>
+        </form>
+    }
 }
 
 /// No line in the cart (`MarketplaceEmptyState` with its trust cue).

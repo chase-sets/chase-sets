@@ -1,8 +1,11 @@
 // Uses the cart pilot in a browser as the auth seed's collector, with JavaScript and without it,
 // against the real platform API, beside marketplace's own cart page: the lines, badges, prices and
-// total the API returns, the lower-price offer, the links to marketplace's checkout, and the page
-// at 390 px. It only reads: the cart's writes are not ported yet.
-// Usage: node scripts/smoke-cart.mjs [pilot-url] [state-file] [marketplace-url] [api-url]
+// total the API returns, the lower-price offer, the checkout forms, and the page at 390 px. With
+// --checkout it also sends Check out, which starts a checkout session (a write in the dev
+// sandbox), and checks the browser is sent to marketplace's page for it and the API has it. The
+// smoke does not load that page: with a saved card, marketplace's checkout starts the payment as
+// it loads, which creates orders that hold the cart's listings until their payment deadline.
+// Usage: node scripts/smoke-cart.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [--checkout]
 //   (state from `scripts/sign-in.mjs <pilot-url> <state-file> collector --api <api-url>`)
 import { chromium } from "@playwright/test";
 
@@ -11,7 +14,8 @@ const [
   stateFile = "../../artifacts/corten-pilot/collector-state.json",
   web = "http://localhost:7753",
   api = "http://localhost:7762",
-] = process.argv.slice(2);
+] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const sendCheckout = process.argv.includes("--checkout");
 const cartUrl = `${base}/account/cart`;
 let failures = 0;
 
@@ -84,10 +88,57 @@ async function shown(page) {
   } else {
     check(!notice?.includes("Save "), "no offer for a cart the API does not offer one");
   }
-  const checkout = page.getByRole("link", { name: /^(Check out|Continue to checkout)$/ });
-  check((await checkout.getAttribute("href")) === `${web}/checkout/buy/readiness`, "checkout is marketplace's");
+  const ready = cart.readiness.declined.status === "ready";
+  if (ready) {
+    // Check out and Use lower price post the offer's decision; the pilot starts the session.
+    const forms = await page.locator('form[action$="/account/cart/checkout"]').evaluateAll((all) =>
+      all.map((f) => ({ action: f.action, method: f.method, fields: Object.fromEntries(new FormData(f)), label: f.querySelector("button")?.textContent?.trim() })),
+    );
+    const optimization = cart.readiness.declined.optimization;
+    const checkOut = forms.find((f) => f.label === "Check out");
+    check(checkOut?.action === `${base}/account/cart/checkout` && checkOut.method === "post", "Check out posts to the pilot");
+    check(
+      optimization.available ? checkOut?.fields.offer === "declined" && checkOut.fields.line === optimization.proposedLineId : checkOut?.fields.offer === "",
+      `with the declined offer, as the API read it (${checkOut?.fields.offer})`,
+    );
+    const lower = forms.find((f) => f.label === "Use lower price");
+    if (cart.readiness.accepted && optimization.available) {
+      check(lower?.fields.offer === "accepted" && lower.fields.listing === optimization.proposedListingId, "Use lower price posts the accepted offer");
+    }
+  } else {
+    const resolve = page.getByRole("link", { name: "Continue to checkout" });
+    check((await resolve.getAttribute("href")) === `${web}/checkout/buy/readiness`, "a cart that is not ready continues to marketplace's checkout");
+  }
   check((await page.getByRole("link", { name: "Keep shopping" }).getAttribute("href")) === `${web}/search`, "keep shopping is marketplace's search");
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
+
+  // Check out goes to marketplace (the policy's form-action allows its origin).
+  if (sendCheckout && ready) {
+    const blocked = [];
+    page.on("console", (m) => /Content Security Policy|form-action/i.test(m.text()) && blocked.push(m.text()));
+    let landed = null;
+    await page.route(`${web}/checkout/buy/session/**`, (route) => {
+      landed = new URL(route.request().url());
+      return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><h1>Checkout</h1>" });
+    });
+    const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/checkout`, { timeout: 30_000 }).catch(() => null);
+    await page.getByRole("button", { name: "Check out" }).click();
+    const answer = await posted;
+    check(Boolean(answer) && [204, 303].includes(answer.status()), `the pilot starts the session (${answer?.status()})`);
+    await page.waitForURL((u) => u.origin === web, { timeout: 30_000 }).catch(() => null);
+    const session = landed?.pathname.match(/^\/checkout\/buy\/session\/(chk_[\w-]+)$/)?.[1];
+    check(Boolean(session), `and sends the browser to marketplace's checkout for it (${landed?.pathname})`);
+    check(Boolean(landed?.searchParams.get("afterWrite")), "with the write's receipt");
+    check(blocked.length === 0, `no form-action violation (${blocked.join(" | ")})`);
+    if (session) {
+      const read = await page.request.get(`${api}/api/marketplace/account/checkout-sessions/${session}`, { headers: { "chase-sets-read-target-context": "checkout" } });
+      const started = read.ok() ? await read.json() : null;
+      check(started?.source_type === "cart" && started.lines.length === cart.items.length, `the API has the session, with the cart's lines (${started?.lines?.length})`);
+    }
+    await page.unroute(`${web}/checkout/buy/session/**`);
+  } else if (sendCheckout) {
+    console.log("skip the cart is not ready, so there is no Check out to send");
+  }
 
   // marketplace's own page, when it is running: the same lines, in the same order, and total.
   const webPage = await ctx.newPage();
@@ -121,7 +172,7 @@ async function shown(page) {
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(over <= 0, `the page does not scroll sideways at 390 px (${over} px over)`);
-  const bar = await page.getByRole("link", { name: /^(Check out|Continue to checkout)$/ }).boundingBox();
+  const bar = await page.getByRole("button", { name: "Check out" }).or(page.getByRole("link", { name: "Continue to checkout" })).boundingBox();
   check(Boolean(bar) && bar.x >= 0 && bar.x + bar.width <= 390, "checkout fits on the screen");
   const cards = await page.locator("li[data-cart-line]").evaluateAll((items) => items.map((li) => li.getBoundingClientRect().right));
   check(cards.every((right) => right <= 390), "every line fits");

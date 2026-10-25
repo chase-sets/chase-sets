@@ -84,6 +84,8 @@
   text-align: center;
   text-decoration: none;
 }
+button.button { font: inherit; font-weight: 600; cursor: pointer; }
+.post { display: grid; margin: 0; }
 .primary { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-primary-foreground); }
 .notice {
   display: grid;
@@ -98,6 +100,8 @@
 .notice .name { color: var(--color-text); }
 .attention { border-color: var(--color-warning); background: var(--color-warning-soft); color: var(--color-warning); }
 .notice-title { margin: 0; font-weight: 600; }
+.danger { border-color: var(--color-danger); background: var(--color-danger-soft); color: var(--color-text); }
+.danger .notice-title { color: var(--color-danger); }
 .totals { display: grid; gap: var(--space-2); margin: 0; }
 .row { display: flex; justify-content: space-between; gap: var(--space-4); font-size: 0.875rem; }
 .row dd, .total dd { margin: 0; text-align: end; font-variant-numeric: tabular-nums; }

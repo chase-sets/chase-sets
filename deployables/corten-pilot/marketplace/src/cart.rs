@@ -1,7 +1,9 @@
 //! Buy > Cart (marketplace's `/account/cart`): the account's cart lines, what each needs before
 //! checkout, the estimated total and the lower-price offer, as the Checkout API's cart read
-//! returns them. Checking out is marketplace's: the page's Check out and Use lower price post the
-//! readiness snapshot to marketplace's `/checkout/buy/readiness`, as its cart page does.
+//! returns them. Check out and Use lower price start the checkout session here, as marketplace's
+//! `/checkout/buy/readiness` action does, and send the buyer to marketplace's checkout with the
+//! write's receipt (`checkout`). marketplace's action refuses a post from another origin (React
+//! Router's CSRF check), and starting the session is the Checkout API's call, so the pilot makes it.
 //!
 //! The API computes the readiness, the totals and the savings
 //! ([chase-sets/chase-sets#10504](https://github.com/chase-sets/chase-sets/issues/10504)). Each
@@ -10,20 +12,29 @@
 //! line's price is still worked out here from its listings, as marketplace's page does.
 use std::collections::HashMap;
 
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{
+    axum::http::{HeaderMap, StatusCode, header},
+    prelude::*,
+    security::cookie,
+};
 use platform::money;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{Cart, CartLine, Checkout as _, Readiness, SellerOption},
-    app::{Shared, read_failed, url, viewer},
+    api::{ApiError, Cart, CartLine, Checkout as _, Decisions, OptimizationDecision, Readiness, SellerOption, Snapshot, segment},
+    app::{Config, Shared, read_failed, sign_in, url, viewer},
     auth::Session,
     text::CartMsg,
     views,
 };
 
+/// The guest cart a browser carries from before it signed in (marketplace's
+/// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
+const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
+
 pub fn routes(area: Area<Session, url::CartArea>, shared: &Shared) -> Area<Session, url::CartArea> {
     area.route::<url::Cart>(get(page).with_state(shared.clone()))
+        .route::<url::CartCheckout>(post(checkout).with_state(shared.clone()))
 }
 
 /// The screen's view model: what the page shows and what a data client gets.
@@ -74,6 +85,47 @@ impl CartScreen {
         let optimization = &self.readiness.as_ref()?.declined.optimization;
         let line = self.lines.iter().find(|l| Some(&l.line.line_id) == optimization.proposed_line_id.as_ref())?;
         option(&line.line, optimization.proposed_listing_id.as_deref())
+    }
+}
+
+/// What Check out and Use lower price post: the lower-price offer's decision as the snapshot the
+/// page drew was read with (`offer` `declined` or `accepted`, for `line` and `listing`), or
+/// none. Checkout reads the cart's readiness again with it, so the page's snapshot is not sent.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct CheckoutInput {
+    pub offer: String,
+    pub line: String,
+    pub listing: String,
+}
+
+impl CheckoutInput {
+    /// The form for `snapshot`.
+    pub fn of(snapshot: &Snapshot) -> Self {
+        let optimization = &snapshot.optimization;
+        let decided = matches!(optimization.decision.as_str(), "declined" | "accepted");
+        match (decided, &optimization.proposed_line_id, &optimization.proposed_listing_id) {
+            (true, Some(line), Some(listing)) => {
+                CheckoutInput { offer: optimization.decision.clone(), line: line.clone(), listing: listing.clone() }
+            }
+            _ => CheckoutInput::default(),
+        }
+    }
+
+    /// The decisions checkout is started with (`readinessDecisions`).
+    pub fn decisions(&self) -> Decisions {
+        let decision = match self.offer.as_str() {
+            "declined" => "declined",
+            "accepted" => "accepted",
+            _ => return Decisions::default(),
+        };
+        let (line, listing) = (self.line.trim(), self.listing.trim());
+        if line.is_empty() || listing.is_empty() {
+            return Decisions::default();
+        }
+        Decisions {
+            optimization: Some(OptimizationDecision { decision, line_id: line.to_owned(), listing_id: listing.to_owned() }),
+        }
     }
 }
 
@@ -298,15 +350,76 @@ fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
 }
 
 async fn page(req: Req, State(config): State<Shared>, headers: HeaderMap) -> corten::Result {
-    let viewer = viewer(&req)?;
-    let caller = config.platform.caller(&headers, config.proto, None);
+    render(&req, &config, &headers, None).await
+}
+
+/// The cart page, with `issue` (why checkout did not start) above the lines and answered 422.
+async fn render(req: &Req, config: &Config, headers: &HeaderMap, issue: Option<&str>) -> corten::Result {
+    let viewer = viewer(req)?;
+    let caller = config.platform.caller(headers, config.proto, None);
     let cart = match caller.cart().await {
         Ok(cart) => cart,
-        Err(error) => return read_failed(&req, error, None),
+        Err(error) => return read_failed(req, error, None),
     };
     let screen = CartScreen::of(cart);
     let t: CartMsg = req.t();
     let meta = Meta::new(t.route_cart_marketplace()).description(t.route_review_cart_lines_adjust_quantity_and());
-    let view = views::cart_page(t, viewer, &screen);
-    req.screen(meta, &screen, view)
+    let view = views::cart_page(t, viewer, &screen, issue);
+    let status = if issue.is_some() { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
+    req.screen_with_status(status, meta, &screen, view)
+}
+
+/// Check out (marketplace's `/checkout/buy/readiness` action for a signed-in cart): move a guest
+/// cart the browser still carries into the account's (best effort, as marketplace does), read the
+/// cart's readiness again with the posted decision, start a checkout session from it, and send
+/// the buyer to marketplace's checkout with the write's receipt, the guest cart forgotten. A
+/// session started again from the same readiness is the same session, so sending again is safe.
+/// A refusal is the cart again with the API's reason.
+async fn checkout(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<CheckoutInput>,
+) -> corten::Result {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let guest = cookie::get(&headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"));
+    if let Some(id) = guest
+        && let Err(error) = caller.merge_guest_cart(id).await
+    {
+        tracing::warn!("the guest cart was not merged before checkout: {error}");
+    }
+    let decisions = input.decisions();
+    let started = async {
+        let snapshot = caller.cart_readiness(&decisions, guest).await?;
+        caller.start_checkout(&snapshot, &decisions, guest).await
+    };
+    let (session, receipt) = match started.await {
+        Ok(started) => started,
+        Err(error) => return refused(&req, &config, &headers, error).await,
+    };
+    let after_write = receipt.map(|r| format!("?afterWrite={}", segment(&r.param()))).unwrap_or_default();
+    let Some(to) = views::marketplace(&format!("/checkout/buy/session/{}{after_write}", segment(&session.session_id))) else {
+        return Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let mut res = req.redirect(&to)?;
+    if guest.is_some() {
+        let forget = cookie::SetCookie::remove(ANONYMOUS_CART_COOKIE);
+        let forget = if config.proto == "https" { forget } else { forget.insecure() };
+        res.headers_mut().append(header::SET_COOKIE, forget.header());
+    }
+    Ok(res)
+}
+
+/// Checkout did not start: sign in again, the error page, or the cart with the API's reason.
+async fn refused(req: &Req, config: &Config, headers: &HeaderMap, error: ApiError) -> corten::Result {
+    match error.status() {
+        Some(StatusCode::UNAUTHORIZED) => sign_in(req),
+        Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+        Some(status) if status.is_client_error() => {
+            let t: CartMsg = req.t();
+            let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
+            render(req, config, headers, Some(&reason)).await
+        }
+        _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    }
 }

@@ -18,7 +18,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
-| `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar (not ported yet: the writes, which are quantity, remove and lock; the guest cart; and checkout itself, which is marketplace's) |
+| `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout (not ported yet: the writes, which are quantity, remove and lock; the guest cart; and the checkout pages after it) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -98,7 +98,9 @@ cd ..
 node scripts/smoke-admin.mjs           # every action in a browser, with and without JavaScript (writes sandbox data)
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
 node scripts/sign-in.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json collector --api http://localhost:7762
-node scripts/smoke-cart.mjs            # the cart beside the API's read and marketplace's page: lines, badges, prices, total, the offer, no JavaScript, 390 px (only reads)
+node scripts/smoke-cart.mjs            # the cart beside the API's read and marketplace's page: lines, badges, prices, total, the offer, the checkout forms, no JavaScript, 390 px (only reads)
+node scripts/smoke-cart.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json http://localhost:7753 http://localhost:7762 --checkout
+                                        # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -152,6 +154,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `c35a10a` | Corten `main` with [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49) and [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50) closed, both adopted. No breaking change for the pilot; its tests changed only where a page's markup did (`LiveStatus` now draws the `<corten-live>`, and `drawn` takes one group) |
 | `e220c14` | Corten `main` with [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54) and [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56) closed, both adopted (`t.by_key`; `{type}` as it is). No breaking change for the pilot. Also brings a feed's snapshot kept between writes (CHANGELOG, Changed 38) |
 | `26c55a8` | Corten `main` with [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58) closed and adopted: the exported catalogs keep their camelCase arguments. Breaking for the pilot only in a script: a `Message<"...">` JSDoc and its call take the catalog's names (`bulk_rows.js` says `entityName`) |
+| `c268ecc` | Corten `main` with [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61) and [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64) closed, both adopted: the router tests' `patch_ids` is gone, and the cart's Check out is a form whose redirect goes to marketplace (`Policy::form_action`). No breaking change for the pilot |
 
 ## What lives where
 
@@ -393,11 +396,28 @@ forward only on purpose, when a fix the pilot needs lands.
     locked listing, "from" for Smart Match, "Priced at checkout" without a priced listing), and
     lines for one product and fulfillment are merged as `groupCartLines` merges them. Money is
     written as `formatMoney` writes it, by hand, in `en-US` (`platform::money`), because Corten
-    cannot ([todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)). Check out and Use lower price are links, not the forms marketplace posts to
-    its `/checkout/buy/readiness`: every Corten page's CSP has `form-action 'self'`, so the
-    browser does not send a form to marketplace's origin ([todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64)). Check out opens that page,
-    which reads the readiness again; Use lower price opens marketplace's own cart, since a link
-    cannot carry the choice. A line without an image shows marketplace's card back from
+    cannot ([todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)).
+
+30. **Check out starts the session in the pilot.** marketplace's Check out and Use lower price
+    post to its `/checkout/buy/readiness` action, which merges a guest cart, reads the readiness
+    again with the offer's decision, starts a checkout session and redirects to it. The pilot's
+    forms cannot post there: React Router refuses an action whose `Origin` is another origin
+    (400, its CSRF check), unless marketplace lists the pilot in `allowedActionOrigins`. So the
+    forms post to `POST /account/cart/checkout`, which makes the same three calls to the Checkout
+    API (`cart::checkout`) and redirects to marketplace's `/checkout/buy/session/{id}` with the
+    session's receipt as `afterWrite`, forgetting the guest cart cookie as marketplace does. The
+    redirect leaves the pilot's origin, which `Policy::form_action` allows. The form carries only
+    the offer's decision (`offer`, `line`, `listing`), not the page's snapshot, since checkout
+    reads the readiness again anyway. A session started again from the same readiness is the same
+    session (the API keys it by the snapshot), so the form needs no attempt id; a refusal is the
+    cart again, 422, with the API's reason as "Checkout issue". The smoke test stops at the
+    redirect: loading marketplace's session page as a returning buyer starts the payment and
+    holds the cart's listings for an hour
+    ([chase-sets/chase-sets#10581 Start a cart's payment when the buyer presses Pay, not when the checkout page loads](https://github.com/chase-sets/chase-sets/issues/10581)).
+    That page also fails to hydrate while checkout is being prepared
+    ([chase-sets/chase-sets#10582 Hydrate the checkout recovery page without the div-inside-p error](https://github.com/chase-sets/chase-sets/issues/10582)).
+
+    A line without an image shows marketplace's card back from
     marketplace's origin, a 2.9 MB PNG ([chase-sets/chase-sets#10577 Shrink the cart's 2.9 MB fallback card-back thumbnail](https://github.com/chase-sets/chase-sets/issues/10577)); the policy allows images from that origin,
     since it is plain http locally. The writes are next.
 
@@ -405,26 +425,15 @@ forward only on purpose, when a fix the pilot needs lands.
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64)
-   (correctness, then developer time). The cart's Check out and Use lower price post the
-   readiness snapshot and the optimization choice to marketplace's origin; the browser blocks the
-   form before it is sent, and says so only in the console. Workaround: links (`CheckoutLink` in
-   [`cart_item.rs`](marketplace/src/views/cart_item.rs)); Use lower price loses the choice.
-2. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
+1. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
    (correctness, then end-user performance). Chase Sets writes money with `formatMoney` in 71
    `.tsx` files; Corten's own examples format prices by hand three times. Workaround:
    `platform::money::amount` writes `en-US` by hand ([`money.rs`](platform/src/money.rs)), with
    `formatMoney`'s own test cases.
-
-3. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
+2. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
    (correctness, then end-user performance). Chase Sets writes times with `formatDateTime` in 65
    of its `.tsx` files. Workaround: `platform::when::date_time` writes `en` in UTC by hand
    ([`when.rs`](platform/src/when.rs)), with `formatDateTime`'s own test cases.
-4. [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61)
-   (correctness). The restock page's refused write-off was in the 422 body and never on the page,
-   because the form's component wrapped it in a `<div>`. Workaround: the form is the component's
-   root, and the router tests check each refused write's patch ids (`patch_ids` in
-   [`tests.rs`](marketplace/src/tests.rs)).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -448,6 +457,17 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `c268ecc` pin, workarounds removed:
+
+1. [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61)
+   ([todd-skelton/corten#62 A patch element the browser would drop is an error in debug builds](https://github.com/todd-skelton/corten/pull/62)): a patch element without an id is a 500 in
+   debug builds, so the refused-write router tests catch it; their `patch_ids` check is gone.
+2. [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64)
+   ([todd-skelton/corten#65 Policy::form_action: an origin a form may send the user to](https://github.com/todd-skelton/corten/pull/65)): Check out and Use lower price are forms again;
+   their redirect to marketplace's checkout is allowed by `form_action`. The `CheckoutLink`
+   links remain only for Keep shopping and Continue to checkout, which are links in marketplace
+   too.
 
 Fixed at the `26c55a8` pin, workaround removed:
 

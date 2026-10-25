@@ -29,7 +29,8 @@ mod page_actions;
 mod recovery;
 
 pub use cart_item::{
-    CartHeading, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutLink, EmptyCart, Reputation,
+    CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm, CheckoutLink,
+    EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
@@ -312,7 +313,7 @@ pub fn RefusedDecision<'a>(
 
 /// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
 /// the checkout bar, or the empty cart.
-pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen) -> impl Render + 'a {
+pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen, issue: Option<&'a str>) -> impl Render + 'a {
     let readiness = screen.readiness.as_ref();
     let money = |m: Option<&crate::api::Money>| match m {
         Some(m) => platform::money::amount(&m.amount, &m.currency),
@@ -334,15 +335,16 @@ pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen) ->
     } else {
         t.page_resolve_before_payment()
     };
-    // Check out when the cart is ready as it is, Continue to checkout to resolve it first.
-    let checkout =
-        if readiness.is_some_and(|r| r.declined.status == "ready") { t.page_check_out() } else { t.page_resolve_fulfillment() };
-    let lower_price = readiness.is_some_and(|r| r.accepted.is_some()) && screen.offer();
-    let (search, resolve, own_cart) =
-        (cart_item::link("/search"), cart_item::link("/checkout/buy/readiness"), cart_item::link("/account/cart"));
+    // Check out a ready cart as it is; a cart that is not ready continues to checkout to resolve it.
+    let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
+    let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
+    let (search, resolve) = (cart_item::link("/search"), cart_item::link("/checkout/buy/readiness"));
     html! {
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
+        if let Some(issue) = issue {
+            <CartIssue title={t.page_checkout_issue()} text={issue} />
+        }
         if screen.lines.is_empty() {
             <EmptyCart t={t} />
         } else {
@@ -373,10 +375,16 @@ pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen) ->
                     t={t}
                     total={&total}
                     context={context}
-                    primary={html! { <CheckoutLink href={&resolve} label={checkout} primary /> }}
+                    primary={html! {
+                        if let Some(snapshot) = check_out {
+                            <CheckoutForm snapshot={snapshot} label={t.page_check_out()} primary />
+                        } else {
+                            <CheckoutLink href={&resolve} label={t.page_resolve_fulfillment()} primary />
+                        }
+                    }}
                     secondary={html! {
-                        if lower_price {
-                            <CheckoutLink href={&own_cart} label={t.page_use_lower_fulfillment()} primary={false} />
+                        if let Some(snapshot) = lower_price {
+                            <CheckoutForm snapshot={snapshot} label={t.page_use_lower_fulfillment()} primary={false} />
                         }
                         <CheckoutLink href={&search} label={t.page_keep_shopping()} primary={false} />
                     }}
