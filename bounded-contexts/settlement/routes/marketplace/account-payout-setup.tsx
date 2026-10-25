@@ -256,7 +256,7 @@ function AuthorizedPayoutSetupRoute({ data }: { data: Awaited<ReturnType<typeof 
       }
 
       setProviderReadinessSnapshot(refreshedReadiness);
-      revalidator.revalidate();
+      void revalidator.revalidate();
     } catch (error) {
       setProviderErrorMessage(
         error instanceof Error

@@ -326,7 +326,7 @@ export function SupportOperationsPage({
     next.delete("requestId");
     next.delete("action");
     next.delete("actionError");
-    navigate(`/support/requests?${next.toString()}`);
+    void navigate(`/support/requests?${next.toString()}`);
   }
 
   return (

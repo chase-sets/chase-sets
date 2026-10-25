@@ -176,7 +176,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(router.state.location.search).toContain("action=evidence");
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST").length;
-    router.revalidate();
+    await router.revalidate();
     await waitFor(() => expect(router.state.revalidation).toBe("idle"));
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(posts);
     expect(document.querySelector('[name="participantRecovery"]')).toBeNull();
