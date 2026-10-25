@@ -17,6 +17,7 @@ import {
   MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
 } from "../../source-observations/api/providers/mtgjson/adapter";
 import { createTcgplayerProviderAdapter } from "../../source-observations/api/provider-adapters/tcgplayer";
+import { createTcgdexProviderAdapter } from "../../source-observations/api/providers/tcgdex/adapter";
 import { createScopeSyncBatchPlanner } from "./planner";
 
 const timestamp = "2026-10-14T00:00:00.000Z";
@@ -175,6 +176,32 @@ describe("Pokemon English preview regression", () => {
       reference_type_key: "expansion",
       language_editions: ["en"],
     };
+    const pokemonProfile = catalogProviderIntegrationProfileVersions.find(
+      (profile) => profile.providerKey === "tcgdex" && profile.profileKey === "pokemon-tcg",
+    );
+    expect(pokemonProfile).toBeDefined();
+    const pokemonUnitKey = unitKeyForCatalogProviderProfileVersion(pokemonProfile!);
+    const pokemonMapping: ProviderScopeMappingRow = {
+      mapping_id: `mapping_tcgdex_${pokemonUnitKey}`,
+      scope_record_id: pokemonRecord.scope_record_id,
+      provider_key: "tcgdex",
+      unit_key: pokemonUnitKey,
+      product_line_id: null,
+      series_id: "base",
+      set_id: "base1",
+      set_name: null,
+      language_coordinates: { languageCode: "en" },
+      confidence: "exact",
+      review_status: "accepted",
+      provenance: {},
+      evidence: {},
+      last_actor: null,
+      last_reason: null,
+      policy_version: "synthetic",
+      proposed_at: timestamp,
+      reviewed_at: timestamp,
+      updated_at: timestamp,
+    };
     const db: PgQueryable = {
       async query<Row>(sql: string, values?: readonly unknown[]) {
         if (sql.includes("FROM catalog_scope_records")) {
@@ -182,27 +209,21 @@ describe("Pokemon English preview regression", () => {
           expect(sql).toContain("language_editions ? $3");
           return { rows: [pokemonRecord] as Row[] };
         }
-        return { rows: [] as Row[] };
+        expect(sql).toContain("FROM catalog_provider_scope_mappings");
+        return { rows: [pokemonMapping] as Row[] };
       },
     };
+    const pokemonAdapter = createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => pokemonProfile! });
     const planner = createScopeSyncBatchPlanner({
       db,
       now: () => timestamp,
-      previewCatalogSyncScope: async (input) => ({
-        previewVersion: "catalog-sync-provider-participation-preview-v1",
-        scope: input.scope,
-        status: "ready",
-        startAllowed: true,
-        units: [],
-        estimate: {
-          totalEstimatedRequestCount: 0,
-          estimateState: "estimated",
-          estimateReason: null,
-          creditConsumingProviders: [],
-        },
-        blockers: [],
-        explanation: "synthetic",
-      }),
+      previewCatalogSyncScope: (input) =>
+        previewCatalogSyncProviderParticipation({
+          ...input,
+          acceptedScopeMappings: input.acceptedScopeMappings ?? [],
+          providerProfileVersions: [pokemonProfile!],
+          providerAdapterRegistry: new ProviderAdapterRegistry([pokemonAdapter]),
+        }),
     });
     const { preview, plans } = await planner.resolve({
       selection: {
@@ -212,8 +233,16 @@ describe("Pokemon English preview regression", () => {
       context,
     });
     expect(plans.map((plan) => plan.scopeRecordId)).toEqual(["scope_synthetic_pokemon_en"]);
-    expect(preview.counts).toMatchObject({ scopes: 1, providerUnits: 0 });
-    expect(preview.planFingerprint).toBe("05021260c31ac09ab2c1485a2581ae9adab1e527c2c3941f16faae35dbd13c68");
+    expect(preview.counts).toMatchObject({ scopes: 1, providerUnits: 1 });
+    expect(plans[0]!.participationPreview.units).toEqual([
+      expect.objectContaining({
+        unitKey: pokemonUnitKey,
+        eligibility: "eligible",
+        selected: true,
+        childExecutionScope: expect.objectContaining({ language: "en", setId: "base1" }),
+      }),
+    ]);
+    expect(preview.planFingerprint).toBe("2e68c249dcc7ae746014eb006ef329615d20f20df84bfe61660390d7390b3c33");
   });
 });
 
