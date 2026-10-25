@@ -246,6 +246,30 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain('action="/checkout/buy/readiness"');
   });
 
+  it("keeps absent readiness in its neutral deferred state instead of presenting a blocked cart", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={null} />);
+
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).toContain("Taxes and shipping are calculated at checkout.");
+    expect(markup).not.toContain("Some items need attention");
+    expect(markup).not.toContain("0 items need fulfillment");
+    expect(markup).not.toContain("Resolve item availability before payment starts.");
+  });
+
+  it("keeps the neutral state while a ready cart quantity change is pending", async () => {
+    const user = userEvent.setup();
+    render(<CheckoutCartPage cartLines={[cartLine]} readiness={createCartReadinessRead([cartLine])} />);
+
+    expect(screen.queryByText("Some items need attention")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
+
+    expect(screen.queryByText("Some items need attention")).toBeNull();
+    expect(screen.queryByText("0 items need fulfillment")).toBeNull();
+    expect(screen.queryByText("Resolve item availability before payment starts.")).toBeNull();
+    expect(screen.getAllByText("Taxes and shipping are calculated at checkout.").length).toBeGreaterThan(0);
+  });
+
   it("renders checkout error and pending fresh-write recovery as tinted furniture", () => {
     render(<TestCheckoutCartPage cartLines={[cartLine]} errorMessage="Cart update failed." />);
     expectTintedSurface(screen.getByText("Cart update failed.").closest(".rounded-tokenLg"), "checkout error");

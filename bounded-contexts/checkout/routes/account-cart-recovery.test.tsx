@@ -129,6 +129,78 @@ describe("account cart attempt recovery through the data router", () => {
     vi.resetAllMocks();
   });
 
+  it("renders the API readiness values supplied by the account cart loader", async () => {
+    mockGetCart.mockResolvedValue({
+      items: [line],
+      count: 1,
+      readiness: {
+        loaded: { status: "ready", snapshotId: "loaded_api_value" },
+        declined: {
+          status: "ready",
+          snapshotId: "declined_api_value",
+          optimization: {
+            available: true,
+            decision: "none",
+            proposedLineId: null,
+            proposedListingId: null,
+          },
+        },
+        accepted: null,
+        lineListingIds: { cart_line_1: null },
+        estimatedSubtotal: { amount: "17.23", currency: "USD" },
+        blockedLineCount: 3,
+        savings: { amount: "4.56", currency: "USD" },
+      },
+    });
+
+    await mount();
+
+    expect(screen.getAllByText("$17.23").length).toBeGreaterThan(0);
+    expect(screen.getByText("Save $4.56 before checkout")).toBeTruthy();
+    expect(screen.getByText("Taxes and shipping are calculated at checkout.")).toBeTruthy();
+  });
+
+  it("renders the API blocked count and does not invent a total when readiness is unresolved", async () => {
+    mockGetCart.mockResolvedValue({
+      items: [line],
+      count: 1,
+      readiness: {
+        loaded: { status: "needs-resolution", snapshotId: "loaded_api_value" },
+        declined: {
+          status: "needs-resolution",
+          snapshotId: "declined_api_value",
+          unresolvedLineIds: ["a", "b", "c"],
+          optimization: {
+            available: false,
+            decision: "none",
+            proposedLineId: null,
+            proposedListingId: null,
+          },
+        },
+        accepted: null,
+        lineListingIds: { cart_line_1: null },
+        estimatedSubtotal: null,
+        blockedLineCount: 3,
+        savings: null,
+      },
+    });
+
+    await mount();
+
+    expect(screen.getByText("3 items need fulfillment, shipping measure, or availability resolved before checkout.")).toBeTruthy();
+    expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0);
+    expect(screen.getByText("Resolve item availability before payment starts.")).toBeTruthy();
+  });
+
+  it("keeps the cart total deferred when the loader has no readiness projection", async () => {
+    await mount();
+
+    expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0);
+    expect(screen.getByText("Taxes and shipping are calculated at checkout.")).toBeTruthy();
+    expect(screen.queryByText("Some items need attention")).toBeNull();
+    expect(screen.queryByText("Resolve item availability before payment starts.")).toBeNull();
+  });
+
   it("holds a lost submission as ambiguous after one lookup, focuses and announces it, and resends only on request with the same attempt id", async () => {
     const user = userEvent.setup();
     mockSubmitCartCommands.mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValueOnce({

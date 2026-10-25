@@ -896,7 +896,7 @@ export function CheckoutCartPage({
       candidates={[
         {
           priority: "needs-review",
-          active: cartLineGroups.length > 0 && !cartReady,
+          active: readiness !== null && cartLineGroups.length > 0 && !cartReady,
           notice: (
             <Banner
               tone="warning"
@@ -938,7 +938,7 @@ export function CheckoutCartPage({
 
   const checkoutContext = (
     <Text size="sm" tone="tertiary">
-      {cartReady
+      {cartReady || readiness === null
         ? t("checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated")
         : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
     </Text>

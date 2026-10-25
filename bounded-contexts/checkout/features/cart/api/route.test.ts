@@ -1861,6 +1861,31 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     expect(JSON.parse(body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
   });
 
+  it("derives account and keyed guest readiness from their non-empty real-runtime cart lines", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+
+    const guestResponse = await harness.guestApp().request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE },
+    });
+    const guestBody = (await guestResponse.json()) as {
+      items: Parameters<typeof createCartReadinessRead>[0];
+      readiness: unknown;
+    };
+    expect(guestBody.items).toHaveLength(1);
+    expect(guestBody.readiness).toEqual(createCartReadinessRead(guestBody.items));
+
+    const accountResponse = await harness.accountApp(OTHER).request(
+      new Request("http://checkout.test/account/cart", { method: "GET" }),
+    );
+    const accountBody = (await accountResponse.json()) as {
+      items: Parameters<typeof createCartReadinessRead>[0];
+      readiness: unknown;
+    };
+    expect(accountBody.items).toHaveLength(1);
+    expect(accountBody.readiness).toEqual(createCartReadinessRead(accountBody.items));
+  });
+
   it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {
     const harness = claimedCartHarness();
     await harness.seedClaim();
