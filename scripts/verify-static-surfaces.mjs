@@ -220,7 +220,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs": {
     rule: "root command and lockfile, compiler wrapper, and script-owned artifact provenance chain",
     evidence: [
-      "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs:6-18,92-119,170-177",
+      "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs:6-18,114-167,244-251",
       "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
     ],
     include: [...exact("package.json", "pnpm-lock.yaml"), ...prefix("scripts", "packages/typescript-compiler-api")],
@@ -228,7 +228,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
   "scripts/check-structure/typescript-owner-context-derivation.test.mjs": {
     rule: "compiler wrapper and lockfile, script-owned artifact/schema/partition/fixtures and scripts config",
     evidence: [
-      "scripts/check-structure/typescript-owner-context-derivation.test.mjs:20-31,600-614,700-706",
+      "scripts/check-structure/typescript-owner-context-derivation.test.mjs:20-31,622-636,723-729",
       "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
     ],
     include: [
