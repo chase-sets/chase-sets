@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
 import { ProjectionOperationsReferencePage } from "./projection-operations-reference-page";
+import type { ProjectionOperationsConsoleSnapshot, WakeStatusConsoleSnapshot } from "../api/client";
 import { deriveProjectionTriage, normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
 import { deriveWakeAttentionItems, normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
@@ -14,7 +15,7 @@ const emptyFilters = {
   selected: "",
 };
 
-function normalizeConsoleSnapshot(value: unknown) {
+function normalizeConsoleSnapshot(value: unknown): ProjectionOperationsConsoleSnapshot {
   const snapshot = normalizeProjectionOperationsSnapshot(value);
   const triage = deriveProjectionTriage(value);
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -26,18 +27,21 @@ function normalizeConsoleSnapshot(value: unknown) {
       ...(Object.hasOwn(body, "repairQueue") ? { repairQueue: body.repairQueue } : {}),
       ...(Object.hasOwn(body, "activeWorkerCount") ? { activeWorkerCount: body.activeWorkerCount } : {}),
       ...(Object.hasOwn(body, "staleWorkerCount") ? { staleWorkerCount: body.staleWorkerCount } : {}),
-    };
+    } as ProjectionOperationsConsoleSnapshot;
   }
-  return { ...snapshot, ...triage };
+  return { ...snapshot, ...triage } as ProjectionOperationsConsoleSnapshot;
 }
 
-function normalizeConsoleWakeStatus(value: unknown) {
+function normalizeConsoleWakeStatus(value: unknown): WakeStatusConsoleSnapshot {
   const snapshot = normalizeWakeStatusSnapshot(value);
   const attentionItems = deriveWakeAttentionItems(value);
   if (typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "attentionItems")) {
-    return { ...snapshot, attentionItems: (value as Record<string, unknown>).attentionItems };
+    return {
+      ...snapshot,
+      attentionItems: (value as Record<string, unknown>).attentionItems,
+    } as WakeStatusConsoleSnapshot;
   }
-  return { ...snapshot, attentionItems };
+  return { ...snapshot, attentionItems } as WakeStatusConsoleSnapshot;
 }
 
 class FakeEventSource {
