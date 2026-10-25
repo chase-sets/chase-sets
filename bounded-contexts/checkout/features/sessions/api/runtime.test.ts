@@ -2036,7 +2036,7 @@ describe("checkout session runtime", () => {
       addressVerificationProvider: {
         providerName: "verification-test",
         providerMode: "test",
-        verifyAddress: vi.fn(async () => ({
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
           providerName: "verification-test",
           providerMode: "test",
           status: "corrected",
@@ -2100,7 +2100,7 @@ describe("checkout session runtime", () => {
       addressVerificationProvider: {
         providerName: "verification-test",
         providerMode: "test",
-        verifyAddress: vi.fn(async () => ({
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
           providerName: "verification-test",
           providerMode: "test",
           status: "corrected",
