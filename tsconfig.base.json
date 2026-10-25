@@ -492,6 +492,18 @@
       "@chase-sets/fulfillment/server": [
         "./bounded-contexts/fulfillment/server.ts"
       ],
+      "@chase-sets/google-merchant": [
+        "./infrastructure/google-merchant/index.ts"
+      ],
+      "@chase-sets/google-merchant/auth": [
+        "./infrastructure/google-merchant/auth.ts"
+      ],
+      "@chase-sets/google-merchant/config": [
+        "./infrastructure/google-merchant/config.ts"
+      ],
+      "@chase-sets/google-shopping-export": [
+        "./contracts/google-shopping-export/index.ts"
+      ],
       "@chase-sets/http/*": [
         "./contracts/http/*.ts"
       ],

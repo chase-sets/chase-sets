@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGoogleMerchantApiClient } from "../src/google-merchant-client";
-import type { PlatformWorkerGoogleMerchantConfig } from "../src/config";
+import { createGoogleMerchantApiClient } from "../index";
+import type { GoogleMerchantConfig } from "../config";
 
 type TestFetch = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => ReturnType<typeof fetch>;
 
-const enabledConfig: PlatformWorkerGoogleMerchantConfig = {
+const enabledConfig: GoogleMerchantConfig = {
   syncEnabled: true,
   dryRun: false,
   merchantAccountId: "123456",
@@ -245,6 +245,27 @@ describe("google merchant api client", () => {
     expect("body" in result.request).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(tokenProvider).not.toHaveBeenCalled();
+  });
+
+  it("does not touch an ambient throwing fetch in dry-run mode", async () => {
+    const ambientFetch = vi.fn<TestFetch>(async () => {
+      throw new Error("ambient fetch sentinel");
+    });
+    vi.stubGlobal("fetch", ambientFetch);
+
+    try {
+      const client = createGoogleMerchantApiClient({
+        config: { ...enabledConfig, dryRun: true },
+        accessTokenProvider: async () => "token",
+      });
+
+      await expect(client.getProcessedProductStatus("cs-listing-lst_123")).resolves.toMatchObject({
+        status: "dry-run",
+      });
+      expect(ambientFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("returns a provider-neutral failure when sync is disabled", async () => {

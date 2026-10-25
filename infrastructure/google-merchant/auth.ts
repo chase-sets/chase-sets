@@ -1,5 +1,5 @@
 import { createSign } from "node:crypto";
-import type { GoogleMerchantAccessTokenProvider } from "./google-merchant-client";
+import type { GoogleMerchantAccessTokenProvider } from "./index";
 
 type FetchFunction = typeof fetch;
 
@@ -27,7 +27,7 @@ export function createGoogleMerchantServiceAccountAccessTokenProvider(
 ): GoogleMerchantAccessTokenProvider {
   const fetchFn = options.fetch ?? globalThis.fetch.bind(globalThis);
   const now = options.now ?? Date.now;
-  const resolveSecret = options.secretResolver ?? ((secretName) => process.env[secretName]);
+  const resolveSecret = options.secretResolver ?? (() => undefined);
   const scope = options.scope ?? defaultScope;
   let cached: Readonly<{ token: string; expiresAtMs: number }> | null = null;
 

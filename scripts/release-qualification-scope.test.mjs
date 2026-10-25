@@ -1249,6 +1249,11 @@ describe("registration contract drift (fail-closed registration)", () => {
     expect(record.reasonCodes).toEqual(["application_runtime"]);
   });
 
+  it("registers Google Merchant provider and Shopping export contract as live providers", () => {
+    expect(releaseQualificationScopeRegistry.infrastructure["google-merchant"]).toBe("live-provider");
+    expect(releaseQualificationScopeRegistry.contracts["google-shopping-export"]).toBe("live-provider");
+  });
+
   it("registers the extracted theme contract and appearance adapter as runtime libraries", () => {
     expect(releaseQualificationScopeRegistry.contracts["embedded-surface-theme"]).toBe("runtime-library");
     expect(releaseQualificationScopeRegistry.infrastructure["stripe-appearance"]).toBe("runtime-library");

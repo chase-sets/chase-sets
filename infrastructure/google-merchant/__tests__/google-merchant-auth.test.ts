@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createGoogleMerchantServiceAccountAccessTokenProvider,
   createServiceAccountJwt,
-} from "../src/google-merchant-auth";
+} from "../auth";
 
 type TestFetch = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => ReturnType<typeof fetch>;
 

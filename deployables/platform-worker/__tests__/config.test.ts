@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  describeGoogleMerchantConfigForLogs,
   getPlatformWorkerContextsForRuntimeProfile,
   loadConfig,
 } from "../src/config";
@@ -450,32 +449,6 @@ describe("platform worker config", () => {
       contentLanguage: "en",
       feedLabel: "US",
       credentialSecretName: "google-merchant-service-account",
-      productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
-    });
-  });
-
-  it("redacts Google Merchant credential references from log descriptions", () => {
-    const description = describeGoogleMerchantConfigForLogs({
-      syncEnabled: true,
-      dryRun: false,
-      merchantAccountId: "123456",
-      apiDataSourceId: "7890",
-      targetCountry: "US",
-      contentLanguage: "en",
-      feedLabel: "US",
-      credentialSecretName: "google-merchant-service-account",
-      productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
-    });
-
-    expect(description).toEqual({
-      syncEnabled: true,
-      dryRun: false,
-      merchantAccountId: "123456",
-      apiDataSourceId: "7890",
-      targetCountry: "US",
-      contentLanguage: "en",
-      feedLabel: "US",
-      credentialSecretName: "[configured]",
       productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
     });
   });
