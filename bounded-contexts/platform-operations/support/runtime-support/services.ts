@@ -42,6 +42,7 @@ import {
   getSupportRequestByDisplayReference,
   getSupportRequestById,
 } from "../../features/support-requests/read-model/queries";
+import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../features/account-appeals/api/runtime";
 
 export type PlatformOperationsHostPorts = Readonly<{
   providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
@@ -107,6 +108,7 @@ export type PlatformOperationsServices = Readonly<{
   /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
+  accountAppeals: AccountAppealRuntime;
 }>;
 
 export function createPlatformOperationsServices(
@@ -121,6 +123,7 @@ export function createPlatformOperationsServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const accountAppeals = createAccountAppealRuntime(db, eventStore);
   const platformFeedback = createPlatformFeedbackRuntime({
     eventStore,
     checkpointStore,
@@ -231,5 +234,6 @@ export function createPlatformOperationsServices(
       ...supportRequests.projectors,
       ...policies.projectors,
     ],
+    accountAppeals,
   };
 }

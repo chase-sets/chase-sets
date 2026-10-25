@@ -249,6 +249,16 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+// #10462 threads the canonical staging Admin keys into only the isolated coordinate-preview capture step.
+const scrydexCoordinatePreviewDelta = ["name:Capture Scrydex coordinate preview#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-coordinate-preview",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
   ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
     file: ".github/workflows/catalog-staging-provider-uat.yml",
@@ -903,6 +913,7 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexCoordinatePreviewDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...productionMemoryProbeDelta,
@@ -925,7 +936,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1725);
+    expect(expected.grants).toHaveLength(1728);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);

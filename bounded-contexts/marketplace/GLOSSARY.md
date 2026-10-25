@@ -10,6 +10,10 @@ An **Inventory Draft Listing Receipt** is Marketplace's immutable acceptance res
 
 Rollout installs the durable receipt migration and compatible reader/consumer before Inventory produces messages. Existing direct callers remain valid until the Inventory delivery slice switches them over. Rollback must pause delivery before removing a consumer, retain the migration ledger entry, receipt table and immutability trigger, and reconcile possible-send loss by reading the same message identity. Receipts have no retry expiry and are not swept with staging data.
 
+## Inventory Draft Listing Unavailable Diagnostic
+
+An **Inventory Draft Listing Unavailable Diagnostic** is one of the closed, secret-free causes attached to a retryable Inventory Draft Listing consumer result: `listing-rejected`, `unexpected-failure`, `receipt-ledger-not-ready`, or `consumer-unbound`. It describes the retryable boundary without retaining exception messages, causes, identifiers, or payload data. Deterministic message conflicts carry no diagnostic.
+
 ## Review Opportunity Fact
 
 A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.

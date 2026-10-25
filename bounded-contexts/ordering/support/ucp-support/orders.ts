@@ -23,30 +23,28 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
       if (!orderId) {
         return createUcpEnvelope("error", {}, [
           {
-            severity: "error",
             code: "validation_failed",
-            message: "Order id is required.",
-            target: "id",
+            content: "Order id is required.",
+            path: "$.id",
           },
         ]);
       }
 
       const purchase = await ordering.orders.getPurchase(orderId, access.actor.accountId);
       if (purchase) {
-        return createUcpEnvelope("ok", orderToUcpOrder(purchase, "purchase"));
+        return createUcpEnvelope("success", orderUcpResource(purchase, "purchase", input.request));
       }
 
       const sale = await ordering.orders.getSale(orderId, access.actor.accountId);
       if (sale) {
-        return createUcpEnvelope("ok", orderToUcpOrder(sale, "sale"));
+        return createUcpEnvelope("success", orderUcpResource(sale, "sale", input.request));
       }
 
       return createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "not_found",
-          message: "Order not found for the linked marketplace account.",
-          target: "id",
+          content: "Order not found for the linked marketplace account.",
+          path: "$.id",
         },
       ]);
     },
@@ -63,9 +61,8 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "authentication_required",
-          message: "UCP order reads require a linked marketplace account.",
+          content: "UCP order reads require a linked marketplace account.",
         },
       ]),
     };
@@ -75,9 +72,8 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "authorization_forbidden",
-          message: "The linked marketplace account cannot view orders.",
+          content: "The linked marketplace account cannot view orders.",
         },
       ]),
     };
@@ -100,7 +96,7 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
         id: line.product_id,
         title: line.item_title,
         subtitle: line.item_subtitle,
-        price: moneyToMinorUnits(line.unit_price_amount),
+        price: usdMinorUnits(line.unit_price_amount),
         extensions: {
           chase_sets: {
             listing_id: line.listing_id,
@@ -115,8 +111,8 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
         fulfilled: row.ready_for_fulfillment_at ? line.quantity : 0,
       },
       totals: [
-        { type: "subtotal", amount: moneyToMinorUnits(line.line_total_amount) },
-        { type: "total", amount: moneyToMinorUnits(line.line_total_amount) },
+        { type: "subtotal", amount: usdMinorUnits(line.line_total_amount) },
+        { type: "total", amount: usdMinorUnits(line.line_total_amount) },
       ],
       status: row.status === "cancelled" ? "cancelled" : row.ready_for_fulfillment_at ? "fulfilled" : "pending",
     })),
@@ -148,10 +144,10 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
         ]
       : [],
     totals: [
-      { type: "subtotal", amount: moneyToMinorUnits(row.item_subtotal_amount) },
-      { type: "fulfillment", amount: moneyToMinorUnits(row.shipping_charge_amount) },
-      { type: "tax", amount: moneyToMinorUnits(row.sales_tax_amount) },
-      { type: "total", amount: moneyToMinorUnits(row.total_amount) },
+      { type: "subtotal", amount: usdMinorUnits(row.item_subtotal_amount) },
+      { type: "fulfillment", amount: usdMinorUnits(row.shipping_charge_amount) },
+      { type: "tax", amount: usdMinorUnits(row.sales_tax_amount) },
+      { type: "total", amount: usdMinorUnits(row.total_amount) },
     ],
     extensions: {
       chase_sets: listOrderExtension(row, perspective),
@@ -221,7 +217,7 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function moneyToMinorUnits(amount: string) {
+function usdMinorUnits(amount: string) {
   const normalized = amount.trim();
   const [dollars = "0", cents = ""] = normalized.split(".");
   const minor = `${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "");

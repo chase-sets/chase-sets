@@ -140,6 +140,10 @@ function containsSlugIdentity(prose, slug) {
   return hyphenNormalize(prose).includes(`-${slug}-`);
 }
 
+function containsArticleIdentity(prose, article) {
+  return containsSlugIdentity(prose, article.slug) || hyphenNormalize(prose).includes(hyphenNormalize(article.title));
+}
+
 // ---------------------------------------------------------------------------
 // Authorities
 // ---------------------------------------------------------------------------
@@ -852,7 +856,10 @@ function validateHelpArticleIncorporations(authorities, errors) {
           `Help Article '${slug}' incorporated by '${policyKey}/${sectionId}' is missing from the packet summaries.`,
         );
       }
-      if (containsSlugIdentity(section.draftText, slug)) continue;
+      const article = authorities.helpArticles?.find(
+        (candidate) => candidate.slug === slug && candidate.locale === authorities.complianceLocale,
+      );
+      if (article && containsArticleIdentity(section.draftText, article)) continue;
       errors.push(
         `${artifact.title === "Terms of service" ? "Terms of Service" : artifact.title} subject '${sectionId}' does not name incorporated Help Article '${slug}'.`,
       );

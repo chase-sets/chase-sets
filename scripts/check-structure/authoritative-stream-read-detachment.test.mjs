@@ -258,7 +258,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
-          line: 247,
+          line: 253,
         }),
       ]),
     );

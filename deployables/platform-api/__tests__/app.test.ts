@@ -1656,7 +1656,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -1675,8 +1688,8 @@ describe("platform api app wiring", () => {
     expect(response.status).toBe(200);
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
-      products: [{ id: "cat_1", title: "Charizard" }],
+      ucp: { status: "success" },
+      products: [expect.objectContaining({ id: "cat_1" })],
     });
   });
 
@@ -1736,6 +1749,7 @@ describe("platform api app wiring", () => {
             recordPaymentStarted: vi.fn(),
             recordOfferSubmitted: vi.fn(),
             getSession,
+            getLastRecordedQuote: vi.fn(async () => null),
             projectionHandlerSets: [],
           },
         },
@@ -1796,8 +1810,8 @@ describe("platform api app wiring", () => {
         }),
       );
       await expect(response.json()).resolves.toMatchObject({
-        ucp: { status: "ok" },
-        checkout: { id: checkoutSessionId },
+        ucp: { status: "success" },
+        id: checkoutSessionId,
       });
       orders = ["ord_1"];
       await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
@@ -1839,7 +1853,7 @@ describe("platform api app wiring", () => {
       nextCursor: null,
     }));
     const completeCheckout = vi.fn(async () =>
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         checkout: { id: `chk_${completeCheckout.mock.calls.length}` },
       }),
     );
@@ -1870,7 +1884,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -1926,7 +1953,7 @@ describe("platform api app wiring", () => {
         method: "tools/call",
         params: {
           name: "search_catalog",
-          arguments: { query: "charizard", limit: 3 },
+          arguments: { catalog: { query: "charizard", pagination: { limit: 3 } } },
         },
       }),
       headers: { "Content-Type": "application/json" },
@@ -2021,8 +2048,8 @@ describe("platform api app wiring", () => {
     await expect(searchResponse.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
-          ucp: { status: "ok" },
-          products: [{ id: "cat_1", title: "Charizard" }],
+          ucp: { status: "success" },
+          products: [expect.objectContaining({ id: "cat_1" })],
         },
       },
     });
@@ -2047,8 +2074,18 @@ describe("platform api app wiring", () => {
     });
     expect(conflictCompleteResponse.status).toBe(200);
     await expect(conflictCompleteResponse.json()).resolves.toMatchObject({
-      error: {
-        message: "Idempotency-Key was already used with different request parameters.",
+      result: {
+        structuredContent: {
+          ucp: { version: UCP_VERSION, status: "error" },
+          messages: [
+            {
+              type: "error",
+              code: "idempotency_key_conflict",
+              content: "Idempotency-Key was already used with different request parameters.",
+              severity: "recoverable",
+            },
+          ],
+        },
       },
     });
   });
