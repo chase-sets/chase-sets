@@ -816,6 +816,86 @@ describe("checkout session routes", () => {
     expect(services.setShippingAddress).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["shipping-address", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "shipping-address",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "shipping-address",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+    ["confirm", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "confirm",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "confirm",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+  ] as const)("maps %s serviceability error %s to HTTP 400", async (endpoint, code, message) => {
+    const services = createServices({
+      setShippingAddress: vi.fn(async () => {
+        throw new CheckoutDomainError(message, code);
+      }),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request(`http://checkout.test/account/checkout-sessions/chk_1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code, message } });
+    expect(services.setShippingAddress).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the address choice response from confirm before mutating checkout", async () => {
+    const suggestedAddress = { ...shippingAddress, line1: "100 W Market St" };
+    const services = createServices({
+      verifyShippingAddress: vi.fn(
+        async () =>
+          ({
+            status: "choice-required",
+            suggestedAddress,
+            verification: {
+              status: "corrected",
+              source: "verification-test",
+              checkedAt: "2026-10-25T00:00:00.000Z",
+              suggestedAddress,
+            },
+            messages: ["Address was standardized."],
+          }) as const,
+      ),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "address_standardization_suggested" } });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
   it("uses checkout entry attempt keys as idempotent cart session overrides", async () => {
     const createFromCart = vi.fn(async (params: Parameters<CheckoutSessionServices["createFromCart"]>[0]) => ({
       sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
