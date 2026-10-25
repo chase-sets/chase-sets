@@ -755,8 +755,15 @@ describe("real repository execution membership", () => {
     expect(work.indexCandidates).toEqual(indexedSources);
     expect(work.sourceIndex).toMatchObject({
       kind: "git-index-source/v1",
-      pathCount: new Set(execFileSync("git", ["ls-files"], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean))
-        .size,
+      pathCount: new Set(
+        execFileSync("git", ["ls-files"], {
+          encoding: "utf8",
+          maxBuffer: GIT_LISTING_MAX_BUFFER,
+        })
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean),
+      ).size,
       sourceCount: indexedSources.length,
       candidateCount: work.manifestCandidates.length,
     });
