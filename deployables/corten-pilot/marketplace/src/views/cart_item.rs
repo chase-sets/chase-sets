@@ -3,7 +3,7 @@
 //! (`StickyCtaBar`) and the empty cart (`MarketplaceEmptyState`).
 use corten::{prelude::*, view::AttrValue};
 
-use super::marketplace;
+use super::{marketplace, on_marketplace, srcset_on_marketplace};
 use crate::{
     api::{Snapshot, segment},
     app::url,
@@ -92,7 +92,9 @@ pub fn CartList<C: Render>(children: C) -> impl Render {
 #[component(css)]
 pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
     let l = &line.line;
-    let image = l.item_image_url.clone().unwrap_or_else(|| link(FALLBACK_IMAGE));
+    // The line keeps the picture as the add sent it, a card back's site-relative to marketplace.
+    let image = on_marketplace(l.item_image_url.as_deref().unwrap_or(FALLBACK_IMAGE));
+    let srcset = l.item_image_srcset.as_deref().map(srcset_on_marketplace);
     let options = options(l.product_summary.as_deref());
     let ready = line.reason.is_none_or(|r| r == Reason::Ready);
     let fulfillable = line.reason.is_none_or(Reason::fulfillable);
@@ -105,7 +107,7 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
             <div class={Thumb}>
                 <img
                     src={image}
-                    srcset={l.item_image_srcset.as_deref()}
+                    srcset={srcset.as_deref()}
                     sizes="6rem"
                     alt={t.page_product_image_alt(&l.item_title)}
                     loading="lazy"
@@ -199,8 +201,9 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
 }
 
 /// A line write's form: a new attempt (`SubmitKey`), every line merged into the one shown, and
-/// the controls, off while `paused`. A plain form, so it works whether or not the script runs; the
-/// pilot redirects to the cart, read after the write. `label` names the controls when it is set.
+/// the controls, off while `paused`. A `data-patch` form: the runtime posts it and follows the
+/// redirect to the cart, read after the write, in place (and reads it again while it is behind);
+/// without the script the browser does the same. `label` names the controls when it is set.
 #[component(css = CartItem)]
 pub fn LineForm<'a, A: AttrValue, C: Render>(
     action: A,
@@ -211,7 +214,7 @@ pub fn LineForm<'a, A: AttrValue, C: Render>(
 ) -> impl Render {
     let f = LineInput::FIELDS;
     html! {
-        <form class={(Post, (!label.is_empty()).then_some(Quantity))} method="post" action={action}>
+        <form class={(Post, (!label.is_empty()).then_some(Quantity))} method="post" action={action} data-patch>
             {SubmitKey::field(f.attempt)}
             for id in &line.line_ids {
                 <input type="hidden" name={f.line_id} value={id}>
@@ -252,7 +255,7 @@ pub fn AttemptBanner<'a>(t: CartMsg, notice: &'a AttemptNotice) -> impl Render {
             }
             if let Some((write, input)) = &notice.resend {
                 <div class={Resend}>
-                    <form class={Post} method="post" action={write_action(*write)}>
+                    <form class={Post} method="post" action={write_action(*write)} data-patch>
                         <input type="hidden" name={f.attempt} value={&input.attempt}>
                         for id in &input.line_id {
                             <input type="hidden" name={f.line_id} value={id}>

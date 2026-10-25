@@ -85,6 +85,26 @@ pub fn marketplace(path: &str) -> Option<Uri> {
     format!("{}{path}", crate::app::marketplace_origin()).parse().ok()
 }
 
+/// A site-relative address the API returns (a picture, a page) on marketplace's origin, where it
+/// resolves; an absolute one as it is.
+pub fn on_marketplace(path: &str) -> String {
+    if path.starts_with('/') { marketplace(path).map(|u| u.to_string()).unwrap_or_default() } else { path.to_owned() }
+}
+
+/// A `srcset` whose addresses are each put on marketplace's origin (`on_marketplace`).
+pub fn srcset_on_marketplace(srcset: &str) -> String {
+    srcset
+        .split(',')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(|candidate| match candidate.split_once(char::is_whitespace) {
+            Some((url, descriptor)) => format!("{} {}", on_marketplace(url), descriptor.trim()),
+            None => on_marketplace(candidate),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The document: marketplace's top bar, the user's color mode.
 pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
     let p: Pilot = doc.t();

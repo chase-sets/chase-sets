@@ -180,13 +180,17 @@ if (sendWrites) {
       return (await read.json()).items.find((i) => i.line_id === id)?.quantity;
     };
     // The cart read after the write may not have caught up: the page then says so and reads
-    // itself again (`Refresh`) until the line shows `expected`.
+    // itself again (Corten's `Meta::read_again`: the runtime reads it in place, or without
+    // JavaScript the browser reloads it) until the line shows `expected`.
     const step = async (id, name, expected) => {
       const before = page.url();
       const card = page.locator(`li[data-cart-line="${id}"]`);
       const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/quantity`);
       let pending = false;
-      const seen = (r) => r.url().startsWith(cartUrl) && r.request().method() === "GET" && r.headers()["refresh"] && (pending = true);
+      const seen = (r) => {
+        if (r.url().startsWith(cartUrl) && r.request().method() === "GET" && r.status() === 200)
+          r.text().then((html) => html.includes("data-corten-read-again") && (pending = true), () => {});
+      };
       page.on("response", seen);
       await card.getByRole("button", { name }).click();
       const answer = await posted;

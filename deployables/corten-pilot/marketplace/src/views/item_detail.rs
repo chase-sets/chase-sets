@@ -6,7 +6,7 @@
 use corten::prelude::*;
 use serde_json::{Value, json};
 
-use super::marketplace;
+use super::on_marketplace;
 use crate::{
     api::{FieldValue, Item, Listing, Offer, Reference},
     app::url,
@@ -40,11 +40,6 @@ fn listing_price(t: ItemMsg, l: &Listing) -> String {
 
 fn offer_price(t: ItemMsg, o: &Offer) -> String {
     money(t, Some(&o.price_amount), o.price_currency_code.as_deref())
-}
-
-/// A path on marketplace's origin, absolute (the item's pictures are on it).
-fn on_marketplace(path: &str) -> String {
-    if path.starts_with('/') { marketplace(path).map(|u| u.to_string()).unwrap_or_default() } else { path.to_owned() }
 }
 
 /// The item's picture.

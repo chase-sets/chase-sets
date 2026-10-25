@@ -135,6 +135,10 @@ fn cart(session: &str) -> Value {
                 line["seller_preference_id"] = json!("lst_pikachu");
                 line
             };
+            // A picture as the card back leaves it: site-relative to marketplace.
+            let mut mew = cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z");
+            mew["item_image_url"] = json!("/fake-cdn/assets/pokemon_tcg_back.png");
+            mew["item_image_srcset"] = json!("/fake-cdn/assets/mew-1x.png 1x, https://cdn.example/mew-2x.png 2x");
             let reasons = [
                 ("cli_pikachu_a", "unassigned-fulfillment"),
                 ("cli_pikachu_b", "unassigned-fulfillment"),
@@ -143,7 +147,7 @@ fn cart(session: &str) -> Value {
             json!({
                 "items": [
                     preferred(cart_line("cli_pikachu_a", "Pikachu", 1, None, &pikachu, "2026-10-24T03:00:00.000Z")),
-                    cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z"),
+                    mew,
                     preferred(cart_line("cli_pikachu_b", "Pikachu", 2, None, &pikachu, "2026-10-24T04:00:00.000Z")),
                 ],
                 "count": 3,
@@ -998,7 +1002,7 @@ async fn the_cart_shows_each_line_the_total_and_the_lower_price_the_api_offers()
         assert!(form.contains(r#"name="listing" value="lst_vault_charizard""#), "{form}");
         assert!(form.contains(&format!(">{label}</button>")), "{form}");
     }
-    assert!(!html.contains("data-patch"), "the browser follows each form's redirect to marketplace: {html}");
+    assert!(forms.iter().all(|f| !f.contains("data-patch")), "the browser follows each form's redirect to marketplace: {html}");
     assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/assets/pokemon-card-back.png""#), "{html}");
     assert!(!html.contains("<script>"), "the page needs no inline script");
 
@@ -1252,7 +1256,12 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
         "{}",
         locks[0]
     );
-    assert!(!html.contains("data-patch"), "plain forms: {html}");
+    assert_eq!(html.matches("data-patch").count(), 5, "the line writes patch in place: {html}");
+    assert!(
+        html.contains(r#"src="http://localhost:7753/fake-cdn/assets/pokemon_tcg_back.png" srcset="http://localhost:7753/fake-cdn/assets/mew-1x.png 1x, https://cdn.example/mew-2x.png 2x""#),
+        "a site-relative picture is marketplace's: {html}"
+    );
+    assert!(forms_to(&html, CHECK_OUT).iter().all(|f| !f.contains("data-patch")), "checkout leaves for marketplace: {html}");
     assert!(fieldsets(&html).iter().all(|f| !f.contains("disabled")), "none paused: {html}");
 }
 
@@ -1407,16 +1416,22 @@ async fn a_cart_not_readable_yet_after_a_write_says_so_and_reads_again() {
     let (status, headers, html) =
         pilot.send(get(&format!("{CART_SCREEN}?after_write={}", receipt_at("43")), Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert_eq!(headers["refresh"], "2", "read again shortly");
+    assert!(!headers.contains_key("refresh"), "a Refresh header outlives the runtime's navigations (todd-skelton/corten#69)");
+    assert!(
+        html.contains(
+            r#"<noscript data-corten-read-again="2" data-corten-head><meta http-equiv="refresh" content="2"></noscript>"#
+        ),
+        "read again shortly: {html}"
+    );
     let page = text(&html);
     assert!(page.contains("Refreshing cart We saved your cart change and are refreshing the cart view."), "{page}");
     assert!(html.contains(r#"href="/account/cart">Refresh cart<"#) && !html.contains("data-cart-line"), "{html}");
     // A read that failed for good is the page that says the change could not be verified.
-    let (status, headers, _) = pilot.send(get(&format!("{CART_SCREEN}?after_write={}", receipt_at("44")), Some("buyer"))).await;
+    let (status, _, html) = pilot.send(get(&format!("{CART_SCREEN}?after_write={}", receipt_at("44")), Some("buyer"))).await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert!(!headers.contains_key("refresh"));
-    let (_, headers, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
-    assert!(!headers.contains_key("refresh"), "a cart read as it is waits for nothing");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    let (_, _, html) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert!(!html.contains("data-corten-read-again"), "a cart read as it is waits for nothing");
 }
 
 /// A Discovery item: a card that is raw (in one of three conditions) or graded (one of seven

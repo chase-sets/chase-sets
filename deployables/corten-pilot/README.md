@@ -84,6 +84,12 @@ With the rail's buy forms (measured once, 7 loads, pilot release only): the same
 interactive 435 ms desktop and 879 ms mobile; server time 111 ms and 250 ms (one run on a
 shared machine, so the server times are noise until measured again).
 
+At the `993eeac` pin, with Make an offer (measured once, 7 loads, pilot release only): JavaScript
+7,847 B on the item page and the cart (+257 B, Corten's runtime reading a page again); item page
+HTML 3,430 B and CSS 4,837 B; cart HTML 2,733 B and CSS 4,325 B. The times on that run were spread
+widely on a busy machine (item page interactive 983 ms desktop and 607 ms mobile, cart 377 ms and
+1,265 ms), so they are not compared with the runs above.
+
 Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
 there is no React baseline for these pages yet (measured the same way, release build).
 
@@ -204,6 +210,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `26c55a8` | Corten `main` with [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58) closed and adopted: the exported catalogs keep their camelCase arguments. Breaking for the pilot only in a script: a `Message<"...">` JSDoc and its call take the catalog's names (`bulk_rows.js` says `entityName`) |
 | `c268ecc` | Corten `main` with [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61) and [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64) closed, both adopted: the router tests' `patch_ids` is gone, and the cart's Check out is a form whose redirect goes to marketplace (`Policy::form_action`). No breaking change for the pilot |
 | `c590b8a` | Corten `main` with [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60) and [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63) closed, both adopted (`t.money`, `t.date_time`, `t.js().date_time`). No breaking change for the pilot. Its tests changed only where its own output did: a line's price in the screen JSON is now the amount and currency, and the live status's markup carries the date format |
+| `993eeac` | Corten `main` with [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69) closed and adopted (`Meta::read_again`; the cart's line writes are `data-patch`). No breaking change for the pilot. The runtime grows 282 B gzipped (Corten's measurement) |
 
 ## What lives where
 
@@ -493,11 +500,14 @@ forward only on purpose, when a fix the pilot needs lands.
     The checkout read model is often behind the write. In the dev sandbox every quantity write
     the smoke test sent was read before it caught up. That read is marketplace's
     `pending-fresh-write`: the page says the change is saved and reads itself again every 2 s
-    until the receipt is 30 s old. Corten has no way for a page to ask that, so the pilot sends
-    `Refresh: 2`, which the browser honours only on a page it loaded itself
-    ([todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69)).
-    So the line writes are plain posts, not `data-patch` forms, and each step is a full page load.
-    Move them to `data-patch` and drop the header once that issue lands.
+    until the receipt is 30 s old. The page asks for that with Corten's `Meta::read_again`
+    (2 s), only while it is behind: the runtime reads the address again in place, or without
+    JavaScript the browser reloads it. The line writes are `data-patch` forms, so a step and the
+    reads after it swap the page in place rather than loading it; the smoke test checks both, with
+    and without JavaScript. Check out stays a plain form, since it leaves for marketplace.
+    A line keeps the picture its add sent, and a card back is site-relative to marketplace
+    (`/fake-cdn/assets/pokemon_tcg_back.png`), so the cart puts it and its `srcset` on
+    marketplace's origin, as the item page does its own pictures (`views::on_marketplace`).
 
 32. **The item page's choices are in its address.** Marketplace reads `market`, `listing`, `offer`
     and `dimension.<id>` once and keeps later choices in React state. The pilot reads every
@@ -562,14 +572,10 @@ forward only on purpose, when a fix the pilot needs lands.
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69)
-   (correctness, then end-user performance). Workaround: the cart sends `Refresh: 2` while its
-   read catches up after a write, and its line writes are plain posts so the browser loads the
-   page itself ([`cart.rs`](marketplace/src/cart.rs), `render`).
-2. [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)
+1. [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)
    (correctness). Workaround: the item page's address implements `Params` by hand, separators
    and encoding included ([`items.rs`](marketplace/src/items.rs), `impl Params for Address`).
-3. [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)
+2. [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)
    (correctness, then end-user performance). Workaround: the item page builds its 301 by hand
    ([`items.rs`](marketplace/src/items.rs), `page`).
 
@@ -595,6 +601,14 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `993eeac` pin, workaround removed:
+
+1. [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69)
+   ([todd-skelton/corten#70 A page can ask to be read again, however it was reached](https://github.com/todd-skelton/corten/pull/70)): the cart's
+   pending read is `Meta::read_again(2 s)` instead of the `Refresh` header, and its line
+   writes and Send the same change again are `data-patch` forms. Its tests check the
+   `<noscript>` tag and no `Refresh` header (a debug build now answers 500 to a page that sends one).
 
 Fixed at the `c590b8a` pin, workarounds removed:
 

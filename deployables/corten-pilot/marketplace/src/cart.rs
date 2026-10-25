@@ -10,10 +10,10 @@
 //! line's badge is the API's line outcome, not a copy of its rules
 //! ([chase-sets/chase-sets#10576](https://github.com/chase-sets/chase-sets/issues/10576)); the
 //! line's price is still worked out here from its listings, as marketplace's page does.
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    axum::http::{HeaderMap, StatusCode, header},
     prelude::*,
     security::cookie,
 };
@@ -496,21 +496,16 @@ async fn render(
     };
     let t: CartMsg = req.t();
     let meta = Meta::new(t.route_cart_marketplace()).description(t.route_review_cart_lines_adjust_quantity_and());
+    // Read the same address again in 2 s, as marketplace's revalidation does, until the receipt
+    // it carries is too old to wait for (the read then fails for good and stops asking).
+    let meta = if screen.pending { meta.read_again(Duration::from_secs(2)) } else { meta };
     let status = match &notice {
         None => StatusCode::OK,
         Some(Notice::Attempt(a)) if a.state != Attempted::FailedSafe => StatusCode::CONFLICT,
         Some(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
     let view = views::cart_page(t, viewer, &screen, notice.as_ref());
-    let mut res = req.screen_with_status(status, meta, &screen, view)?;
-    if screen.pending {
-        // Read the same address again in 2 s, as marketplace's revalidation does, until the receipt
-        // it carries is too old to wait for. Corten has no way for a page to ask this, so the pilot
-        // sends the `Refresh` header; the browser loads the page after a write itself (its forms are
-        // plain posts), and the runtime's own navigations ignore it (todd-skelton/corten#69).
-        res.headers_mut().insert(HeaderName::from_static("refresh"), HeaderValue::from_static("2"));
-    }
-    Ok(res)
+    req.screen_with_status(status, meta, &screen, view)
 }
 
 async fn quantity(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LineInput>) -> corten::Result {

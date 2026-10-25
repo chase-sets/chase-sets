@@ -68,6 +68,8 @@ async function context({ javaScriptEnabled, signedIn, viewport }) {
   const problems = [];
   page.on("console", (m) => m.type() === "error" && problems.push(m.text()));
   page.on("pageerror", (e) => problems.push(String(e)));
+  // The console's "Failed to load resource" names no URL.
+  page.on("response", (r) => r.status() === 404 && problems.push(`404 ${r.request().method()} ${r.url()}`));
   return { ctx, page, problems };
 }
 const rail = (page) => page.locator('[aria-labelledby="rail-title"]');
