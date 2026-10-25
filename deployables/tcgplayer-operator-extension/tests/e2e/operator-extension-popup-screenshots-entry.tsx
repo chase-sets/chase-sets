@@ -1,7 +1,5 @@
-import { createRoot } from "react-dom/client";
-import { ChaseRoot } from "@chase-sets/design-system/theme";
 import "@chase-sets/design-system/styles.css";
-import { OperatorExtensionPopup } from "../../../../bounded-contexts/catalog/features/operator-session/ui/extension-popup/popup";
+import { renderOperatorExtensionPopup } from "@chase-sets/catalog/client";
 
 const state = new URLSearchParams(location.search).get("state");
 const request = async (id: string) => {
@@ -39,21 +37,29 @@ const request = async (id: string) => {
   };
 };
 
-createRoot(document.getElementById("root")!).render(
-  <ChaseRoot>
-    <OperatorExtensionPopup
-      request={async () => ({
+window.addEventListener("message", (event) => {
+  if (event.source !== window || event.origin !== location.origin) return;
+  const data = event.data as { id?: unknown; command?: { action?: unknown } };
+  if (typeof data.id !== "number" || data.command?.action !== "status") return;
+  window.postMessage(
+    {
+      id: data.id,
+      status: {
         paired: false,
         state: "unpaired",
         lastOutcome: null,
         lastPushedAt: null,
         serverRevision: 0,
-      })}
-      setNameRequest={request}
-      copyProbeReport={async () => undefined}
-      extensionVersion="0.1.0"
-      buildCommit="synthetic-screenshot"
-      browserMajor="synthetic-browser"
-    />
-  </ChaseRoot>,
-);
+      },
+    },
+    location.origin,
+  );
+});
+
+void renderOperatorExtensionPopup(document.getElementById("root")!, location.origin, {
+  setNameRequest: request,
+  copyProbeReport: async () => undefined,
+  extensionVersion: "0.1.0",
+  buildCommit: "synthetic-screenshot",
+  browserMajor: "synthetic-browser",
+});
