@@ -1091,7 +1091,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       {
         profileKey: "yugioh-set-reference-data",
         ingestionUnitKey: "ygojson:yugioh:set:reference-data",
-        profileVersion: "2026.10.18",
+        profileVersion: "2026.10.25",
       },
       {
         normal: {
@@ -1100,6 +1100,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "yugioh-set-reference",
             normalizedFields: {
               name: "Legend of Blue Eyes White Dragon",
+              setId: "11111111-1111-4111-8111-111111111111",
               ygojsonId: "11111111-1111-4111-8111-111111111111",
               releaseDate: "2002-03-08",
               tcg: "yugioh",

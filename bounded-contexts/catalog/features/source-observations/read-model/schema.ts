@@ -1,4 +1,4 @@
-import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import { providerSendSchemaSql } from "./provider-send-schema";
 import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
@@ -8,7 +8,9 @@ import {
   sourceObservationIntegrationScopeSummaryTable,
   sourceObservationProductLineIdExpression,
   sourceObservationSeriesIdExpression,
+  rebuildSourceObservationIntegrationScopeSummaries,
 } from "./integration-scope-summary";
+import { repairLegacyYgojsonSetNormalizedObservation } from "./projection";
 
 const catalogSourceObservationIntegrationScopeSummaryBackfillSql = `INSERT INTO ${sourceObservationIntegrationScopeSummaryTable} (
   provider_key,
@@ -145,6 +147,62 @@ const catalogProviderOptionQueryCacheLookupIndexSql = `CREATE INDEX CONCURRENTLY
     language_code,
     parent_value
   );`;
+
+async function repairLegacyYgojsonSetRows(db: BcSchemaMigrationClient): Promise<void> {
+  const result = await db.query<{
+    provider_key: string;
+    language_code: string;
+    product_line_id: string;
+    series_id: string;
+    expansion_id: string;
+    normalized: unknown;
+  }>(
+    `SELECT provider_key,
+            language_code,
+            coalesce(${sourceObservationProductLineIdExpression()}, '') AS product_line_id,
+            ${sourceObservationSeriesIdExpression()} AS series_id,
+            ${sourceObservationExpansionIdExpression()} AS expansion_id,
+            normalized
+       FROM catalog_source_observations
+      WHERE provider_key = 'ygojson'
+        AND normalized->>'kind' = 'yugioh-set-reference'
+        AND coalesce(normalized->>'setId', '') = ''
+        AND coalesce(normalized->>'ygojsonId', '') <> ''`,
+  );
+  const keys = result.rows.flatMap((row) => {
+    const normalized = typeof row.normalized === "string" ? JSON.parse(row.normalized) : row.normalized;
+    const repaired = repairLegacyYgojsonSetNormalizedObservation("ygojson", normalized as never) as Record<
+      string,
+      unknown
+    >;
+    const expansionId = typeof repaired.setId === "string" ? repaired.setId : row.expansion_id;
+    return [
+      {
+        providerKey: row.provider_key,
+        languageCode: row.language_code,
+        productLineId: row.product_line_id,
+        seriesId: row.series_id,
+        expansionId: row.expansion_id,
+      },
+      {
+        providerKey: row.provider_key,
+        languageCode: row.language_code,
+        productLineId: row.product_line_id,
+        seriesId: row.series_id,
+        expansionId,
+      },
+    ];
+  });
+  await db.query(
+    `UPDATE catalog_source_observations
+        SET normalized = jsonb_set(normalized, '{setId}', normalized->'ygojsonId', true)
+      WHERE provider_key = 'ygojson'
+        AND normalized->>'kind' = 'yugioh-set-reference'
+        AND coalesce(normalized->>'setId', '') = ''
+        AND coalesce(normalized->>'ygojsonId', '') <> ''`,
+  );
+  await rebuildSourceObservationIntegrationScopeSummaries(db, keys, new Date().toISOString());
+}
 
 const catalogMergeCandidateScopeIdentityV2WipeSql = `DELETE FROM catalog_merge_candidate_observations;
 DELETE FROM catalog_merge_candidates;
@@ -744,5 +802,11 @@ END $$;`,
     migrationId: "20261002_catalog_provider_send_window",
     description: "Install retained Catalog staging provider-send authority, quotas, attempts and job bindings.",
     statements: [...providerSendSchemaSql],
+  },
+  {
+    migrationId: "20261025_catalog_repair_ygojson_set_scope_keys",
+    description: "Derive canonical YGOJSON set IDs in legacy observations and rebuild affected summaries.",
+    dataStep: repairLegacyYgojsonSetRows,
+    statements: [],
   },
 ];

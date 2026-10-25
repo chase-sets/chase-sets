@@ -6,6 +6,7 @@ export type {
   SettlementLedgerEntryRow,
   SettlementPayoutRow,
   SettlementPayoutPreview,
+  SettlementPayoutQuickAmounts,
   SettlementProviderIdempotencyKeyRow,
   SettlementPayoutSetupRefreshResult,
   SettlementPayoutReadinessRow,

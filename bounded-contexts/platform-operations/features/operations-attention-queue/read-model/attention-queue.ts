@@ -113,7 +113,14 @@ export type OperationsAttentionContext = Readonly<{
 
 export type OperationsAttentionSource = Readonly<{
   id: OperationsAttentionSourceId;
-  load: (context: OperationsAttentionContext) => Promise<readonly OperationsAttentionItem[]>;
+  load: (context: OperationsAttentionContext) => Promise<OperationsAttentionSourceResult>;
+}>;
+
+export type OperationsAttentionSourceTotal = number | "unknown";
+
+export type OperationsAttentionSourceResult = Readonly<{
+  items: readonly OperationsAttentionItem[];
+  total: OperationsAttentionSourceTotal;
 }>;
 
 // ---------------------------------------------------------------------------
@@ -192,6 +199,7 @@ export type OperationsAttentionSourceHealth = Readonly<{
   id: OperationsAttentionSourceId;
   status: OperationsAttentionSourceStatus;
   itemCount: number;
+  total: OperationsAttentionSourceTotal;
   // Present only when unavailable — the visible "source unavailable" marker.
   reason?: string;
 }>;
@@ -233,24 +241,36 @@ async function loadSource(
 ): Promise<LoadedSource> {
   try {
     const loaded = await source.load(context);
-    if (!Array.isArray(loaded) || !loaded.every((item) => isOperationsAttentionItem(item, source.id))) {
+    const validTotal =
+      loaded !== null &&
+      typeof loaded === "object" &&
+      (loaded.total === "unknown" ||
+        (typeof loaded.total === "number" && Number.isInteger(loaded.total) && loaded.total >= 0));
+    if (
+      loaded === null ||
+      typeof loaded !== "object" ||
+      !Array.isArray(loaded.items) ||
+      !validTotal ||
+      !loaded.items.every((item) => isOperationsAttentionItem(item, source.id))
+    ) {
       return {
         health: {
           id: source.id,
           status: "unavailable",
           itemCount: 0,
+          total: "unknown",
           reason: "source returned a non-conforming item",
         },
         items: [],
       };
     }
     return {
-      health: { id: source.id, status: "available", itemCount: loaded.length },
-      items: loaded,
+      health: { id: source.id, status: "available", itemCount: loaded.items.length, total: loaded.total },
+      items: loaded.items,
     };
   } catch (error) {
     return {
-      health: { id: source.id, status: "unavailable", itemCount: 0, reason: reasonFrom(error) },
+      health: { id: source.id, status: "unavailable", itemCount: 0, total: "unknown", reason: reasonFrom(error) },
       items: [],
     };
   }

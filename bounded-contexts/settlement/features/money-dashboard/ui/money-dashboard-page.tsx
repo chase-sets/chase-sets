@@ -21,7 +21,7 @@ import {
   Timeline,
   type Tone,
 } from "@chase-sets/design-system";
-import type { SettlementPayoutPreview } from "../../../client";
+import type { SettlementPayoutPreview, SettlementPayoutQuickAmounts } from "../../../client";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import { payoutUnavailableReasonLabel } from "../../payouts/domain/reason-codes";
 import type { SettlementPayoutRow } from "../../payouts/read-model/queries";
@@ -81,6 +81,7 @@ export function SettlementMoneyDashboardPage({
   entries,
   payouts,
   payoutReadiness,
+  quickAmounts,
   evaluatedAt,
   canRequestPayouts,
   canSetupPayouts,
@@ -92,6 +93,7 @@ export function SettlementMoneyDashboardPage({
   entries: readonly SettlementLedgerEntryRow[];
   payouts: readonly SettlementPayoutRow[];
   payoutReadiness: SettlementPayoutReadinessRow;
+  quickAmounts: SettlementPayoutQuickAmounts;
   evaluatedAt: string;
   canRequestPayouts: boolean;
   canSetupPayouts: boolean;
@@ -268,6 +270,7 @@ export function SettlementMoneyDashboardPage({
           <SettlementPayoutRequestPanel
             wallet={wallet}
             payoutReadiness={payoutReadiness}
+            quickAmounts={quickAmounts}
             canRequestPayouts={canRequestPayouts}
             draft={actionState?.draft}
             confirmation={actionState?.confirmation}

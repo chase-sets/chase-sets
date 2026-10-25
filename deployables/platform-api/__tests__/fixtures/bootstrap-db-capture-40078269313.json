@@ -5137,7 +5137,7 @@
     "bounded-contexts/platform-operations/GLOSSARY.md": "8e00791caedd6f9677fb5cd859d2f5de9dfed37a6c069a710a9304133c1966e2",
     "bounded-contexts/platform-operations/README.md": "c93aaf7e402390e4e0b7877980e216f56efd3ed63d3ce46befe62aff2789d014",
     "bounded-contexts/platform-operations/api.ts": "cd5a6795c17988b8105ffb7205fa058be38b5791d4d172c343510d94795af019",
-    "bounded-contexts/platform-operations/context.json": "c57c26fca4c1012d74459ce3f7f3a99f486cde2b2b8bfd7421bf490b979d3260",
+    "bounded-contexts/platform-operations/context.json": "c83cbdfa289fe2ce1073fc3c64663c4d493994754b0fd5a6718245bde2f6a454",
     "bounded-contexts/platform-operations/docs/support-operations-readiness.md": "894880a472bafe388d5d7e5df7c2d69ca189f5de859a795d3d3f25b8cf3329ec",
     "bounded-contexts/platform-operations/features/account-appeals/read-model/projection.ts": "31b9aea582fd20a00e5782310cd1868a9253b7ed6dbc992340d88adcd0ceb6b8",
     "bounded-contexts/platform-operations/features/account-appeals/read-model/schema.ts": "9319e774845c22a64cfa7261fc352aa991408bf30fa64b96c0b33943f0c76fb3",
