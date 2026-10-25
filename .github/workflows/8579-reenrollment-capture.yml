@@ -1,0 +1,305 @@
+name: 8579 Bootstrap DB Re-enrollment Capture Only
+
+on:
+  push:
+    branches: [codex/8579-reenrollment-capture-r3]
+    paths: [.github/workflows/8579-reenrollment-capture.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 8579-reenrollment-capture
+  cancel-in-progress: false
+
+jobs:
+  measurement:
+    name: Diagnostic API Bootstrap Measurement Only
+    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/8579-reenrollment-capture-r3' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      CAPTURE_SOURCE: e517d44184d973967b3e2a6144cf989a8ad15020
+      CAPTURE_TREE: db4c621ce26bf7b29ff4167c1fa1ea2bbdc3ecfe
+      EXPECTED_MANIFEST_SHA256: 87db0e304a368188a211280ad6a3dd1f752215929b544754b299a61f52ec4e86
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c 'ALTER SYSTEM SET max_locks_per_transaction = 512;'
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c 'ALTER SYSTEM SET max_connections = 300;'
+          docker restart "$POSTGRES_CONTAINER_ID"
+          for _ in $(seq 1 30); do
+            docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')" = 512
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')" = 300
+          mkdir -p artifacts/8579-reenrollment-capture
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' \
+            > artifacts/8579-reenrollment-capture/postgres-settings.txt
+          docker image inspect pgvector/pgvector:pg16 --format '{{json .RepoDigests}}' \
+            > artifacts/8579-reenrollment-capture/postgres-image-digests.json
+
+      - name: Restore immutable diagnostic-only census helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --is-shallow-repository)" = "false"
+          git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
+          git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
+          echo "c9bb1a649b15063088430e6a436acad7e69b17357906148300af82dd3a9df334  deployables/platform-api/scripts/8396-capture-census.mjs" | sha256sum -c -
+
+      - name: Generate and bind the immutable S manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "$CAPTURE_SOURCE^{tree}")" = "$CAPTURE_TREE"
+          parents="$(git rev-list --parents -n 1 HEAD)"
+          test "$(printf '%s' "$parents" | cut -d' ' -f2)" = "$CAPTURE_SOURCE"
+          test "$(printf '%s' "$parents" | awk '{print NF}')" -eq 2
+          test -z "${CHASE_SETS_LANE_MODE+x}"
+          test "$(git diff --name-only "$CAPTURE_SOURCE" HEAD)" = ".github/workflows/8579-reenrollment-capture.yml"
+          git diff --exit-code "$CAPTURE_SOURCE" -- bounded-contexts contracts infrastructure deployables/platform-api packages scripts pnpm-lock.yaml pnpm-workspace.yaml package.json .github/actions/setup-pnpm-workspace vitest.shared.mjs
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import crypto from "node:crypto";
+          import path from "node:path";
+          import { execFileSync } from "node:child_process";
+          import { bootstrapDbEnrollmentManifest, deriveBootstrapDbCaseIdentities, derivePlatformApiDbTestCensus, platformApiNonBootstrapDbCensus } from "./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+          import { captureCensusFiles, deriveCaptureCensusCaseNames } from "./deployables/platform-api/scripts/8396-capture-census.mjs";
+          const root = "deployables/platform-api";
+          const pkg = JSON.parse(fs.readFileSync(`${root}/package.json`, "utf8"));
+          const units = Object.entries(pkg.scripts)
+            .filter(([name, command]) => /^test:db:\d+$/.test(name) && typeof command === "string")
+            .sort(([left], [right]) => left.localeCompare(right, "en", { numeric: true }));
+          const guard = "node ./scripts/check-bootstrap-db-enrollment.mjs && ";
+          const execution = units.map(([unit, command]) => {
+            if (!command.startsWith(guard)) throw new Error(`${unit} does not retain the governed guard prefix`);
+            const body = command.slice(guard.length);
+            const files = body.split(/\s+/).filter((token) => token.startsWith("__tests__/") && token.endsWith(".db.test.ts"));
+            return { unit, command, files: files.map((selected) => {
+              const relative = selected.slice("__tests__/".length);
+              const absolute = `${root}/${selected}`;
+              const bytes = fs.readFileSync(absolute);
+              const source = bytes.toString("utf8");
+              return { path: `deployables/platform-api/${selected}`, bytes: bytes.length,
+                sha256: crypto.createHash("sha256").update(bytes).digest("hex"), unit,
+                bootstrap: Object.hasOwn(bootstrapDbEnrollmentManifest, path.basename(relative)),
+                cases: deriveBootstrapDbCaseIdentities(path.basename(relative), source) };
+            }) };
+          });
+          const census = derivePlatformApiDbTestCensus({ platformApiRoot: path.resolve(root) });
+          if (census.violations.length) throw new Error(census.violations.join("\n"));
+          const declared = platformApiNonBootstrapDbCensus.entries;
+          const selected = execution.flatMap(({ files }) => files);
+          const declaredPaths = Object.keys(declared).sort();
+          const selectedPaths = selected.filter(({ bootstrap }) => !bootstrap).map(({ path: file }) => file.slice("deployables/platform-api/".length)).sort();
+          if (JSON.stringify(declaredPaths) !== JSON.stringify(selectedPaths)) throw new Error("census/package selection disagree");
+          const fixture = fs.readFileSync(`${root}/__tests__/operator-session/fixture.ts`, "utf8");
+          for (const file of selected.filter(({ bootstrap }) => !bootstrap)) {
+            const relative = file.path.slice(`${root}/__tests__/`.length);
+            if (!captureCensusFiles.includes(relative)) throw new Error(`unreviewed census file ${relative}`);
+            file.censusCaseNames = deriveCaptureCensusCaseNames(relative, fs.readFileSync(file.path, "utf8"), fixture);
+          }
+          const expanded = Object.fromEntries(selected.filter(({ bootstrap }) => !bootstrap).map((file) => [file.path, file.censusCaseNames]));
+          const bootstrapFiles = selected.filter(({ bootstrap }) => bootstrap);
+          const bootstrapCases = bootstrapFiles.flatMap(({ cases }) => cases);
+          const lockContentionCases = selected.find(({ path: file }) => file.endsWith("bootstrap-lock-contention.db.test.ts"))?.cases ?? [];
+          const manifest = { schema: "8579-capture-manifest/v1", sourceCommit: process.env.CAPTURE_SOURCE,
+            sourceTree: process.env.CAPTURE_TREE, execution, census: { dbEntries: census.dbEntries,
+            bootstrapEntries: census.bootstrapEntries, violations: census.violations, declared, expandedCaseNames: expanded },
+            derivedCounts: { files: selected.length, bootstrapFiles: bootstrapFiles.length,
+              bootstrapCases: bootstrapCases.length, censusCases: Object.values(expanded).flat().length,
+              totalCases: bootstrapCases.length + Object.values(expanded).flat().length },
+            lockContentionCases: lockContentionCases.map(({ name }) => name) };
+          const bytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
+          const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+          if (digest !== process.env.EXPECTED_MANIFEST_SHA256) throw new Error(`manifest digest ${digest} is not the frozen S digest`);
+          fs.mkdirSync("artifacts/8579-reenrollment-capture", { recursive: true });
+          fs.writeFileSync("artifacts/8579-reenrollment-capture/capture-manifest.json", bytes);
+          fs.writeFileSync("artifacts/8579-reenrollment-capture/capture-commands.json", JSON.stringify(Object.fromEntries(execution.map(({ unit, command }) => [unit, { command, body: command.slice(guard.length) }])), null, 2) + "\n");
+          fs.writeFileSync("artifacts/8579-reenrollment-capture/source-census.json", JSON.stringify(census, null, 2) + "\n");
+          const sourceFiles = execFileSync("git", ["ls-files", "bounded-contexts", "contracts", "infrastructure", "deployables/platform-api", "packages", "scripts", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json", ".github/actions/setup-pnpm-workspace", "vitest.shared.mjs"], { encoding: "utf8" }).trim().split("\n");
+          const sourceManifest = { sourceBase: process.env.CAPTURE_SOURCE, files: Object.fromEntries(sourceFiles.map((file) => [file, crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")])) };
+          fs.writeFileSync("artifacts/8579-reenrollment-capture/capture-sources.json", JSON.stringify(sourceManifest, null, 2) + "\n");
+          fs.writeFileSync("artifacts/8579-reenrollment-capture/manifest-digest.txt", `${digest}\n`);
+          console.log(`CAPTURE_MANIFEST_SHA256=${digest}`);
+          console.log(`selectedFiles=${selected.length} bootstrapFiles=${selected.filter(({ bootstrap }) => bootstrap).length}`);
+          NODE
+
+      - name: Record the expected pre-capture guard rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=artifacts/8579-reenrollment-capture
+          set +e
+          (cd deployables/platform-api && node ./scripts/check-bootstrap-db-enrollment.mjs) > "$out/guard.stdout" 2> "$out/guard.stderr"
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$out/guard.exit-code"
+          printf 'expected pre-capture rejection, not PASS\n' > "$out/guard.disposition"
+          test "$status" -ne 0
+
+      - name: Record run and job identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import { execFileSync } from "node:child_process";
+          const out = "artifacts/8579-reenrollment-capture";
+          const eventPayload = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+          const packageScripts = JSON.parse(fs.readFileSync("deployables/platform-api/package.json", "utf8")).scripts;
+          const workerValues = [...new Set(Object.entries(packageScripts).filter(([name]) => /^test:db:\d+$/.test(name)).map(([, command]) => command.match(/--maxWorkers=(\d+)/)?.[1]).filter(Boolean))];
+          if (workerValues.length !== 1) throw new Error("DB units do not share one maxWorkers value");
+          const identity = { checkoutSha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), githubSha: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, job: process.env.GITHUB_JOB,
+            workflow: process.env.GITHUB_WORKFLOW, workflowRef: process.env.GITHUB_WORKFLOW_REF, workflowSha: process.env.GITHUB_WORKFLOW_SHA,
+            repository: process.env.GITHUB_REPOSITORY, ref: process.env.GITHUB_REF, event: process.env.GITHUB_EVENT_NAME, pushAfter: eventPayload.after,
+            sourceBase: process.env.CAPTURE_SOURCE, parents: execFileSync("git", ["rev-list", "--parents", "-n", "1", "HEAD"], { encoding: "utf8" }).trim().split(" ").slice(1),
+            node: process.version, pnpm: execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim(),
+            vitest: execFileSync("pnpm", ["exec", "vitest", "--version"], { encoding: "utf8" }).trim(),
+            runnerOs: process.env.RUNNER_OS, imageOS: process.env.ImageOS, imageVersion: process.env.ImageVersion,
+            laneMode: process.env.CHASE_SETS_LANE_MODE ?? null,
+            runnerImage: "ubuntu-latest", postgresImage: "pgvector/pgvector:pg16",
+            postgresImageDigests: JSON.parse(fs.readFileSync(`${out}/postgres-image-digests.json`, "utf8")),
+            maxWorkers: Number(workerValues[0]), serialUnits: true, unitDeadlineMs: 600000, aggregateDeadlineMs: 1800000,
+            runtimeProfile: "current production profile", directInvocationEnv: ["TEST_DATABASE_URL", "BOOTSTRAP_DB_EVIDENCE_UNIT", "MEASUREMENT_OUTPUT"],
+            expectedCounts: { files: 16, bootstrapFiles: 12, bootstrapCases: 71, censusCases: 11, totalCases: 82 } };
+          if (identity.checkoutSha !== identity.githubSha || identity.pushAfter !== identity.githubSha || identity.runAttempt !== "1" || identity.event !== "push"
+            || identity.repository !== "chase-sets/chase-sets" || identity.ref !== "refs/heads/codex/8579-reenrollment-capture-r3"
+            || JSON.stringify(identity.parents) !== JSON.stringify([identity.sourceBase]) || identity.laneMode !== null || !identity.imageOS || !identity.imageVersion
+            || identity.postgresImageDigests.length === 0) throw new Error("Capture identity, source parent, or current settings mismatch");
+          fs.writeFileSync(`${out}/identity.json`, JSON.stringify(identity, null, 2) + "\n");
+          NODE
+
+      - name: Run exact Vitest bodies with evidence and cleanup reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/artifacts/8579-reenrollment-capture"
+          evidence="$GITHUB_WORKSPACE/deployables/platform-api/artifacts/bootstrap-db-evidence"
+          mkdir -p "$out" "$evidence"
+          cat > "$out/measurement-reporter.mjs" <<'REPORTER'
+          import { appendFileSync, readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { basename } from "node:path";
+          import { deriveBootstrapDbCaseIdentities } from "../../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+          export default class MeasurementReporter {
+            onTestModuleEnd(module) {
+              const source = readFileSync(module.moduleId, "utf8");
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({ file: basename(module.moduleId), sourceSha256: createHash("sha256").update(source).digest("hex"), identities: deriveBootstrapDbCaseIdentities(basename(module.moduleId), source), state: module.state(), diagnostic: module.diagnostic(), errors: module.errors(), cases: [...module.children.allTests()].map(test => ({ name: test.name, fullName: test.fullName, result: test.result(), diagnostic: test.diagnostic() })) }) + "\n");
+            }
+            onTestRunEnd(modules, errors, reason) {
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({ runEnd: true, moduleCount: modules.length, errors, reason }) + "\n");
+            }
+          }
+          REPORTER
+          node --input-type=module <<'RUNNER'
+          import assert from "node:assert/strict";
+          import { spawn, execFileSync } from "node:child_process";
+          import { readFileSync, appendFileSync } from "node:fs";
+          import { resolve, basename } from "node:path";
+          import { performance } from "node:perf_hooks";
+          const root = process.cwd();
+          const output = resolve(root, "artifacts/8579-reenrollment-capture");
+          const cwd = resolve(root, "deployables/platform-api");
+          const commands = JSON.parse(readFileSync(resolve(output, "capture-commands.json"), "utf8"));
+          const manifest = JSON.parse(readFileSync(resolve(output, "capture-manifest.json"), "utf8"));
+          const units = [];
+          const save = record => appendFileSync(resolve(output, "units.jsonl"), JSON.stringify(record) + "\n");
+          const groupMembers = pgid => execFileSync("ps", ["-eo", "pid=,ppid=,pgid=,stat=,comm="], { encoding: "utf8", timeout: 1000 }).trim().split("\n").filter(Boolean).map(line => line.trim().split(/\s+/)).filter(fields => Number(fields[2]) === pgid);
+          const sleep = ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms));
+          for (const unit of Object.keys(commands).sort((a, b) => a.localeCompare(b, "en", { numeric: true }))) {
+            const safe = unit.replaceAll(":", "-");
+            const jsonl = resolve(output, `${safe}.jsonl`);
+            const evidenceJsonl = resolve(cwd, "artifacts/bootstrap-db-evidence", `${safe}.jsonl`);
+            const json = resolve(output, `${safe}.json`);
+            const args = ["exec", ...commands[unit].body.trim().split(/\s+/), `--reporter=${resolve(output, "measurement-reporter.mjs")}`, "--reporter=json", `--outputFile.json=${json}`];
+            const startedAt = new Date().toISOString();
+            const start = performance.now();
+            const record = { unit, command: ["pnpm", ...args], startedAt, deadlineMs: 600000, timedOut: false, interrupted: null, terminationReason: null };
+            const child = spawn("pnpm", args, { cwd, stdio: "inherit", detached: true, env: { ...process.env, BOOTSTRAP_DB_EVIDENCE_UNIT: unit, MEASUREMENT_OUTPUT: jsonl } });
+            record.pid = child.pid ?? null;
+            record.pgid = child.pid ?? null;
+            const terminateGroup = reason => { record.terminationReason ??= reason; record.terminationAt = new Date().toISOString(); if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") record.terminationError = error.message; } } };
+            const onTerm = () => { record.interrupted = "SIGTERM"; terminateGroup("host-cancellation"); };
+            const onInt = () => { record.interrupted = "SIGINT"; terminateGroup("host-cancellation"); };
+            process.on("SIGTERM", onTerm); process.on("SIGINT", onInt);
+            const timer = setTimeout(() => { record.timedOut = true; terminateGroup("unit-deadline"); }, 600000);
+            const result = await new Promise(resolveResult => { let done = false; const finish = value => { if (!done) { done = true; resolveResult(value); } }; child.once("error", error => finish({ status: null, signal: null, error })); child.once("exit", (status, signal) => finish({ status, signal })); });
+            clearTimeout(timer);
+            record.processExitedAt = new Date().toISOString(); record.exitCode = result.status; record.signal = result.signal; record.error = result.error?.message ?? null;
+            const cleanupStart = performance.now();
+            record.cleanupStartedAt = new Date().toISOString(); record.membersAtExit = groupMembers(record.pgid);
+            if (record.membersAtExit.length > 0) terminateGroup("descendants-after-exit");
+            while (performance.now() - cleanupStart < 1000 && groupMembers(record.pgid).length > 0) await sleep(10);
+            record.membersAfterCleanup = groupMembers(record.pgid); record.cleanupComplete = record.membersAfterCleanup.length === 0 && !record.terminationError; record.finishedAt = new Date().toISOString(); record.cleanupDurationMs = performance.now() - cleanupStart; record.durationMs = performance.now() - start;
+            record.status = result.status === 0 && !record.timedOut && !record.interrupted && !record.terminationReason && record.cleanupComplete && record.durationMs <= 600000 ? "passed" : "failed";
+            units.push(record); save(record); process.off("SIGTERM", onTerm); process.off("SIGINT", onInt);
+            if (record.status !== "passed") { process.exitCode = 1; break; }
+            JSON.parse(readFileSync(json, "utf8"));
+            readFileSync(jsonl, "utf8").trim().split("\n").filter(Boolean).forEach(line => JSON.parse(line));
+            readFileSync(evidenceJsonl, "utf8").trim().split("\n").filter(Boolean).forEach(line => JSON.parse(line));
+          }
+          if (units.length !== Object.keys(commands).length || units.some(unit => unit.status !== "passed")) process.exitCode = 1;
+          if (!process.exitCode) {
+            for (const [unit] of Object.entries(commands)) {
+              const safe = unit.replaceAll(":", "-");
+              const selected = manifest.execution.find(entry => entry.unit === unit).files;
+              const rows = readFileSync(resolve(output, `${safe}.jsonl`), "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+              const completed = rows.filter(row => row.runEnd);
+              assert.equal(completed.length, 1, `${unit} runEnd count`); assert.equal(completed[0].reason, "passed", `${unit} runEnd reason`); assert.deepEqual(completed[0].errors, [], `${unit} runEnd errors`);
+              const modules = rows.filter(row => !row.runEnd); assert.equal(new Set(modules.map(row => row.file)).size, modules.length, `${unit} duplicate modules`); assert.deepEqual(modules.map(row => row.file).sort(), selected.map(file => basename(file.path)).sort(), `${unit} module set`);
+              const expectedNames = [];
+              for (const row of modules) {
+                const entry = selected.find(file => basename(file.path) === row.file); assert(entry, `${unit} unknown module ${row.file}`); assert.equal(row.state, "passed", `${unit}/${row.file} state`); assert.deepEqual(row.errors, [], `${unit}/${row.file} errors`); assert.equal(row.sourceSha256, entry.sha256, `${unit}/${row.file} source`); assert.deepEqual(row.identities, entry.cases, `${unit}/${row.file} identities`);
+                const names = row.cases.map(test => test.name); assert.deepEqual(names.sort(), (entry.censusCaseNames ?? entry.cases.map(test => test.name)).sort(), `${unit}/${row.file} cases`); expectedNames.push(...names);
+                for (const test of row.cases) { assert.equal(test.result.state, "passed", `${unit}/${row.file}/${test.name}`); assert(Number.isFinite(test.diagnostic.duration) && test.diagnostic.duration >= 0, `${unit}/${row.file}/${test.name} duration`); }
+              }
+              const vitest = JSON.parse(readFileSync(resolve(output, `${safe}.json`), "utf8")); assert(Array.isArray(vitest.testResults), `${unit} Vitest JSON testResults`); const assertions = vitest.testResults.flatMap(suite => suite.assertionResults ?? []); const vitestNames = assertions.map(test => test.title ?? test.fullName?.split(" > ").at(-1)); assert(vitestNames.every(Boolean), `${unit} Vitest JSON assertion names`); assert.deepEqual(vitestNames.sort(), expectedNames.sort(), `${unit} Vitest JSON cases`); assert(assertions.every(test => test.status === "passed"), `${unit} Vitest JSON status`);
+            }
+          }
+          RUNNER
+
+      - name: Upload complete capture evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8579-reenrollment-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/8579-reenrollment-capture/
+            deployables/platform-api/artifacts/bootstrap-db-evidence/
+          if-no-files-found: error
+          retention-days: 14
