@@ -10,7 +10,7 @@ use super::marketplace;
 use crate::{
     api::{FieldValue, Item, Listing, Offer, Reference},
     app::url,
-    buying::{BuyFields, BuyNotice, field},
+    buying::{BuyFields, BuyNotice, RailForm, field},
     items::{
         Address, Book, ItemScreen, Market, OptionMarket, Picks, active_dimensions, available, normalize, option_label,
         ordered_options,
@@ -645,15 +645,19 @@ fn Rail<'a>(
         Some(BuyNotice::Ambiguous { resend, .. }) => resend.pairs(),
         _ => Vec::new(),
     };
-    let typed = move |listing_form: bool| {
-        refused.filter(|(_, i)| i.intent.listing() == listing_form).map_or("1", |(_, i)| i.quantity.as_str())
-    };
-    let error = move |listing_form: bool| refused.filter(|(_, i)| i.intent.listing() == listing_form).map(|(m, _)| m);
+    let from = move |form: RailForm| refused.filter(|(_, i)| i.intent.form() == form);
+    let typed = move |form: RailForm| from(form).map_or("1", |(_, i)| i.quantity.as_str());
+    let error = move |form: RailForm| from(form).map(|(m, _)| m);
+    let offered = from(RailForm::Offer).map(|(_, i)| i);
+    // An offer's currency starts as the listings' (marketplace's field starts empty).
+    let currency = offered.map(|i| i.currency.as_str()).or(screen.summary.lowest_price_currency_code.as_deref()).unwrap_or("USD");
+    let lowest = screen.listings.first().map(|l| listing_price(t, l));
     let at_capacity = listing.is_some_and(|l| l.seller_at_capacity);
     let page = address.pairs();
     let cart = url::ItemCart { slug }.href();
     let buy_now = url::ItemBuy { slug }.href();
-    let open_product = listing.is_none() || refused.is_some_and(|(_, i)| !i.intent.listing());
+    let open_product = listing.is_none() || from(RailForm::Product).is_some();
+    let offer_path = url::ItemOffer { slug }.href();
     let matches = screen.listings.len();
     let match_label = if matches == 1 { t.route_listing_matches_singular() } else { t.route_listing_matches_plural() };
     html! {
@@ -705,10 +709,10 @@ fn Rail<'a>(
                             <p>{t.route_seller_at_capacity_description()}</p>
                         </div>
                     }
-                    if let Some(message) = error(true) {
+                    if let Some(message) = error(RailForm::Listing) {
                         <p class={Error} role="alert">{message}</p>
                     }
-                    <Quantity t={t} id="buy-listing-quantity" value={typed(true)} />
+                    <Quantity t={t} id="buy-listing-quantity" value={typed(RailForm::Listing)} />
                     <fieldset class={BuyActions} disabled={held}>
                         <button type="submit" class={(Button, Primary)} formaction={&buy_now} disabled={at_capacity}>
                             if at_capacity {
@@ -740,10 +744,10 @@ fn Rail<'a>(
                         } else {
                             <p class={Muted}>{t.route_add_to_cart_saves_buyer_intent()}</p>
                         }
-                        if let Some(message) = error(false) {
+                        if let Some(message) = error(RailForm::Product) {
                             <p class={Error} role="alert">{message}</p>
                         }
-                        <Quantity t={t} id="buy-product-quantity" value={typed(false)} />
+                        <Quantity t={t} id="buy-product-quantity" value={typed(RailForm::Product)} />
                         <fieldset class={BuyActions} disabled={held}>
                             <button
                                 type="submit"
@@ -759,6 +763,54 @@ fn Rail<'a>(
                                 </button>
                             }
                         </fieldset>
+                    </form>
+                </details>
+                <details class={ProductBuy} open={offered.is_some()}>
+                    <summary>
+                        <span class={Strong}>{t.route_make_an_offer()}</span>
+                        <span class={Muted}>{t.route_make_offer_action_description()}</span>
+                    </summary>
+                    <form class={Buy} method="post" action={&offer_path}>
+                        <Hidden pairs={&page} />
+                        <input type="hidden" name={field::PRODUCT} value={product}>
+                        if let Some(lowest) = &lowest {
+                            <p class={Muted}>{t.route_current_lowest_listing_summary(lowest)}</p>
+                        }
+                        if let Some(message) = error(RailForm::Offer) {
+                            <p class={Error} role="alert">{message}</p>
+                        }
+                        <div class={OfferFields}>
+                            <div class={QuantityField}>
+                                <label class={Label} for="offer-price">{t.route_offer_price()}</label>
+                                <input
+                                    id="offer-price"
+                                    type="number"
+                                    name={field::PRICE}
+                                    min="0.01"
+                                    step="0.01"
+                                    inputmode="decimal"
+                                    placeholder="24.99"
+                                    required
+                                    value={offered.map(|i| i.price.as_str())}
+                                >
+                            </div>
+                            <div class={QuantityField}>
+                                <label class={Label} for="offer-currency">{t.route_listing_price_currency_code()}</label>
+                                <input
+                                    id="offer-currency"
+                                    type="text"
+                                    name={field::CURRENCY}
+                                    minlength="3"
+                                    maxlength="3"
+                                    autocapitalize="characters"
+                                    placeholder={t.route_listing_price_currency_code_placeholder()}
+                                    required
+                                    value={currency}
+                                >
+                            </div>
+                        </div>
+                        <Quantity t={t} id="offer-quantity" value={typed(RailForm::Offer)} />
+                        <button type="submit" class={Button}>{t.route_make_offer_action()}</button>
                     </form>
                 </details>
             }

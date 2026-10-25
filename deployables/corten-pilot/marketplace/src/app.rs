@@ -144,6 +144,13 @@ pub mod url {
         pub slug: &'a str,
     }
 
+    /// Make an offer for the product the item page shows: checked, then marketplace's offer checkout.
+    #[derive(Route)]
+    #[route("/items/{slug}/offer")]
+    pub struct ItemOffer<'a> {
+        pub slug: &'a str,
+    }
+
     /// The item after Add to cart: the page says so, with the write's receipt (empty for none).
     #[derive(Route)]
     #[route("/items/{slug}")]

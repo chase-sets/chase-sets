@@ -19,7 +19,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
-| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout) (not ported yet: offering, selling and watching, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
+| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout) (not ported yet: selling and watching, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -147,7 +147,7 @@ node scripts/smoke-cart.mjs http://localhost:7792 ../../artifacts/corten-pilot/c
 node scripts/smoke-cart.mjs --write     # also steps a one-line card's quantity up and back, with and without JavaScript (writes, left as found)
                                         # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
 node scripts/smoke-market-item.mjs    # an item's page beside the API and marketplace's: a guest without JavaScript, the collector with it, options, a long-list form, Select, sell, 301, 404, 390 px (only reads)
-node scripts/smoke-market-item-buy.mjs http://localhost:7793  # the rail's buy forms: listing, product, Buy best match (a refusal too), Buy this listing, a guest's cart and checkout, 390 px (writes cart lines and removes them; starts checkout sessions)
+node scripts/smoke-market-item-buy.mjs http://localhost:7793  # the rail's buy forms: listing, product, Buy best match (a refusal too), Buy this listing, Make an offer (a price past the field's step, then marketplace's offer checkout), a guest's cart and checkout, 390 px with every fold open (writes cart lines and removes them; starts checkout sessions)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -550,6 +550,13 @@ forward only on purpose, when a fix the pilot needs lands.
     (`sourceFromUrl`). The Checkout API keeps whatever words and picture a cart add sends,
     which is why the pilot does not take them from the form
     ([chase-sets/chase-sets#10587 [checkout] Take a cart line's title, picture and product summary from the catalog, not the request](https://github.com/chase-sets/chase-sets/issues/10587)).
+    Make an offer is a third fold: the offer price (`step="0.01"`, from 0.01), its currency
+    (the listings', else USD), the quantity, and the current lowest listing. Marketplace places
+    an offer on its offer checkout, not from the item page, so the pilot's form writes nothing:
+    it checks the price as marketplace's `normalizeMoneyAmount` does (two decimals, above zero),
+    the quantity, and that the posted product is still the page's, then redirects (303) to
+    marketplace's `/checkout/buy/readiness?source=offer-intent` with the query marketplace's
+    action builds. A refusal is shown in its own fold (422), which stays open.
 
 ## Corten gaps
 

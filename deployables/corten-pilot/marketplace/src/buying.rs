@@ -14,6 +14,7 @@
 //! | Add product to Buy Cart | `add-product` | a line Smart Match fills | the page, saying it was added |
 //! | Buy best match | `buy-best-match` | a line Smart Match fills, once the lowest listing has the quantity | the cart |
 //! | Buy this listing | (its own path) | a checkout session for the listing | marketplace's checkout |
+//! | Make offer | (its own path) | nothing: the price, currency and quantity are checked | marketplace's offer checkout |
 //!
 //! A cart add is one cart attempt (`cart.add-line`), applied once however often it is sent, and
 //! resolved as the cart's writes are (`cart_attempt`). A guest's add goes to a guest cart whose
@@ -55,6 +56,8 @@ pub struct BuyFields {
     quantity: String,
     product: String,
     lock: String,
+    price: String,
+    currency: String,
 }
 
 /// The names as text.
@@ -65,13 +68,17 @@ pub mod field {
     pub const QUANTITY: &str = BuyFields::FIELDS.quantity.as_str();
     pub const PRODUCT: &str = BuyFields::FIELDS.product.as_str();
     pub const LOCK: &str = BuyFields::FIELDS.lock.as_str();
+    pub const PRICE: &str = BuyFields::FIELDS.price.as_str();
+    pub const CURRENCY: &str = BuyFields::FIELDS.currency.as_str();
 }
 
 /// How long a guest cart's cookie lasts (`THIRTY_DAYS_SECONDS`).
 const GUEST_CART_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    area.route::<url::ItemCart>(post(add).with_state(shared.clone())).route::<url::ItemBuy>(post(buy).with_state(shared.clone()))
+    area.route::<url::ItemCart>(post(add).with_state(shared.clone()))
+        .route::<url::ItemBuy>(post(buy).with_state(shared.clone()))
+        .route::<url::ItemOffer>(post(offer).with_state(shared.clone()))
 }
 
 /// Which button sent a buy form.
@@ -86,6 +93,16 @@ pub enum Intent {
     BuyBestMatch,
     /// Buy the listing shown now.
     BuyNow,
+    /// Offer a price for the product chosen.
+    Offer,
+}
+
+/// The rail's three forms, each of which shows its own refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RailForm {
+    Listing,
+    Product,
+    Offer,
 }
 
 impl Intent {
@@ -95,6 +112,7 @@ impl Intent {
             Intent::AddProduct => "add-product",
             Intent::BuyBestMatch => "buy-best-match",
             Intent::BuyNow => "buy-now",
+            Intent::Offer => "offer",
         }
     }
 
@@ -107,14 +125,18 @@ impl Intent {
         }
     }
 
-    /// The rail's listing form sent it (else the product form).
-    pub fn listing(self) -> bool {
-        matches!(self, Intent::AddListing | Intent::BuyNow)
+    /// The rail's form that sent it.
+    pub fn form(self) -> RailForm {
+        match self {
+            Intent::AddListing | Intent::BuyNow => RailForm::Listing,
+            Intent::AddProduct | Intent::BuyBestMatch => RailForm::Product,
+            Intent::Offer => RailForm::Offer,
+        }
     }
 }
 
 /// A buy form as posted: the button, the attempt, the quantity as typed, the product and the
-/// listing the rail showed, and the page's address.
+/// listing the rail showed, an offer's price and currency, and the page's address.
 #[derive(Clone, Debug, Default)]
 pub struct BuyInput {
     pub intent: Intent,
@@ -122,6 +144,8 @@ pub struct BuyInput {
     pub quantity: String,
     pub product: String,
     pub lock: String,
+    pub price: String,
+    pub currency: String,
     pub address: Address,
 }
 
@@ -137,6 +161,11 @@ impl BuyInput {
         if !self.lock.is_empty() {
             pairs.push((field::LOCK.to_owned(), self.lock.clone()));
         }
+        for (name, value) in [(field::PRICE, &self.price), (field::CURRENCY, &self.currency)] {
+            if !value.is_empty() {
+                pairs.push((name.to_owned(), value.clone()));
+            }
+        }
         pairs.extend(self.address.pairs());
         pairs
     }
@@ -149,6 +178,8 @@ impl BuyInput {
             quantity: first(field::QUANTITY),
             product: first(field::PRODUCT),
             lock: first(field::LOCK),
+            price: first(field::PRICE),
+            currency: first(field::CURRENCY),
             address: Address::read(raw),
         }
     }
@@ -503,6 +534,65 @@ async fn buy(
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
+    }
+}
+
+/// A price as marketplace takes one (`normalizeMoneyAmount`): digits with at most two after the
+/// point, more than zero, written with two.
+pub fn price(text: &str) -> Option<String> {
+    let text = text.trim();
+    let (whole, cents) = text.split_once('.').unwrap_or((text, ""));
+    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    if whole.is_empty() || !digits(whole) || !digits(cents) || cents.len() > 2 || (text.contains('.') && cents.is_empty()) {
+        return None;
+    }
+    let cents = format!("{cents:0<2}");
+    let whole = whole.trim_start_matches('0');
+    let whole = if whole.is_empty() { "0" } else { whole };
+    (whole != "0" || cents != "00").then(|| format!("{whole}.{cents}"))
+}
+
+/// Make an offer (the action's `submit-offer`): checked as marketplace checks it, then
+/// marketplace's offer checkout with the product and the offer in its query. Nothing is written
+/// here; the offer is placed there.
+async fn offer(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Form(raw): Form<Raw>,
+) -> corten::Result {
+    let t: ItemMsg = req.t();
+    let mut input = BuyInput::read(&raw);
+    input.intent = Intent::Offer;
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let item = read_item(&caller, &slug).await?;
+    let Some(amount) = price(&input.price) else {
+        return refused(&req, item, input, t.route_validation_price_required().to_owned());
+    };
+    let Some(quantity) = quantity(&input.quantity) else {
+        return refused(&req, item, input, t.route_validation_quantity_required().to_owned());
+    };
+    let Some(screen) = screen_for(&req, &item, &input) else {
+        return refused(&req, item, input, t.route_choose_options_to_make_an_offer().to_owned());
+    };
+    let options = serde_json::to_string(&screen.product_options).unwrap_or_else(|_| "[]".to_owned());
+    let pairs = [
+        ("source", "offer-intent".to_owned()),
+        ("catalogItemId", item.catalog_item_id.clone()),
+        ("productId", input.product.clone()),
+        ("itemTitle", item.title.clone()),
+        ("itemSubtitle", item.subtitle.clone().unwrap_or_default()),
+        ("selectedOptions", options),
+        ("productSummary", screen.product_summary.clone().unwrap_or_default()),
+        ("offerPriceAmount", amount),
+        ("offerPriceCurrencyCode", input.currency.to_ascii_uppercase()),
+        ("quantity", quantity.to_string()),
+    ];
+    let query = pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&");
+    match views::marketplace(&format!("/checkout/buy/readiness?{query}")) {
+        Some(to) => req.redirect(&to),
+        None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
     }
 }
 

@@ -1954,3 +1954,59 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     );
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 2);
 }
+
+#[tokio::test]
+async fn make_offer_is_checked_then_marketplaces_offer_checkout() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(ITEM_PAGE, Some("buyer"))).await;
+    assert!(html.contains(r#"action="/items/charizard/offer""#), "{html}");
+    assert!(text(&html).contains("Make an offer Offer your price and quantity for the selected product."), "{html}");
+    assert!(text(&html).contains("Current lowest listing is $389.00."), "{html}");
+    assert!(html.contains(r#"name="currency" minlength="3" maxlength="3" autocapitalize="characters" placeholder="ISO 4217" required value="USD""#), "{html}");
+
+    let body = format!("product={}&price=24.5&currency=usd&quantity=2", crate::api::segment(VAULT));
+    let (status, headers, html) = pilot.send(post("/items/charizard/offer", "buyer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=offer-intent&"), "{to}");
+    let q = query(to);
+    assert_eq!(
+        (q["productId"].as_str(), q["offerPriceAmount"].as_str(), q["offerPriceCurrencyCode"].as_str(), q["quantity"].as_str()),
+        (VAULT, "24.50", "USD", "2")
+    );
+    assert_eq!(
+        q["selectedOptions"],
+        r#"[{"dimensionId":"dim_form","optionId":"chc_raw"},{"dimensionId":"dim_condition","optionId":"chc_nm"}]"#
+    );
+    assert_eq!((q["itemTitle"].as_str(), q["productSummary"].as_str()), ("Charizard", "Form: raw"));
+
+    // A price marketplace would not take: the page again, the offer form open with what was typed.
+    for (price, message) in
+        [("0", "Enter a price greater than $0.00"), ("1.234", "Enter a price greater than $0.00"), ("", "Enter a price")]
+    {
+        let body = format!("product={}&price={price}&currency=USD&quantity=3", crate::api::segment(VAULT));
+        let (status, _, html) = pilot.send(post("/items/charizard/offer", "buyer", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{price}");
+        assert!(text(&html).contains(message), "{price}: {html}");
+        assert!(
+            html.contains(
+                r#"id="offer-quantity" type="number" name="quantity" min="1" step="1" inputmode="numeric" required value="3""#
+            ),
+            "{html}"
+        );
+    }
+    let calls = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(calls, 0, "an offer writes nothing here");
+}
+
+#[test]
+fn a_price_is_marketplaces_money_amount() {
+    use crate::buying::price;
+    assert_eq!(price("24.5").as_deref(), Some("24.50"));
+    assert_eq!(price(" 7 ").as_deref(), Some("7.00"));
+    assert_eq!(price("007.10").as_deref(), Some("7.10"));
+    assert_eq!(price("0.01").as_deref(), Some("0.01"));
+    for bad in ["", "0", "0.00", "1.", ".5", "1.234", "-1", "1e3", "1,5"] {
+        assert_eq!(price(bad), None, "{bad:?}");
+    }
+}

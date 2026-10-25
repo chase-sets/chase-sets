@@ -5,7 +5,7 @@
 // and as a guest adds to a guest cart (marketplace's cart reads it) and goes to guest checkout.
 // The forms are on a product the collector's cart does not hold; the lines it adds are removed
 // at the end, so the cart is left as it was found. At 390 px the forms do not scroll sideways
-// and every control, the quantity and the folded product form included, is at least 40 px tall.
+// and every control, the quantity and the folded product and offer forms included, is at least 40 px tall.
 // It writes: cart lines (removed again), a guest cart line (removed again) and one checkout
 // session (left open; nothing is reserved until payment starts).
 // Usage: node scripts/smoke-market-item-buy.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [slug]
@@ -72,7 +72,8 @@ async function context({ javaScriptEnabled, signedIn, viewport }) {
 }
 const rail = (page) => page.locator('[aria-labelledby="rail-title"]');
 const listingForm = (page) => rail(page).locator("form").filter({ has: page.getByRole("button", { name: "Add listing to Buy Cart" }) });
-const productForm = (page) => rail(page).locator("details form");
+const productForm = (page) => rail(page).locator("details").filter({ hasText: /^\s*Selected product/ }).locator("form");
+const offerForm = (page) => rail(page).locator("details").filter({ hasText: /^\s*Make an offer/ }).locator("form");
 
 try {
   // The collector, with JavaScript: the listing, then the product, then Buy best match.
@@ -90,7 +91,7 @@ try {
     check(view.startsWith("/account/cart?after_write="), `View buy cart is the pilot's cart, after the write (${view.slice(0, 40)})`);
 
     await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
-    await productForm(page).locator("..").locator("summary").click();
+    await rail(page).locator("summary", { hasText: /^\s*Selected product/ }).click();
     await productForm(page).getByRole("button", { name: "Add product to Buy Cart" }).click();
     await page.waitForURL(/added=/);
     check(await rail(page).getByText("Added to buy cart").isVisible(), "Add product to Buy Cart: added");
@@ -99,7 +100,7 @@ try {
 
     // More than the lowest listing has: refused, nothing sent.
     await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
-    await productForm(page).locator("..").locator("summary").click();
+    await rail(page).locator("summary", { hasText: /^\s*Selected product/ }).click();
     await productForm(page).locator('input[name="quantity"]').fill("5");
     await productForm(page).getByRole("button", { name: "Buy best match" }).click();
     await rail(page).getByRole("alert").waitFor();
@@ -125,6 +126,21 @@ try {
     const at = new URL(page.url());
     check(at.origin === web && at.searchParams.has("afterWrite"), `Buy this listing: marketplace's checkout session, with the write's receipt (${at.pathname})`);
     check(await shows(page, read.subtitle, { reload: true }), "marketplace's checkout shows the item (refreshed, as it asks without JavaScript)");
+
+    // Make an offer: a good price goes to
+    // marketplace's offer checkout with the product and the offer (nothing is written).
+    await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
+    await rail(page).locator("summary", { hasText: /^\s*Make an offer/ }).click();
+    // The browser itself holds a price with a third decimal (the server refuses one too).
+    await offerForm(page).locator('input[name="price"]').fill("1.234");
+    check(await offerForm(page).locator('input[name="price"]').evaluate((e) => e.validity.stepMismatch), "an offer of 1.234 does not pass the field's step");
+    await offerForm(page).locator('input[name="price"]').fill("10");
+    await offerForm(page).locator('input[name="quantity"]').fill("2");
+    await offerForm(page).getByRole("button", { name: "Make offer" }).click();
+    await page.waitForURL(/source=offer-intent/);
+    const offer = new URL(page.url()).searchParams;
+    check(offer.get("productId") === listing.product_id && offer.get("offerPriceAmount") === "10.00" && offer.get("offerPriceCurrencyCode") === "USD" && offer.get("quantity") === "2", `Make offer: marketplace's offer checkout for the product, $10.00 x 2 (${offer.get("offerPriceAmount")} ${offer.get("offerPriceCurrencyCode")} x ${offer.get("quantity")})`);
+    check(await shows(page, read.subtitle), "which shows the item");
     await ctx.close();
   }
 
@@ -163,7 +179,8 @@ try {
   for (const address of ["", `?listing=${listing.listing_id}`]) {
     const { ctx, page } = await context({ javaScriptEnabled: true, signedIn: true, viewport: { width: 390, height: 844 } });
     await page.goto(`${base}/items/${slug}${address}`);
-    await rail(page).locator("details summary").click();
+    const closed = rail(page).locator("details:not([open]) > summary");
+    for (let left = await closed.count(); left > 0; left--) await closed.first().click();
     const { wide, small } = await page.evaluate(() => ({
       wide: document.documentElement.scrollWidth > window.innerWidth,
       small: Array.from(document.querySelectorAll('[aria-labelledby="rail-title"] :is(a, button, input:not([type="hidden"]), summary)'))
