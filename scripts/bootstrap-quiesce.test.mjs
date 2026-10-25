@@ -9,7 +9,6 @@ import {
   runQuiescedBootstrap,
   changeSeedOwnership,
   spawnShellCommand,
-  createKubernetesClient,
   QUIESCE_PROTOCOL_VERSION,
 } from "../infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs";
 
@@ -38,6 +37,7 @@ function ownershipHarness(annotations = {}) {
     readScale: async () => ({ specReplicas: 3 }),
     scaleDeployment: vi.fn(async () => {}),
     waitForReplicas: async () => {},
+    waitForNoPods: vi.fn(async () => true),
     pauseScaledObject: async (_name, owner) => {
       take(owner);
       return true;
@@ -96,6 +96,28 @@ describe("owner-fenced seed yield", () => {
     expect(h.calls).toHaveLength(2);
     expect(h.kubernetes.scaleDeployment).not.toHaveBeenCalled();
   });
+  it.each(["gone", "remaining", "unreadable"])(
+    "records a scenario-seed worker quiesce only after confirmed pod drain: %s",
+    async (state) => {
+      const h = ownershipHarness();
+      if (state === "unreadable") h.kubernetes.waitForNoPods.mockRejectedValue(new Error("pod list unavailable"));
+      else h.kubernetes.waitForNoPods.mockResolvedValue(state === "gone");
+      expect(await runQuiescedBootstrap(h.options)).toBe(0);
+      expect(h.kubernetes.waitForNoPods).toHaveBeenCalledWith(
+        "worker",
+        expect.objectContaining({ timeoutMs: expect.any(Number), pollIntervalMs: 2000 }),
+      );
+      expect(h.options.spawnCommand).toHaveBeenCalledWith(
+        ["true"],
+        expect.objectContaining({ env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: state === "gone" ? "worker" : "" } }),
+      );
+      if (state !== "gone") {
+        expect(h.log).toHaveBeenCalledWith(
+          "Pods of worker may still be running; the bootstrap will not record a worker quiesce.",
+        );
+      }
+    },
+  );
   it("re-reads an acquisition conflict and never overwrites the arriving hook", async () => {
     const h = ownershipHarness();
     h.kubernetes.patchScaledObject.mockImplementationOnce(async () => {
@@ -192,6 +214,7 @@ describe("owner-fenced seed yield", () => {
     vi.useFakeTimers();
     try {
       const client = createKubernetesClient({
+        mode: "scenario-seed",
         host: "synthetic.invalid",
         namespace: "test",
         token: "synthetic",
@@ -202,6 +225,92 @@ describe("owner-fenced seed yield", () => {
       await result;
     } finally {
       spy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("synthetic mode-specific Kubernetes request deadlines", () => {
+  async function requestHarness(mode, responseDelayMs) {
+    const https = await import("node:https");
+    const { EventEmitter } = await import("node:events");
+    const request = new EventEmitter();
+    request.destroy = vi.fn((error) => {
+      request.emit("error", error);
+      request.emit("close");
+    });
+    const requestSpy = vi.spyOn(https.default, "request").mockImplementation((_options, respond) => {
+      request.end = () => {
+        if (responseDelayMs === undefined) return;
+        setTimeout(() => {
+          const response = new EventEmitter();
+          response.statusCode = 404;
+          respond(response);
+          response.emit("end");
+          request.emit("close");
+        }, responseDelayMs);
+      };
+      return request;
+    });
+    const parsed = parseQuiesceOptions(["--", "true"], {
+      CHASE_SETS_QUIESCE_MODE: mode,
+      CHASE_SETS_QUIESCE_OWNER: `${mode}:synthetic-job`,
+      CHASE_SETS_QUIESCE_DEPLOYMENTS: "worker",
+      CHASE_SETS_KUBERNETES_NAMESPACE: "synthetic",
+    });
+    const kubernetes = createKubernetesClient({
+      ...parsed,
+      host: "synthetic.invalid",
+      token: "synthetic",
+      ca: "synthetic",
+    });
+    const options = { ...parsed, kubernetes, log: vi.fn(), spawnCommand: vi.fn(async () => 0) };
+    return { request, requestSpy, options };
+  }
+
+  it.each([
+    ["T1 late", 2500],
+    ["T2 prompt", 0],
+  ])("synthetic %s helm-hook 404 skips the missing deployment and spawns", async (_label, responseDelayMs) => {
+    vi.useFakeTimers();
+    const h = await requestHarness("helm-hook", responseDelayMs);
+    try {
+      const result = runQuiescedBootstrap(h.options).catch((error) => error);
+      await vi.advanceTimersByTimeAsync(responseDelayMs);
+      expect(h.request.destroy).not.toHaveBeenCalled();
+      expect(await result).toBe(0);
+      expect(h.options.log).toHaveBeenCalledWith(
+        "Skipping missing deployment worker; first install has no workers to quiesce.",
+      );
+      expect(h.options.spawnCommand).toHaveBeenCalledOnce();
+      expect(h.requestSpy).toHaveBeenCalledOnce();
+    } finally {
+      h.requestSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("synthetic T3 scenario-seed stalled request rejects at 2000ms and refuses before spawn", async () => {
+    vi.useFakeTimers();
+    const h = await requestHarness("scenario-seed");
+    const read = vi.spyOn(h.options.kubernetes, "readScaledObject");
+    try {
+      const result = runQuiescedBootstrap(h.options);
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(h.request.destroy).not.toHaveBeenCalled();
+      expect(h.options.log).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.request.destroy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: "Kubernetes request timed out after 2000ms." }),
+      );
+      await expect(read.mock.results[0].value).rejects.toThrow("2000ms");
+      expect(await result).toBe(75);
+      expect(h.options.log).toHaveBeenCalledWith("scenario-seed result=refused");
+      expect(h.options.spawnCommand).not.toHaveBeenCalled();
+      expect(h.requestSpy).toHaveBeenCalledOnce();
+    } finally {
+      read.mockRestore();
+      h.requestSpy.mockRestore();
       vi.useRealTimers();
     }
   });

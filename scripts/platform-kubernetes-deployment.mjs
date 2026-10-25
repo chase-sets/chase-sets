@@ -1023,7 +1023,7 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
   );
   if (candidates.length === 0) return [];
 
-  const source = readFileSync(new URL(`../${contract.path}`, import.meta.url), "utf8").replaceAll("\n", "\n");
+  const source = readFileSync(new URL(`../${contract.path}`, import.meta.url), "utf8").replaceAll("\r\n", "\n");
   const workflow = parseYaml(source);
   const projection = workflowSerializationProjection(workflow, contract);
   if (projection === null || workflow.name !== current.name) return [];
@@ -1035,7 +1035,7 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
       if (body?.type !== "file" || body.encoding !== "base64" || typeof body.content !== "string") {
         throw new Error("GitHub Actions workflow source census returned an invalid response.");
       }
-      sources.set(run.headSha, Buffer.from(body.content, "base64").toString("utf8").replaceAll("\n", "\n"));
+      sources.set(run.headSha, Buffer.from(body.content, "base64").toString("utf8").replaceAll("\r\n", "\n"));
     }
     return sources.get(run.headSha);
   }
@@ -3047,7 +3047,7 @@ async function readScenarioSeedBootstrapError({ kubectlPath, namespace, jobName,
 
 export function extractScenarioSeedBootstrapError(logText) {
   const lines = String(logText ?? "")
-    .split(/\n?\n/)
+    .split(/\r?\n/)
     .map((line) => line.trim());
   return (
     lines.find((line) => /^\[bootstrap-quiesce\] scenario-seed result=(refused|preempted)$/.test(line)) ??

@@ -3136,7 +3136,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
       {
         label: "a literal removed without an environment declaration",
-        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\n?\n/m, ""),
+        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\r?\n/m, ""),
       },
       {
         label: "two environment declarations",

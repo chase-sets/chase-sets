@@ -252,17 +252,33 @@ async function runQuiescedSeed(options) {
   try {
     // KEDA applies paused-replicas=0. Seeds never restore Deployment replicas or
     // perform a late scale PATCH that could race a hook's finally.
+    const drainDeadline = Date.now() + options.timeoutMs;
     await options.kubernetes.waitForReplicas(name, 0, {
       timeoutMs: options.timeoutMs,
       pollIntervalMs: Math.min(options.pollIntervalMs ?? 2000, 2000),
       signal: controller.signal,
     });
+    let gone = false;
+    if (!controller.signal.aborted) {
+      try {
+        gone = await options.kubernetes.waitForNoPods(name, {
+          timeoutMs: Math.max(0, drainDeadline - Date.now()),
+          pollIntervalMs: Math.min(options.pollIntervalMs ?? 2000, 2000),
+        });
+      } catch (error) {
+        await options.log(`Could not list pods of ${name}: ${error.message}`);
+      }
+      if (!gone) {
+        await options.log(`Pods of ${name} may still be running; the bootstrap will not record a worker quiesce.`);
+      }
+    }
     exitCode = controller.signal.aborted
       ? SEED_PREEMPTED_EXIT_CODE
       : await options.spawnCommand(options.command, {
           timeoutMs: options.commandTimeoutMs,
           log: options.log,
           signal: controller.signal,
+          env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: gone ? name : "" },
         });
   } catch (error) {
     commandError = error;
@@ -340,9 +356,11 @@ export function createKubernetesClient(options = {}) {
         },
       );
 
-      const deadline = setTimeout(() => req.destroy(new Error("Kubernetes request timed out after 2000ms.")), 2000);
+      if (options.mode === "scenario-seed") {
+        const deadline = setTimeout(() => req.destroy(new Error("Kubernetes request timed out after 2000ms.")), 2000);
+        req.on("close", () => clearTimeout(deadline));
+      }
       req.on("error", reject);
-      req.on("close", () => clearTimeout(deadline));
       if (payload != null) {
         req.write(payload);
       }
@@ -536,7 +554,7 @@ async function main() {
   }
   const exitCode = await runQuiescedBootstrap({
     ...parsed,
-    kubernetes: createKubernetesClient({ namespace: parsed.namespace }),
+    kubernetes: createKubernetesClient(parsed),
     spawnCommand: spawnShellCommand,
     log: (message) => {
       console.log(`[bootstrap-quiesce] ${message}`);
