@@ -714,6 +714,13 @@ describe("real repository execution membership", () => {
           indexCandidates: work.indexCandidates.length,
           discoveredWorkspaces: work.discoveredWorkspaces.length,
           enrolledWorkspaces: work.enrolledWorkspaces.length,
+          sourceIndex: {
+            kind: work.sourceIndex.kind,
+            pathCount: work.sourceIndex.pathCount,
+            sourceCount: work.sourceIndex.sourceCount,
+            prefilterCount: work.sourceIndex.prefilterCount,
+            candidateCount: work.sourceIndex.candidateCount,
+          },
           distinctReads: new Set(work.fileReads).size,
           repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
           fullParses: work.fullParses.length,
@@ -746,6 +753,15 @@ describe("real repository execution membership", () => {
       .split(/\r?\n/)
       .sort();
     expect(work.indexCandidates).toEqual(indexedSources);
+    expect(work.sourceIndex).toMatchObject({
+      kind: "git-index-source/v1",
+      pathCount: new Set(execFileSync("git", ["ls-files"], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean))
+        .size,
+      sourceCount: indexedSources.length,
+      candidateCount: work.manifestCandidates.length,
+    });
+    expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
+    expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
     const indexedSourceSet = new Set(indexedSources);
     expect(
       work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
