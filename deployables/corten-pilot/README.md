@@ -73,6 +73,11 @@ The time to the screen is the platform's: the Catalog projection and the realtim
 same for both (2 to 15 s per sample). The pilot reads the list again on the server and sends the
 rows it draws, so the tab receives the rows and nothing else. The pilot's event grows by about 250 B per
 dimension the filter matches, because it sends every row on the page, not the changed one.
+The 1,074 B was measured before the bulk bar; the bar is now drawn with the rows, so the same
+event for a staff member who may change the records is larger. Measured after: 2,180 B raw for
+`search=condition`, and 16,979 B raw for the full list (33 rows), of which 2,074 B is the bar's
+form and 1,220 B its count template. The stream is not compressed
+([todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24)).
 
 ## Running it
 
@@ -126,6 +131,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `04989b5` | Corten `main` with the pilot's commits merged ([todd-skelton/corten#7 Pilot fixes, and areas and APIs checked at compile time](https://github.com/todd-skelton/corten/pull/7)), and its breaking changes: `App<C>` (`.context` before `.shell` and `.guard`), `App::guard` without a prefix for the whole app, `corten::serve(app)` |
 | `860d985` | [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12) closed two of the pilot's gaps (the workaround in `recovery.js` is gone), and [todd-skelton/corten#8 Less work per page: escape, route parameters and module tags](https://github.com/todd-skelton/corten/pull/8); no breaking change for the pilot |
 | `733fdd4` | [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14) closed [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13): the lifecycle button is `action` again and its router test is gone; no breaking change for the pilot |
+| `6f2ba32` | [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21) closed [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15). Breaking for the pilot only in a test: a live route the API refuses now draws nothing (a stand-in session the stream accepts, `catalog-viewer`, checks a viewer's rows). Also brings [todd-skelton/corten#16 Write JSON with a derive whose layout is fixed at compile time](https://github.com/todd-skelton/corten/pull/16) (`Json` and `ToJson` move to the end of the prelude; nothing in the pilot changed) and [todd-skelton/corten#19 Copy a route parameter at once when nothing in it needs encoding](https://github.com/todd-skelton/corten/pull/19) |
 
 ## What lives where
 
@@ -227,7 +233,9 @@ forward only on purpose, when a fix the pilot needs lands.
     rows it draws ([`live_rows`](admin/src/catalog/mod.rs)). Changes within 150 ms are one read,
     as admin-web debounces. The browser runs no script of the pilot's for it; what was typed in the
     filters stays. The platform's stream protocol is Chase Sets', so its client is the pilot's
-    ([`realtime`](platform/src/realtime.rs)). `scripts/smoke-live.mjs` checks it in a browser.
+    ([`realtime`](platform/src/realtime.rs)). Each drawing carries that stream's cursor, so a
+    reconnect resumes from it and draws only what changed meanwhile.
+    `scripts/smoke-live.mjs` checks it in a browser.
 
 ## Corten gaps
 
@@ -238,19 +246,21 @@ Open, filed in Corten (one gap each):
    carry one, but a `data-patch` form cannot get one from Corten, and the runtime aborts a pending
    submit when a newer one differs, which does not stop the first write on the server. The
    pilot's workaround is item 7 above.
-2. [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15)
-   (correctness, then performance). `corten::live` events carry no `id`, so a reconnect sends no
-   `Last-Event-ID` and the route cannot tell it from a first connection. Workaround: the live
-   lists draw their rows on every connection, so each page view and reconnect costs one more
-   Catalog list read and render (`live_rows`); a dropped connection is then never left showing
-   rows that changed meanwhile. A bulk job's dialog has the same gap; its route follows the
-   job's own stream, which resumes, so a reconnect to the pilot replays the job's status.
-3. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
+2. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
    (correctness). A handler's call is checked when the crate compiles, but nothing in an app's
    loop checks a script's body: a misspelled property in the bulk-selection script passed
    `corten check` and failed `tsc --checkJs`. Workaround: [`jsconfig.json`](jsconfig.json) and a
    CI step that runs the repo's `tsc` over the apps' scripts (none imports from `corten` yet,
    so the DOM's types are enough).
+3. [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24)
+   (end-user performance). `text/event-stream` is left out of compression, so each live event is
+   sent raw: 16,979 B for the full dimensions list. Simulated with a compressor that keeps its
+   context across events, zstd 1 gives 2,238 B for the first event and 20 B for a near-identical
+   second one. No workaround; the pilot accepts the bytes.
+4. [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26)
+   (developer loop). `#[component]` treats any identifier `scope` in the body as a request for a
+   scope, and the error then talks about refs. Workaround: the bulk form's field is `mode`
+   (`BulkInput`), which also matches the API's `selection.mode`.
 
 Also met, and already filed by Corten:
 [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17).
@@ -280,6 +290,18 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed in [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21), at the pin, workaround removed:
+
+1. [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15)
+   (correctness, then performance): the live lists drew their rows on every connection. Each
+   fragment now carries the platform realtime stream's cursor (`Fragment::cursor`), and a
+   reconnect resumes the upstream stream from the browser's `Last-Event-ID` (`LiveSince`): it
+   draws only if something changed meanwhile. Measured against the dev system: the first
+   connection to `/catalog/dimensions/live?search=condition` sent one 2,236 B fragment, and a
+   reconnect with its id sent nothing in 6 s. A first connection still draws once, when the
+   upstream stream opens, because the platform's list read gives no cursor for `since`. The job
+   dialog's fragments carry the job event's id the same way.
 
 Fixed in [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14), at the pin, workaround removed:
 

@@ -5,7 +5,8 @@
 //!
 //! Like the web client it resumes after a dropped connection from the last event's cursor, backs
 //! off a second after an error, and treats `sync.required` as a change. The changes in a short
-//! window are one tick (admin-web debounces its revalidation by 150 ms).
+//! window are one tick (admin-web debounces its revalidation by 150 ms). Each tick carries the
+//! stream's cursor after it, so a caller can resume from there later (`Caller::changes`'s `from`).
 use std::{collections::VecDeque, time::Duration};
 
 use bytes::Bytes;
@@ -21,11 +22,15 @@ const BACKOFF: Duration = Duration::from_secs(1);
 /// The stream sends a heartbeat every 15 s; three missed is a dead connection.
 const SILENCE: Duration = Duration::from_secs(45);
 
-/// What the stream said.
+/// What the stream said. A cursor is the stream's position, as the API encodes it.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Tick {
-    /// The topics changed (a `projection.patch`, or a `sync.required`): read again.
-    Changed,
+    /// The stream's first connection is open (its first heartbeat), at `cursor`: every change
+    /// from here on is a tick, so a read after this one misses nothing.
+    Opened(Option<String>),
+    /// The topics changed (a `projection.patch`, or a `sync.required`): read again. `cursor`
+    /// is the stream's position after the change.
+    Changed(Option<String>),
     /// The API refused the stream (signed out, or not allowed): it will not send changes.
     Refused(StatusCode),
 }
@@ -39,14 +44,15 @@ pub struct Event {
 }
 
 impl Caller<'_> {
-    /// The changes to `topics` from now on, as ticks, until the API refuses the stream. The
-    /// stream owns what it needs, so it can outlive the request that opened it.
-    pub fn changes(&self, topics: &[&str]) -> impl Stream<Item = Tick> + Send + use<> {
+    /// The changes to `topics` after `from` (a cursor a tick carried), or from now on, as ticks,
+    /// until the API refuses the stream. The stream owns what it needs, so it can outlive the
+    /// request that opened it.
+    pub fn changes(&self, topics: &[&str], from: Option<String>) -> impl Stream<Item = Tick> + Send + use<> {
         let mut query: Vec<(&str, &str)> = topics.iter().map(|topic| ("topic", *topic)).collect();
         query.sort_unstable();
         let open = self.request(reqwest::Method::GET, "/api/realtime/public/events", "platform-runtime");
         let open = open.query(&query).header(header::ACCEPT, "text/event-stream");
-        let state = Upstream { open, cursor: None, events: None, failed: false, refused: false };
+        let state = Upstream { open, cursor: from, events: None, opened: false, failed: false, refused: false };
         futures_util::stream::unfold(state, Upstream::next).boxed()
     }
 }
@@ -56,6 +62,8 @@ struct Upstream {
     /// The last event's id: the cursor a reconnect resumes from.
     cursor: Option<String>,
     events: Option<BoxStream<'static, Result<Event, ()>>>,
+    /// The first connection sent its first event (`Tick::Opened`).
+    opened: bool,
     /// The last connection failed: wait before the next.
     failed: bool,
     /// The API refused the stream: it has ended.
@@ -89,7 +97,12 @@ impl Upstream {
                     if let Some(id) = event.id {
                         self.cursor = Some(id);
                     }
-                    if !matches!(event.event.as_str(), "projection.patch" | "sync.required") {
+                    let change = matches!(event.event.as_str(), "projection.patch" | "sync.required");
+                    // The API sends a heartbeat as soon as a stream opens.
+                    if !std::mem::replace(&mut self.opened, true) && !change {
+                        return Some((Tick::Opened(self.cursor.clone()), self));
+                    }
+                    if !change {
                         continue;
                     }
                     // The changes in the window are one tick.
@@ -109,7 +122,8 @@ impl Upstream {
                             },
                         }
                     }
-                    return Some((Tick::Changed, self));
+                    let cursor = self.cursor.clone();
+                    return Some((Tick::Changed(cursor), self));
                 }
                 // Ended, broke, or went quiet: connect again from the cursor.
                 Ok(Some(Err(()))) | Ok(None) | Err(_) => {

@@ -32,6 +32,7 @@
 use std::fmt;
 
 use corten::{
+    Fragment, LiveSince,
     axum::{http::HeaderMap, response::IntoResponse},
     prelude::*,
 };
@@ -487,20 +488,38 @@ fn not_offered(p: Pilot) -> Errors {
 const DIMENSIONS_TOPIC: &str = "catalog:admin:dimensions";
 const FIELDS_TOPIC: &str = "catalog:admin:fields";
 
-/// A list's rows for `<corten-live>`: drawn on every connection (a reconnect cannot tell the route
-/// what it missed: todd-skelton/corten#15, README.md "Corten gaps"; remove the first draw once it
-/// lands) and again on each change to `topic`, until the API
-/// refuses the stream. A read that fails sends nothing, and the rows stay as they were.
-fn live_rows<F, Fut>(config: Shared, headers: HeaderMap, topic: &'static str, rows: F) -> impl IntoResponse
+/// A list's rows for `<corten-live>`, drawn on each change to `topic` until the API refuses the
+/// stream. Each fragment carries the realtime stream's cursor after it, so a browser that
+/// reconnects (`since`, from its `Last-Event-ID`) gets what changed while it was away, and
+/// nothing when nothing did. A first connection has no cursor (the list's read does not give one),
+/// so the rows are drawn once the stream is open: a change after the page was drawn is not missed.
+/// A read that fails sends nothing, and the rows stay as they were.
+fn live_rows<F, Fut>(config: Shared, headers: HeaderMap, since: LiveSince, topic: &'static str, rows: F) -> impl IntoResponse
 where
     F: Fn(Shared, HeaderMap) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Option<String>> + Send + 'static,
 {
-    let changes = config.platform.caller(&headers, config.proto, None).changes(&[topic]);
-    let ticks = futures_util::stream::once(async { Tick::Changed }).chain(changes);
-    let fragments = ticks
-        .take_while(|tick| std::future::ready(*tick == Tick::Changed))
-        .then(move |_| rows(config.clone(), headers.clone()))
+    let resumed = since.0.is_some();
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(move |tick| {
+            std::future::ready(match tick {
+                Tick::Opened(_) if resumed => None,
+                Tick::Opened(cursor) | Tick::Changed(cursor) => Some(cursor),
+                Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let rows = rows(config.clone(), headers.clone());
+            async move {
+                let html = rows.await?;
+                Some(match cursor {
+                    Some(cursor) => Fragment::new(html).cursor(cursor),
+                    None => Fragment::new(html),
+                })
+            }
+        })
         .filter_map(std::future::ready);
     corten::live(fragments)
 }
@@ -548,12 +567,13 @@ async fn dimensions_live(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
+    since: LiveSince,
     Query(query): Query<url::DimensionsLive>,
 ) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = manages(&req);
     let query = query.list();
-    live_rows(config, headers, DIMENSIONS_TOPIC, move |config, headers| {
+    live_rows(config, headers, since, DIMENSIONS_TOPIC, move |config, headers| {
         let query = query.clone();
         async move {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -871,12 +891,13 @@ async fn fields_live(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
+    since: LiveSince,
     Query(query): Query<url::FieldsLive>,
 ) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = manages(&req);
     let query = query.list();
-    live_rows(config, headers, FIELDS_TOPIC, move |config, headers| {
+    live_rows(config, headers, since, FIELDS_TOPIC, move |config, headers| {
         let query = query.clone();
         async move {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -1225,16 +1246,24 @@ async fn confirm_fields(
 }
 
 /// A job's status for `<corten-live>`: each change the job's stream sends, drawn, until the job
-/// is done (the stream then ends, so the element stays as it is). The stream resumes itself from
-/// the last event after a drop, so the browser's own reconnect is only for a dropped connection
-/// to the pilot, and draws the status the stream replays (todd-skelton/corten#15).
-async fn job_live(req: Req, State(config): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
+/// is done (the stream then ends, so the element stays as it is). Each fragment carries the job
+/// event's id, so a browser that reconnects (`since`) gets only the changes after the status it
+/// shows. The page's read of the job has no event id, so a first connection replays the job's
+/// events from its start.
+async fn job_live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: LiveSince,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
-    let updates = caller.watch_job::<Job>(&api::job_events(&id), api::CONTEXT, Job::done);
+    let updates = caller.watch_job::<Job>(&api::job_events(&id), api::CONTEXT, since.0, Job::done);
     let fragments = updates.map(move |update| match update {
-        Update::Job(job) => views::job_status(t, p, Some(&job)).to_html(),
-        Update::Refused(_) => views::job_status(t, p, None).to_html(),
+        Update::Job(job, Some(event)) => Fragment::new(views::job_status(t, p, Some(&job)).to_html()).cursor(event),
+        Update::Job(job, None) => Fragment::new(views::job_status(t, p, Some(&job)).to_html()),
+        Update::Refused(_) => Fragment::new(views::job_status(t, p, None).to_html()),
     });
     corten::live(fragments)
 }

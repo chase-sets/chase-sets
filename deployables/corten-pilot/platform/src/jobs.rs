@@ -26,22 +26,29 @@ const SILENCE: Duration = Duration::from_secs(45);
 /// What the stream said.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Update<T> {
-    /// The job's record, after a change.
-    Job(T),
+    /// The job's record after a change, and the event's id: where a later stream can resume.
+    Job(T, Option<String>),
     /// The API refused the stream (signed out, not allowed, no such job): nothing more comes.
     Refused(StatusCode),
 }
 
 impl Caller<'_> {
-    /// The record of the job whose stream is at `path`, after each change, until `done` says
-    /// one is final (that one is the last) or the API refuses. The stream owns what it needs, so
-    /// it can outlive the request that opened it.
-    pub fn watch_job<T>(&self, path: &str, context: &str, done: fn(&T) -> bool) -> impl Stream<Item = Update<T>> + Send + use<T>
+    /// The record of the job whose stream is at `path`, after each change after `from` (an
+    /// event's id an update carried) or from the job's first event, until `done` says one is
+    /// final (that one is the last) or the API refuses. The stream owns what it needs, so it can
+    /// outlive the request that opened it.
+    pub fn watch_job<T>(
+        &self,
+        path: &str,
+        context: &str,
+        from: Option<String>,
+        done: fn(&T) -> bool,
+    ) -> impl Stream<Item = Update<T>> + Send + use<T>
     where
         T: DeserializeOwned + Send + 'static,
     {
         let open = self.request(reqwest::Method::GET, path, context).header(header::ACCEPT, "text/event-stream");
-        let state = Upstream { open, last: None, events: None, wait: None, over: false, done };
+        let state = Upstream { open, last: from, events: None, wait: None, over: false, done };
         futures_util::stream::unfold(state, Upstream::next).boxed()
     }
 }
@@ -99,7 +106,8 @@ impl<T: DeserializeOwned> Upstream<T> {
                     }
                     let Some(job) = record::<T>(&event) else { continue };
                     self.over = (self.done)(&job);
-                    return Some((Update::Job(job), self));
+                    let id = self.last.clone();
+                    return Some((Update::Job(job, id), self));
                 }
                 // Ended before the job was done, broke, or went quiet: connect again from the last id.
                 Ok(Some(Err(()))) | Ok(None) | Err(_) => {

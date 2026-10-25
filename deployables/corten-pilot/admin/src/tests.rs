@@ -77,7 +77,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         };
         return if cookie.contains("chase_sets_session=staff") {
             actor(&["postage-policies.view", "catalog.view", "catalog.manage"])
-        } else if cookie.contains("chase_sets_session=catalog-reader") {
+        } else if cookie.contains("chase_sets_session=catalog-reader") || cookie.contains("chase_sets_session=catalog-viewer") {
             actor(&["catalog.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
@@ -446,7 +446,8 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
 }
 
 /// The platform's realtime stream: a heartbeat and one change, then the stream ends (the client
-/// connects again). It refuses `catalog-reader`, standing in for a session the API will not stream.
+/// connects again). It refuses `catalog-reader`, standing in for a session the API will not stream
+/// (`catalog-viewer` has the same permissions and is streamed).
 fn realtime(cookie: &str) -> Response {
     if cookie.contains("chase_sets_session=catalog-reader") {
         return refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden.");
@@ -460,7 +461,14 @@ impl Pilot {
     /// The first `count` server-sent events of a stream at `uri` (their `event:` and `data:`), or
     /// what came before it ended.
     async fn events(&self, uri: &str, session: &str, count: usize) -> Vec<(String, String)> {
-        let res = self.router.clone().oneshot(get(uri, Some(session))).await.unwrap();
+        let events = self.events_with_ids(get(uri, Some(session)), count).await;
+        events.into_iter().map(|(event, _, data)| (event, data)).collect()
+    }
+
+    /// The same for `req` (a reconnect sends `Last-Event-ID`), with each event's `id:`.
+    async fn events_with_ids(&self, req: Request<Body>, count: usize) -> Vec<(String, String, String)> {
+        let uri = req.uri().to_string();
+        let res = self.router.clone().oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK, "{uri}");
         assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/event-stream"));
         let mut body = res.into_body();
@@ -477,7 +485,7 @@ impl Pilot {
                 };
                 let event = field("event: ");
                 if !event.is_empty() {
-                    events.push((event, field("data: ")));
+                    events.push((event, field("id: "), field("data: ")));
                 }
             }
         }
@@ -770,12 +778,34 @@ async fn a_list_draws_its_rows_on_open_and_again_on_each_change_resuming_after_a
 }
 
 #[tokio::test]
+async fn each_drawing_of_a_live_list_carries_the_streams_cursor_and_a_reconnect_resumes_from_it() {
+    let pilot = Pilot::new().await;
+    // A first connection: drawn once the stream is open (at its heartbeat, c1), then on the change.
+    let first = pilot.events_with_ids(get("/catalog/dimensions/live", Some("staff")), 2).await;
+    let ids: Vec<_> = first.iter().map(|(_, id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["c1", "c2"], "{first:?}");
+
+    // The browser reconnects with the last cursor it got: nothing is drawn until a change.
+    let before = (pilot.catalog_calls().len(), pilot.calls_to("/api/realtime/").len());
+    let mut req = get("/catalog/dimensions/live", Some("staff"));
+    req.headers_mut().insert("last-event-id", "c2".parse().unwrap());
+    let resumed = pilot.events_with_ids(req, 1).await;
+    assert_eq!(resumed.len(), 1);
+    assert_eq!((resumed[0].0.as_str(), resumed[0].1.as_str()), ("patch", "c2"), "the change, not the open: {resumed:?}");
+    assert_eq!(pilot.catalog_calls().len() - before.0, 1, "one read, for the change");
+    let streams = &pilot.calls_to("/api/realtime/")[before.1..];
+    assert_eq!(
+        streams[0].path, "/api/realtime/public/events?topic=catalog%3Aadmin%3Adimensions&cursor=c2",
+        "from the browser's cursor"
+    );
+}
+
+#[tokio::test]
 async fn a_live_list_ends_when_the_api_refuses_its_stream() {
     let pilot = Pilot::new().await;
     let events = pilot.events("/catalog/fields/live", "catalog-reader", 3).await;
     let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
-    assert_eq!(kinds, ["patch", "end"], "the rows once, then the element stops: {events:?}");
-    assert!(events[0].1.contains("/catalog/fields/fld_seed"), "{events:?}");
+    assert_eq!(kinds, ["end"], "the page's rows stay, and the element stops: {events:?}");
 }
 
 // Bulk changes.
@@ -808,7 +838,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     let (status, _, _) =
         pilot.send(post_as("catalog-reader", "/catalog/dimensions/bulk", "action=deprecate&mode=filter", true)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let (_, rows) = pilot.events("/catalog/fields/live", "catalog-reader", 1).await.remove(0);
+    let (_, rows) = pilot.events("/catalog/fields/live", "catalog-viewer", 1).await.remove(0);
     assert!(rows.starts_with(r#"<div id="catalog-rows">"#) && !rows.contains("catalog-bulk"), "{rows}");
 }
 
@@ -937,6 +967,22 @@ async fn a_jobs_status_is_streamed_until_it_is_done_resuming_after_a_drop() {
     assert!(!streams[0].headers.contains_key("last-event-id"));
     assert_eq!(streams[1].headers["last-event-id"], "1", "it resumes from the last event");
     assert_eq!(streams[1].headers[header::COOKIE], "chase_sets_session=staff", "as the signed-in user");
+}
+
+#[tokio::test]
+async fn a_job_dialog_that_reconnects_gets_only_the_changes_after_the_status_it_shows() {
+    let pilot = Pilot::new().await;
+    let first = pilot.events_with_ids(get("/catalog/jobs/job_1/live", Some("staff")), 1).await;
+    assert_eq!(first[0].1, "1", "each status carries its event's id: {first:?}");
+
+    let mut req = get("/catalog/jobs/job_1/live", Some("staff"));
+    req.headers_mut().insert("last-event-id", "1".parse().unwrap());
+    let resumed = pilot.events_with_ids(req, 2).await;
+    let kinds: Vec<_> = resumed.iter().map(|(event, id, _)| (event.as_str(), id.as_str())).collect();
+    assert_eq!(kinds, [("patch", "2"), ("end", "")], "{resumed:?}");
+    assert!(resumed[0].2.contains("1 succeeded, 1 skipped, 0 failed."), "{resumed:?}");
+    let streams = pilot.calls_to("/api/catalog/bulk-authoring-jobs/job_1/events");
+    assert_eq!(streams.last().unwrap().headers["last-event-id"], "1", "the job's stream, from there");
 }
 
 #[tokio::test]
