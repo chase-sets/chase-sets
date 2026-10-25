@@ -14,6 +14,9 @@
 // - marketplace/locales/en.json: the storage-locations screen's English catalog
 //   (inventory.features.storageLocations.ui.storageLocationPage.*, inventory.recovery.*, the route's
 //   title and description).
+// - marketplace/locales/restock.en.json: the restock decisions screen's English catalog
+//   (inventory.features.restockDecisions.ui.queue.*, the route's title and description, and the
+//   resource route's "could not be verified").
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -245,6 +248,18 @@ const outputs = [
         ["inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship", "route.description"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/restock.en.json",
+    json({
+      ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [
+        ["inventory.features.restockDecisions.ui.queue.", "queue"],
+        ["inventory.routes.marketplace.accountInventoryRestockDecisions.title", "route.title"],
+        ["inventory.routes.marketplace.accountInventoryRestockDecisions.description", "route.description"],
+      ])),
+      // What marketplace's resource route says when the read after a write fails for good.
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.routeResource.unverified", "unverified"]])),
+    }),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

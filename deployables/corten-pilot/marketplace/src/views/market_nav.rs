@@ -13,6 +13,9 @@ fn link(item: &NavItem) -> Option<String> {
     if href == <url::Locations as Route>::PATH {
         return Some(url::Locations::default().href());
     }
+    if href == <url::Restock as Route>::PATH {
+        return Some(url::Restock::default().href());
+    }
     marketplace(href).map(|uri| uri.to_string())
 }
 

@@ -11,18 +11,22 @@ use platform::{
 };
 
 use crate::{
-    app::{Screen, url},
+    app::url,
     auth::{Session, Viewer},
     form::LocationInput,
-    recovery::Status,
-    text::{Msg, Pilot},
+    locations::Screen,
+    recovery::{Check, Status},
+    restock::RestockScreen,
+    text::{Msg, Pilot, Restock},
 };
 
+mod decision_card;
 mod location_card;
 mod market_nav;
 mod page_actions;
 mod recovery;
 
+pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
@@ -30,7 +34,7 @@ pub use recovery::{Notice, Recovery, WriteForm, handlers};
 
 /// Every component with a stylesheet or a script, tokens first.
 pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, MarketNav, Section, PageActions, Recovery, handlers::COMPONENT, LocationCard];
+    &[theme::TOKENS, MarketNav, Section, PageActions, Recovery, handlers::COMPONENT, LocationCard, DecisionCard];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
@@ -106,7 +110,6 @@ pub fn error_page(status: StatusCode) -> (Meta, impl Render) {
     let (title, text) = match status {
         StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
         StatusCode::NOT_FOUND => (p.error_not_found_title(), p.error_not_found()),
-        StatusCode::CONFLICT => (p.error_failed_title(), p.load_unverified()),
         _ => (p.error_failed_title(), p.error_failed()),
     };
     (
@@ -118,13 +121,21 @@ pub fn error_page(status: StatusCode) -> (Meta, impl Render) {
     )
 }
 
+/// A page that could not be drawn: its title and what to do.
+pub fn failed<'a>(title: &'a str, text: &'a str) -> impl Render + 'a {
+    html! {
+        <h1>{title}</h1>
+        <p>{text}</p>
+    }
+}
+
 /// The page: what the last write did, the create form and every location.
 pub fn page<'a>(
     t: Msg,
     p: Pilot,
     viewer: &'a Viewer,
     screen: &'a Screen,
-    again: url::Locations,
+    again: &'a url::Locations,
     forms: Forms,
 ) -> impl Render + 'a {
     let enabled = screen.status.writes();
@@ -153,8 +164,15 @@ pub fn page<'a>(
             title={t.page_storage_locations()}
             description={t.page_map_seller_defined_storage_areas_to()}
         />
-        <PageActions t={t} />
-        <Recovery t={t} viewer={viewer} status={&screen.status} again={&again} />
+        <PageActions label={t.page_back_to_inventory()} />
+        <Recovery
+            t={t}
+            viewer={viewer}
+            status={&screen.status}
+            check={&again.check}
+            again={&again.href()}
+            list={&url::Locations::default().href()}
+        />
         if screen.pending {
             <Notice text={p.load_pending()} />
         }
@@ -181,13 +199,103 @@ pub fn page<'a>(
 /// A refused write's patch: its form again, and a status that settles the posted attempt.
 #[component]
 pub fn Refused<'a>(t: Msg, viewer: &'a Viewer, write: &'a Which, draft: &'a Draft, status: &'a Status) -> impl Render {
-    let again = url::Locations::default();
+    let (list, check) = (url::Locations::default().href(), Check::default());
     html! {
-        <Recovery t={t} viewer={viewer} status={status} again={&again} />
+        <Recovery t={t} viewer={viewer} status={status} check={&check} again={&list} list={&list} />
         match write {
             Which::Create => { <CreateForm t={t} viewer={viewer} draft={draft} enabled /> }
             Which::Update(id) => { <UpdateForm t={t} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
             Which::Archive(id) => { <ArchiveForm t={t} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
+        }
+    }
+}
+
+/// A refused restock decision: its form, drawn again with a new attempt, and the status that
+/// settles the posted one.
+#[derive(Clone)]
+pub struct Posted {
+    pub status: Status,
+    pub which: Decided,
+    pub draft: DecisionDraft,
+}
+
+/// The restock decisions page: what the last write did, and every pending decision.
+pub fn restock_page<'a>(
+    t: Restock,
+    m: Msg,
+    p: Pilot,
+    viewer: &'a Viewer,
+    screen: &'a RestockScreen,
+    again: &'a url::Restock,
+    posted: Option<Posted>,
+) -> impl Render + 'a {
+    let enabled = screen.status.writes();
+    let draft_for = |form: Decided, version: u64| match &posted {
+        Some(posted) if posted.which == form => posted.draft.clone(),
+        _ => DecisionDraft::new(version),
+    };
+    let cards: Vec<_> = screen
+        .decisions
+        .iter()
+        .map(|decision| {
+            let id = &decision.decision_id;
+            let restock = draft_for(Decided::Restock(id.clone()), decision.version);
+            let write_off = draft_for(Decided::WriteOff(id.clone()), decision.version);
+            (decision, restock, write_off)
+        })
+        .collect();
+    html! {
+        <PageHeader eyebrow={t.queue_seller()} title={t.queue_title()} description={t.queue_description()} />
+        <PageActions label={t.queue_back_to_inventory()} />
+        <Recovery
+            t={m}
+            viewer={viewer}
+            status={&screen.status}
+            check={&again.check}
+            again={&again.href()}
+            list={&url::Restock::default().href()}
+        />
+        if screen.pending {
+            <Notice text={p.load_restock_pending()} />
+        }
+        <Section title={t.queue_pending()}>
+            if cards.is_empty() && !screen.pending {
+                <NoDecisions t={t} />
+            } else {
+                <DecisionList>
+                    for (decision, restock, write_off) in &cards {
+                        <DecisionCard
+                            t={t}
+                            m={m}
+                            viewer={viewer}
+                            decision={*decision}
+                            restock={restock}
+                            write_off={write_off}
+                            enabled={enabled}
+                        />
+                    }
+                </DecisionList>
+            }
+        </Section>
+    }
+}
+
+/// A refused restock decision's patch: its form again, and a status that settles the attempt.
+#[component]
+pub fn RefusedDecision<'a>(
+    t: Restock,
+    m: Msg,
+    viewer: &'a Viewer,
+    which: &'a Decided,
+    draft: &'a DecisionDraft,
+    status: &'a Status,
+) -> impl Render {
+    let (list, check) = (url::Restock::default().href(), Check::default());
+    html! {
+        <Recovery t={m} viewer={viewer} status={status} check={&check} again={&list} list={&list} />
+        match which {
+            Decided::Restock(id) => { <RestockForm t={t} m={m} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
+            Decided::WriteOff(id) => { <WriteOffForm t={t} m={m} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
         }
     }
 }

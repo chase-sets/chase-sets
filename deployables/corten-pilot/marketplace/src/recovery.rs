@@ -10,18 +10,23 @@
 //! `InventoryMutationProvider` does. Each page says which attempt its answer settles; a page that
 //! finds a record it does not settle asks to check it (`?attempt=..&family=..&target=..&user=..`),
 //! and the pilot asks the API whether the attempt was applied. While the answer is uncertain, the
-//! page's writes are off; the seller checks again or discards the record.
+//! page's writes are off; the seller checks again or discards the record. Every page confirms a
+//! record of any of the pilot's families, as marketplace's `InventoryMutationProvider` does on
+//! every Inventory page.
 use std::fmt;
 
+use corten::{Fields, Route};
 use serde::{Deserialize, Serialize};
 
+use corten::{axum::http::StatusCode, prelude::Errors};
+
 use crate::{
-    api::{Caller, Inventory as _},
+    api::{ApiError, Caller, Inventory as _},
     auth::Actor,
 };
 
 /// The kind of write an attempt is (`InventoryMutationFamily`), as the API keeps it: the
-/// screen's three, `location-create`, `location-update` and `location-archive`.
+/// storage locations' three and a restock decision's.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Family {
     #[serde(rename = "location-create")]
@@ -30,6 +35,8 @@ pub enum Family {
     Update,
     #[serde(rename = "location-archive")]
     Archive,
+    #[serde(rename = "restock-record")]
+    Restock,
 }
 
 impl Family {
@@ -38,7 +45,39 @@ impl Family {
             Family::Create => "location-create",
             Family::Update => "location-update",
             Family::Archive => "location-archive",
+            Family::Restock => "restock-record",
         }
+    }
+}
+
+/// What a page's address carries about the last write: its receipt (`after_write`), and a write
+/// to confirm (`attempt`, `family`, `target`, and `user` only when the browser's record names
+/// it). Every page that writes takes it.
+#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[route(query)]
+pub struct Check {
+    pub after_write: Option<String>,
+    pub attempt: Option<String>,
+    pub family: Option<Family>,
+    pub target: Option<String>,
+    pub user: Option<String>,
+}
+
+impl Check {
+    /// After a write the API applied: wait for its receipt and confirm its attempt.
+    pub fn applied(family: Family, target: &str, attempt: &str, receipt: Option<String>) -> Self {
+        Check {
+            after_write: receipt,
+            attempt: Some(attempt.into()),
+            family: Some(family),
+            target: Some(target.into()),
+            user: None,
+        }
+    }
+
+    /// The same check, without the receipt: the status's "check again".
+    pub fn again(&self) -> Self {
+        Check { after_write: None, ..self.clone() }
     }
 }
 
@@ -130,6 +169,42 @@ pub async fn check(
         Err(error) => {
             tracing::warn!("attempt check failed: {error}");
             Status::Uncertain(attempt.into())
+        }
+    }
+}
+
+/// What a write's failed API call means for its form.
+pub enum Failed {
+    /// The API refused the attempt with a message for the user: nothing was applied.
+    Refused(Errors),
+    /// The API refused this request, but holds a result for its attempt: the same attempt was
+    /// applied before (the form was posted again with other fields).
+    AppliedBefore,
+    /// Not signed in any more: sign in at marketplace.
+    SignIn,
+    /// No answer, or one that says nothing about the attempt: the error page. The browser keeps
+    /// its record and the next page checks it.
+    Unknown(corten::Error),
+}
+
+/// What `error`, the answer to a write of `family` on `target` sent as `attempt`, means.
+pub async fn failed(caller: &Caller<'_>, family: Family, target: &str, attempt: &str, error: ApiError) -> Failed {
+    if error.status() == Some(StatusCode::UNAUTHORIZED) {
+        return Failed::SignIn;
+    }
+    let Some(message) = error.refusal() else {
+        return Failed::Unknown(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY));
+    };
+    match caller.attempt(attempt).await {
+        Ok(Some(result)) if result.family == family.as_str() && result.target_id == target => Failed::AppliedBefore,
+        Ok(_) => {
+            let mut errors = Errors::new();
+            errors.add_form(message);
+            Failed::Refused(errors)
+        }
+        Err(lookup) => {
+            tracing::warn!("attempt check after a refusal failed: {lookup}");
+            Failed::Unknown(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))
         }
     }
 }

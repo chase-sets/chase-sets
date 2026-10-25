@@ -25,6 +25,8 @@ use crate::{
 const LOCATIONS: &str = "/api/inventory/storage-locations";
 const ATTEMPTS: &str = "/api/inventory/mutation-attempts/";
 const SCREEN: &str = "/account/inventory/locations";
+const RESTOCK: &str = "/api/inventory/restock-decisions";
+const RESTOCK_SCREEN: &str = "/account/inventory/restock-decisions";
 const RECEIPT: &str = r#"[{"sourceContextName":"inventory","maxGlobalPosition":"42","eventIds":["e1"]}]"#;
 
 /// A call the stand-in received.
@@ -54,6 +56,17 @@ fn location(id: &str, name: &str, archived: bool) -> Value {
             "state": "TX", "postalCode": "78701", "country": "US", "phone": null, "email": null,
         },
         "is_archived": archived,
+    })
+}
+
+/// The one pending decision: a returned shipment, at version 2.
+fn decision() -> Value {
+    json!({
+        "decision_id": "rstk_1", "version": 2, "account_id": "acc_seller", "order_id": "ord_1", "item_id": "inv_1",
+        "item_title": "Twilight Masquerade Elite Trainer Box", "item_subtitle": null, "product_summary": null,
+        "quantity": 1, "source": "shipment-returned", "source_ref": null, "shipment_id": "shp_1",
+        "return_reason": "Carrier return to sender", "status": "pending", "outcome": null, "damage_note": null,
+        "pending_at": "2026-03-22T12:00:00.000Z", "decided_at": null, "updated_at": "2026-10-24T03:56:21.245Z",
     })
 }
 
@@ -110,6 +123,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
     }
+    if let Some(rest) = uri.path().strip_prefix(RESTOCK) {
+        return restock(&stand, &method, rest, &headers, &body);
+    }
     let Some(rest) = uri.path().strip_prefix(LOCATIONS) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -149,6 +165,34 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     }
     stand.applied.lock().unwrap().insert(attempt, (family.into(), target.clone()));
     if family == "location-create" { written(StatusCode::CREATED, "loc_new") } else { written(StatusCode::OK, &target) }
+}
+
+/// The restock decisions, as the stand-in answers them: a read waits as the locations' does; a
+/// decision sent for another version than 2 is refused, as the API refuses a stale one.
+fn restock(stand: &Stand, method: &Method, rest: &str, headers: &HeaderMap, body: &str) -> Response {
+    if *method == Method::GET {
+        return match waits_for(headers).as_deref() {
+            Some("43") => refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            ),
+            Some("44") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "items": [decision()], "total": 1, "count": 1 })).into_response(),
+        };
+    }
+    let Some(id) = rest.strip_prefix('/').and_then(|r| r.strip_suffix("/decision")) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+    let command: Value = serde_json::from_str(body).unwrap_or_default();
+    if command["expectedVersion"] != 2 {
+        return refusal(StatusCode::CONFLICT, "conflict", "Restock decision version conflicts with the current decision.");
+    }
+    stand.applied.lock().unwrap().insert(attempt, ("restock-record".into(), id.to_owned()));
+    let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    (StatusCode::OK, headers, Json(json!({ "id": id, "version": 3, "status": "recorded" }))).into_response()
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -367,6 +411,7 @@ async fn a_refused_write_is_the_form_again_with_a_new_attempt() {
     let (status, headers, html) = pilot.send(post(SCREEN, "seller", &location_body(&attempt, "Refused"), true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert_eq!(patch_ids(&html), ["recovery", "create-form"], "each element the patch replaces has its id: {html}");
     assert!(html.contains(r#"role="alert">Ship-from code is already in use.</p>"#), "{html}");
     assert!(html.contains(r#"value="Refused""#), "what was typed stays: {html}");
     let again = drawn_attempt(&html);
@@ -469,4 +514,170 @@ async fn the_read_after_a_write_waits_for_its_receipt() {
     // A read after a write that fails for good: the write could not be verified.
     let (status, _, _) = pilot.send(get(&format!("{SCREEN}?after_write={}", receipt_at("44")), Some("seller"))).await;
     assert_eq!(status, StatusCode::CONFLICT);
+}
+
+/// The ids of a patch's top-level elements, in order (`""` for one without): the runtime replaces
+/// each by its id and drops one that has none.
+fn patch_ids(html: &str) -> Vec<String> {
+    let (mut ids, mut depth, mut rest) = (Vec::new(), 0usize, html);
+    while let Some(at) = rest.find('<') {
+        rest = &rest[at..];
+        let end = rest.find('>').expect("a tag ends");
+        let tag = &rest[..=end];
+        let void = ["<input", "<br", "<img", "<meta", "<link", "<hr"].iter().any(|v| tag.starts_with(v));
+        if tag.starts_with("</") {
+            depth -= 1;
+        } else {
+            if depth == 0 {
+                let id = tag.split(" id=\"").nth(1).and_then(|s| s.split('"').next()).unwrap_or_default();
+                ids.push(id.to_owned());
+            }
+            if !void && !tag.ends_with("/>") {
+                depth += 1;
+            }
+        }
+        rest = &rest[end + 1..];
+    }
+    ids
+}
+
+/// A restock decision form's body.
+fn decision_body(attempt: &str, version: &str, note: Option<&str>) -> String {
+    let note = note.map(|n| format!("&damage_note={}", n.replace(' ', "+"))).unwrap_or_default();
+    format!("attempt={attempt}&expected_version={version}{note}")
+}
+
+#[tokio::test]
+async fn the_restock_list_shows_each_decision_and_data_clients_get_the_screen() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(RESTOCK_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "<title>Restock Decisions | Marketplace</title>",
+        "Shipment returned",
+        "1 returned",
+        "Twilight Masquerade Elite Trainer Box",
+        "Mar 22, 2026, 12:00 PM UTC",
+        "Carrier return to sender",
+        r#"href="http://localhost:7753/account/sales/ord_1">View order ord_1</a>"#,
+        r#"href="http://localhost:7753/account/inventory/items/inv_1">View ledger</a>"#,
+        r#"name="expected_version" value="2""#,
+        "Damage note",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    // Restock and Write off, each its own attempt.
+    let mut attempts: Vec<_> = html.split(ATTEMPT_INPUT).skip(1).map(|rest| rest.split('"').next().unwrap()).collect();
+    attempts.dedup();
+    assert_eq!(attempts.len(), 2, "{attempts:?}");
+
+    let (status, _, body) = pilot.send(get_json(RESTOCK_SCREEN)).await;
+    assert_eq!(status, StatusCode::OK);
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["decisions"][0]["decision_id"], "rstk_1", "{body}");
+    assert_eq!(screen["data"]["status"], json!({ "state": "ready" }), "{body}");
+    let reads = pilot.inventory_calls();
+    assert!(reads.iter().all(|c| c.path == format!("{RESTOCK}?limit=100&offset=0")), "marketplace's query: {reads:?}");
+}
+
+#[tokio::test]
+async fn restock_and_write_off_record_the_decision_and_redirect_to_confirm_it() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let restock = format!("{RESTOCK_SCREEN}/rstk_1/restock");
+    let (status, headers, html) = pilot.send(post(&restock, "seller", &decision_body(&attempt, "2", None), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
+    let to = headers["corten-location"].to_str().unwrap();
+    assert!(to.starts_with(&format!("{RESTOCK_SCREEN}?")), "{to}");
+    let q = query(to);
+    assert_eq!(
+        (q["attempt"].as_str(), q["family"].as_str(), q["target"].as_str()),
+        (attempt.as_str(), "restock-record", "rstk_1")
+    );
+    assert!(q["after_write"].contains(r#""commitPosition":"42""#), "{q:?}");
+    let sent = pilot.writes();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/inventory/restock-decisions/rstk_1/decision"));
+    assert_eq!(sent[0].headers["inventory-mutation-attempt"], attempt.as_str());
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body, json!({ "expectedVersion": 2, "outcome": "restocked" }), "a restock has no damage note");
+
+    // The list it redirects to confirms the attempt.
+    let (_, _, body) =
+        pilot.send(get_json(&format!("{RESTOCK_SCREEN}?attempt={attempt}&family=restock-record&target=rstk_1"))).await;
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["status"], json!({ "state": "confirmed", "attempt": attempt }), "{body}");
+
+    // A write-off, without JavaScript: its note trimmed, or null.
+    let write_off = format!("{RESTOCK_SCREEN}/rstk_1/write-off");
+    let (status, headers, _) =
+        pilot.send(post(&write_off, "seller", &decision_body(&new_attempt(), "2", Some("  Crushed corner  ")), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers[header::LOCATION].to_str().unwrap())["family"], "restock-record");
+    pilot.send(post(&write_off, "seller", &decision_body(&new_attempt(), "2", Some(" ")), true)).await;
+    let bodies: Vec<Value> = pilot.writes().iter().skip(1).map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "expectedVersion": 2, "outcome": "written-off", "damageNote": "Crushed corner" }),
+            json!({ "expectedVersion": 2, "outcome": "written-off", "damageNote": null }),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_refused_decision_is_its_form_again_at_the_current_version() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let write_off = format!("{RESTOCK_SCREEN}/rstk_1/write-off");
+    let (status, headers, html) = pilot.send(post(&write_off, "seller", &decision_body(&attempt, "1", Some("Torn")), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert_eq!(patch_ids(&html), ["recovery", "write-off-form-rstk_1"], "each element the patch replaces has its id: {html}");
+    assert!(html.contains("Restock decision version conflicts with the current decision."), "{html}");
+    assert!(html.contains(r#"value="2""#) && !html.contains(r#"value="1""#), "the version as it is now: {html}");
+    assert!(html.contains(">Torn</textarea>"), "the note stays: {html}");
+    let again = drawn_attempt(&html);
+    assert!(again != attempt && crate::recovery::valid_attempt(&again), "a new attempt: {again}");
+    assert!(pilot.stand.applied.lock().unwrap().is_empty());
+
+    // Without JavaScript: the whole page, with the form in it.
+    let (status, _, html) = pilot.send(post(&write_off, "seller", &decision_body(&new_attempt(), "1", None), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("conflicts with the current decision"), "{html}");
+
+    // A version that is not a number is an out-of-date form: nothing is sent.
+    let before = pilot.writes().len();
+    let restock = format!("{RESTOCK_SCREEN}/rstk_1/restock");
+    let (status, _, html) = pilot.send(post(&restock, "seller", &decision_body(&new_attempt(), "x", None), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This form is out of date."), "{html}");
+    assert_eq!(pilot.writes().len(), before);
+}
+
+#[tokio::test]
+async fn the_restock_page_signs_in_reads_with_view_and_writes_with_manage() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(RESTOCK_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/sign-in?returnTo=%2Faccount%2Finventory%2Frestock-decisions");
+    let (status, _, html) = pilot.send(get(RESTOCK_SCREEN, Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let restock = format!("{RESTOCK_SCREEN}/rstk_1/restock");
+    let (status, _, _) = pilot.send(post(&restock, "reader", &decision_body(&new_attempt(), "2", None), true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(pilot.writes().is_empty());
+}
+
+#[tokio::test]
+async fn the_restock_read_after_a_write_waits_and_says_when_it_cannot_be_verified() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{RESTOCK_SCREEN}?after_write={}", receipt_at("43")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Restock decisions are still updating."), "{html}");
+    assert!(!html.contains("No returned stock needs a decision."), "not empty while it updates: {html}");
+    let (status, _, html) = pilot.send(get(&format!("{RESTOCK_SCREEN}?after_write={}", receipt_at("44")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("The update could not be verified."), "the screen's words: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{SCREEN}?after_write={}", receipt_at("44")), Some("seller"))).await;
+    assert!(html.contains("Storage location update could not be verified."), "{html}");
 }

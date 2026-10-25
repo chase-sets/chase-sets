@@ -17,6 +17,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the attention queue above the list (its counts, every item, an item's sheet, dismiss, defer and restore, and an alias candidate's accept and reject), the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the all-scopes alias review, and a scope's page, which View opens in admin-web) |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
+| `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -95,6 +96,7 @@ cd deployables/corten-pilot/admin; corten dev --port 7790          # or marketpl
 cd ..
 node scripts/smoke-admin.mjs           # every action in a browser, with and without JavaScript (writes sandbox data)
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
+node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
 node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimensions list, with and without JavaScript
@@ -159,7 +161,10 @@ forward only on purpose, when a fix the pilot needs lands.
 | `*/src/app.rs` | routes, access (sign-in at the React app, 403, 502), and the handlers |
 | `*/src/api.rs` | the screen's calls; typed bodies with only the fields the screen reads |
 | `*/src/form.rs` | what the forms post; the pilot checks only shape (text present, numbers parse), the API checks the rules |
-| `marketplace/src/recovery.rs` | the write's attempt id, and confirming a write the browser did not hear back about |
+| `marketplace/src/recovery.rs` | the write's attempt id, the address's `Check`, and confirming a write the browser did not hear back about |
+| `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
+| `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
+| `platform/src/when.rs` | a time as Chase Sets writes one (`Mar 22, 2026, 12:00 PM UTC`), until Corten can |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
@@ -177,7 +182,7 @@ forward only on purpose, when a fix the pilot needs lands.
    React app does: admin 503 "preparing, refresh in a moment"
    ([`read_failed`](admin/src/app.rs)), marketplace the page with "still updating" and no list,
    or 409 "could not be verified" when the read fails for good
-   ([`render`](marketplace/src/app.rs)). This is Chase Sets' consistency protocol, not Corten's.
+   ([`read_failed`](marketplace/src/app.rs)). This is Chase Sets' consistency protocol, not Corten's.
 2. **Business rules stay in the API.** A refusal with a message becomes the form's message
    (`Errors::add_form`), so the pilot never restates a rule.
 3. **Guards.** marketplace has one guard (`App::guard`): sellers with `inventory.view` read and
@@ -355,11 +360,37 @@ forward only on purpose, when a fix the pilot needs lands.
     [chase-sets/chase-sets#10568 Count every item in the Catalog attention queue, not only the first 200 per source](https://github.com/chase-sets/chase-sets/issues/10568)
     fixes; the pilot shows what the API sends.
 
+28. **The restock decisions page is the storage locations' recovery, a second time.** Both
+    marketplace screens share `recovery`: the address's `Check` (a `#[route(query)]` set both
+    lists take), the status, `WriteForm` and `failed`, so a page confirms a record of any of the
+    pilot's four families, as marketplace's `InventoryMutationProvider` does on every Inventory
+    page. Restock and Write off are the `restock-record` family on the decision, sent with the
+    version the page read; a refused one is drawn again at the decision's version as it is now
+    (marketplace reads the list again after a refusal). A read after a write that fails for good is
+    drawn by the screen in its own words (the storage locations' "Storage location update could
+    not be verified", the resource route's "The update could not be verified"), since the error
+    page knows only the status. Times are written as Chase Sets' `formatDateTime` writes them, by
+    hand, in English and UTC (`platform::when`), because Corten cannot
+    ([todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)).
+    The seeded decision cannot be recorded in the sandbox
+    ([chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572)),
+    so `scripts/smoke-restock.mjs` checks refusals and recovery only, and the router tests check
+    an applied decision.
+
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)
+1. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
+   (correctness, then end-user performance). Chase Sets writes times with `formatDateTime` in 65
+   of its `.tsx` files. Workaround: `platform::when::date_time` writes `en` in UTC by hand
+   ([`when.rs`](platform/src/when.rs)), with `formatDateTime`'s own test cases.
+2. [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61)
+   (correctness). The restock page's refused write-off was in the 422 body and never on the page,
+   because the form's component wrapped it in a `<div>`. Workaround: the form is the component's
+   root, and the router tests check each refused write's patch ids (`patch_ids` in
+   [`tests.rs`](marketplace/src/tests.rs)).
+3. [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)
    (correctness of a message shown by key, then developer time). Chase Sets' catalogs have 365
    camelCase arguments, and its APIs send params with the same names. Workaround: `export.mjs`
    writes each argument in snake case, and `attention::Params` looks the camelCase name up in

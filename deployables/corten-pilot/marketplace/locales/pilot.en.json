@@ -10,7 +10,8 @@
   },
   "load": {
     "pending": "Storage locations are still updating. Reload this page in a moment.",
-    "unverified": "Storage location update could not be verified. Reload this page and try again."
+    "unverified": "Storage location update could not be verified. Reload this page and try again.",
+    "restock_pending": "Restock decisions are still updating. Reload this page in a moment."
   },
   "error": {
     "forbidden_title": "Not allowed",

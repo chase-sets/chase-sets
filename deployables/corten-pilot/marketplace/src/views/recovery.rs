@@ -1,11 +1,8 @@
 use corten::{prelude::*, view::AttrValue};
 
-use super::Draft;
 use crate::{
-    app::url,
     auth::Viewer,
-    form::LocationInput,
-    recovery::{Family, Status},
+    recovery::{Check, Family, Status},
     text::Msg,
 };
 
@@ -16,11 +13,19 @@ corten::script::script!(pub mod handlers = "recovery.js");
 pub struct RecoveryId;
 
 /// What the last write did, as marketplace's status line says it, and the controls of a write
-/// the page could not confirm: check again (a link), or forget it (with the script).
+/// the page could not confirm: check again (`again`, the page with the same check), or forget it
+/// (with the script, which then loads `list`, the page without one).
 #[component(css)]
-pub fn Recovery<'a>(t: Msg, viewer: &'a Viewer, status: &'a Status, again: &'a url::Locations) -> impl Render {
+pub fn Recovery<'a>(
+    t: Msg,
+    viewer: &'a Viewer,
+    status: &'a Status,
+    check: &'a Check,
+    again: &'a str,
+    list: &'a str,
+) -> impl Render {
     let (check_form, check_attempt, check_family, check_target, check_user) = refs();
-    let f = url::Locations::FIELDS;
+    let f = Check::FIELDS;
     let account = viewer.actor.account_id.as_str();
     let text = match status {
         Status::Ready | Status::Refused(_) => t.recovery_editing(),
@@ -28,7 +33,7 @@ pub fn Recovery<'a>(t: Msg, viewer: &'a Viewer, status: &'a Status, again: &'a u
         Status::Uncertain(_) => t.recovery_ambiguous(),
         Status::Reauth(_) => t.recovery_reauth(),
     };
-    let family = again.family.unwrap_or(Family::Create);
+    let family = check.family.unwrap_or(Family::Create);
     let check = handlers::Check {
         form: check_form,
         attempt: check_attempt,
@@ -55,14 +60,14 @@ pub fn Recovery<'a>(t: Msg, viewer: &'a Viewer, status: &'a Status, again: &'a u
                             account,
                             family.as_str(),
                             t.recovery_discard_confirmation(),
-                            url::Locations::default(),
+                            list,
                         )}
                     >
                         {t.recovery_discard()}
                     </button>
                 </div>
             }
-            <form ref={check_form} method="get" action={url::Locations::default()} hidden>
+            <form ref={check_form} method="get" action={list} hidden>
                 <input type="hidden" ref={check_attempt} name={f.attempt} value="">
                 <input type="hidden" ref={check_family} name={f.family} value="">
                 <input type="hidden" ref={check_target} name={f.target} value="">
@@ -82,12 +87,12 @@ pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
     viewer: &'a Viewer,
     family: Family,
     target: &'a str,
-    draft: &'a Draft,
+    attempt: FieldName,
+    errors: &'a Errors,
     enabled: bool,
     children: C,
 ) -> impl Render {
     let unavailable = refs();
-    let f = LocationInput::FIELDS;
     let (account, user) = (viewer.actor.account_id.as_str(), viewer.actor.user_id.as_str());
     // `target` in a handler call is the event's target, so the record's id goes by another name.
     let record = target;
@@ -100,8 +105,8 @@ pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
             data-patch
             on:submit={handlers::remember(event, account, user, family.as_str(), record, unavailable)}
         >
-            {SubmitKey::field(f.attempt)}
-            {draft.errors.form_message()}
+            {SubmitKey::field(attempt)}
+            {errors.form_message()}
             <p ref={unavailable} class={Unavailable} role="alert" tabindex="-1" hidden>{t.recovery_failed_safe()}</p>
             <fieldset class={Controls} disabled={!enabled}>{children}</fieldset>
         </form>

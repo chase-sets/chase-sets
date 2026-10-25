@@ -1,11 +1,14 @@
-//! The marketplace seller's Inventory > Storage locations screen on Corten: a pilot port of
-//! marketplace's `/account/inventory/locations`, which reads and writes through the platform API
-//! as the signed-in seller. See README.md.
+//! The marketplace seller's Inventory > Storage locations and Restock decisions screens on Corten:
+//! pilot ports of marketplace's `/account/inventory/locations` and
+//! `/account/inventory/restock-decisions`, which read and write through the platform API as the
+//! signed-in seller. See README.md.
 mod api;
 mod app;
 mod auth;
 mod form;
+mod locations;
 mod recovery;
+mod restock;
 mod text;
 mod views;
 

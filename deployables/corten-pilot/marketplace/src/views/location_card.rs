@@ -173,7 +173,8 @@ pub fn CreateForm<'a>(t: Msg, viewer: &'a Viewer, draft: &'a Draft, enabled: boo
             viewer={viewer}
             family={Family::Create}
             target="draft"
-            draft={draft}
+            attempt={LocationInput::FIELDS.attempt}
+            errors={&draft.errors}
             enabled={enabled}
         >
             <LocationFields t={t} form_id={CreateFormId} draft={draft} create />
@@ -193,7 +194,8 @@ pub fn UpdateForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft,
             viewer={viewer}
             family={Family::Update}
             target={id}
-            draft={draft}
+            attempt={LocationInput::FIELDS.attempt}
+            errors={&draft.errors}
             enabled={enabled}
         >
             <LocationFields t={t} form_id={LocationFormId(id)} draft={draft} create={false} />
@@ -230,7 +232,8 @@ pub fn ArchiveForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft
             viewer={viewer}
             family={Family::Archive}
             target={id}
-            draft={draft}
+            attempt={LocationInput::FIELDS.attempt}
+            errors={&draft.errors}
             enabled={enabled}
         >
             for (name, value) in &hidden {

@@ -9,7 +9,7 @@ use corten::prelude::*;
 use serde::Deserialize;
 
 use crate::{
-    api::{Address, Location, LocationCommand},
+    api::{Address, DecisionCommand, Location, LocationCommand, Outcome},
     recovery::valid_attempt,
     text::Pilot,
 };
@@ -106,6 +106,38 @@ impl LocationInput {
                 email: optional(&self.ship_from_email),
             },
             is_archived: archived,
+        })
+    }
+}
+
+/// What a restock decision's two forms post: the attempt, the decision's version as the page read
+/// it, and (the write-off form only) a damage note.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct DecisionInput {
+    pub attempt: String,
+    pub expected_version: String,
+    pub damage_note: String,
+}
+
+impl DecisionInput {
+    /// A decision's forms, at the version the page read.
+    pub fn of(version: u64) -> Self {
+        DecisionInput { expected_version: version.to_string(), ..Default::default() }
+    }
+
+    /// The request for `outcome`, or why the form cannot send it. The version is a hidden input;
+    /// one that is not a number means the form is out of date, as a missing attempt does.
+    pub fn command(&self, p: Pilot, outcome: Outcome) -> Result<DecisionCommand, Errors> {
+        let mut errors = Errors::new();
+        let version = self.expected_version.trim().parse::<u64>().ok().filter(|v| *v >= 1);
+        if !valid_attempt(&self.attempt) || version.is_none() {
+            errors.add_form(p.check_attempt());
+        }
+        errors.into_result(DecisionCommand {
+            expected_version: version.unwrap_or_default(),
+            outcome,
+            damage_note: (outcome == Outcome::WrittenOff).then(|| optional(&self.damage_note)),
         })
     }
 }

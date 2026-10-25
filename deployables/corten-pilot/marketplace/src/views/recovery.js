@@ -1,7 +1,7 @@
 // @ts-check
 
 /** The kinds of write the screen sends (`InventoryMutationFamily`). */
-const families = ["location-create", "location-update", "location-archive"];
+const families = ["location-create", "location-update", "location-archive", "restock-record"];
 
 /** marketplace's sessionStorage key for an account's pending write of one kind. */
 function key(/** @type {string} */ account, /** @type {string} */ family) {
