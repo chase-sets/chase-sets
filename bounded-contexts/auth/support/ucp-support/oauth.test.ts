@@ -1903,9 +1903,15 @@ describe("UCP OAuth routes", () => {
 describe("operator scopes refused until the sign-in gate", () => {
   const redirectUri = "https://agent.example/callback";
   const challenge = pkceChallenge("synthetic-verifier");
-  const operatorFixture = (requestActor: typeof actor) => {
+  const operatorFixture = (
+    requestActor: typeof actor,
+    operatorAuthority?: (requestActor: typeof actor) => Promise<unknown>,
+  ) => {
     const resolveActor = vi.fn(async () => requestActor);
     const options = createOAuthOptions({ resolveActor });
+    if (operatorAuthority) {
+      (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority };
+    }
     const db = options.auth.db as unknown as ReturnType<typeof createAuthorizationCodeDb>;
     return { resolveActor, db, app: new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options)) };
   };
@@ -2027,6 +2033,213 @@ describe("operator scopes refused until the sign-in gate", () => {
     await expect(consent.json()).resolves.toMatchObject({
       consent: { scopes: ["operations:write"], operatorGrantExpiresAt: expect.any(String) },
     });
+
+    const approved = await app.request("/ucp/oauth/authorize", {
+      method: "POST",
+      body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+      headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(approved.status).toBe(302);
+    const code = new URL(approved.headers.get("location")!, "http://localhost").searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code!,
+        redirect_uri: redirectUri,
+        code_verifier: "synthetic-verifier",
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(token.status).toBe(200);
+    await expect(token.json()).resolves.toMatchObject({
+      token_type: "Bearer",
+      scope: "operations:write",
+      access_token: expect.stringMatching(/^ucp_at_/),
+      refresh_token: expect.stringMatching(/^ucp_rt_/),
+    });
+  });
+
+  it("rechecks a configured authority denial at authorize, consent read, and consent POST", async () => {
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    let state: "granted" | "denied" = "denied";
+    const authority = vi.fn(async () =>
+      state === "granted"
+        ? {
+            kind: "granted" as const,
+            membershipId: "member_1",
+            roleKey: "platform-admin" as const,
+            rolePermissions: [],
+          }
+        : { kind: "denied" as const, reason: "inactive" as const },
+    );
+    const options = createOAuthOptions({ resolveActor: async () => freshActor });
+    (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority: authority };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+
+    const refusedAtAuthorize = await app.request(
+      authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }),
+    );
+    expect(refusedAtAuthorize.status).toBe(400);
+    await expect(refusedAtAuthorize.json()).resolves.toMatchObject({ error: "invalid_scope" });
+
+    state = "granted";
+    const started = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(started.status).toBe(302);
+    const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+      "consent_token",
+    )!;
+
+    state = "denied";
+    const read = await app.request(`/ucp/oauth/consent?consent_token=${consentToken}`);
+    expect(read.status).toBe(400);
+    await expect(read.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    const approved = await app.request("/ucp/oauth/authorize", {
+      method: "POST",
+      body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+      headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(approved.status).toBe(400);
+    await expect(approved.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    expect(authority.mock.calls.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("fails closed when a configured operator authority throws", async () => {
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    const authority = vi.fn(async () => {
+      throw new Error("synthetic authority failure");
+    });
+    const { app, db } = operatorFixture(freshActor, authority);
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const response = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    expect(db.consents.size).toBe(0);
+    expect(authority).toHaveBeenCalledOnce();
+  });
+
+  it("requires recent interactive authentication for configured operator authority", async () => {
+    const staleActor = {
+      ...actor,
+      roleKey: "platform-admin",
+      authenticatedAt: new Date(Date.now() - 11 * 60 * 1_000).toISOString(),
+    };
+    const authority = vi.fn(async () => ({
+      kind: "granted" as const,
+      membershipId: "member_1",
+      roleKey: "platform-admin" as const,
+      rolePermissions: [],
+    }));
+    const { app, db } = operatorFixture(staleActor, authority);
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const response = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(response.status).toBe(302);
+    expect(new URL(response.headers.get("location")!, "http://localhost").pathname).toBe("/sign-in");
+    expect(db.consents.size).toBe(0);
+    expect(authority).toHaveBeenCalledOnce();
+  });
+
+  it("caps mixed-scope refresh lifetime and rejects rotation and bearer use at the seven-day boundary", async () => {
+    vi.useFakeTimers();
+    try {
+      const baseline = new Date("2026-01-01T00:00:00.000Z");
+      vi.setSystemTime(baseline);
+      const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: baseline.toISOString() };
+      const authority = async () => ({
+        kind: "granted" as const,
+        membershipId: "member_1",
+        roleKey: "platform-admin" as const,
+        rolePermissions: [],
+      });
+      const linkedPlatformAuthorizations = createLinkedStore({ enforceExpiry: true });
+      const options = createOAuthOptions({
+        linkedPlatformAuthorizations: linkedPlatformAuthorizations as unknown as Parameters<
+          typeof createUcpOAuthRoutes
+        >[0]["linkedPlatformAuthorizations"],
+        resolveActor: async () => freshActor,
+      });
+      (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority: authority };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const registration = await registerClient(app, {
+        redirect_uris: [redirectUri],
+        scope: "catalog:read operations:write",
+      });
+      const { client_id: clientId } = (await registration.json()) as { client_id: string };
+      const started = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri,
+          scope: "catalog:read operations:write",
+          challenge,
+        }),
+      );
+      const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+        "consent_token",
+      )!;
+      const approved = await app.request("/ucp/oauth/authorize", {
+        method: "POST",
+        body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+        headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+      });
+      const code = new URL(approved.headers.get("location")!, "http://localhost").searchParams.get("code")!;
+      const tokenResponse = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: "synthetic-verifier",
+        }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const tokenBody = (await tokenResponse.json()) as { access_token: string; refresh_token: string };
+      expect(tokenResponse.status).toBe(200);
+      const [initial] = await linkedPlatformAuthorizations.listForAccount(actor.accountId);
+      expect(initial).toMatchObject({
+        scopes: ["catalog:read", "operations:write"],
+        access_token_expires_at: "2026-01-01T01:00:00.000Z",
+        refresh_token_expires_at: "2026-01-08T00:00:00.000Z",
+        absolute_expires_at: "2026-01-08T00:00:00.000Z",
+      });
+
+      vi.setSystemTime(new Date("2026-01-07T00:00:00.000Z"));
+      const rotatedResponse = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokenBody.refresh_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const rotatedBody = (await rotatedResponse.json()) as { access_token: string; refresh_token: string };
+      expect(rotatedResponse.status).toBe(200);
+      expect(rotatedBody.refresh_token).not.toBe(tokenBody.refresh_token);
+      const [rotated] = await linkedPlatformAuthorizations.listForAccount(actor.accountId);
+      expect(rotated).toMatchObject({
+        access_token_expires_at: "2026-01-07T01:00:00.000Z",
+        refresh_token_expires_at: "2026-01-08T00:00:00.000Z",
+      });
+
+      vi.setSystemTime(new Date("2026-01-08T00:00:00.001Z"));
+      const expiredRefresh = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rotatedBody.refresh_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      expect(expiredRefresh.status).toBe(400);
+      await expect(expiredRefresh.json()).resolves.toMatchObject({ error: "invalid_grant" });
+      const introspection = await app.request("/ucp/oauth/introspect", {
+        method: "POST",
+        body: new URLSearchParams({ token: rotatedBody.access_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      await expect(introspection.json()).resolves.toEqual({ active: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2348,8 +2561,14 @@ function createAuthorizationCodeDb() {
   };
 }
 
-function createLinkedStore() {
+function createLinkedStore({ enforceExpiry = false }: { enforceExpiry?: boolean } = {}) {
   const rows = new Map<string, Record<string, unknown>>();
+  const capAtAbsoluteExpiry = (candidate: string, absolute: unknown) => {
+    if (typeof absolute !== "string") return candidate;
+    return Date.parse(candidate) <= Date.parse(absolute) ? candidate : absolute;
+  };
+  const isUsable = (row: Record<string, unknown>, field: "access_token_expires_at" | "refresh_token_expires_at") =>
+    !enforceExpiry || (typeof row[field] === "string" && Date.parse(row[field] as string) > Date.now());
   return {
     grant: async (params: {
       authorizationId: string;
@@ -2362,8 +2581,10 @@ function createLinkedStore() {
       refreshTokenHash?: string | null;
       accessTokenExpiresAt: string;
       refreshTokenExpiresAt?: string | null;
+      absoluteExpiresAt?: string | null;
       grantedAt: string;
     }) => {
+      const absoluteExpiresAt = params.absoluteExpiresAt ?? null;
       const row = {
         authorization_id: params.authorizationId,
         platform_profile_url: params.platformProfileUrl,
@@ -2374,8 +2595,11 @@ function createLinkedStore() {
         status: "active",
         access_token_hash: params.accessTokenHash,
         refresh_token_hash: params.refreshTokenHash ?? null,
-        access_token_expires_at: params.accessTokenExpiresAt,
-        refresh_token_expires_at: params.refreshTokenExpiresAt ?? null,
+        access_token_expires_at: capAtAbsoluteExpiry(params.accessTokenExpiresAt, absoluteExpiresAt),
+        refresh_token_expires_at: params.refreshTokenExpiresAt
+          ? capAtAbsoluteExpiry(params.refreshTokenExpiresAt, absoluteExpiresAt)
+          : null,
+        absolute_expires_at: absoluteExpiresAt,
         granted_at: params.grantedAt,
         last_refreshed_at: null,
         refresh_token_rotated_at: null,
@@ -2389,7 +2613,14 @@ function createLinkedStore() {
     resolveToken: async (tokenHash: string) =>
       [...rows.values()].find(
         (row) =>
-          row.status === "active" && (row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash),
+          row.status === "active" &&
+          ((row.access_token_hash === tokenHash && isUsable(row, "access_token_expires_at")) ||
+            (row.refresh_token_hash === tokenHash && isUsable(row, "refresh_token_expires_at"))),
+      ) ?? null,
+    resolveAccessToken: async (tokenHash: string) =>
+      [...rows.values()].find(
+        (row) =>
+          row.status === "active" && row.access_token_hash === tokenHash && isUsable(row, "access_token_expires_at"),
       ) ?? null,
     resolveRevocationToken: async (tokenHash: string) =>
       [...rows.values()].find((row) => row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash) ??
@@ -2403,15 +2634,18 @@ function createLinkedStore() {
       refreshedAt: string;
     }) => {
       const row = [...rows.values()].find(
-        (entry) => entry.status === "active" && entry.refresh_token_hash === params.refreshTokenHash,
+        (entry) =>
+          entry.status === "active" &&
+          entry.refresh_token_hash === params.refreshTokenHash &&
+          isUsable(entry, "refresh_token_expires_at"),
       );
       if (!row) {
         return null;
       }
       row.access_token_hash = params.newAccessTokenHash;
       row.refresh_token_hash = params.newRefreshTokenHash;
-      row.access_token_expires_at = params.accessTokenExpiresAt;
-      row.refresh_token_expires_at = params.refreshTokenExpiresAt;
+      row.access_token_expires_at = capAtAbsoluteExpiry(params.accessTokenExpiresAt, row.absolute_expires_at);
+      row.refresh_token_expires_at = capAtAbsoluteExpiry(params.refreshTokenExpiresAt, row.absolute_expires_at);
       row.last_refreshed_at = params.refreshedAt;
       row.refresh_token_rotated_at = params.refreshedAt;
       row.updated_at = params.refreshedAt;
