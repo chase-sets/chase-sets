@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 import {
@@ -16,6 +17,7 @@ import {
   validateCoordinatePreviewUpload,
   writeCoordinatePreviewArtifact,
 } from "./catalog-staging-scrydex-coordinate-preview.mjs";
+import { unzipJsonEntries } from "./release-health-delivery-health.mjs";
 import {
   mergeObservedCoordinatePreviewReceipt,
   runScrydexCoordinatePreview,
@@ -1407,6 +1409,340 @@ describe("artifact *", () => {
     await expect(writeCoordinatePreviewArtifact(receipt(), [], env, workspace, runner)).rejects.toThrow(
       "artifact-directory",
     );
+  });
+});
+
+describe("archive *", () => {
+  const runner = {
+    sha: "a".repeat(40),
+    runId: "123456",
+    runAttempt: "1",
+    journeyScope: "scrydex-coordinate-preview",
+    origin: "admin.staging.chasesets.com",
+  };
+
+  const completeReceipt = () => {
+    const rows = scrydexCacheCaptureUnits.map((unit, index) => {
+      const onePiece = unit.productDomain === "one-piece";
+      const scopeRecordId = onePiece ? "scope-one-piece" : "scope-lorcana";
+      const setName = onePiece ? "One Piece Set" : "Lorcana Set";
+      return {
+        unitKey: unit.unitKey,
+        scopeRecordId,
+        planFingerprint: "d".repeat(64),
+        profileKey: `profile-${index + 1}`,
+        profileVersion: `2026.10.${index + 1}`,
+        mapping: {
+          mappingId: `mapping-${index + 1}`,
+          version: "2026-10-24T08:00:00.000Z",
+          reviewStatus: "accepted",
+          setId: null,
+          setName,
+        },
+        coordinate: setName,
+        cache: {
+          status: "fresh",
+          cacheKey: `sha256:${"c".repeat(64)}`,
+          fetchedAt: "2026-10-24T08:00:00.000Z",
+          expiresAt: "2026-10-24T09:00:00.000Z",
+          staleUntil: "2026-10-25T09:00:00.000Z",
+        },
+        membership: "member",
+      };
+    });
+    const base = mergeObservedCoordinatePreviewReceipt(
+      {
+        runner,
+        deployment: { before: generation, after: generation },
+        startedAt: "2026-10-24T08:00:00.000Z",
+        finishedAt: "2026-10-24T08:30:00.000Z",
+      },
+      {
+        phases: [...scrydexCoordinatePreviewPhases],
+        requests: {
+          signIn: 2,
+          profileReads: 1,
+          scopeInventoryReads: 2,
+          coverageReads: 4,
+          cacheOptionReads: 10,
+          previewPosts: 1,
+          usageReads: 1,
+          forbidden: 0,
+        },
+        usageRead: { count: 1, allowed: true },
+        preview: {
+          planFingerprint: "d".repeat(64),
+          status: "blocked",
+          confirmAllowed: false,
+          resolvedAt: "2026-10-24T08:30:00.000Z",
+          selection: { mode: "ids", scopeRecordIds: ["scope-lorcana", "scope-one-piece"] },
+          samples: ["scope-lorcana", "scope-one-piece"].map((scopeRecordId) => ({
+            scopeRecordId,
+            mappingVersions: scrydexCacheCaptureUnits
+              .filter((unit) =>
+                scopeRecordId === "scope-one-piece"
+                  ? unit.productDomain === "one-piece"
+                  : unit.productDomain === "lorcana",
+              )
+              .map((unit) => ({
+                mappingId: `mapping-${scrydexCacheCaptureUnits.indexOf(unit) + 1}`,
+                version: "2026-10-24T08:00:00.000Z",
+                reviewStatus: "accepted",
+              })),
+            profileVersions: scrydexCacheCaptureUnits
+              .filter((unit) =>
+                scopeRecordId === "scope-one-piece"
+                  ? unit.productDomain === "one-piece"
+                  : unit.productDomain === "lorcana",
+              )
+              .map((unit) => ({
+                providerKey: "scrydex",
+                unitKey: unit.unitKey,
+                profileKey: `profile-${scrydexCacheCaptureUnits.indexOf(unit) + 1}`,
+                profileVersion: `2026.10.${scrydexCacheCaptureUnits.indexOf(unit) + 1}`,
+              })),
+          })),
+          blockers: [],
+        },
+        rows,
+      },
+    );
+    return base;
+  };
+
+  const diagnosticReceipt = () => ({
+    ...completeReceipt(),
+    outcome: "governed-unknown",
+    reasons: ["producer-failed:bracket-changed"],
+  });
+
+  const uploadSteps = () =>
+    coordinateJob(workflow()).steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+
+  const evaluateGate = (condition, outcomes) => {
+    const expression = condition.replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
+    return expression.split(/\s+&&\s+/u).every((term) => {
+      if (/^always\(\)$/u.test(term)) return true;
+      const match = term.match(/^steps\.(capture|receipt)\.outcome\s*(==|!=)\s*'([^']+)'$/u);
+      if (match) {
+        const actual = outcomes[match[1]];
+        return match[2] === "==" ? actual === match[3] : actual !== match[3];
+      }
+      const status = term.match(/^steps\.receipt\.outputs\.capture_status\s*==\s*'([^']+)'$/u);
+      if (status) return outcomes.status === status[1];
+      throw new Error(`unrecognized upload gate term: ${term}`);
+    });
+  };
+
+  const buildZip = (entries) => {
+    const localParts = [];
+    const centralParts = [];
+    let localOffset = 0;
+    for (const { name, bytes, method = 0 } of entries) {
+      const nameBytes = Buffer.from(name);
+      const contents = Buffer.from(bytes);
+      const compressed = method === 8 ? deflateRawSync(contents) : contents;
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt16LE(method, 8);
+      local.writeUInt32LE(compressed.length, 18);
+      local.writeUInt32LE(contents.length, 22);
+      local.writeUInt16LE(nameBytes.length, 26);
+      localParts.push(local, nameBytes, compressed);
+
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(20, 4);
+      central.writeUInt16LE(20, 6);
+      central.writeUInt16LE(method, 10);
+      central.writeUInt32LE(compressed.length, 20);
+      central.writeUInt32LE(contents.length, 24);
+      central.writeUInt16LE(nameBytes.length, 28);
+      central.writeUInt32LE(localOffset, 42);
+      centralParts.push(central, nameBytes);
+      localOffset += local.length + nameBytes.length + compressed.length;
+    }
+    const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(entries.length, 8);
+    end.writeUInt16LE(entries.length, 10);
+    end.writeUInt32LE(centralSize, 12);
+    end.writeUInt32LE(localOffset, 16);
+    return Buffer.concat([...localParts, ...centralParts, end]);
+  };
+
+  const readCanonicalReceipt = (archive) => {
+    const entries = unzipJsonEntries(archive, { include: (name) => name.endsWith(".json") });
+    if (entries.size !== 1 || !entries.has("receipt.json")) throw new Error("archive-receipt-shape");
+    const bytes = entries.get("receipt.json");
+    const candidate = JSON.parse(bytes.toString("utf8"));
+    if (validateScrydexCoordinatePreviewReceipt(candidate).length) throw new Error("archive-receipt-invalid");
+    return candidate;
+  };
+
+  const archiveFromValidatedArtifact = async (candidate) => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({
+      captureStatus: candidate.outcome,
+    });
+    const capturePath = join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "capture.json");
+    const receiptPath = join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "receipt.json");
+    const bytes = readFileSync(capturePath);
+    await rename(capturePath, receiptPath);
+    return { env, workspace, bytes };
+  };
+
+  const assertArchive = (archive, expected) => {
+    const candidate = readCanonicalReceipt(archive);
+    expect(candidate.outcome).toBe(expected.outcome);
+    const [completeUpload, diagnosticUpload] = uploadSteps();
+    expect(evaluateGate(completeUpload.if, expected.gate)).toBe(expected.completeGate);
+    expect(evaluateGate(diagnosticUpload.if, expected.gate)).toBe(expected.diagnosticGate);
+    return candidate;
+  };
+
+  it("archive complete: accepts only the validated root receipt and complete gate", async () => {
+    const { bytes } = await archiveFromValidatedArtifact(completeReceipt());
+    const archive = buildZip([{ name: "receipt.json", bytes, method: 8 }]);
+    const expectedPath = "artifacts/catalog-scrydex-coordinate-preview/receipt.json";
+    expect(uploadSteps()[0].with.path).toBe(expectedPath);
+    const pathMutant = workflow();
+    const pathMutantUpload = coordinateJob(pathMutant).steps.find((step) =>
+      step.uses?.startsWith("actions/upload-artifact@"),
+    );
+    pathMutantUpload.with.path = "artifacts";
+    expect(() => expect(pathMutantUpload.with.path).toBe(expectedPath)).toThrow();
+    expect(
+      assertArchive(archive, {
+        outcome: "complete",
+        gate: { capture: "success", receipt: "success", status: "complete" },
+        completeGate: true,
+        diagnosticGate: false,
+      }),
+    ).toMatchObject({ outcome: "complete" });
+
+    const directoryUpload = buildZip([{ name: "catalog-scrydex-coordinate-preview/receipt.json", bytes }]);
+    expect(() =>
+      assertArchive(directoryUpload, {
+        outcome: "complete",
+        gate: { capture: "success", receipt: "success", status: "complete" },
+        completeGate: true,
+        diagnosticGate: false,
+      }),
+    ).toThrow("archive-receipt-shape");
+  });
+
+  it("archive governed-unknown: keeps diagnostics separate from complete", async () => {
+    const { bytes } = await archiveFromValidatedArtifact(diagnosticReceipt());
+    const archive = buildZip([{ name: "receipt.json", bytes }]);
+    expect(
+      assertArchive(archive, {
+        outcome: "governed-unknown",
+        gate: { capture: "failure", receipt: "success", status: "governed-unknown" },
+        completeGate: false,
+        diagnosticGate: true,
+      }),
+    ).toMatchObject({ outcome: "governed-unknown" });
+
+    const sharedName = uploadSteps()[0].with.name;
+    expect(uploadSteps()[1].with.name).toContain("-diagnostic-");
+    const mutant = workflow();
+    const uploads = coordinateJob(mutant).steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    uploads[1].with.name = sharedName;
+    expect(() => expect(uploads[1].with.name).toContain("-diagnostic-")).toThrow();
+  });
+
+  it("archive wrong-directory: refuses a noncanonical directory and nested archive entry", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const bytes = Buffer.from(JSON.stringify(completeReceipt()));
+    await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview"), { recursive: true });
+    await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview-other"), { recursive: true });
+    await writeFile(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview-other", "receipt.json"), bytes);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    const archive = buildZip([{ name: "catalog-scrydex-coordinate-preview-other/receipt.json", bytes }]);
+    expect(() => readCanonicalReceipt(archive)).toThrow("archive-receipt-shape");
+    expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes }]))).not.toThrow();
+    const basenameMutant = unzipJsonEntries(archive);
+    expect(JSON.parse(basenameMutant.values().next().value.toString("utf8"))).toMatchObject({ outcome: "complete" });
+  });
+
+  it("archive duplicate-candidate: rejects a second receipt candidate and one-entry mutant", async () => {
+    const { bytes, workspace, env } = await archiveFromValidatedArtifact(completeReceipt());
+    await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "nested"), { recursive: true });
+    await writeFile(
+      join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "nested", "receipt.json"),
+      bytes,
+    );
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    const archive = buildZip([
+      { name: "receipt.json", bytes },
+      { name: "nested/receipt.json", bytes },
+    ]);
+    expect(() => readCanonicalReceipt(archive)).toThrow("archive-receipt-shape");
+    expect(readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes }]))).toMatchObject({ outcome: "complete" });
+    const oneEntryMutant = unzipJsonEntries(archive, { include: (name) => name === "receipt.json" });
+    expect(JSON.parse(oneEntryMutant.get("receipt.json").toString("utf8"))).toMatchObject({ outcome: "complete" });
+  });
+
+  it("archive missing-receipt: rejects a valid payload under a noncanonical JSON name", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const bytes = Buffer.from(JSON.stringify(completeReceipt()));
+    await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview"), { recursive: true });
+    await writeFile(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "notes.json"), bytes);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    expect(() => readCanonicalReceipt(buildZip([{ name: "notes.json", bytes }]))).toThrow("archive-receipt-shape");
+    const basenameMutant = unzipJsonEntries(buildZip([{ name: "notes.json", bytes }]));
+    expect(JSON.parse(basenameMutant.values().next().value.toString("utf8"))).toMatchObject({ outcome: "complete" });
+  });
+
+  it("archive malformed-receipt: rejects truncated and schema-invalid payloads", async () => {
+    const malformed = Buffer.from('{"schemaVersion":"scrydex-coordinate-preview/v1"');
+    expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes: malformed }]))).toThrow(SyntaxError);
+
+    const malformedWorkspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(malformedWorkspace);
+    const malformedEnv = runnerEnv();
+    directories.push(malformedEnv.RUNNER_TEMP);
+    const malformedDirectory = join(malformedWorkspace, "artifacts", "catalog-scrydex-coordinate-preview");
+    await mkdir(malformedDirectory, { recursive: true });
+    await mkdir(malformedEnv.RUNNER_TEMP, { recursive: true });
+    await writeFile(join(malformedDirectory, "capture.json"), malformed);
+    await writeFile(
+      join(malformedEnv.RUNNER_TEMP, "catalog-scrydex-coordinate-preview-seal.json"),
+      JSON.stringify({ identity: runner, sha256: createHash("sha256").update(malformed).digest("hex") }),
+    );
+    await expect(validateCoordinatePreviewUpload(malformedEnv, malformedWorkspace)).rejects.toThrow(SyntaxError);
+
+    const invalid = Buffer.from(JSON.stringify({ ...completeReceipt(), unexpected: true }));
+    expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes: invalid }]))).toThrow(
+      "archive-receipt-invalid",
+    );
+    const invalidWorkspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(invalidWorkspace);
+    const invalidEnv = runnerEnv();
+    directories.push(invalidEnv.RUNNER_TEMP);
+    const invalidDirectory = join(invalidWorkspace, "artifacts", "catalog-scrydex-coordinate-preview");
+    await mkdir(invalidDirectory, { recursive: true });
+    await mkdir(invalidEnv.RUNNER_TEMP, { recursive: true });
+    await writeFile(join(invalidDirectory, "capture.json"), invalid);
+    await writeFile(
+      join(invalidEnv.RUNNER_TEMP, "catalog-scrydex-coordinate-preview-seal.json"),
+      JSON.stringify({ identity: runner, sha256: createHash("sha256").update(invalid).digest("hex") }),
+    );
+    await expect(validateCoordinatePreviewUpload(invalidEnv, invalidWorkspace)).rejects.toThrow("artifact-invalid");
+    expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes: invalid }]))).toThrow();
   });
 });
 
