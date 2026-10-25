@@ -2766,7 +2766,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { capture, binding };
   }
 
-  function currentBaseline() {
+  function currentBaseline(): BootstrapDbWorkloadBaseline {
     const baseline = readWorkloadBaseline(readCurrentCapture().capture.provenance);
     const packageJson = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
       scripts: Record<string, string>;
@@ -2795,7 +2795,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
     return {
       ...baseline,
-      bindings: replaced,
+      bindings: [...replaced],
       bindingsSha256: sha256Of(canonicalJson(replaced)),
     };
   }
