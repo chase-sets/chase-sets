@@ -443,6 +443,43 @@ impl SellList for Caller<'_> {
     }
 }
 
+/// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
+/// value, `x-discovery-anonymous-product-alert-id`).
+pub const ANONYMOUS_PRODUCT_ALERT_HEADER: &str = "x-discovery-anonymous-product-alert-id";
+
+/// A guest's saved Watch alert (`AnonymousProductAlertIntent`), which an account claims after
+/// registering; the pilot reads only its id.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AlertIntent {
+    pub intent_id: String,
+}
+
+/// The Discovery API's Product Alert calls (`/account/product-alerts`,
+/// `/guest/product-alert-intents`).
+pub trait ProductAlerts {
+    /// Creates the account's alert (`CreateProductAlertRequest`). The API checks nothing against
+    /// the catalog (chase-sets/chase-sets#10595) and creates a new alert for each call
+    /// (chase-sets/chase-sets#10596). The answer is the write's receipt.
+    async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError>;
+    /// Saves a guest's alert as an intent owned by `guest` (the same fields and `sourcePath`).
+    async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError>;
+}
+
+impl ProductAlerts for Caller<'_> {
+    async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError> {
+        let req = self.request(Method::POST, "/api/marketplace/account/product-alerts", DISCOVERY).json(alert);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/marketplace/guest/product-alert-intents", DISCOVERY)
+            .header(ANONYMOUS_PRODUCT_ALERT_HEADER, guest)
+            .json(alert);
+        Ok(self.write::<AlertIntent>(req).await?.0)
+    }
+}
+
 /// What a seller would be paid for a sale at a price under the public standard seller terms
 /// (`MarketplacePublicStandardTermsPreview`): the fee and the net, each for one unit.
 #[derive(Clone, Debug, Deserialize, Serialize)]

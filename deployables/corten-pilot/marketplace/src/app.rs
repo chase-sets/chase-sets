@@ -159,6 +159,25 @@ pub mod url {
         pub slug: &'a str,
     }
 
+    /// Set a Watch alert for the product the item page shows: an account's alert, or a guest's
+    /// intent and then marketplace's registration.
+    #[derive(Route)]
+    #[route("/items/{slug}/watch")]
+    pub struct ItemWatch<'a> {
+        pub slug: &'a str,
+    }
+
+    /// The item on its Watch tab after Set alert: the page says the alert was saved, with the
+    /// write's receipt (empty for none).
+    #[derive(Route)]
+    #[route("/items/{slug}")]
+    pub struct ItemWatched<'a> {
+        pub slug: &'a str,
+        #[route(query)]
+        pub state: crate::items::Address,
+        pub watched: &'a str,
+    }
+
     /// The item after Add to cart: the page says so, with the write's receipt (empty for none).
     #[derive(Route)]
     #[route("/items/{slug}")]

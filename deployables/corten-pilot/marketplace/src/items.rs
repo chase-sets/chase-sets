@@ -40,11 +40,14 @@ use crate::{
     buying::{self, ADDED, BuyNotice},
     selling,
     text::ItemMsg,
-    views,
+    views, watching,
 };
 
 pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    selling::routes(buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared), shared)
+    watching::routes(
+        selling::routes(buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared), shared),
+        shared,
+    )
 }
 
 /// The side of the market the page shows (`MarketIntent`).
@@ -697,7 +700,11 @@ async fn page(
     }
     let address = Address::read(&raw);
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
-    let notice = raw.get(ADDED).and_then(|v| v.all().first()).map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)));
+    let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
+    // After Set alert, the page says so; the alerts' settings wait for the write's receipt.
+    let notice = first(ADDED)
+        .map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)))
+        .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))));
     let terms = offer_terms(&req, &caller, &item, &address).await;
     render(&req, item, &address, notice.as_ref(), StatusCode::OK, terms)
 }

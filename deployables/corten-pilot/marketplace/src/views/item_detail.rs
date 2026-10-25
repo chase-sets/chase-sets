@@ -17,6 +17,7 @@ use crate::{
     },
     selling::{self, SellForm, SellIntent},
     text::{ItemMsg, Pilot},
+    watching::{self, Side},
 };
 
 /// The host Chase Sets' production marketplace answers on: only its pages get structured data
@@ -361,18 +362,17 @@ fn Stale<'a>(title: &'a str, text: &'a str) -> impl Render {
     }
 }
 
-/// Buy, Sell or Watch (`SegmentedControl` "Choose market intent"). Watching is a product alert,
-/// which the pilot has not ported, so Watch is marketplace's page.
+/// Buy, Sell or Watch (`SegmentedControl` "Choose market intent"), each a link to the same page
+/// on that side.
 #[component(css = ItemDetail)]
 fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let link = move |market: Market| url::Item { slug, state: address.with_market(market) }.href();
-    let watch = on_marketplace(&url::Item { slug, state: address.with_market(Market::Watch) }.href());
     let current = move |market: Market| (screen.market == market).then_some("true");
     html! {
         <nav class={Segmented} aria-label={t.page_choose_market_intent()}>
             <a class={Segment} href={&link(Market::Buy)} aria-current={current(Market::Buy)}>{t.page_buy()}</a>
             <a class={Segment} href={&link(Market::Sell)} aria-current={current(Market::Sell)}>{t.page_sell()}</a>
-            <a class={Segment} href={&watch}>{t.page_watch()}</a>
+            <a class={Segment} href={&link(Market::Watch)} aria-current={current(Market::Watch)}>{t.page_watch()}</a>
         </nav>
     }
 }
@@ -621,9 +621,11 @@ fn Rail<'a>(
 ) -> impl Render {
     let p = Pilot::default();
     let sell = screen.market == Market::Sell;
-    let listing = (!sell).then(|| screen.selected_listing()).flatten();
+    let watch = screen.market == Market::Watch;
+    let listing = (screen.market == Market::Buy).then(|| screen.selected_listing()).flatten();
     let offer = sell.then(|| screen.selected_offer()).flatten();
     let title = match (listing, offer) {
+        _ if watch => t.route_watch(),
         (Some(_), _) if screen.listing_explicit => t.page_selected_listing(),
         (Some(_), _) => t.route_best_available_listing(),
         (_, Some(_)) if screen.offer_explicit => t.route_selected_offer_heading(),
@@ -814,6 +816,9 @@ fn Rail<'a>(
             if sell {
                 <SellForms t={t} screen={screen} page={&page} slug={slug} notice={notice} />
             }
+            if watch {
+                <WatchForms t={t} screen={screen} page={&page} slug={slug} notice={notice} />
+            }
             <p><a class={(Button, Wide)} href={&continue_on}>{p.item_continue_on_marketplace()}</a></p>
         </section>
     }
@@ -950,6 +955,113 @@ fn SellForms<'a>(
                     </button>
                 </form>
             </details>
+        }
+    }
+}
+
+/// The Watch tab's forms (marketplace's `WatchActionCard`): Watch listings (a maximum listing
+/// price) and Watch offers (a minimum offer price), each folded in a `<details>` (listings open),
+/// for the product chosen. A guest registers to save the alert. Plain forms (`watching`).
+#[component(css = ItemDetail)]
+fn WatchForms<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    page: &'a [(String, String)],
+    slug: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render {
+    let p = Pilot::default();
+    let product = screen.product_id.as_deref();
+    let refused = match notice {
+        Some(BuyNotice::WatchRefused { message, input }) => Some((message.as_str(), input)),
+        _ => None,
+    };
+    let from = move |side: Side| refused.filter(|(_, i)| i.side == side);
+    let currency = screen.summary.lowest_price_currency_code.as_deref().unwrap_or("USD");
+    let action = url::ItemWatch { slug }.href();
+    let open_offers = from(Side::Offer).is_some();
+    let sides = [
+        (
+            Side::Listing,
+            t.route_watch_listings(),
+            t.route_watch_listings_description(),
+            t.route_alert_maximum_listing_price(),
+            t.route_set_listing_alert(),
+            "25.00",
+            !open_offers,
+        ),
+        (
+            Side::Offer,
+            t.route_watch_offers(),
+            t.route_watch_offers_description(),
+            t.route_alert_minimum_offer_price(),
+            t.route_set_offer_alert(),
+            "15.00",
+            open_offers,
+        ),
+    ];
+    html! {
+        <p class={Muted}>{t.route_watch_card_description()}</p>
+        if let Some(BuyNotice::Watched(alerts)) = notice {
+            <div class={(Banner, Added)} role="status">
+                <p class={Strong}>{p.item_watch_saved()}</p>
+                <p>{p.item_watch_saved_description()}</p>
+                <p><a class={Button} href={alerts}>{p.item_manage_alerts()}</a></p>
+            </div>
+        }
+        if let Some(product) = product {
+            for (side, title, help, label, set, placeholder, open) in sides {
+                <details class={ProductBuy} open={open}>
+                    <summary>
+                        <span class={Strong}>{title}</span>
+                        <span class={Muted}>{help}</span>
+                    </summary>
+                    <form class={Buy} method="post" action={&action}>
+                        <Hidden pairs={page} />
+                        <input type="hidden" name={watching::field::PRODUCT} value={product}>
+                        <input type="hidden" name={watching::field::SIDE} value={side.as_str()}>
+                        if screen.viewer_account_id.is_none() {
+                            <p class={Muted}>{t.route_reference_info_watch_listings_line1()}</p>
+                        }
+                        if let Some((message, _)) = from(side) {
+                            <p class={Error} role="alert">{message}</p>
+                        }
+                        <div class={OfferFields}>
+                            <div class={QuantityField}>
+                                <label class={Label} for={&format!("watch-{}-price", side.as_str())}>{label}</label>
+                                <input
+                                    id={&format!("watch-{}-price", side.as_str())}
+                                    type="number"
+                                    name={watching::field::THRESHOLD}
+                                    min="0"
+                                    step="0.01"
+                                    inputmode="decimal"
+                                    placeholder={placeholder}
+                                    value={from(side).map(|(_, i)| i.threshold.as_str())}
+                                >
+                            </div>
+                            <div class={QuantityField}>
+                                <label class={Label} for={&format!("watch-{}-currency", side.as_str())}>
+                                    {t.route_listing_price_currency_code()}
+                                </label>
+                                <input
+                                    id={&format!("watch-{}-currency", side.as_str())}
+                                    type="text"
+                                    name={watching::field::CURRENCY}
+                                    minlength="3"
+                                    maxlength="3"
+                                    autocapitalize="characters"
+                                    placeholder={t.route_listing_price_currency_code_placeholder()}
+                                    value={from(side).map_or(currency, |(_, i)| i.currency.as_str())}
+                                >
+                            </div>
+                        </div>
+                        <button type="submit" class={(Button, (side == Side::Listing).then_some(Primary))}>{set}</button>
+                    </form>
+                </details>
+            }
+        } else {
+            <p class={Muted}>{t.route_product_intent_choose_options_guidance()}</p>
         }
     }
 }

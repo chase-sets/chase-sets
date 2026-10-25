@@ -235,6 +235,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
+            // An account that may save Watch alerts.
+            "watcher" => actor(&["accounts.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -255,6 +257,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = sell_list(&method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = product_alerts(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if uri.path() == CART {
@@ -523,6 +528,33 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "13".to_owned()), ("chase-sets-commit-receipt", receipt)];
     Some((StatusCode::CREATED, headers, Json(json!({ "id": "sll_new", "version": 1, "status": "added" }))).into_response())
+}
+
+const ACCOUNT_ALERTS: &str = "/api/marketplace/account/product-alerts";
+const GUEST_ALERT_INTENTS: &str = "/api/marketplace/guest/product-alert-intents";
+
+/// A Product Alert's create and a guest's intent, as the stand-in answers them: an alert whose
+/// threshold is `999.99` is refused as the API refuses a bad one; the rest are created at position
+/// 21, and a guest's intent (which needs its owner) is `pai_1`.
+fn product_alerts(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if *method != Method::POST || (path != ACCOUNT_ALERTS && path != GUEST_ALERT_INTENTS) {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if sent["thresholdAmount"] == "999.99" {
+        return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Price threshold is too high for this stand-in."));
+    }
+    if path == GUEST_ALERT_INTENTS {
+        let owner = headers.get("x-discovery-anonymous-product-alert-id").and_then(|v| v.to_str().ok());
+        if !owner.is_some_and(|o| o.starts_with("anon_")) {
+            return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Anonymous Product Alert owner is required."));
+        }
+        return Some(Json(json!({ "intent_id": "pai_1", "status": "active" })).into_response());
+    }
+    let receipt = r#"[{"sourceContextName":"discovery","maxGlobalPosition":"21","eventIds":["evt_alert"]}]"#;
+    let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "21".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    Some((StatusCode::CREATED, headers, Json(json!({ "id": "pal_new", "version": 1, "status": "active" }))).into_response())
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -2220,4 +2252,156 @@ async fn an_account_takes_an_offer_as_a_seller_and_needs_to_manage_offers() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].path, ACCOUNT_SELL_LIST);
     assert!(!sent[0].headers.contains_key("x-checkout-anonymous-sell-list-id"));
+}
+
+const WATCH_PAGE: &str = "/items/charizard?market=watch&dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
+const WATCH: &str = "/items/charizard/watch";
+
+/// A Watch form's body: the page's address, the product it showed, the side and the threshold.
+fn watch_body(side: &str, threshold: &str, currency: &str) -> String {
+    format!(
+        "market=watch&dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&product={}&side={side}&threshold={threshold}&currency={currency}",
+        crate::api::segment(OFFERED)
+    )
+}
+
+/// The calls to the alert API, in order.
+fn alert_calls(pilot: &Pilot) -> Vec<Call> {
+    let paths = [ACCOUNT_ALERTS, GUEST_ALERT_INTENTS];
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| paths.contains(&c.path.as_str())).cloned().collect()
+}
+
+#[tokio::test]
+async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(WATCH_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // Watch is a tab of this page now, current on it.
+    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true">Watch</a>"#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Watch listings Listings at or below your target."), "{page}");
+    assert!(page.contains("Watch offers Offers at or above your target."), "{page}");
+    assert!(page.contains("Alerts are created after account registration"), "a guest is told: {page}");
+    assert_eq!(html.matches(r#"action="/items/charizard/watch""#).count(), 2, "{html}");
+    assert!(html.contains(r#"name="side" value="listing""#) && html.contains(r#"name="side" value="offer""#), "{html}");
+    assert!(
+        html.contains(r#"<label class="item-detail__label" for="watch-listing-price">Maximum listing price</label>"#),
+        "{html}"
+    );
+    assert!(html.contains(r#"<label class="item-detail__label" for="watch-offer-price">Minimum offer price</label>"#), "{html}");
+    assert!(html.contains(r#"id="watch-listing-price" type="number" name="threshold" min="0" step="0.01""#), "{html}");
+    // Listings are open, offers folded; the currency starts as the listings'.
+    assert!(html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch listings")), "{html}");
+    assert!(
+        html.contains(
+            r#"name="currency" minlength="3" maxlength="3" autocapitalize="characters" placeholder="ISO 4217" value="USD""#
+        ),
+        "{html}"
+    );
+    // The rail is the Watch card, not a listing to buy: no price, no buy forms.
+    assert!(html.contains(r#"id="rail-title">Watch</h2>"#), "{html}");
+    assert!(!html.contains(r#"action="/items/charizard/cart""#) && !text(&html).contains("Best available listing"), "{html}");
+}
+
+#[tokio::test]
+async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_says_so() {
+    let pilot = Pilot::new().await;
+    let body = format!("{}&productSummary=SPOOFED", watch_body("offer", "15", "usd"));
+    let (status, headers, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/items/charizard?market=watch&dimension.dim_condition=chc_nm&dimension.dim_form=chc_raw&watched=%7B"),
+        "back on the Watch tab with the receipt: {to}"
+    );
+    let calls = alert_calls(&pilot);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0].path, ACCOUNT_ALERTS);
+    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "marketSide": "offer", "catalogItemId": "cat_charizard", "productId": OFFERED,
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Raw / Near Mint", "thresholdAmount": "15.00", "thresholdCurrencyCode": "USD",
+        })
+    );
+    // The page after it says the alert was saved, with the alerts' settings after the write.
+    let (_, _, html) = pilot.send(get(to, Some("watcher"))).await;
+    assert!(
+        text(&html).contains("Watch alert saved We will notify you when this product matches your alert. Manage alerts"),
+        "{html}"
+    );
+    assert!(
+        html.contains(
+            r#"href="http://localhost:7753/account/notifications?view=settings&amp;section=product-alerts&amp;afterWrite=%7B"#
+        ),
+        "{html}"
+    );
+    assert!(!text(&html).contains("Alerts are created after account registration"), "an account is not told to register: {html}");
+
+    // No threshold is an alert without one, whatever the currency says.
+    let (status, _, _) = pilot.send(post(WATCH, "watcher", &watch_body("listing", "", "USD"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent: Value = serde_json::from_str(&alert_calls(&pilot)[1].body).unwrap();
+    assert_eq!(
+        (&sent["marketSide"], &sent["thresholdAmount"], &sent["thresholdCurrencyCode"]),
+        (&json!("listing"), &Value::Null, &Value::Null)
+    );
+}
+
+#[tokio::test]
+async fn a_watch_alert_marketplace_would_not_take_is_refused_in_its_own_form() {
+    let pilot = Pilot::new().await;
+    for (threshold, currency) in [("1.234", "USD"), ("-1", "USD"), ("5", "US"), ("5", "")] {
+        let (status, _, html) = pilot.send(post(WATCH, "watcher", &watch_body("offer", threshold, currency), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{threshold} {currency}");
+        assert!(text(&html).contains("Enter a target price of $0.00 or more using dollars and cents."), "{html}");
+        // The offers' form is open with what was typed, on the Watch tab.
+        assert!(
+            html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch offers")),
+            "{html}"
+        );
+        assert!(html.contains(&format!(r#"id="watch-offer-price" type="number" name="threshold" min="0" step="0.01" inputmode="decimal" placeholder="15.00" value="{threshold}""#)), "{html}");
+    }
+    // The API's own refusal is shown the same way.
+    let (status, _, html) = pilot.send(post(WATCH, "watcher", &watch_body("listing", "999.99", "USD"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Price threshold is too high for this stand-in."), "{html}");
+    // A product the page no longer shows saves nothing.
+    let body = watch_body("listing", "5", "USD").replace(&crate::api::segment(OFFERED), "cat_charizard%3A%3Aother");
+    let (status, _, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose every required product option"), "{html}");
+    // An account that may not have alerts (a buyer without accounts.view) is told so.
+    let (status, _, html) = pilot.send(post(WATCH, "buyer", &watch_body("listing", "5", "USD"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot create Product Alerts."), "{html}");
+    assert_eq!(alert_calls(&pilot).len(), 1, "only the stand-in's refusal reached the API");
+}
+
+#[tokio::test]
+async fn a_guest_saves_a_watch_alert_as_an_intent_and_registers_to_claim_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(WATCH, &watch_body("listing", "300", "USD"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Fitems%2Fcharizard%3Fmarket%3Dwatch%26claimProductAlertIntent%3Dpai_1"
+    );
+    let set = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(set.starts_with("chase_sets_anonymous_product_alerts=anon_cmd_") && set.contains("Max-Age=2592000"), "{set}");
+    let owner = set.split(';').next().unwrap().split_once('=').unwrap().1.to_owned();
+    let calls = alert_calls(&pilot);
+    assert_eq!(calls[0].path, GUEST_ALERT_INTENTS);
+    assert_eq!(calls[0].headers["x-discovery-anonymous-product-alert-id"], owner.as_str());
+    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    assert_eq!((&sent["sourcePath"], &sent["thresholdAmount"]), (&json!("/items/charizard?market=watch"), &json!("300.00")));
+    // The same browser keeps its owner.
+    let mut again = post_signed_out(WATCH, &watch_body("offer", "", "USD"));
+    again.headers_mut().insert(header::COOKIE, format!("chase_sets_anonymous_product_alerts={owner}").parse().unwrap());
+    let (status, headers, _) = pilot.send(again).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::SET_COOKIE].to_str().unwrap().starts_with(&format!("chase_sets_anonymous_product_alerts={owner};")));
+    assert_eq!(alert_calls(&pilot)[1].headers["x-discovery-anonymous-product-alert-id"], owner.as_str());
 }

@@ -198,6 +198,10 @@ pub enum BuyNotice {
     /// A sell form's write did not apply, for this reason (`selling`); `form` shows it and the
     /// quantity typed.
     SellRefused { message: String, form: crate::selling::SellForm, quantity: String },
+    /// A Watch alert was saved; the alerts' settings, which wait for the write.
+    Watched(String),
+    /// A Watch form's alert was not saved, for this reason (`watching`); `input` is what was typed.
+    WatchRefused { message: String, input: crate::watching::WatchInput },
 }
 
 /// A cart line as an item page adds it (`AddCheckoutCartLineRequest`): the catalog's words and

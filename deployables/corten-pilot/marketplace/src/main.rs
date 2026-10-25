@@ -17,6 +17,7 @@ mod restock;
 mod selling;
 mod text;
 mod views;
+mod watching;
 
 #[cfg(test)]
 mod tests;
