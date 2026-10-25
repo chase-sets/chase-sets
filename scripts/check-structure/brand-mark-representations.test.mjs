@@ -289,6 +289,8 @@ export const committedCallers = [
   "deployables/marketplace/app/routes/manifest.ts",
   "deployables/marketplace/app/routes/ssr.test.tsx",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40078269313.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40165642883-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40165642883.json",
   "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
   "packages/design-system/COMPONENT_INDEX.md",
