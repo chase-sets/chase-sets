@@ -4,6 +4,7 @@ import {
   cartReadinessDecisionsFromSnapshot,
   cartReadinessLineHasFulfillment,
   createCartReadinessSnapshot,
+  createCartReadinessRead,
   parseCartReadinessDecisionInput,
   validateCartReadinessSnapshot,
   type CartReadinessLine,
@@ -324,6 +325,33 @@ describe("cart readiness snapshots", () => {
     ]);
     expect(snapshot.fulfillmentGroups).toEqual([]);
     expect(snapshot.customerSafeFacts).toContain("Cart items use different currencies.");
+  });
+
+  it("projects declined subtotal, blocked count, and accepted optimization from one cart read", () => {
+    const read = createCartReadinessRead([readyLine]);
+
+    expect(read.loaded.status).toBe("ready");
+    expect(read.declined.status).toBe("ready");
+    expect(read.accepted).toBeNull();
+    expect(read.estimatedSubtotal).toEqual({ amount: "25.00", currency: "USD" });
+    expect(read.blockedLineCount).toBe(0);
+    expect(read.savings).toBeNull();
+  });
+
+  it("fails closed for unresolved and mixed-currency carts", () => {
+    const unresolved = createCartReadinessRead([{ ...readyLine, availability_state: "unavailable" }]);
+    const eurLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_eur_read",
+      locked_listing_id: "lst_eur_read",
+      seller_options: [{ ...readyLine.seller_options[0]!, listing_id: "lst_eur_read", price_currency_code: "EUR" }],
+    };
+    const mixed = createCartReadinessRead([readyLine, eurLine]);
+
+    expect(unresolved.blockedLineCount).toBe(1);
+    expect(unresolved.estimatedSubtotal).toBeNull();
+    expect(mixed.blockedLineCount).toBe(2);
+    expect(mixed.estimatedSubtotal).toBeNull();
   });
 
   it("locks Smart Match lines to the readiness-selected listing before checkout starts", () => {

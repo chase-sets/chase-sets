@@ -1,4 +1,5 @@
 import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
+import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 
 export type CartReadinessAvailabilityState = "available" | "unavailable" | "changed" | "waiting-for-supply";
 
@@ -99,6 +100,15 @@ export type CartReadinessSnapshot = Readonly<{
   }>;
   fulfillmentGroups: readonly CartReadinessFulfillmentGroup[];
   customerSafeFacts: readonly string[];
+}>;
+
+export type CartReadinessRead = Readonly<{
+  loaded: CartReadinessSnapshot;
+  declined: CartReadinessSnapshot;
+  accepted: CartReadinessSnapshot | null;
+  estimatedSubtotal: CartReadinessMoney | null;
+  blockedLineCount: number;
+  savings: CartReadinessMoney | null;
 }>;
 
 export function parseCartReadinessDecisionInput(value: unknown): CartReadinessDecisionInput {
@@ -642,6 +652,88 @@ export function createCartReadinessSnapshot(
           ]
         : []),
     ],
+  };
+}
+
+function selectedMoneyForReadiness(
+  line: CartReadinessLine,
+  snapshot: CartReadinessSnapshot,
+): { amountMinor: bigint; currency: string } | null {
+  const selected =
+    snapshot.optimization.decision === "accepted" && snapshot.optimization.proposedLineId === line.line_id
+      ? (line.seller_options.find((option) => option.listing_id === snapshot.optimization.proposedListingId) ?? null)
+      : line.fulfillment_mode === "locked-listing"
+        ? selectedCartReadinessListing(line)
+        : lowestCartReadinessListing(line);
+  if (!selected || !/^[A-Z]{3}$/.test(selected.price_currency_code ?? "")) {
+    return null;
+  }
+  const amountMinor = trySignedMoneyToCents(selected.price_amount);
+  return amountMinor !== null && amountMinor >= 0n
+    ? { amountMinor, currency: selected.price_currency_code as string }
+    : null;
+}
+
+export function estimateCartReadinessSubtotal(
+  lines: readonly CartReadinessLine[],
+  snapshot: CartReadinessSnapshot,
+): CartReadinessMoney | null {
+  if (snapshot.status !== "ready" || snapshot.includedLineIds.length === 0) {
+    return null;
+  }
+  const included = new Set(snapshot.includedLineIds);
+  if (included.size !== snapshot.includedLineIds.length) {
+    return null;
+  }
+  const includedLines = lines.filter((line) => included.has(line.line_id));
+  if (includedLines.length !== included.size) {
+    return null;
+  }
+  const money = includedLines.map((line) => selectedMoneyForReadiness(line, snapshot));
+  if (money.some((value) => value === null)) {
+    return null;
+  }
+  const currencies = new Set(money.map((value) => value!.currency));
+  if (currencies.size !== 1) {
+    return null;
+  }
+  const amountMinor = money.reduce(
+    (sum, value, index) => sum + value!.amountMinor * BigInt(includedLines[index]!.quantity),
+    0n,
+  );
+  return { amount: centsToSignedMoneyAmount(amountMinor), currency: [...currencies][0]! };
+}
+
+export function createCartReadinessRead(
+  lines: readonly CartReadinessLine[],
+  unionSource?: CartReadinessUnionSource | null,
+): CartReadinessRead {
+  const loaded = createCartReadinessSnapshot(lines, undefined, unionSource);
+  const optimization =
+    loaded.optimization.available && loaded.optimization.proposedLineId && loaded.optimization.proposedListingId
+      ? {
+          lineId: loaded.optimization.proposedLineId,
+          listingId: loaded.optimization.proposedListingId,
+        }
+      : null;
+  const declined = createCartReadinessSnapshot(
+    lines,
+    optimization ? { optimization: { ...optimization, decision: "declined" } } : null,
+    unionSource,
+  );
+  const accepted = optimization
+    ? createCartReadinessSnapshot(lines, { optimization: { ...optimization, decision: "accepted" } }, unionSource)
+    : null;
+  return {
+    loaded,
+    declined,
+    accepted,
+    estimatedSubtotal: estimateCartReadinessSubtotal(lines, declined),
+    blockedLineCount: declined.unresolvedLineIds.length,
+    savings:
+      declined.optimization.savingsAmount && declined.optimization.currency
+        ? { amount: declined.optimization.savingsAmount, currency: declined.optimization.currency }
+        : null,
   };
 }
 

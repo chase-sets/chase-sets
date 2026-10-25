@@ -19,6 +19,7 @@ import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime"
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CheckoutCartLineOutcome } from "../../command-attempts/api/contracts";
 import { CheckoutCommandAttemptRefusal } from "../../command-attempts/api/cart-attempt";
+import { createCartReadinessRead } from "../domain/readiness";
 
 function buildApp(
   options: Readonly<{
@@ -229,6 +230,7 @@ function createServices() {
       fulfillmentGroups: [],
       customerSafeFacts: ["Ready for checkout."],
     })),
+    createReadinessRead: vi.fn(async () => createCartReadinessRead([])),
     projectors: [],
   } satisfies CheckoutCartServices;
   return Object.assign(services, commands);
@@ -355,6 +357,50 @@ describe("checkout cart routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       count: 5,
     });
+  });
+
+  it("returns the cart readiness projection with the cart read", async () => {
+    const services = createServices();
+    const line = internalCartLineRow({ quantity: 1 });
+    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([line]);
+    Object.assign(services, { createReadinessRead: vi.fn(async () => createCartReadinessRead([line])) });
+    const app = buildApp({ actor: accountCartActor(), services });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/cart"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+      readiness: {
+        loaded: { status: "ready", includedLineIds: ["cli_1"] },
+        declined: { status: "ready", includedLineIds: ["cli_1"] },
+        accepted: null,
+        blockedLineCount: 0,
+        estimatedSubtotal: { amount: "25.00", currency: "USD" },
+        savings: null,
+      },
+    });
+  });
+
+  it("uses the same readiness response contract for a guest cart read", async () => {
+    const services = createServices();
+    const line = internalCartLineRow({ buyer_account_id: "anon_cart_1", quantity: 1 });
+    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([line]);
+    Object.assign(services, { createReadinessRead: vi.fn(async () => createCartReadinessRead([line])) });
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": "anon_cart_1" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+      readiness: { loaded: { status: "ready" }, declined: { status: "ready" }, accepted: null },
+    });
+    expect(services.createReadinessRead).toHaveBeenCalledWith({ accountId: "anon_cart_1" });
   });
 
   it("lets guest checkout actors read their merged account cart", async () => {
@@ -1525,7 +1571,11 @@ describe("post-claim cart reads through the real Cart runtime", () => {
 
     expect([claimed.status, noKey.status]).toEqual([200, 200]);
     expect(claimedBody).toBe(await noKey.text());
-    expect(JSON.parse(claimedBody)).toEqual({ items: [], count: 0 });
+    expect(JSON.parse(claimedBody)).toMatchObject({
+      items: [],
+      count: 0,
+      readiness: { loaded: { status: "blocked" } },
+    });
   });
 
   it("still reads an unclaimed key by possession, so the claimed refusal is not a vacuous empty read", async () => {
@@ -1696,7 +1746,11 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     expect(refused.response.status).toBe(unclaimedEmpty.response.status);
     expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
     expect(refused.body).toBe(unclaimedEmpty.body);
-    expect(JSON.parse(refused.body)).toEqual({ items: [], count: 0 });
+    expect(JSON.parse(refused.body)).toMatchObject({
+      items: [],
+      count: 0,
+      readiness: { loaded: { status: "blocked" }, declined: { status: "blocked" } },
+    });
   });
 
   it("performs identical read work for refused and valid unclaimed-empty guest readiness", async () => {

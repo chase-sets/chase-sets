@@ -3,7 +3,7 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
-import type { CheckoutCartLine } from "./features/cart/api/contracts";
+import type { CheckoutCartLine, CheckoutCartRead } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
 import type {
   CheckoutSellListCompositeReview,
@@ -35,6 +35,7 @@ type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
 export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
+export type { CheckoutCartRead } from "./features/cart/api/contracts";
 export type {
   SellListConfirmationSummary,
   SellListReadinessDecisionInput,
@@ -408,10 +409,10 @@ export function createCheckoutApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getCart(): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
+    async getCart(): Promise<CheckoutCartRead> {
       return parseJsonResponse(await client.account.cart.$get({ header: headers }));
     },
-    async getGuestCart(anonymousCartId: string | null): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
+    async getGuestCart(anonymousCartId: string | null): Promise<CheckoutCartRead> {
       return parseJsonResponse(
         await client.guest.cart.$get({
           header: mergeHeaders(headers, anonymousCartId ? { "x-checkout-anonymous-cart-id": anonymousCartId } : {}),
