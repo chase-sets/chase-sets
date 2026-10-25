@@ -96,6 +96,7 @@ type Scenario =
   | "production";
 function syntheticProvider(scenario: Scenario = "success") {
   const calls: { method: string; path: string; body: unknown }[] = [];
+  let purchasedInsurance: string | null = null;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
     expect(url.origin).toBe("https://api.easypost.com");
@@ -117,6 +118,19 @@ function syntheticProvider(scenario: Scenario = "success") {
           ? purchased
           : created,
     );
+    if (path.endsWith("/buy")) {
+      const requestBody = calls.at(-1)?.body;
+      purchasedInsurance =
+        requestBody &&
+        typeof requestBody === "object" &&
+        "insurance" in requestBody &&
+        typeof requestBody.insurance === "string"
+          ? requestBody.insurance
+          : null;
+    }
+    if (method === "GET" && purchasedInsurance) body.insurance = purchasedInsurance;
+    if (method === "GET" && scenario === "buy-lost") body.insurance = "600.00";
+    if (path.endsWith("/buy") && purchasedInsurance) body.insurance = purchasedInsurance;
     if (scenario === "no-echo") delete body.mode;
     if (scenario === "production") body.mode = "production";
     if (scenario === "no-rates") body.rates = [];
@@ -334,11 +348,16 @@ describe("provider-free combined-parcel probe", () => {
       "/v2/shipments/shp_SYNTHETIC/refund",
     ]);
     const a = (h.calls[0].body as { shipment: Record<string, unknown> }).shipment;
+    const aBuy = h.calls[1].body as Record<string, unknown>;
     const b = (h.calls[3].body as { shipment: Record<string, unknown> }).shipment;
+    const bBuy = h.calls[4].body as Record<string, unknown>;
     expect(a.parcel).toEqual({ length: 7, width: 5, height: 2, weight: 8 });
     expect(a.reference).toBe("CHASE-SETS-PROBE-6461-UNINSURED-SYNTHETIC-SHIPMENT");
     expect(b.reference).toBe("CHASE-SETS-PROBE-6461-INSURED-SYNTHETIC-SHIPMENT");
-    expect(b.options).toEqual({ label_format: "PDF", insurance: "600.00" });
+    expect(a.options).toEqual({ label_format: "PDF" });
+    expect(b.options).toEqual({ label_format: "PDF" });
+    expect(aBuy).toEqual({ rate: { id: "rate_SYNTHETIC" } });
+    expect(bBuy).toEqual({ rate: { id: "rate_SYNTHETIC" }, insurance: "600.00" });
     expect({ ...b, reference: a.reference, options: a.options }).toEqual(a);
     expect(Object.keys(a).sort()).toEqual(["from_address", "options", "parcel", "reference", "to_address"]);
     expect(sentinel).not.toHaveBeenCalled();

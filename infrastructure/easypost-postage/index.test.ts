@@ -207,16 +207,16 @@ describe("EasyPost postage adapter", () => {
     });
   });
 
-  it("requests signature confirmation and insurance on EasyPost shipment options", async () => {
+  it("requests insurance in the buy body and keeps create options clean", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/shipments")) {
         const body = JSON.parse(String(init?.body));
-        expect(body.shipment.options).toMatchObject({
+        expect(body.shipment.options).toEqual({
           label_format: "PDF",
           delivery_confirmation: "SIGNATURE",
-          insurance: "500.00",
         });
+        expect(body.shipment.options).not.toHaveProperty("insurance");
         return Response.json({
           id: "shp_provider_1",
           mode: "test",
@@ -232,6 +232,8 @@ describe("EasyPost postage adapter", () => {
         });
       }
 
+      const body = JSON.parse(String(init?.body));
+      expect(body).toEqual({ rate: { id: "rate_1" }, insurance: "500.00" });
       return Response.json({
         id: "shp_provider_1",
         mode: "test",
@@ -246,6 +248,7 @@ describe("EasyPost postage adapter", () => {
           id: "pl_1",
           label_pdf_url: "https://labels.easypost.test/pl_1.pdf",
         },
+        insurance: "500.00",
         tracker: { id: "trk_1" },
         tracking_code: "940000000000000000",
       });
@@ -260,6 +263,76 @@ describe("EasyPost postage adapter", () => {
       deliveryConfirmation: "signature",
       insuranceAmount: "500.00",
     });
+  });
+
+  it("requests signature confirmation in create options", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/shipments")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.shipment.options).toEqual({ label_format: "PDF", delivery_confirmation: "SIGNATURE" });
+        return Response.json({
+          id: "shp_provider_1",
+          mode: "test",
+          rates: [{ id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" }],
+        });
+      }
+      expect(JSON.parse(String(init?.body))).toEqual({ rate: { id: "rate_1" } });
+      return Response.json({
+        id: "shp_provider_1",
+        mode: "test",
+        selected_rate: { id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" },
+        postage_label: { id: "pl_1", label_pdf_url: "https://labels.easypost.test/pl_1.pdf" },
+        tracking_code: "940000000000000000",
+      });
+    });
+    const provider = createEasyPostPostageLabelProvider({ apiKey: "EZTK_test", fetch: fetch as typeof globalThis.fetch });
+
+    await provider.purchaseUspsLabel({ ...sampleRequest, deliveryConfirmation: "signature" });
+  });
+
+  it("validates provider insurance before mapping", async () => {
+    const responseFor = (insurance: unknown) => ({
+      id: "shp_provider_1",
+      mode: "test",
+      selected_rate: { id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" },
+      postage_label: { id: "pl_1", label_pdf_url: "https://labels.easypost.test/pl_1.pdf" },
+      tracking_code: "940000000000000000",
+      ...(insurance === undefined ? {} : { insurance }),
+    });
+    for (const insurance of ["600.00", "600.00000"]) {
+      const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/shipments"))
+          return Response.json({ id: "shp_provider_1", mode: "test", rates: [{ id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" }] });
+        expect(JSON.parse(String(init?.body))).toEqual({ rate: { id: "rate_1" }, insurance: "600.00" });
+        return Response.json(responseFor(insurance));
+      });
+      await createEasyPostPostageLabelProvider({ apiKey: "EZTK_test", fetch: fetch as typeof globalThis.fetch }).purchaseUspsLabel({
+        ...sampleRequest,
+        insuranceAmount: "600.00",
+      });
+    }
+    for (const insurance of [undefined, null, 600, "600.01"]) {
+      const fetch = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/shipments")
+          ? Response.json({ id: "shp_provider_1", mode: "test", rates: [{ id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" }] })
+          : Response.json(responseFor(insurance)),
+      );
+      await expect(
+        createEasyPostPostageLabelProvider({ apiKey: "EZTK_test", fetch: fetch as typeof globalThis.fetch }).purchaseUspsLabel({
+          ...sampleRequest,
+          insuranceAmount: "600.00",
+        }),
+      ).rejects.toMatchObject({ name: "postage_provider_capability_failure", capability: "insurance" });
+    }
+    const uninsuredFetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/shipments")
+        ? Response.json({ id: "shp_provider_1", mode: "test", rates: [{ id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" }] })
+        : Response.json(responseFor(null)),
+    );
+    await expect(
+      createEasyPostPostageLabelProvider({ apiKey: "EZTK_test", fetch: uninsuredFetch as typeof globalThis.fetch }).purchaseUspsLabel(sampleRequest),
+    ).resolves.toBeDefined();
   });
 
   it("passes Letter Mail package and label-size intent to EasyPost", async () => {
@@ -388,6 +461,7 @@ describe("EasyPost postage adapter", () => {
           label_pdf_url: "https://labels.easypost.test/pl_1.pdf",
         },
         tracking_code: "940000000000000000",
+        insurance: "500.00",
       });
     });
     const provider = createEasyPostPostageLabelProvider({
@@ -397,6 +471,7 @@ describe("EasyPost postage adapter", () => {
 
     const label = await provider.recoverPurchasedUspsLabel?.({
       idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+      insuranceAmount: "500.00",
     });
 
     expect(label).toMatchObject({
@@ -405,6 +480,25 @@ describe("EasyPost postage adapter", () => {
       trackingIdentifier: "940000000000000000",
     });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("recoverPurchasedUspsLabel validates provider insurance", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        id: "shp_provider_1",
+        mode: "test",
+        selected_rate: { id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" },
+        postage_label: { id: "pl_1", label_pdf_url: "https://labels.easypost.test/pl_1.pdf" },
+        tracking_code: "940000000000000000",
+        insurance: "600.01",
+      }),
+    );
+    await expect(
+      createEasyPostPostageLabelProvider({ apiKey: "EZTK_test", fetch: fetch as typeof globalThis.fetch }).recoverPurchasedUspsLabel?.({
+        idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+        insuranceAmount: "600.00",
+      }),
+    ).rejects.toMatchObject({ name: "postage_provider_capability_failure", capability: "insurance" });
   });
 
   it("surfaces EasyPost error messages from failed provider calls", async () => {
