@@ -42,7 +42,7 @@ describe("Catalog provider profile review", () => {
       ["ygoprodeck", "2026.10.18", "valid"],
       ["ygoprodeck", "2026.10.18", "valid"],
       ["ygojson", "2026.10.25", "valid"],
-      ["ygojson", "2026.10.25", "valid"],
+      ["ygojson", "2026.10.18", "valid"],
       ["tcgdex", "2026.06.03", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
