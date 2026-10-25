@@ -11,6 +11,10 @@ const entry = resolve(
 );
 
 test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
+  page.on("pageerror", (error) => console.log(`Synthetic popup pageerror: ${error.stack ?? error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") console.log(`Synthetic popup console error: ${message.text()}`);
+  });
   const server = await createServer({
     root,
     configFile: false,
