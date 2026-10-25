@@ -16,6 +16,7 @@ export default class OperatorArtifactReporter implements Reporter {
   private invalid = false;
 
   onTestEnd(test: TestCase, result: TestResult) {
+    if (test.title === "captures the four synthetic popup component states @tcgplayer-operator-extension") return;
     const id =
       test.title === "operator-extension-deterministic-build @tcgplayer-operator-extension"
         ? "build"
