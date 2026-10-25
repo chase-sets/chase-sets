@@ -283,7 +283,7 @@ class ProductContentsQueryDb implements PgQueryable {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
-    if (sql.includes("FROM discovery_item_detail_pages AS page")) {
+    if (sql.includes("FROM discovery_item_detail_pages")) {
       const id = String(params[0]);
       const page = this.data.pages.find((row) => row.catalog_item_id === id || row.slug === id);
       return { rows: (page ? [page] : []) as Row[], rowCount: page ? 1 : 0 };
