@@ -24,6 +24,7 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/google-shopping-export": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
