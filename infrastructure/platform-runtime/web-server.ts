@@ -52,7 +52,9 @@ export function createWebApp({ build, rootDirectory, mode = process.env.NODE_ENV
       logStream ? { stream: logStream } : {},
     ),
   );
-  app.all("*", createRequestHandler({ build, mode }));
+  const handleRequest = createRequestHandler({ build, mode });
+  // The React Router handler catches its own failures and forwards them to next(error).
+  app.all("*", (request, response, next) => void handleRequest(request, response, next));
 
   return app;
 }

@@ -1,5 +1,6 @@
 import { MarketplaceListingRequestError } from "./listing-request-error";
-import { listingErrorResponse } from "./listing-errors";
+import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { authoredTextListingErrors, listingErrorResponse } from "./listing-errors";
 import { t } from "@chase-sets/localization";
 import {
   createPolicyBackedRateLimiter,
@@ -1024,6 +1025,7 @@ export function createAccountListingRoutes(
           "listingIdOverride",
           "evidence",
           "listingPhotoAltText",
+          "publicationScope",
         ]);
         const unknownKey = [...formData.keys()].find((key) => !allowedFormKeys.has(key));
         if (unknownKey)
@@ -1043,6 +1045,7 @@ export function createAccountListingRoutes(
             maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
             inventorySnapshot: formValue(formData, "inventorySnapshot"),
             listingIdOverride: formValue(formData, "listingIdOverride"),
+            publicationScope: formValue(formData, "publicationScope") || undefined,
           }
         : await c.req.json();
       const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -1060,11 +1063,25 @@ export function createAccountListingRoutes(
           "purchaseLimits",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
         ],
         "Listing create",
       );
       assertClosedPurchaseLimits(body);
       assertPriceCurrencyInput(body.priceCurrencyCode);
+      if (
+        body.publicationScope !== undefined &&
+        body.publicationScope !== "native" &&
+        body.publicationScope !== "channel-only"
+      ) {
+        throw new MarketplaceListingRequestError("unknown-field", "Listing publication scope is invalid.");
+      }
+      if (body.publicationScope === "channel-only" && typeof body.priceAmount !== "string") {
+        throw new MarketplaceListingDomainError(
+          "command-rejected",
+          "Channel-only reference amount must be a string paired with currency.",
+        );
+      }
       const inventorySnapshot = parseInventorySnapshot(body);
       const result = inventorySnapshot
         ? await services.createListingFromInventorySnapshot(
@@ -1075,6 +1092,7 @@ export function createAccountListingRoutes(
               priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
@@ -1088,6 +1106,7 @@ export function createAccountListingRoutes(
               priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
@@ -1100,6 +1119,7 @@ export function createAccountListingRoutes(
           version: result.version,
           status: "draft",
           feeQuoteFingerprint: result.feeQuoteFingerprint,
+          state: result.state,
         },
         201,
       );
@@ -1113,6 +1133,7 @@ export function createAccountListingRoutes(
         "inventory-item-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });
@@ -1160,6 +1181,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });
@@ -1228,7 +1250,7 @@ export function createAccountListingRoutes(
       );
       return c.json({ id: result.listingId, version: result.version, status: "photo-classified" });
     } catch (error) {
-      return listingErrorResponse(error, ["listing-not-found", "command-rejected"]);
+      return listingErrorResponse(error, ["listing-not-found", "command-rejected", ...authoredTextListingErrors]);
     }
   });
 
@@ -1293,6 +1315,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });

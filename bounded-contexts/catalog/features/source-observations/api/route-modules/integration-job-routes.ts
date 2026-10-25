@@ -61,6 +61,9 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
       if (error instanceof CatalogIntegrationRolloutControlError) {
         return c.json(rolloutControlErrorResponse(error), 403);
       }
+      if (isSourceObservationIntegrationJobLifecycleCommandError(error)) {
+        return integrationJobLifecycleCommandErrorResponse(c, error);
+      }
       if (!isIntegrationJobValidationError(error)) {
         throw error;
       }

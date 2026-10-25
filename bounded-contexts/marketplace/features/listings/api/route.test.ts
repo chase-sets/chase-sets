@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
+import { initialMarketplaceListingState } from "../domain/domain";
 
 function buildApp(
   options: Readonly<{
@@ -43,11 +44,13 @@ function createServices(): MarketplaceListingServices {
       listingId: "lst_checkout_fallback" as never,
       version: 1,
       feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+      state: initialMarketplaceListingState,
     })),
     createListingFromInventorySnapshot: vi.fn(async () => ({
       listingId: "lst_checkout_fallback" as never,
       version: 1,
       feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+      state: initialMarketplaceListingState,
     })),
     previewPublicStandardListingTerms: vi.fn(async () => ({
       account_type: "personal",
@@ -617,6 +620,49 @@ describe("marketplace listing routes", () => {
       intentId: "ldi_1",
       accountId: "acc_seller",
     });
+  });
+
+  it("returns committed channel-only aggregate state while Listing projections are poisoned", async () => {
+    const services = createServices();
+    const state = {
+      ...initialMarketplaceListingState,
+      listingId: "lst_channel" as never,
+      accountId: "acc_seller" as never,
+      publicationScope: "channel-only" as const,
+      nativeVisibility: "disabled" as const,
+      nativeFeeState: "not-enrolled" as const,
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+    };
+    vi.mocked(services.createListing).mockResolvedValueOnce({
+      listingId: "lst_channel" as never,
+      version: 1,
+      feeQuoteFingerprint: null,
+      state,
+    });
+    vi.mocked(services.getSellerListing).mockImplementation(async () => {
+      throw new Error("Poisoned Listing projection");
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request("/account/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inventoryItemId: "inv_1",
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        publicationScope: "channel-only",
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).state).toEqual(state);
+    expect(services.getSellerListing).not.toHaveBeenCalled();
+    expect(services.createListing).toHaveBeenCalledWith(
+      expect.objectContaining({ publicationScope: "channel-only" }),
+      expect.any(Object),
+    );
   });
 
   it("passes Checkout-provided deterministic listing IDs into seller listing creation", async () => {

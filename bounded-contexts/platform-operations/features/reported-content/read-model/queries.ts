@@ -3,7 +3,12 @@ import type {
   ReportedContentQueueDetail,
   ReportedContentQueueItem,
   ReportedContentQueueMetrics,
+  ReportedContentReportSummary,
 } from "../api/contracts";
+
+// A row with no projected report is an action that arrived before its report (cross-source
+// replay order); it holds the action until the report lands and is never a queue item.
+const queuedRow = "report_count > 0";
 
 function normalizePageParams(params: Readonly<{ limit?: number; offset?: number }>) {
   return {
@@ -25,7 +30,7 @@ function queueFilters(params: Readonly<{ status?: string | null; targetType?: st
   }
 
   return {
-    where: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
+    where: `WHERE ${[queuedRow, ...clauses].join(" AND ")}`,
     values,
   };
 }
@@ -37,7 +42,6 @@ const selectColumns = `
   status,
   report_count,
   reasons,
-  reports,
   first_reported_at::text AS first_reported_at,
   last_reported_at::text AS last_reported_at,
   auto_unlisted_at::text AS auto_unlisted_at,
@@ -91,16 +95,56 @@ export async function getReportedContentQueueItem(
   targetType: string,
   targetId: string,
 ): Promise<ReportedContentQueueDetail | null> {
-  const result = await db.query<ReportedContentQueueDetail>(
-    `SELECT ${selectColumns}
+  const result = await db.query<ReportedContentQueueItem & { reports: unknown }>(
+    `SELECT ${selectColumns}, reports
      FROM platform_operations_reported_content_queue_pages
      WHERE target_type = $1
-       AND target_id = $2`,
+       AND target_id = $2
+       AND ${queuedRow}`,
+    [targetType, targetId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const { reports, ...item } = row;
+  const stored = Array.isArray(reports) ? (reports as readonly StoredReport[]) : [];
+  return {
+    ...item,
+    reports: stored.map(
+      (report): ReportedContentReportSummary => ({
+        reportId: report.reportId,
+        reporterKind: report.reporterKind,
+        reason: report.reason,
+        details: report.details,
+        submittedAt: report.submittedAt,
+      }),
+    ),
+    distinct_reporter_count: new Set(stored.map((report) => report.reporterKey)).size,
+  };
+}
+
+/** The action precondition: a target is actionable only once a report has queued it. */
+export async function isReportedContentTargetQueued(
+  db: PgQueryable,
+  targetType: string,
+  targetId: string,
+): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1
+     FROM platform_operations_reported_content_queue_pages
+     WHERE target_type = $1
+       AND target_id = $2
+       AND ${queuedRow}`,
     [targetType, targetId],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows.length > 0;
 }
+
+/** The projection-owned stored report; its reporter key and account never leave this module. */
+type StoredReport = ReportedContentReportSummary & Readonly<{ reporterKey: string }>;
 
 export async function getReportedContentQueueMetrics(db: PgQueryable): Promise<ReportedContentQueueMetrics> {
   const result = await db.query<{
@@ -112,7 +156,8 @@ export async function getReportedContentQueueMetrics(db: PgQueryable): Promise<R
        COUNT(*) AS total_count,
        COUNT(*) FILTER (WHERE status = 'needs-review') AS needs_review_count,
        COUNT(*) FILTER (WHERE status = 'auto-unlisted') AS auto_unlisted_count
-     FROM platform_operations_reported_content_queue_pages`,
+     FROM platform_operations_reported_content_queue_pages
+     WHERE ${queuedRow}`,
   );
   const row = result.rows[0];
 

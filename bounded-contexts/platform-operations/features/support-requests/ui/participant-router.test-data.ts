@@ -1,3 +1,5 @@
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
+
 export function supportParticipantDetailFixture() {
   return {
     support_request_id: "sup_router",
@@ -6,6 +8,7 @@ export function supportParticipantDetailFixture() {
     buyer_account_id: "acc_buyer",
     seller_account_id: "acc_seller",
     flow_type: "product-not-received",
+    flow: getSupportFlowDefinition("product-not-received"),
     status: "waiting-on-buyer",
     priority: "normal",
     opened_by_account_id: "acc_buyer",

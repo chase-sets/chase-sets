@@ -23,7 +23,8 @@
     "legacy-evidence-inventory",
     "platform-remedy-policy",
     "remedy-approval",
-    "seller-compliance-sale"
+    "seller-compliance-sale",
+    "appealable-enforcement-action"
   ],
   "streamPrefix": "platform-operations.",
   "accountCapabilities": [
@@ -58,7 +59,8 @@
     "support-reference-lookup",
     "support-requests",
     "csat-dashboard",
-    "seller-compliance-sales"
+    "seller-compliance-sales",
+    "account-appeals"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [
@@ -101,6 +103,15 @@
       "eventTypes": ["platform-operations.public-doc-article-review.confirmed"],
       "order": 57,
       "projectionHandlerSetNames": ["public-doc-review-queue-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "reported-content-queue-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.reported-content-queue-projection",
+      "eventTypes": ["identity.account-profile.report-submitted"],
+      "order": 59,
+      "projectionHandlerSetNames": ["reported-content-queue-projection"]
     },
     {
       "sourceContextName": "marketplace",
@@ -251,6 +262,25 @@
       "eventTypes": ["payments.payment-captured", "payments.payment-refunded"],
       "order": 83,
       "projectionHandlerSetNames": ["seller-compliance-sales-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "eventTypes": ["identity.account.suspended", "identity.account.reactivated", "identity.account.closed"],
+      "order": 84,
+      "projectionHandlerSetNames": ["account-appeal-interest-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["marketplace.listing.operator-unlisted", "marketplace.listing.auto-unlisted"],
+      "order": 85,
+      "projectionHandlerSetNames": ["account-appeal-interest-projection"]
     }
   ],
   "eventReactions": [
@@ -295,7 +325,7 @@
     },
     {
       "projectionName": "reported-content-queue-projection",
-      "sourceContextNames": ["marketplace", "platform-operations"],
+      "sourceContextNames": ["identity", "marketplace", "platform-operations"],
       "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
       "requiredDuringBootstrap": true,
@@ -379,6 +409,14 @@
         "platform_operations_seller_compliance_order_facts",
         "platform_operations_seller_compliance_sales"
       ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "account-appeal-interest-projection",
+      "sourceContextNames": ["identity", "marketplace"],
+      "optionalSourceContextNames": ["marketplace"],
+      "ownedTables": ["platform_operations_account_appealable_actions"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -525,6 +563,11 @@
       "portName": "offerEconomicsCrossContext",
       "providedBy": "platform-api",
       "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, Commercial Terms' published standard fee schedule terms, and Settlement's protection-reserve summary, each bound to its owning context's database pool and assembled once in the platform-api composition root."
+    },
+    {
+      "portName": "operationsAttentionRuntimeReads",
+      "providedBy": "platform-api",
+      "purpose": "Host-runtime projection blocked-projection and wake-store reads for the Operations Attention API, assembled once from the same builders used by the projection operations routes."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -1406,7 +1449,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide Platform Operations event-store-backed runtime services for platform-feedback and support-request API composition.",
-      "expectedConsumers": ["Root platform-operations composition"]
+      "expectedConsumers": ["operations-attention-queue"]
     },
     "routes": {
       "classification": "routes",
@@ -1422,6 +1465,11 @@
       "classification": "slice",
       "purpose": "Own the neutral, replayable seller-compliance-sale facts: the platform-processed sale a Payments capture creates against an Ordering order, its authoritative seller, occurrence instant, gross money decomposition, recorded classification inputs, cancellation, and cumulative reversal state, plus the bounded seller and per-seller reads a later policy evaluator consumes. Records observations only -- it evaluates no threshold, publishes no event, and makes no legal-applicability claim.",
       "expectedConsumers": ["Internal platform-operations module composition"]
+    },
+    "account-appeals": {
+      "classification": "slice",
+      "purpose": "Own the private Account Appeal lifecycle and the Appealable Enforcement Action registry: branded seller/operator/action capabilities, deterministic state decisions, expected-version command appends, and the owner-attributed immutable tuple each source enforcement fact records.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Future seller and operator appeal routes"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

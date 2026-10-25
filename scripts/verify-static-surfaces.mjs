@@ -148,6 +148,30 @@ export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
 // Repository-wide reads cannot be narrowed to the paths in historical failures.
 // These rules describe scan inputs, not the tests' static import graphs.
 export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
+  "scripts/check-structure/lost-update-write-guard.test.mjs": {
+    rule: "owner-local lost-update metadata and every source admitted by the unchanged guard discovery predicate",
+    evidence: ["scripts/check-structure/lost-update-write-guard.mjs:1-40"],
+    include: [
+      ...exact(
+        "scripts/check-structure/lost-update-write-guard.mjs",
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+        "scripts/verify-static-surfaces.mjs",
+        "pnpm-lock.yaml",
+      ),
+      ...prefix("packages/typescript-compiler-api"),
+      ...regex(
+        "^bounded-contexts/.+\\.lost-update-exceptions\\.json$",
+        "^bounded-contexts/.+/read-model/.+\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+        "^bounded-contexts/.+(?:projection|queue)\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+      ),
+      ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
+    ],
+  },
+  "scripts/check-structure/tcgplayer-host-credential-guard.test.mjs": {
+    rule: "tracked platform source inventory for TCGplayer hosts and custody tokens",
+    evidence: ["scripts/check-structure/tcgplayer-host-credential-guard.mjs:1-114"],
+    include: [{ kind: "any" }],
+  },
   "scripts/check-structure/sql-execution-surface.test.mjs": {
     rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
     evidence: [
@@ -188,8 +212,8 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
   "scripts/check-structure/json-import-attributes.test.mjs": {
     rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
     evidence: [
-      "scripts/check-structure/json-import-attributes.test.mjs:1-13,137-138,487-495,697-723,822-829",
-      "scripts/check-structure/json-import-attributes.mjs:44-78,494-530",
+      "scripts/check-structure/json-import-attributes.test.mjs:1-15,139-140,489-497,700-760,880-906,1020-1027",
+      "scripts/check-structure/json-import-attributes.mjs:44-82,584-645",
     ],
     include: [{ kind: "any" }],
   },
@@ -402,6 +426,12 @@ export const VERIFY_STATIC_SURFACES = {
       "deployables/platform-worker/.env.example",
     ),
   },
+  "check:node-types-runtime": {
+    classification: MAY_NARROW,
+    rule: "any package.json the workspace definition can discover, or the guard itself; root workspace files fan out",
+    evidence: ["scripts/check-node-types-runtime.mjs:24-102"],
+    include: [...exact("scripts/check-node-types-runtime.mjs"), ...regex("(?:^|/)package\\.json$")],
+  },
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
@@ -456,6 +486,11 @@ export const VERIFY_STATIC_SURFACES = {
         "^contracts/localization/locales/.+/catalog\\.ts$",
       ),
     ],
+  },
+  "lint:async": {
+    classification: ALWAYS_RUN,
+    rule: "type-aware promise rules resolve types through imported files outside the changed set",
+    evidence: ["package.json:69", ".oxlintrc.json:13-20"],
   },
   "test:scripts": {
     classification: ALWAYS_RUN,

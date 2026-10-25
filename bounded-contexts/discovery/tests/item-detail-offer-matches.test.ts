@@ -528,7 +528,7 @@ describe("item detail offer matches", () => {
 
         if (sql.includes("FROM discovery_market_listings")) {
           marketQueries.push(sql);
-          if (sql.includes("MIN(price_amount::numeric)::text")) {
+          if (sql.includes("lowest_price_amount")) {
             return {
               rows: [
                 {

@@ -1,8 +1,8 @@
 import "./observability-prelude";
+import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
@@ -172,7 +172,10 @@ const settlementOperationsRecorder = {
   },
 };
 const webhookTelemetry = {
-  record(event: Parameters<typeof recordProviderWebhookIngestion>[0]) {
+  record(
+    event: Parameters<typeof recordProviderWebhookIngestion>[0] &
+      Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+  ) {
     recordProviderWebhookIngestion(event);
     const fields = {
       type: "provider.webhook.ingestion",
@@ -183,6 +186,8 @@ const webhookTelemetry = {
       retryable: event.retryable,
       provider_event_id: event.providerEventId ?? null,
       event_kind: event.eventKind ?? null,
+      token_mint: event.tokenMint ?? "not-attempted",
+      key_fetch: event.keyFetch ?? "not-attempted",
     };
     if (event.outcome === "failed") {
       logger.error("Provider webhook ingestion failed.", fields);
@@ -234,12 +239,6 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const waitlistAnalyticsRecorder = {
@@ -343,11 +342,6 @@ const runtime = createPlatformApiHost({
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
-    catalogOperatorSessionConfiguration: {
-      config: config.tcgplayerAutomation,
-      keyring: config.catalogOperatorSessionKeyring,
-    },
-    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
     waitlistAnalyticsRecorder,

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-e7cd0f71cfa9c3d0",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts",
+      "kind": "DELETE",
+      "table": "checkout_payment_affordance_pages",
+      "digest": "1eb07e0234199d719117e934d154f0e347f7cd57ba8ff0d9cc520b6cce03b5f0"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts:46 directly synchronizes checkout_payment_affordance_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

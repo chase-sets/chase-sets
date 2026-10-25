@@ -1,8 +1,8 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 
 // Keep Catalog events comfortably below the platform's 64 KiB payload ceiling.
-// The target includes normalized observation facts and event bookkeeping; raw
-// provider evidence is split into smaller, predictably sized base64 events.
+// The target includes normalized observation facts and event bookkeeping;
+// oversized source and normalized evidence are split into smaller, predictably sized base64 events.
 export const SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES = 48 * 1024;
 export const SOURCE_OBSERVATION_PAYLOAD_CHUNK_BYTES = 24 * 1024;
 export const SOURCE_OBSERVATION_PAYLOAD_ENCODING = "json-utf8-base64-v1";

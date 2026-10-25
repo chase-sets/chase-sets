@@ -336,6 +336,26 @@ The spec fails loudly, not silently, on any of the three legs it proves: the emb
 
 The Stripe test-mode card fields are addressed inside Stripe's own combined Payment Element iframe (`iframe[title="Secure payment input frame"]`, `input[name="number"|"expiry"|"cvc"|"postalCode"]`); if a Stripe.js release changes that DOM contract, update the selectors here and in `deployables/marketplace/app/routes/payment-layout-hydration.test.tsx`, which mocks the same iframe shape.
 
+### Staging Evidence-Window Authority
+
+Run the read-only staging authority command with every value explicit. It performs the checks in this order: executed bytes, provider mode, deploy generation, runtime compatibility, web readiness, backend readiness, and final password sign-in. The password sign-in is the sole write: it persists a staging session and may rehash a credential; the command makes no provider call. Only an `ok` result is persisted to `PROBE_OUT_FILE`. The append-only NDJSON log uses mode `0600` and should be retained for 7 days.
+
+Required inputs and environment-only credentials:
+
+- `PROBE_BASE_URL=https://marketplace.staging.chasesets.com`
+- `PROBE_ENVIRONMENT=staging`
+- `PROBE_HEAD=<40-hex reviewed head>`
+- `PROBE_WORKTREE=<absolute clean checkout>`
+- `PROBE_GOVERNED_PATHS=<comma-separated 1-32 repository paths>`
+- `PROBE_OUT_FILE=<absolute absent receipt path>` and `PROBE_LOG_FILE=<absolute log path>` (their parents must exist)
+- `DEPLOY_MAX_AGE_SECONDS=1..604800`, `PROBE_REQUEST_TIMEOUT_MS=1000..60000`, and `PROBE_TOTAL_BUDGET_MS=5000..600000`
+- `PROBE_RUNNER_PATH=scripts/staging-evidence-authority.mjs`
+- `GITHUB_TOKEN`, `MARKETPLACE_E2E_EMAIL`, and `MARKETPLACE_E2E_PASSWORD` are read from the environment only and are never printed
+
+```powershell
+pnpm run uat:staging-evidence-authority
+```
+
 ## Custom Connect Release Hardening
 
 Before approving production Stripe money operations, run a private release-hardening pass against the release commit and record the outcome in the external Stripe money operations evidence record. The record must show `connectReleaseHardeningOpenP0P2FindingCount: 0`, `connectReleaseHardeningFindingsResolved: true`, `stagingCustomConnectSandboxSmokeProven: true`, and `connectRollbackRehearsalProven: true`.

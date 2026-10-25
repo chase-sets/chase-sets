@@ -132,7 +132,7 @@ describe("durable job event streams", () => {
     });
 
     expect(response.status).toBe(429);
-    held?.release();
+    await held?.release();
   });
 
   it("returns a structured unavailable response when the limiter backend fails", async () => {

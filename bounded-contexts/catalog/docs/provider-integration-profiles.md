@@ -126,6 +126,15 @@ and provider-derived Series and Expansion records using TCGdex provider
 attributes. Replays preserve the existing deterministic `ref_tcgdex_*` record
 ids and reuse records by type/key or provider attribute.
 
+A TCGdex expansion id names one product per language, so each Expansion record
+is one language edition. Its `language-editions` attribute records the payload
+language, and reuse by type/key or provider attribute accepts only a record
+holding that language; a record of another language that holds the requested
+key or id refuses promotion instead of being reused or duplicated. A
+non-English edition gets a language-qualified id and key, such as
+`ref_tcgdex_expansion_ja_xy2` with key `ja-xy2`. English keeps its unqualified
+id and key and also reuses a record that records no language edition yet.
+
 Catalog Item promotion planning is profile-driven at the same boundary. The
 current TCGdex Pokemon planner converts normalized Source Observation facts plus
 resolved profile Catalog IDs into a reviewed command plan before the runtime

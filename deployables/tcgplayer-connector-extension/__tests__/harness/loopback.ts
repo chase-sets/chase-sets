@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { assertConnectorClaim, assertConnectorReport } from "@chase-sets/channels/server";
 import { loopbackPlatform, synthetic } from "../../e2e/loopback-platform";
 import {
@@ -79,7 +79,7 @@ export async function startLoopback() {
   const wait = async (route: string) => {
     await holds.get(route);
   };
-  const portal = createServer(async (request, reply) => {
+  const servePortal = async (request: IncomingMessage, reply: ServerResponse) => {
     reply.setHeader("Connection", "close");
     if (request.method === "GET" && request.headers.host === "127.0.0.1:46175") {
       if (request.url === exportRoute) {
@@ -116,6 +116,14 @@ export async function startLoopback() {
     } catch {
       reply.writeHead(400).end("{}");
     }
+  };
+  const portal = createServer((request, reply) => {
+    servePortal(request, reply).catch((error: unknown) => {
+      // Rethrow as uncaught so the runner fails exactly as the unhandled rejection did.
+      setImmediate(() => {
+        throw error;
+      });
+    });
   });
   await new Promise<void>((resolve, reject) => {
     portal.once("error", reject);

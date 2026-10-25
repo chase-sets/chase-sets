@@ -525,6 +525,18 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createOfferIntent: vi.fn(),
       createBuyNowSession: vi.fn(),
       getSession: vi.fn(),
+      getLastRecordedQuote: vi.fn(
+        async () =>
+          ({
+            totals: {
+              itemSubtotalAmount: "20.00",
+              shippingAmount: "0.00",
+              salesTaxAmount: "0.00",
+              totalAmount: "20.00",
+            },
+            sellerGroups: [{ lines: [{ listingId: "listing_1", estimatedUnitPriceAmount: "20.00" }] }],
+          }) as never,
+      ),
       resumeOrderCartCleanup: vi.fn<
         Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]
       >(async () => ({ sessionId: "chk_1", session: buyNowSession })),
@@ -702,7 +714,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
 
     checkoutSessions.getSession = vi.fn(async () => buyNowSession);
     const checkoutBody = JSON.stringify(
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
         payment_data: {
@@ -723,12 +735,14 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       expect(spendCapResponse.status).toBe(200);
       await expect(spendCapResponse.json()).resolves.toMatchObject({
         ucp: {
-          status: "requires_action",
+          status: "success",
         },
-        checkout: {
-          status: "requires_escalation",
-          messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
-        },
+        status: "requires_escalation",
+        messages: [
+          {
+            code: "payment_required",
+          },
+        ],
       });
       expect(paymentsFetch).not.toHaveBeenCalled();
       // The synthetic legacy actor has no agentGrant; no spend reservation is requested.
@@ -739,5 +753,76 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("runs the operator grant journey through tools/list and offer economics", async () => {
+    const snapshot = {
+      from: "2026-10-01",
+      to: "2026-10-25",
+      listingCount: 4,
+      realizedGmvShare: "0.25",
+      foregoneFeeAmount: "12.00",
+      sellThroughRate: "0.40",
+    };
+    const platformOperationsServices = {
+      offerEconomics: {
+        getOfferEconomicsSnapshot: vi.fn(async (_params: Readonly<Record<string, unknown>>) => snapshot),
+      },
+    };
+    const operator = {
+      ...agentActor(["insights-dashboards.view"]),
+      roleKey: "platform-admin",
+      agentGrant: {
+        grantId: "grant_operator_journey",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
+        scopes: ["operations:write"] as const,
+        rolePermissions: ["insights-dashboards.view"],
+      },
+    };
+    const app = buildPlatformApiApp(
+      createRuntime(
+        {
+          "platform-operations": platformOperationsServices,
+          identity: { agentGrantRevocations: { isActiveGrant: vi.fn(async () => true) } },
+        },
+        [],
+      ),
+      {
+        resolveActor: vi.fn(async () => operator),
+        mcp: {
+          operatorAuthority: vi.fn(async () => ({
+            kind: "granted" as const,
+            membershipId: "member_1",
+            roleKey: "platform-admin" as const,
+            rolePermissions: ["insights-dashboards.view"],
+          })),
+          toolHandlers: {
+            "platform-operations.get-offer-economics-summary": async ({ arguments: args }) => ({
+              snapshot: await platformOperationsServices.offerEconomics.getOfferEconomicsSnapshot({
+                from: String(args.from),
+                to: String(args.to),
+                accountType: undefined,
+              }),
+            }),
+          },
+        },
+      },
+    );
+
+    await withMcpClient(app, async (client) => {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name)).toContain("platform-operations.get-offer-economics-summary");
+      const result = await client.callTool({
+        name: "platform-operations.get-offer-economics-summary",
+        arguments: { from: "2026-10-01", to: "2026-10-25" },
+      });
+      expect(expectStructured(result)).toEqual({ snapshot });
+    });
+
+    expect(platformOperationsServices.offerEconomics.getOfferEconomicsSnapshot).toHaveBeenCalledWith({
+      from: "2026-10-01",
+      to: "2026-10-25",
+      accountType: undefined,
+    });
   });
 });

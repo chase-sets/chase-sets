@@ -54,18 +54,38 @@ export async function readConnectionAttention(
   if (connectionId !== null && keys.rows.length === 0) throw new ChannelAttentionError("connection-not-found");
   const ids = keys.rows.map((row) => row.connection_id);
   if (ids.length === 0) return [];
-  const [manual, health, resolutions, orders, connector] = await Promise.all([
-    readManualAttentionContributions(db, accountId, ids),
-    readAccountHealthSnapshots(db, accountId, ids),
-    db.query<{
-      connection_id: string;
-      reason_code: string | null;
-      reason_generation: string | null;
-      fingerprint: string | null;
-      affected_count: number | null;
-      drift_visible: boolean | null;
-    }>(
-      `
+  let firstFailure: unknown;
+  let failed = false;
+  const reads = [
+    Promise.resolve()
+      .then(() => readManualAttentionContributions(db, accountId, ids))
+      .catch((error: unknown) => {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+        throw error;
+      }),
+    Promise.resolve()
+      .then(() => readAccountHealthSnapshots(db, accountId, ids))
+      .catch((error: unknown) => {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+        throw error;
+      }),
+    Promise.resolve()
+      .then(() =>
+        db.query<{
+          connection_id: string;
+          reason_code: string | null;
+          reason_generation: string | null;
+          fingerprint: string | null;
+          affected_count: number | null;
+          drift_visible: boolean | null;
+        }>(
+          `
       SELECT connection.connection_id,attention.reason_code,attention.reason_generation::text,attention.fingerprint,
         CASE WHEN run.drift_generation IS NULL THEN NULL ELSE (
           SELECT count(*)::int FROM jsonb_array_elements(run.drift_generation->'members') AS member
@@ -82,11 +102,39 @@ export async function readConnectionAttention(
         AND attention.account_id=connection.account_id AND attention.resolved_at IS NOT NULL
         AND health.reasons @> jsonb_build_array(jsonb_build_object('reasonCode',attention.reason_code,'generation',attention.reason_generation,'fingerprint',attention.fingerprint))
       WHERE connection.account_id=$1 AND connection.connection_id=ANY($2::text[])`,
-      [accountId, ids],
-    ),
-    readOrderAttentionBatch(db, accountId, ids, input.orderCursor),
-    readConnectorAttentionContributions(db, accountId, ids),
-  ]);
+          [accountId, ids],
+        ),
+      )
+      .catch((error: unknown) => {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+        throw error;
+      }),
+    Promise.resolve()
+      .then(() => readOrderAttentionBatch(db, accountId, ids, input.orderCursor))
+      .catch((error: unknown) => {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+        throw error;
+      }),
+    Promise.resolve()
+      .then(() => readConnectorAttentionContributions(db, accountId, ids))
+      .catch((error: unknown) => {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+        throw error;
+      }),
+  ] as const;
+  const [manual, health, resolutions, orders, connector] = await Promise.all(reads).catch(async (error: unknown) => {
+    await Promise.allSettled(reads);
+    throw failed ? firstFailure : error;
+  });
   return ids.map((id) => {
     const snapshot = health.get(id);
     const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;

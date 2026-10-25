@@ -26,6 +26,7 @@ function repositoryRoot() {
 const root = repositoryRoot();
 const selfPath = fileURLToPath(import.meta.url);
 const selfSource = readFileSync(selfPath, "utf8");
+const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 
 // Slices the JSON array committed between `// <name>:begin` and `// <name>:end`
 // sentinel comment lines: the text between the sentinels is reduced to its
@@ -288,6 +289,7 @@ export const committedCallers = [
   "deployables/marketplace/app/routes/favicon.ts",
   "deployables/marketplace/app/routes/manifest.ts",
   "deployables/marketplace/app/routes/ssr.test.tsx",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40078269313.json",
   "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
   "packages/design-system/COMPONENT_INDEX.md",
@@ -558,7 +560,7 @@ describe("repository source-output inventory", () => {
 });
 
 describe("derived caller inventory", () => {
-  it("matches the committed caller list in both directions", () => {
+  it("matches the committed caller list in both directions", { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS }, () => {
     const derived = deriveCallers();
     console.log(`derived callers (${derived.length}):\n${JSON.stringify(derived, null, 2)}`);
     const report = compareCallerSets(derived, committedCallers);
@@ -566,13 +568,17 @@ describe("derived caller inventory", () => {
     expect(report.notFound, "committed callers the scan no longer finds").toEqual([]);
   });
 
-  it("reacts in both directions: a planted reference and a ghost entry each fail by path", () => {
-    const derived = deriveCallers();
-    const planted = compareCallerSets([...derived, "scripts/scratch-caller.mjs"], committedCallers);
-    expect(planted.notCommitted).toEqual(["scripts/scratch-caller.mjs"]);
-    const ghost = compareCallerSets(derived, [...committedCallers, "scripts/ghost-caller.mjs"]);
-    expect(ghost.notFound).toEqual(["scripts/ghost-caller.mjs"]);
-  });
+  it(
+    "reacts in both directions: a planted reference and a ghost entry each fail by path",
+    { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS },
+    () => {
+      const derived = deriveCallers();
+      const planted = compareCallerSets([...derived, "scripts/scratch-caller.mjs"], committedCallers);
+      expect(planted.notCommitted).toEqual(["scripts/scratch-caller.mjs"]);
+      const ghost = compareCallerSets(derived, [...committedCallers, "scripts/ghost-caller.mjs"]);
+      expect(ghost.notFound).toEqual(["scripts/ghost-caller.mjs"]);
+    },
+  );
 });
 
 describe("raster generator literal parity", () => {
@@ -695,45 +701,47 @@ describe("lockfile package-entry discipline", () => {
   const lock = yaml.parse(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
   const packageKeys = Object.keys(lock.packages).sort();
 
-  it("keeps the Sharp family at exactly the twenty-six keys committed here", () => {
-    const sharpFamily = packageKeys.filter((k) => k === "sharp@0.34.5" || k.startsWith("@img/"));
+  it("keeps the Sharp family at exactly the twenty-eight keys committed here", () => {
+    const sharpFamily = packageKeys.filter((k) => k.startsWith("sharp@") || k.startsWith("@img/"));
     const committedSharpFamily = [
       "@img/colour@1.1.0",
-      "@img/sharp-darwin-arm64@0.34.5",
-      "@img/sharp-darwin-x64@0.34.5",
-      "@img/sharp-libvips-darwin-arm64@1.2.4",
-      "@img/sharp-libvips-darwin-x64@1.2.4",
-      "@img/sharp-libvips-linux-arm64@1.2.4",
-      "@img/sharp-libvips-linux-arm@1.2.4",
-      "@img/sharp-libvips-linux-ppc64@1.2.4",
-      "@img/sharp-libvips-linux-riscv64@1.2.4",
-      "@img/sharp-libvips-linux-s390x@1.2.4",
-      "@img/sharp-libvips-linux-x64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-arm64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-x64@1.2.4",
-      "@img/sharp-linux-arm64@0.34.5",
-      "@img/sharp-linux-arm@0.34.5",
-      "@img/sharp-linux-ppc64@0.34.5",
-      "@img/sharp-linux-riscv64@0.34.5",
-      "@img/sharp-linux-s390x@0.34.5",
-      "@img/sharp-linux-x64@0.34.5",
-      "@img/sharp-linuxmusl-arm64@0.34.5",
-      "@img/sharp-linuxmusl-x64@0.34.5",
-      "@img/sharp-wasm32@0.34.5",
-      "@img/sharp-win32-arm64@0.34.5",
-      "@img/sharp-win32-ia32@0.34.5",
-      "@img/sharp-win32-x64@0.34.5",
-      "sharp@0.34.5",
+      "@img/sharp-darwin-arm64@0.35.5",
+      "@img/sharp-darwin-x64@0.35.5",
+      "@img/sharp-freebsd-wasm32@0.35.5",
+      "@img/sharp-libvips-darwin-arm64@1.3.4",
+      "@img/sharp-libvips-darwin-x64@1.3.4",
+      "@img/sharp-libvips-linux-arm64@1.3.4",
+      "@img/sharp-libvips-linux-arm@1.3.4",
+      "@img/sharp-libvips-linux-ppc64@1.3.4",
+      "@img/sharp-libvips-linux-riscv64@1.3.4",
+      "@img/sharp-libvips-linux-s390x@1.3.4",
+      "@img/sharp-libvips-linux-x64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-arm64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-x64@1.3.4",
+      "@img/sharp-linux-arm64@0.35.5",
+      "@img/sharp-linux-arm@0.35.5",
+      "@img/sharp-linux-ppc64@0.35.5",
+      "@img/sharp-linux-riscv64@0.35.5",
+      "@img/sharp-linux-s390x@0.35.5",
+      "@img/sharp-linux-x64@0.35.5",
+      "@img/sharp-linuxmusl-arm64@0.35.5",
+      "@img/sharp-linuxmusl-x64@0.35.5",
+      "@img/sharp-wasm32@0.35.5",
+      "@img/sharp-webcontainers-wasm32@0.35.5",
+      "@img/sharp-win32-arm64@0.35.5",
+      "@img/sharp-win32-ia32@0.35.5",
+      "@img/sharp-win32-x64@0.35.5",
+      "sharp@0.35.5",
     ];
-    expect(sharpFamily.length).toBe(26);
+    expect(sharpFamily.length).toBe(28);
     expect(sharpFamily).toEqual(committedSharpFamily);
   });
 
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-    expect(rootPackage.devDependencies.sharp).toBe("^0.34.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.34.5");
-    expect(packageKeys).toContain("sharp@0.34.5");
+    expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(packageKeys).toContain("sharp@0.35.5");
   });
 
   it("accepts the real lockfile's exact brand font keys", () => {

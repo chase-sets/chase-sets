@@ -20,9 +20,8 @@ import type {
  * permission pair rather than each owning context's own narrower
  * permission (`payouts.manage`, `security.manage`, ...): this console is a
  * deliberately more privileged, unified surface, so `manage` is restricted
- * to `platform-admin` alone (see the role grants in
- * `bounded-contexts/identity/features/memberships/read-model/constants.ts`
- * and `bounded-contexts/auth/support/auth-support/constants.ts`). Every
+ * to `platform-admin` alone (see the role grants in `ROLE_PERMISSIONS`,
+ * `contracts/auth-context/index.ts`). Every
  * revision still stamps the acting user through the shared machinery
  * (`actorUserId` on the command), so it appears in that policy's own
  * detail history regardless of which surface wrote it.

@@ -320,7 +320,14 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       );
     }
     for (const option of options) {
-      if (option === "scope-sync-count-lifecycle") continue;
+      // Dedicated jobs, never matrix journeys.
+      if (
+        option === "scope-sync-count-lifecycle" ||
+        option === "scrydex-cache-capture" ||
+        option === "scrydex-coordinate-preview" ||
+        option === "scrydex-force-refresh-bounded"
+      )
+        continue;
       expect(resolveJourneyMatrix(workflowSource, option), option).not.toBeNull();
     }
     const withoutArm = workflowSource.replace("|scope-sync-batch-preview-probe)", ")");
@@ -364,6 +371,12 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       [scopeSyncBatchPreviewProbeArtifactPath],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-option-refresh/receipt.json"],
+      ["artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json"],
     ]);
 
     const previewUpload = (document) =>
@@ -606,15 +619,11 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
     ]);
   });
 
-  it("keeps EN and JA Pokemon rows on one shared Scope Record set", () => {
-    const shared = receipt();
-    expect(shared.rows.find((row) => row.rowKey === "pokemon-en").scopeRecordSet.sharedWith).toBe("pokemon-ja");
-    expect(shared.rows.find((row) => row.rowKey === "pokemon-ja").scopeRecordSet.sharedWith).toBe("pokemon-en");
-    const unshared = clone(shared);
-    unshared.rows.find((row) => row.rowKey === "pokemon-ja").scopeRecordSet.sharedWith = null;
-    expect(validateScopeSyncBatchPreviewProbeReceipt(unshared, expectedIdentity).errors).toEqual([
-      "row pokemon-ja must declare its shared Scope Record set",
-    ]);
+  it("accepts EN and JA Pokemon rows without a declared shared Scope Record set", () => {
+    const current = receipt();
+    expect(current.rows.find((row) => row.rowKey === "pokemon-en")).not.toHaveProperty("scopeRecordSet");
+    expect(current.rows.find((row) => row.rowKey === "pokemon-ja")).not.toHaveProperty("scopeRecordSet");
+    expect(validateScopeSyncBatchPreviewProbeReceipt(current, expectedIdentity)).toEqual({ ok: true, errors: [] });
   });
 
   it("rejects missing or duplicate rows and a hand-set complete status over unread sources", () => {

@@ -1626,7 +1626,15 @@ function createProjectionOperationWorkerRunner(
           }),
           operation.operationId,
         );
-        await runProjectionOperationWithRenewedClaim(runtime, options, operation, ownerId, runningProgress, context);
+        await runProjectionOperationWithRenewedClaim(
+          runtime,
+          options,
+          operation,
+          ownerId,
+          runnerName,
+          runningProgress,
+          context,
+        );
         await requireProjectionOperationClaim(
           options.controlPlane.completeProjectionOperation({
             operationId: operation.operationId,
@@ -1730,6 +1738,7 @@ async function runProjectionOperationWithRenewedClaim(
   options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
+  runnerName: string,
   progress: Record<string, unknown>,
   runnerContext?: ProjectionRunContext,
 ): Promise<void> {
@@ -1804,7 +1813,7 @@ async function runProjectionOperationWithRenewedClaim(
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   try {
-    const workPromise = runProjectionOperation(runtime, options, operation, ownerId, operationContext);
+    const workPromise = runProjectionOperation(runtime, options, operation, ownerId, runnerName, operationContext);
     // If the deadline wins the race, the leaked work promise settles later
     // (or never); mark its eventual rejection as handled so a hung apply path
     // cannot crash the process.
@@ -1836,9 +1845,14 @@ async function runProjectionOperation(
   options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
+  runnerName: string,
   runnerContext?: ProjectionRunContext,
 ): Promise<void> {
   runnerContext?.throwIfLeaseLost?.();
+  // Operation claims remain owned by the worker, while each operation runner
+  // gets its own group-lease owner so a same-worker runner cannot fence a
+  // scheduled pass or another operation runner.
+  const groupLeaseOwnerId = `${ownerId}:${runnerName}`;
 
   if (operation.operationKind === "rebuild-projection-group") {
     const projectionName = requireProjectionOperationField(operation, "projectionName");
@@ -1849,7 +1863,7 @@ async function runProjectionOperation(
           targetContextName: operation.contextName,
           projectionName,
         }),
-        ownerId,
+        ownerId: groupLeaseOwnerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         acquireTimeoutMs: options.leaseAcquireTimeoutMs,
@@ -1884,7 +1898,7 @@ async function runProjectionOperation(
         options.controlPlane,
         {
           leaseName: createProjectionGroupRunnerLeaseName(group),
-          ownerId,
+          ownerId: groupLeaseOwnerId,
           ttlMs: options.leaseTtlMs,
           renewIntervalMs: options.leaseRenewIntervalMs,
           acquireTimeoutMs: options.leaseAcquireTimeoutMs,
@@ -1923,7 +1937,7 @@ async function runProjectionOperation(
       options.controlPlane,
       {
         leaseName: createProjectionGroupRunnerLeaseName(group),
-        ownerId,
+        ownerId: groupLeaseOwnerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         acquireTimeoutMs: options.leaseAcquireTimeoutMs,

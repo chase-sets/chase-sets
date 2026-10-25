@@ -751,7 +751,12 @@ describe("listing create catalog picker", () => {
   });
 
   it.each([
-    { exact: "pasted ID candidate", startExact: () => editCatalogInput("cat_acerola") },
+    {
+      exact: "pasted ID candidate",
+      startExact: async () => {
+        editCatalogInput("cat_acerola");
+      },
+    },
     {
       exact: "explicit suggestion choice",
       startExact: async () => {
@@ -822,5 +827,21 @@ describe("listing create catalog picker", () => {
     expect(catalogStatus()).toBe("Select a catalog item");
     expect(optionLabels()).toEqual([]);
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Listing create standards links", () => {
+  it("links the canonical community guidelines and support before creating or publishing", () => {
+    const { container } = render(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation />);
+
+    const guidelines = screen.getByRole("link", { name: "Community guidelines" });
+    const support = screen.getByRole("link", { name: "Contact support" });
+    expect(guidelines.getAttribute("href")).toBe("/help/buying/community-guidelines-and-enforcement");
+    expect(support.getAttribute("href")).toBe("/contact");
+    for (const intent of ["create-and-publish-listing", "create-listing"]) {
+      const submit = container.querySelector(`button[name="intent"][value="${intent}"]`)!;
+      expect(guidelines.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(support.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 });

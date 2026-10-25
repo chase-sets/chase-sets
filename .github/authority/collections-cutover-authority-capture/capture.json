@@ -1,0 +1,60 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture Collections cutover authority#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture Collections cutover authority#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    }
+  ]
+}

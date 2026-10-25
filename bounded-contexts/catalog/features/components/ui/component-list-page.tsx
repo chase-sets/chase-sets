@@ -64,7 +64,7 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
     setKey("");
     setName("");
     setDescription("");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

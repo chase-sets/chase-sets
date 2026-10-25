@@ -48,7 +48,7 @@ export function PromoBar({
   resumeLabel = "Resume announcements",
   ...rest
 }: PromoBarProps) {
-  const visibleMessages = useMemo(() => messages.filter((message) => message.title), [messages]);
+  const visibleMessages = useMemo(() => messages.filter((message) => Boolean(message.title)), [messages]);
   const reducedMotion = useReducedMotion();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
