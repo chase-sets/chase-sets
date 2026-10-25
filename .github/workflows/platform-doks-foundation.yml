@@ -15,6 +15,14 @@ on:
         description: Supported DigitalOcean Kubernetes version slug, for example 1.36.0-do.2.
         required: true
         type: string
+      version_change:
+        description: Declare whether this apply keeps the live version or performs a listed upgrade.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - upgrade
       image_tag:
         description: Immutable platform image tag to use for the DOCR pull proof, such as a release-* tag or commit SHA.
         required: true
@@ -139,6 +147,85 @@ jobs:
         working-directory: infrastructure/digitalocean/doks
         run: terraform fmt -check -recursive
 
+      - name: Preflight DOKS version change
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/doks-foundation
+          captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          preflight="artifacts/doks-foundation/pre-apply-cluster.json"
+          cluster_read="$(mktemp)"
+          cluster_error="$(mktemp)"
+          upgrades_read="$(mktemp)"
+          state_list="$(mktemp)"
+          trap 'rm -f "$cluster_read" "$cluster_error" "$upgrades_read" "$state_list"' EXIT
+
+          version_change="${{ inputs.version_change }}"
+          if ! terraform state list > "$state_list" 2> "$cluster_error"; then
+            jq -n --arg capturedAt "$captured_at" '{state: "read-error", captured_at: $capturedAt}' > "$preflight"
+            echo "DOKS Terraform state read failed; refusing to classify the cluster as absent." >&2
+            exit 1
+          fi
+          if ! grep -Fxq 'digitalocean_kubernetes_cluster.platform' "$state_list"; then
+            jq -n --arg capturedAt "$captured_at" '{state: "absent", captured_at: $capturedAt}' > "$preflight"
+            exit 0
+          fi
+
+          if ! cluster_id="$(terraform output -raw cluster_id 2> "$cluster_error")"; then
+            jq -n --arg capturedAt "$captured_at" '{state: "read-error", captured_at: $capturedAt}' > "$preflight"
+            echo "DOKS cluster ID read failed; refusing to classify the cluster as absent." >&2
+            exit 1
+          fi
+
+          if ! doctl kubernetes cluster get "$cluster_id" --output json > "$cluster_read" 2> "$cluster_error"; then
+            jq -n --arg capturedAt "$captured_at" '{state: "read-error", captured_at: $capturedAt}' > "$preflight"
+            echo "DOKS cluster read failed; refusing to classify the state as absent." >&2
+            exit 1
+          fi
+
+          if [ "$(jq -r 'if type == "array" then length else 1 end' "$cluster_read")" = "0" ]; then
+            jq -n --arg capturedAt "$captured_at" '{state: "absent", captured_at: $capturedAt}' > "$preflight"
+            exit 0
+          fi
+
+          jq -e 'type == "object" and (.id | type == "string") and (.version | type == "string")' "$cluster_read" >/dev/null
+          jq --arg capturedAt "$captured_at" '{
+            state: "present",
+            id: .id,
+            version: .version,
+            auto_upgrade: .auto_upgrade,
+            surge_upgrade: .surge_upgrade,
+            maintenance_policy: .maintenance_policy,
+            updated_at: .updated_at,
+            captured_at: $capturedAt
+          }' "$cluster_read" > "$preflight"
+
+          live_version="$(jq -r '.version' "$preflight")"
+          if [ "$version_change" = "none" ]; then
+            if [ "$live_version" != "${{ inputs.kubernetes_version }}" ]; then
+              echo "version_change=none requires the live DOKS version to match the requested slug." >&2
+              exit 1
+            fi
+          elif [ "$version_change" = "upgrade" ]; then
+            if ! doctl kubernetes cluster get-upgrades "$cluster_id" --output json > "$upgrades_read"; then
+              echo "DOKS get-upgrades read failed; refusing the version change." >&2
+              exit 1
+            fi
+            jq '.' "$upgrades_read" > artifacts/doks-foundation/get-upgrades.json
+            if ! jq -e --arg target "${{ inputs.kubernetes_version }}" 'any(.. | objects; (.slug? == $target or .version? == $target))' "$upgrades_read" >/dev/null; then
+              echo "Requested DOKS upgrade target is not listed by get-upgrades." >&2
+              exit 1
+            fi
+          else
+            echo "version_change must be none or upgrade." >&2
+            exit 1
+          fi
+
       - name: Terraform validate DOKS
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -156,6 +243,16 @@ jobs:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         working-directory: infrastructure/digitalocean/doks
         run: terraform plan -out=tfplan
+
+      - name: Inspect Terraform plan DOKS
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          plan_json="$(mktemp)"
+          trap 'rm -f "$plan_json"' EXIT
+          terraform show -json tfplan > "$plan_json"
+          node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" summarize-plan "$plan_json" --title="DOKS Terraform plan" | tee -a "$GITHUB_STEP_SUMMARY"
+          node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan
 
       - name: Terraform apply DOKS
         env:

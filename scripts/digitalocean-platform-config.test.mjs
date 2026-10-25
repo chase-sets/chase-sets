@@ -749,6 +749,14 @@ const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.y
 const playwrightConfig = readFileSync(resolve("playwright.config.ts"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
+const doksFoundationMain = readFileSync(resolve("infrastructure/digitalocean/doks/main.tf"), "utf8");
+const doksFoundationLocals = readFileSync(resolve("infrastructure/digitalocean/doks/locals.tf"), "utf8");
+const doksFoundationVariables = readFileSync(resolve("infrastructure/digitalocean/doks/variables.tf"), "utf8");
+const doksFoundationReadme = readFileSync(resolve("infrastructure/digitalocean/doks/README.md"), "utf8");
+const doksFoundationAuthority = readFileSync(
+  resolve(".github/authority/platform-doks-foundation/apply.json"),
+  "utf8",
+);
 const platformObservabilityStateMigrationWorkflow = readFileSync(
   resolve(".github/workflows/platform-observability-state-migration.yml"),
   "utf8",
@@ -3071,6 +3079,82 @@ describe("DigitalOcean platform configuration", () => {
       dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
     );
     expect(dockerfile).not.toContain("chmod 777");
+  });
+
+  it("turns off routine DOKS patch upgrades and staggers maintenance windows", () => {
+    expect(doksFoundationMain).toMatch(/auto_upgrade\s*=\s*false/);
+    expect(doksFoundationMain).not.toContain("var.auto_upgrade");
+    expect(doksFoundationVariables).not.toMatch(/variable\s+"auto_upgrade"/);
+    expect(platformDoksFoundationWorkflow).not.toMatch(/TF_VAR_auto_upgrade|-var(?:=|\s+)auto_upgrade/);
+    const tfvarsFiles = execFileSync("git", ["ls-files", "--", "*.tfvars"], { encoding: "utf8" })
+      .split(/\r?\n/)
+      .filter(Boolean);
+    for (const relativePath of tfvarsFiles) {
+      expect(readFileSync(resolve(relativePath), "utf8")).not.toMatch(/auto_upgrade\s*=/);
+    }
+    expect(doksFoundationMain).toContain("day        = local.maintenance_day");
+    expect(doksFoundationLocals).toContain(
+      'maintenance_day = var.environment == "production" ? "wednesday" : "sunday"',
+    );
+    expect(doksFoundationVariables).not.toMatch(/variable\s+"maintenance_day"/);
+    expect(doksFoundationReadme).toContain("Routine patch auto-upgrades are disabled");
+  });
+
+  it("preflights every version change before planning and keeps the inspected plan outside artifacts", () => {
+    const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+    const inspectStep = workflowStep(platformDoksFoundationWorkflow, "Inspect Terraform plan DOKS");
+    const planIndex = platformDoksFoundationWorkflow.indexOf("- name: Terraform plan DOKS");
+    const preflightIndex = platformDoksFoundationWorkflow.indexOf("- name: Preflight DOKS version change");
+    const inspectIndex = platformDoksFoundationWorkflow.indexOf("- name: Inspect Terraform plan DOKS");
+    const applyIndex = platformDoksFoundationWorkflow.indexOf("- name: Terraform apply DOKS");
+
+    expect(platformDoksFoundationWorkflow).toContain("version_change:");
+    expect(platformDoksFoundationWorkflow).toContain("default: none");
+    expect(platformDoksFoundationWorkflow).toContain("- upgrade");
+    expect(preflightStep).toContain("doctl kubernetes cluster get");
+    expect(preflightStep).toContain("pre-apply-cluster.json");
+    expect(preflightStep).toContain('[ "$version_change" = "none" ]');
+    expect(preflightStep).toContain("get-upgrades");
+    expect(preflightStep).toContain('state: "read-error"');
+    expect(preflightStep).toMatch(
+      /if ! doctl kubernetes cluster get[\s\S]+?state: "read-error"[\s\S]+?DOKS cluster read failed/,
+    );
+    expect(preflightStep).toContain('state: "absent"');
+    expect(preflightStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(inspectStep).toContain('terraform show -json tfplan > "$plan_json"');
+    expect(inspectStep).toContain('summarize-plan "$plan_json"');
+    expect(inspectStep).toContain("assert-no-destructive-changes tfplan");
+    expect(inspectStep).not.toContain("artifacts/doks-foundation/tfplan");
+    expect(preflightIndex).toBeLessThan(planIndex);
+    expect(planIndex).toBeLessThan(inspectIndex);
+    expect(inspectIndex).toBeLessThan(applyIndex);
+    expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
+  });
+
+  it("fails closed for version mismatches, unlisted upgrade targets, and provider read errors", () => {
+    const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+    expect(preflightStep).toContain('if [ "$live_version" != "${{ inputs.kubernetes_version }}" ]; then');
+    expect(preflightStep).toContain('if ! jq -e --arg target "${{ inputs.kubernetes_version }}"');
+    expect(preflightStep).toContain("DOKS cluster read failed");
+    expect(preflightStep).toContain('state: "absent"');
+    expect(preflightStep).toContain('state: "read-error"');
+    expect(preflightStep).toContain("DOKS cluster read failed; refusing to classify the state as absent.");
+    expect(preflightStep).toMatch(
+      /if ! doctl kubernetes cluster get[\s\S]+?state: "read-error"[\s\S]+?DOKS cluster read failed/,
+    );
+  });
+
+  it("documents the staging-first planned-upgrade and steady-state contracts", () => {
+    expect(doksPlatformOperationsRunbook).toContain("## Kubernetes Version Changes");
+    expect(doksPlatformOperationsRunbook).toContain("version_change=upgrade");
+    expect(doksPlatformOperationsRunbook).toContain("at least 2 days before production");
+    expect(doksPlatformOperationsRunbook).toContain("CoreDNS");
+    expect(doksPlatformOperationsRunbook).toContain("konnectivity");
+    expect(doksPlatformOperationsRunbook).toContain("host gives a go");
+    expect(doksPlatformOperationsRunbook).toContain("There is no downgrade path");
+    expect(doksPlatformOperationsRunbook).toContain("monthly");
+    expect(doksPlatformOperationsRunbook).toContain("30 days before end of life");
+    expect(doksPlatformOperationsRunbook).toContain("unplanned upgrade is an incident");
   });
 
   it("provides a confirmed CI path for live DOKS foundation proof", () => {
