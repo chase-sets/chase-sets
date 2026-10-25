@@ -22,15 +22,18 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     plugins: [tailwindcss()],
     server: { host: "127.0.0.1", port: 0, fs: { allow: [root] } },
   });
-  server.middlewares.use(async (request, response, next) => {
-    if (!request.url?.startsWith("/synthetic-operator-popup.html")) return next();
+  server.middlewares.use((request, response, next) => {
+    if (!request.url?.startsWith("/synthetic-operator-popup.html")) {
+      next();
+      return;
+    }
     response.setHeader("content-type", "text/html");
-    response.end(
-      await server.transformIndexHtml(
+    void server
+      .transformIndexHtml(
         request.url,
         `<!doctype html><html><head><title>Synthetic SetNames popup</title></head><body><div id="root"></div><script type="module" src="/@fs/${entry}"></script></body></html>`,
-      ),
-    );
+      )
+      .then((html) => response.end(html), next);
   });
   await server.listen();
   try {
