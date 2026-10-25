@@ -543,24 +543,35 @@ function isKubernetesNotFound(error) {
   return typeof error === "object" && error !== null && "statusCode" in error && error.statusCode === 404;
 }
 
-async function main() {
-  if (process.argv[2] === "--protocol-version") {
+export async function main({
+  argv = process.argv,
+  env = process.env,
+  createClient = createKubernetesClient,
+  run = runQuiescedBootstrap,
+  spawn = spawnShellCommand,
+  log = console.log,
+  setExitCode = (code) => {
+    process.exitCode = code;
+  },
+} = {}) {
+  if (argv[2] === "--protocol-version") {
     console.log(QUIESCE_PROTOCOL_VERSION);
     return;
   }
-  const parsed = parseQuiesceOptions(process.argv.slice(2));
+  const parsed = parseQuiesceOptions(argv.slice(2), env);
   if (parsed.mode === "helm-hook" && !/^helm-hook:.+/.test(parsed.owner ?? "")) {
     throw new Error("Helm hook requires a helm-hook:<pod> owner.");
   }
-  const exitCode = await runQuiescedBootstrap({
+  const exitCode = await run({
     ...parsed,
-    kubernetes: createKubernetesClient(parsed),
-    spawnCommand: spawnShellCommand,
+    kubernetes: createClient(parsed),
+    spawnCommand: spawn,
     log: (message) => {
-      console.log(`[bootstrap-quiesce] ${message}`);
+      log(`[bootstrap-quiesce] ${message}`);
     },
   });
-  process.exitCode = exitCode;
+  setExitCode(exitCode);
+  return exitCode;
 }
 
 if (process.argv[1]?.endsWith("bootstrap-quiesce.mjs")) {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createKubernetesClient,
+  main,
   parseDeploymentList,
   parseQuiesceOptions,
   runQuiescedBootstrap,
@@ -63,6 +64,38 @@ function ownershipHarness(annotations = {}) {
 }
 
 describe("owner-fenced seed yield", () => {
+  it("passes the full parsed CLI options to the Kubernetes client", async () => {
+    const createClient = vi.fn(() => ({ synthetic: true }));
+    const run = vi.fn(async (options) => {
+      expect(options.kubernetes).toEqual({ synthetic: true });
+      expect(options.spawnCommand).toBeInstanceOf(Function);
+      return 0;
+    });
+    const setExitCode = vi.fn();
+    await main({
+      argv: ["node", "bootstrap-quiesce.mjs", "--", "true"],
+      env: {
+        CHASE_SETS_QUIESCE_MODE: "scenario-seed",
+        CHASE_SETS_QUIESCE_OWNER: "scenario-seed:synthetic-job",
+        CHASE_SETS_QUIESCE_DEPLOYMENTS: "worker",
+      },
+      createClient,
+      run,
+      spawn: vi.fn(),
+      log: vi.fn(),
+      setExitCode,
+    });
+    expect(createClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "scenario-seed",
+        owner: "scenario-seed:synthetic-job",
+        deployments: ["worker"],
+        command: ["true"],
+      }),
+    );
+    expect(setExitCode).toHaveBeenCalledWith(0);
+  });
+
   it("exports the capability marker and parses owner mode", () => {
     expect(QUIESCE_PROTOCOL_VERSION).toBe("owner-fenced-seed-yield/v1");
     expect(
