@@ -1,6 +1,7 @@
 //! The storage-location and restock-decision calls, as the signed-in seller, and the cart read, as
 //! the signed-in buyer (the shared caller is `platform::api`).
 //! Types hold only the fields the screen reads; they are also the screen's JSON for data clients.
+use corten::axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub use platform::api::{ApiError, Caller, Identity, Method, Platform, segment};
@@ -312,6 +313,79 @@ struct ReadinessBody {
     readiness: Snapshot,
 }
 
+/// One of the cart page's commands (`CheckoutCartLineCommandInput`): a line's quantity, its
+/// removal, or locking it to its preferred listing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase", rename_all_fields = "camelCase")]
+pub enum CartCommand {
+    Quantity {
+        line_id: String,
+        quantity: u32,
+    },
+    Remove {
+        line_id: String,
+    },
+    Fulfillment {
+        line_id: String,
+        /// `locked-listing`.
+        fulfillment_mode: &'static str,
+        locked_listing_id: String,
+        seller_preference_id: String,
+        /// `available`.
+        availability_state: &'static str,
+    },
+}
+
+/// What the Checkout API keeps of a cart attempt (`CheckoutCommandAttemptResult`), the fields
+/// the page reads: whether it was committed, each command's outcome, and the commit.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CartAttempt {
+    /// `not-observed`, `committed`, `conflict`, `failed-safe` or `ambiguous`.
+    pub owner_status: String,
+    #[serde(default)]
+    pub vector: Vec<CommandOutcome>,
+    pub commit_receipt: Option<CommitReceipt>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandOutcome {
+    /// `succeeded`, `conflict` or `error`.
+    pub outcome: String,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitReceipt {
+    pub event_id: String,
+    pub global_position: String,
+}
+
+/// The API's answer to a cart attempt: its attempt (if it sent one), its message (a refusal's),
+/// and the write's receipt; or none at all, when the answer may have been lost (no answer, 408,
+/// or a 5xx: `isPossibleSendLoss`).
+#[derive(Debug)]
+pub enum CartAnswer {
+    Answered { status: StatusCode, attempt: Option<CartAttempt>, message: Option<String>, receipt: Option<Receipt> },
+    Lost,
+}
+
+#[derive(Deserialize)]
+struct AttemptBody {
+    attempt: Option<serde_json::Value>,
+    error: Option<ErrorMessage>,
+}
+
+#[derive(Deserialize)]
+struct ErrorMessage {
+    message: Option<String>,
+}
+
+const CART_ATTEMPT_KIND: &str = "cart.commands";
+const CART_ATTEMPT_TARGET: &str = "cart";
+
 /// The guest cart a browser presents (`x-checkout-anonymous-cart-id`).
 const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
 
@@ -322,6 +396,11 @@ pub trait Checkout {
     async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError>;
     /// The account's cart's readiness now, with `decisions` (and the guest cart's lines).
     async fn cart_readiness(&self, decisions: &Decisions, anonymous_cart: Option<&str>) -> Result<Snapshot, ApiError>;
+    /// Sends `commands` as one cart attempt (`POST /account/cart/commands`): all or nothing per
+    /// command, applied once however often `attempt` is sent.
+    async fn cart_commands(&self, attempt: &str, commands: &[CartCommand]) -> CartAnswer;
+    /// What the API kept of `attempt` sent with `commands`; `None` when it cannot say.
+    async fn cart_attempt(&self, attempt: &str, commands: &[CartCommand]) -> Option<CartAttempt>;
     /// Starts a checkout session for the cart as `snapshot` saw it. A session started again from
     /// the same snapshot is the same session.
     async fn start_checkout(
@@ -353,6 +432,44 @@ impl Checkout for Caller<'_> {
         }
         let (body, _): (ReadinessBody, _) = self.write(req).await?;
         Ok(body.readiness)
+    }
+
+    async fn cart_commands(&self, attempt: &str, commands: &[CartCommand]) -> CartAnswer {
+        let body = serde_json::json!({ "attemptId": attempt, "commands": commands });
+        let sent = self.request(Method::POST, &format!("{CART}/commands"), CHECKOUT).json(&body).send().await;
+        let Ok(res) = sent else { return CartAnswer::Lost };
+        let status = res.status();
+        if status.as_u16() == 408 || status.is_server_error() {
+            return CartAnswer::Lost;
+        }
+        let receipt = Receipt::from_response(res.headers());
+        let body: Option<AttemptBody> = res.json().await.ok();
+        let (attempt, message) = match body {
+            Some(AttemptBody { attempt, error }) => {
+                (attempt.and_then(|a| serde_json::from_value(a).ok()), error.and_then(|e| e.message))
+            }
+            None => (None, None),
+        };
+        CartAnswer::Answered { status, attempt, message, receipt }
+    }
+
+    async fn cart_attempt(&self, attempt: &str, commands: &[CartCommand]) -> Option<CartAttempt> {
+        let hash = crate::cart_attempt::request_hash(commands);
+        let path = format!(
+            "/api/marketplace/account/command-attempts/{}?kind={CART_ATTEMPT_KIND}&target={CART_ATTEMPT_TARGET}&requestHash={hash}",
+            segment(attempt)
+        );
+        #[derive(Deserialize)]
+        struct Found {
+            attempt: CartAttempt,
+        }
+        match self.read::<Found>(&path, CHECKOUT).await {
+            Ok(found) => Some(found.attempt),
+            Err(error) => {
+                tracing::warn!("the cart attempt lookup failed: {error}");
+                None
+            }
+        }
     }
 
     async fn start_checkout(

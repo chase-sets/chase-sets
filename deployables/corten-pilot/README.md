@@ -18,7 +18,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
-| `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout (not ported yet: the writes, which are quantity, remove and lock; the guest cart; and the checkout pages after it) |
+| `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -100,6 +100,7 @@ node scripts/smoke-marketplace.mjs     # the same for storage locations, with a 
 node scripts/sign-in.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json collector --api http://localhost:7762
 node scripts/smoke-cart.mjs            # the cart beside the API's read and marketplace's page: lines, badges, prices, total, the offer, the checkout forms, no JavaScript, 390 px (only reads)
 node scripts/smoke-cart.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json http://localhost:7753 http://localhost:7762 --checkout
+node scripts/smoke-cart.mjs --write     # also steps a one-line card's quantity up and back, with and without JavaScript (writes, left as found)
                                         # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
@@ -172,7 +173,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/recovery.rs` | the write's attempt id, the address's `Check`, and confirming a write the browser did not hear back about |
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
-| `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, and the page's parts, whose stylesheet is `sections/account/cart.css` |
+| `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
+| `marketplace/src/cart_attempt.rs` | a cart write as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
 | `platform/src/when.rs`, `money.rs` | a time and an amount of money as Chase Sets writes them (`Mar 22, 2026, 12:00 PM UTC`, `$1,234.50`), until Corten can |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
@@ -419,18 +421,47 @@ forward only on purpose, when a fix the pilot needs lands.
 
     A line without an image shows marketplace's card back from
     marketplace's origin, a 2.9 MB PNG ([chase-sets/chase-sets#10577 Shrink the cart's 2.9 MB fallback card-back thumbnail](https://github.com/chase-sets/chase-sets/issues/10577)); the policy allows images from that origin,
-    since it is plain http locally. The writes are next.
+    since it is plain http locally.
+
+31. **Cart writes are command attempts, as marketplace sends them.** Each line has a quantity
+    stepper (Decrease and Increase, the first off at 1), Remove, and Lock this listing for a line
+    with a preferred listing it is not locked to. Each is a form that posts to its own route
+    (`/account/cart/quantity`, `/remove`, `/lock`) with a `SubmitKey` as the attempt id and
+    every line merged into the card. The pilot sends one `POST /cart/commands` attempt per post,
+    with the commands marketplace's action builds: a quantity on the first line and a remove for
+    each line merged into it, all or nothing; a remove or a lock for each line
+    ([`cart_attempt`](marketplace/src/cart_attempt.rs)). An answer that may have been lost (none,
+    408 or 5xx) is looked up once by the attempt id and the request's hash, which is the web
+    hosts' `computeCheckoutCommandAttemptRequestHash`, checked against it. Nothing is resent on
+    its own. A write that succeeded redirects to the cart with its receipt, and the read waits for
+    it. One that applied nothing is the cart again, 422, with the API's reason. One that applied in
+    part is 409, listing the lines not updated. One whose outcome is not known is 409: the cart's
+    writes are paused, and the buyer can send the same change again (the same attempt, so it
+    cannot apply twice) or refresh. A 401 sends the buyer to sign in, back to the cart.
+
+    The checkout read model is often behind the write. In the dev sandbox every quantity write
+    the smoke test sent was read before it caught up. That read is marketplace's
+    `pending-fresh-write`: the page says the change is saved and reads itself again every 2 s
+    until the receipt is 30 s old. Corten has no way for a page to ask that, so the pilot sends
+    `Refresh: 2`, which the browser honours only on a page it loaded itself
+    ([todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69)).
+    So the line writes are plain posts, not `data-patch` forms, and each step is a full page load.
+    Move them to `data-patch` and drop the header once that issue lands.
 
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
+1. [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69)
+   (correctness, then end-user performance). Workaround: the cart sends `Refresh: 2` while its
+   read catches up after a write, and its line writes are plain posts so the browser loads the
+   page itself ([`cart.rs`](marketplace/src/cart.rs), `render`).
+2. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
    (correctness, then end-user performance). Chase Sets writes money with `formatMoney` in 71
    `.tsx` files; Corten's own examples format prices by hand three times. Workaround:
    `platform::money::amount` writes `en-US` by hand ([`money.rs`](platform/src/money.rs)), with
    `formatMoney`'s own test cases.
-2. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
+3. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
    (correctness, then end-user performance). Chase Sets writes times with `formatDateTime` in 65
    of its `.tsx` files. Workaround: `platform::when::date_time` writes `en` in UTC by hand
    ([`when.rs`](platform/src/when.rs)), with `formatDateTime`'s own test cases.

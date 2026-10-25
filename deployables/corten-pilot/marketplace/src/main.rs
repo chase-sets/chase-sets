@@ -6,6 +6,7 @@ mod api;
 mod app;
 mod auth;
 mod cart;
+mod cart_attempt;
 mod form;
 mod locations;
 mod recovery;

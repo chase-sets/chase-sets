@@ -45,6 +45,19 @@ impl Receipt {
         Some(Receipt { observed_at_ms: now_ms(), commit_position, sources })
     }
 
+    /// The receipt of a write known by its event alone (an attempt found by lookup, whose
+    /// response was lost): `context`'s event `event_id` at `position`.
+    pub fn of_event(context: &str, position: &str, event_id: &str) -> Option<Self> {
+        let digits = !position.is_empty() && position.bytes().all(|b| b.is_ascii_digit());
+        if !digits || event_id.is_empty() {
+            return None;
+        }
+        let sources =
+            serde_json::json!([{ "sourceContextName": context, "maxGlobalPosition": position, "eventIds": [event_id] }]);
+        let sources = RawValue::from_string(sources.to_string()).ok()?;
+        Some(Receipt { observed_at_ms: now_ms(), commit_position: Some(position.to_owned()), sources })
+    }
+
     /// The `afterWrite` value a redirect carries: the JSON (the typed route encodes it).
     pub fn param(&self) -> String {
         serde_json::to_string(self).expect("a receipt serializes")

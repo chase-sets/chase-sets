@@ -5,7 +5,9 @@
 // sandbox), and checks the browser is sent to marketplace's page for it and the API has it. The
 // smoke does not load that page: with a saved card, marketplace's checkout starts the payment as
 // it loads, which creates orders that hold the cart's listings until their payment deadline.
-// Usage: node scripts/smoke-cart.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [--checkout]
+// With --write it steps a line's quantity up and back down, with JavaScript and without it, each a
+// command attempt (a write in the dev sandbox, left as it was found), and checks the page and the API.
+// Usage: node scripts/smoke-cart.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [--checkout] [--write]
 //   (state from `scripts/sign-in.mjs <pilot-url> <state-file> collector --api <api-url>`)
 import { chromium } from "@playwright/test";
 
@@ -16,6 +18,7 @@ const [
   api = "http://localhost:7762",
 ] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const sendCheckout = process.argv.includes("--checkout");
+const sendWrites = process.argv.includes("--write");
 const cartUrl = `${base}/account/cart`;
 let failures = 0;
 
@@ -165,6 +168,66 @@ async function shown(page) {
   await ctx.close();
 }
 
+// A quantity step and back, as an attempt each, with JavaScript (the runtime sends the form) and
+// without it (the browser does). Only a card that is one line: a merged card's step removes the
+// lines merged into it, which the smoke could not put back.
+if (sendWrites) {
+  for (const javaScriptEnabled of [true, false]) {
+    const how = javaScriptEnabled ? "with JavaScript" : "without JavaScript";
+    const { ctx, page, problems } = await context(javaScriptEnabled);
+    const quantityOf = async (id) => {
+      const read = await page.request.get(`${api}/api/marketplace/account/cart`, { headers: { "chase-sets-read-target-context": "checkout" } });
+      return (await read.json()).items.find((i) => i.line_id === id)?.quantity;
+    };
+    // The cart read after the write may not have caught up: the page then says so and reads
+    // itself again (`Refresh`) until the line shows `expected`.
+    const step = async (id, name, expected) => {
+      const before = page.url();
+      const card = page.locator(`li[data-cart-line="${id}"]`);
+      const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/quantity`);
+      let pending = false;
+      const seen = (r) => r.url().startsWith(cartUrl) && r.request().method() === "GET" && r.headers()["refresh"] && (pending = true);
+      page.on("response", seen);
+      await card.getByRole("button", { name }).click();
+      const answer = await posted;
+      await page.waitForURL((u) => u.href !== before && u.searchParams.has("after_write"));
+      const shown = await card
+        .locator("[data-quantity]")
+        .filter({ hasText: new RegExp(`^${expected}$`) })
+        .waitFor({ timeout: 35_000 })
+        .then(() => expected)
+        .catch(async () => (await card.count()) ? Number(await card.locator("[data-quantity]").textContent()) : "no card");
+      page.off("response", seen);
+      if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
+      return { status: answer.status(), shown, pending };
+    };
+    await page.goto(cartUrl);
+    if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
+    const cards = await page.locator("li[data-cart-line]").evaluateAll((items) =>
+      items.map((li) => ({
+        id: li.getAttribute("data-cart-line"),
+        merged: li.querySelectorAll('form[action$="/account/cart/quantity"] input[name="line_id"]').length,
+        quantity: Number(li.querySelector("[data-quantity]")?.textContent),
+      })),
+    );
+    const card = cards.find((c) => c.merged === 1);
+    if (!card) {
+      console.log(`skip ${how}: every card merges lines`);
+      await ctx.close();
+      continue;
+    }
+    const up = await step(card.id, "Increase", card.quantity + 1);
+    check([204, 303].includes(up.status), `${how}: Increase is sent as an attempt (${up.status})`);
+    check(up.shown === card.quantity + 1, `${how}: the cart read after it shows ${card.quantity + 1} (${up.shown}${up.pending ? ", after a pending read" : ""})`);
+    check((await quantityOf(card.id)) === card.quantity + 1, `${how}: the API has it`);
+    const down = await step(card.id, "Decrease", card.quantity);
+    check(down.shown === card.quantity, `${how}: Decrease puts it back to ${card.quantity} (${down.shown}${down.pending ? ", after a pending read" : ""})`);
+    check((await quantityOf(card.id)) === card.quantity, `${how}: the API has it back`);
+    check(problems.length === 0, `${how}: no console errors (${problems.join(" | ")})`);
+    await ctx.close();
+  }
+}
+
 // At 390 px.
 {
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
@@ -176,6 +239,10 @@ async function shown(page) {
   check(Boolean(bar) && bar.x >= 0 && bar.x + bar.width <= 390, "checkout fits on the screen");
   const cards = await page.locator("li[data-cart-line]").evaluateAll((items) => items.map((li) => li.getBoundingClientRect().right));
   check(cards.every((right) => right <= 390), "every line fits");
+  const controls = await page.locator("li[data-cart-line] button").evaluateAll((all) => all.map((b) => b.getBoundingClientRect()));
+  check(controls.length > 0 && controls.every((r) => r.left >= 0 && r.right <= 390), `every line's controls fit (${controls.length})`);
+  const small = controls.filter((r) => r.height < 40 || r.width < 40).length;
+  check(small === 0, `every control is a comfortable target (${small} under 40 px)`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/cart-390.png", fullPage: true });
   check(problems.length === 0, `no script errors at 390 px (${problems.join(" | ")})`);
   await ctx.close();

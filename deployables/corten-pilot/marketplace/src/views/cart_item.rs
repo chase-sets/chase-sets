@@ -1,13 +1,14 @@
 //! The cart page's parts, after marketplace's design-system ones: a line (`MarketplaceCartLineItem`),
 //! the page's one notice (`CheckoutNoticeStack`), the totals (`CheckoutTotals`), the checkout bar
 //! (`StickyCtaBar`) and the empty cart (`MarketplaceEmptyState`).
-use corten::prelude::*;
+use corten::{prelude::*, view::AttrValue};
 
 use super::marketplace;
 use crate::{
     api::{Snapshot, segment},
     app::url,
-    cart::{CheckoutInput, Line, Price, Reason, Seller},
+    cart::{AttemptNotice, CheckoutInput, Line, LineInput, Price, Reason, Seller, Write},
+    cart_attempt::State,
     text::CartMsg,
 };
 
@@ -77,9 +78,10 @@ pub fn CartList<C: Render>(children: C) -> impl Render {
     html! { <ul class={List}>{children}</ul> }
 }
 
-/// One line: its picture, item, badges, options, listing, seller and price, and its quantity.
+/// One line: its picture, item, badges, options, listing, seller and price, its quantity and its
+/// writes. `paused` turns the writes off while one is not known to have applied.
 #[component(css)]
-pub fn CartItem<'a>(t: CartMsg, line: &'a Line) -> impl Render {
+pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
     let l = &line.line;
     let image = l.item_image_url.clone().unwrap_or_else(|| link(FALLBACK_IMAGE));
     let options = options(l.product_summary.as_deref());
@@ -143,15 +145,125 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line) -> impl Render {
                 }
             </div>
             <div class={Foot}>
-                <p class={Quantity}>
-                    <span class={Label}>{t.page_quantity()}</span>
+                <LineForm action={url::CartQuantity} line={line} paused={paused} label={t.page_quantity()}>
+                    <input type="hidden" name={LineInput::FIELDS.quantity} value={l.quantity}>
+                    <button
+                        type="submit"
+                        class={(Button, Step)}
+                        name={LineInput::FIELDS.delta}
+                        value="-1"
+                        aria-label={t.page_decrease()}
+                        disabled={l.quantity <= 1}
+                    >
+                        "\u{2212}"
+                    </button>
                     <span class={Count} data-quantity>{l.quantity}</span>
-                </p>
-                if !fulfillable {
-                    <a class={Button} href={alternatives}>{t.page_find_alternatives()}</a>
-                }
+                    <button
+                        type="submit"
+                        class={(Button, Step)}
+                        name={LineInput::FIELDS.delta}
+                        value="1"
+                        aria-label={t.page_increase()}
+                    >
+                        "+"
+                    </button>
+                </LineForm>
+                <div class={Actions}>
+                    <LineForm action={url::CartRemove} line={line} paused={paused} label="">
+                        <button type="submit" class={Button} data-write="remove">{t.page_remove()}</button>
+                    </LineForm>
+                    if let Some(preference) = preferred {
+                        <LineForm action={url::CartLock} line={line} paused={paused} label="">
+                            <input type="hidden" name={LineInput::FIELDS.preference} value={preference}>
+                            <button type="submit" class={Button} data-write="lock">{t.page_lock_this_listing()}</button>
+                        </LineForm>
+                    }
+                    if !fulfillable {
+                        <a class={Button} href={alternatives}>{t.page_find_alternatives()}</a>
+                    }
+                </div>
             </div>
         </li>
+    }
+}
+
+/// A line write's form: a new attempt (`SubmitKey`), every line merged into the one shown, and
+/// the controls, off while `paused`. A plain form, so it works whether or not the script runs; the
+/// pilot redirects to the cart, read after the write. `label` names the controls when it is set.
+#[component(css = CartItem)]
+pub fn LineForm<'a, A: AttrValue, C: Render>(
+    action: A,
+    line: &'a Line,
+    paused: bool,
+    label: &'a str,
+    children: C,
+) -> impl Render {
+    let f = LineInput::FIELDS;
+    html! {
+        <form class={(Post, (!label.is_empty()).then_some(Quantity))} method="post" action={action}>
+            {SubmitKey::field(f.attempt)}
+            for id in &line.line_ids {
+                <input type="hidden" name={f.line_id} value={id}>
+            }
+            if !label.is_empty() {
+                <span class={Label}>{label}</span>
+            }
+            <fieldset class={(Controls, (!label.is_empty()).then_some(Stepper))} disabled={paused}>{children}</fieldset>
+        </form>
+    }
+}
+
+/// A line write that did not fully apply (the cart page's attempt notice): what happened, the
+/// lines not updated, and for a write not known to have applied, Send the same change again (the
+/// same attempt, so it cannot apply twice) and Refresh cart.
+#[component(css = CartItem)]
+pub fn AttemptBanner<'a>(t: CartMsg, notice: &'a AttemptNotice) -> impl Render {
+    let (title, description) = match notice.state {
+        State::Partial => (t.page_attempt_partial_title(), t.page_attempt_partial_description()),
+        State::Ambiguous => (t.page_attempt_ambiguous_title(), t.page_attempt_ambiguous_description()),
+        State::FailedSafe | State::Succeeded => {
+            (t.page_attempt_failed_safe_title(), notice.message.as_deref().unwrap_or(t.page_attempt_failed_safe_description()))
+        }
+    };
+    let lines = if notice.state == State::Partial { notice.not_applied.as_slice() } else { &[] };
+    let f = LineInput::FIELDS;
+    let refresh = url::Cart::default().href();
+    html! {
+        <section class={(Notice, Attention)} aria-labelledby="cart-attempt" data-attempt={notice.state.as_str()}>
+            <h2 class={NoticeTitle} id="cart-attempt" tabindex="-1" autofocus>{title}</h2>
+            <p role="status">{description}</p>
+            if !lines.is_empty() {
+                <ul class={NotApplied}>
+                    for message in lines {
+                        <li>{message.as_deref().unwrap_or(t.page_attempt_line_not_applied())}</li>
+                    }
+                </ul>
+            }
+            if let Some((write, input)) = &notice.resend {
+                <div class={Resend}>
+                    <form class={Post} method="post" action={write_action(*write)}>
+                        <input type="hidden" name={f.attempt} value={&input.attempt}>
+                        for id in &input.line_id {
+                            <input type="hidden" name={f.line_id} value={id}>
+                        }
+                        <input type="hidden" name={f.quantity} value={&input.quantity}>
+                        <input type="hidden" name={f.delta} value={&input.delta}>
+                        <input type="hidden" name={f.preference} value={&input.preference}>
+                        <button type="submit" class={Button}>{t.page_attempt_resend()}</button>
+                    </form>
+                    <a class={Button} href={&refresh}>{t.page_refresh_cart()}</a>
+                </div>
+            }
+        </section>
+    }
+}
+
+/// Where a line write posts.
+fn write_action(write: Write) -> String {
+    match write {
+        Write::Quantity => url::CartQuantity.href(),
+        Write::Remove => url::CartRemove.href(),
+        Write::Lock => url::CartLock.href(),
     }
 }
 

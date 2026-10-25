@@ -14,7 +14,10 @@
 //! | `GET /account/inventory/restock-decisions?<check>` | the pending restock decisions, and what the last write did |
 //! | `POST /account/inventory/restock-decisions/{id}/restock` | restock a decision's items |
 //! | `POST /account/inventory/restock-decisions/{id}/write-off` | write them off, with a damage note |
-//! | `GET /account/cart` | the account's cart, its readiness and total |
+//! | `GET /account/cart?after_write=..` | the account's cart, its readiness and total |
+//! | `POST /account/cart/quantity` | a line's quantity, one step down or up |
+//! | `POST /account/cart/remove` | remove a line |
+//! | `POST /account/cart/lock` | lock a line to its preferred listing |
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`.
@@ -82,10 +85,28 @@ pub mod url {
     #[route("/account/cart")]
     pub struct CartArea;
 
-    /// The account's cart.
-    #[derive(Route)]
+    /// The account's cart, after the write whose receipt it carries.
+    #[derive(Clone, Debug, Default, Route)]
     #[route("/account/cart")]
-    pub struct Cart;
+    pub struct Cart {
+        #[route(query)]
+        pub after: crate::cart::AfterWrite,
+    }
+
+    /// A cart line's quantity, one step down or up.
+    #[derive(Route)]
+    #[route("/account/cart/quantity")]
+    pub struct CartQuantity;
+
+    /// Remove a cart line.
+    #[derive(Route)]
+    #[route("/account/cart/remove")]
+    pub struct CartRemove;
+
+    /// Lock a cart line to its preferred listing.
+    #[derive(Route)]
+    #[route("/account/cart/lock")]
+    pub struct CartLock;
 
     /// Check out the account's cart: starts a checkout session and sends the buyer to it.
     #[derive(Route)]

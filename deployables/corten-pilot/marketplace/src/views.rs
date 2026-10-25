@@ -29,8 +29,8 @@ mod page_actions;
 mod recovery;
 
 pub use cart_item::{
-    CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm, CheckoutLink,
-    EmptyCart, Reputation,
+    AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
+    CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
@@ -313,7 +313,14 @@ pub fn RefusedDecision<'a>(
 
 /// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
 /// the checkout bar, or the empty cart.
-pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen, issue: Option<&'a str>) -> impl Render + 'a {
+pub fn cart_page<'a>(
+    t: CartMsg,
+    _viewer: &'a Viewer,
+    screen: &'a CartScreen,
+    notice: Option<&'a crate::cart::Notice>,
+) -> impl Render + 'a {
+    use crate::cart::Notice as Said;
+    let paused = matches!(notice, Some(Said::Attempt(a)) if a.pauses());
     let readiness = screen.readiness.as_ref();
     let money = |m: Option<&crate::api::Money>| match m {
         Some(m) => platform::money::amount(&m.amount, &m.currency),
@@ -342,10 +349,17 @@ pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen, is
     html! {
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
-        if let Some(issue) = issue {
-            <CartIssue title={t.page_checkout_issue()} text={issue} />
+        match notice {
+            Some(Said::Checkout(issue)) => { <CartIssue title={t.page_checkout_issue()} text={issue} /> }
+            Some(Said::Attempt(attempt)) => { <AttemptBanner t={t} notice={attempt} /> }
+            None => {}
         }
-        if screen.lines.is_empty() {
+        if screen.pending {
+            <CartNotice title={t.page_cart_update_refreshing()} warning={false}>
+                <p role="status">{t.route_cart_pending_fresh_write()}</p>
+                <p><CheckoutLink href={&url::Cart::default().href()} label={t.page_refresh_cart()} primary={false} /></p>
+            </CartNotice>
+        } else if screen.lines.is_empty() {
             <EmptyCart t={t} />
         } else {
             <CartStack>
@@ -367,7 +381,7 @@ pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen, is
                 }
                 <CartList>
                     for line in &screen.lines {
-                        <CartItem t={t} line={line} />
+                        <CartItem t={t} line={line} paused={paused} />
                     }
                 </CartList>
                 <CartTotals t={t} items={screen.item_count()} total={&total} known={known} />

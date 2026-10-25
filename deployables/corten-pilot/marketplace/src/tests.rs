@@ -45,6 +45,8 @@ struct Call {
 struct Stand {
     calls: Arc<Mutex<Vec<Call>>>,
     applied: Arc<Mutex<HashMap<String, (String, String)>>>,
+    /// The cart attempts the Checkout API kept, by id.
+    kept: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 fn location(id: &str, name: &str, archived: bool) -> Value {
@@ -127,6 +129,11 @@ fn cart(session: &str) -> Value {
     match session {
         "blocked" => {
             let pikachu = [("lst_pikachu", "Card Vault", "17.95")];
+            // The buyer prefers the Pikachu listing, so those lines can be locked to it.
+            let preferred = |mut line: Value| {
+                line["seller_preference_id"] = json!("lst_pikachu");
+                line
+            };
             let reasons = [
                 ("cli_pikachu_a", "unassigned-fulfillment"),
                 ("cli_pikachu_b", "unassigned-fulfillment"),
@@ -134,9 +141,9 @@ fn cart(session: &str) -> Value {
             ];
             json!({
                 "items": [
-                    cart_line("cli_pikachu_a", "Pikachu", 1, None, &pikachu, "2026-10-24T03:00:00.000Z"),
+                    preferred(cart_line("cli_pikachu_a", "Pikachu", 1, None, &pikachu, "2026-10-24T03:00:00.000Z")),
                     cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z"),
-                    cart_line("cli_pikachu_b", "Pikachu", 2, None, &pikachu, "2026-10-24T04:00:00.000Z"),
+                    preferred(cart_line("cli_pikachu_b", "Pikachu", 2, None, &pikachu, "2026-10-24T04:00:00.000Z")),
                 ],
                 "count": 3,
                 "readiness": {
@@ -218,7 +225,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "seller" => actor(&["inventory.view", "inventory.manage"]),
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
-            "other" | "buyer" | "blocked" | "empty" => actor(&[]),
+            // `stale`'s session ends before its cart write is sent.
+            "other" | "buyer" | "blocked" | "empty" | "stale" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
@@ -234,7 +242,18 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
     }
     if uri.path() == CART {
-        return Json(cart(session)).into_response();
+        return match waits_for(&headers).as_deref() {
+            Some("43") => refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            ),
+            Some("44") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(cart(session)).into_response(),
+        };
+    }
+    if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &body) {
+        return answer;
     }
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
         return answer;
@@ -338,6 +357,58 @@ fn checkout(session: &str, method: &Method, path: &str, body: &str) -> Option<Re
         }
         _ => return None,
     })
+}
+
+const CART_COMMANDS: &str = "/api/marketplace/account/cart/commands";
+const CART_ATTEMPTS: &str = "/api/marketplace/account/command-attempts/";
+
+/// Cart writes, as the stand-in answers them. A command's line says what happens: `cli_gone` is
+/// no longer in the cart (its command is a conflict, the others apply), `cli_refused` is refused
+/// with nothing applied, `cli_lost` applies and its answer is lost, `cli_unknown`'s answer is lost
+/// and nothing is kept. Any other applies, at position 11. `stale`'s session has ended. A lookup
+/// answers what was kept.
+fn cart_commands(stand: &Stand, session: &str, method: &Method, path: &str, body: &str) -> Option<Response> {
+    if let Some(id) = path.strip_prefix(CART_ATTEMPTS) {
+        return Some(match stand.kept.lock().unwrap().get(id) {
+            Some(attempt) => Json(json!({ "attempt": attempt })).into_response(),
+            None => refusal(StatusCode::NOT_FOUND, "command_attempt_not_found", "Command attempt not found."),
+        });
+    }
+    if path != CART_COMMANDS || *method != Method::POST {
+        return None;
+    }
+    if session == "stale" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    let lines: Vec<String> =
+        sent["commands"].as_array().into_iter().flatten().map(|c| c["lineId"].as_str().unwrap_or_default().to_owned()).collect();
+    let has = |id: &str| lines.iter().any(|l| l == id);
+    if has("cli_refused") {
+        return Some(refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Only 2 are available."));
+    }
+    if has("cli_unknown") {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let vector: Vec<Value> = lines
+        .iter()
+        .map(|line| match line.as_str() {
+            "cli_gone" => json!({ "lineId": line, "outcome": "conflict", "message": "Cart line not found." }),
+            _ => json!({ "lineId": line, "outcome": "succeeded", "message": null }),
+        })
+        .collect();
+    let kept = json!({
+        "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_cart", "globalPosition": "11" },
+    });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    if has("cli_lost") {
+        return Some(StatusCode::BAD_GATEWAY.into_response());
+    }
+    let receipt = r#"[{"sourceContextName":"checkout","maxGlobalPosition":"11","eventIds":["evt_cart"]}]"#;
+    let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "11".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    Some((StatusCode::OK, headers, Json(json!({ "attempt": kept }))).into_response())
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -1055,4 +1126,236 @@ async fn only_an_account_cart_checks_out_here() {
         assert_eq!(headers[header::LOCATION], "http://localhost:7753/account/cart", "{session}: marketplace's own cart");
     }
     assert!(checkout_calls(&pilot).is_empty(), "nothing started");
+}
+
+/// The cart writes the stand-in received, each as the JSON it was sent.
+fn cart_writes(pilot: &Pilot) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == CART_COMMANDS).map(|c| serde_json::from_str(&c.body).unwrap()).collect()
+}
+
+/// The cart attempt lookups the stand-in received.
+fn cart_lookups(pilot: &Pilot) -> Vec<String> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(CART_ATTEMPTS)).map(|c| c.path.clone()).collect()
+}
+
+/// Each form on the page that posts to `action`, in order.
+fn forms_to<'a>(html: &'a str, action: &str) -> Vec<&'a str> {
+    let mut forms = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find("<form ") {
+        let end = start + rest[start..].find("</form>").expect("a closed form") + "</form>".len();
+        if rest[start..end].contains(&format!(r#"action="{action}""#)) {
+            forms.push(&rest[start..end]);
+        }
+        rest = &rest[end..];
+    }
+    forms
+}
+
+/// The opening tag of each fieldset in `html`.
+fn fieldsets(html: &str) -> Vec<&str> {
+    html.match_indices("<fieldset ").map(|(at, _)| &html[at..at + html[at..].find('>').unwrap()]).collect()
+}
+
+const QUANTITY: &str = "/account/cart/quantity";
+const REMOVE: &str = "/account/cart/remove";
+const LOCK: &str = "/account/cart/lock";
+
+#[tokio::test]
+async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("blocked"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let steppers = forms_to(&html, QUANTITY);
+    assert_eq!(steppers.len(), 2, "{html}");
+    let merged = steppers[0];
+    assert!(merged.contains(ATTEMPT_INPUT), "a new attempt with each form: {merged}");
+    assert!(
+        merged.contains(r#"name="line_id" value="cli_pikachu_a""#) && merged.contains(r#"name="line_id" value="cli_pikachu_b""#),
+        "{merged}"
+    );
+    assert!(merged.contains(r#"name="quantity" value="3""#), "{merged}");
+    assert!(
+        merged.contains(r#"name="delta" value="-1" aria-label="Decrease""#)
+            && merged.contains(r#"value="1" aria-label="Increase""#),
+        "{merged}"
+    );
+    // Mew's quantity is 1: it can only go up.
+    let one = steppers[1];
+    assert!(one.contains(r#"value="-1" aria-label="Decrease" disabled"#), "{one}");
+    assert_eq!(forms_to(&html, REMOVE).len(), 2, "{html}");
+    // Only the line with a preferred listing it is not locked to can be locked.
+    let locks = forms_to(&html, LOCK);
+    assert_eq!(locks.len(), 1, "{html}");
+    assert!(
+        locks[0].contains(r#"name="preference" value="lst_pikachu""#) && locks[0].contains(">Lock this listing<"),
+        "{}",
+        locks[0]
+    );
+    assert!(!html.contains("data-patch"), "plain forms: {html}");
+    assert!(fieldsets(&html).iter().all(|f| !f.contains("disabled")), "none paused: {html}");
+}
+
+#[tokio::test]
+async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=3&delta=1");
+    let (status, headers, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/cart?after_write="), "{to}");
+    let receipt: Value = serde_json::from_str(&query(to)["after_write"]).unwrap();
+    assert_eq!(receipt["commitPosition"], "11", "{receipt}");
+    // The first line takes the quantity and the one merged into it is removed, all or nothing.
+    assert_eq!(
+        cart_writes(&pilot),
+        [json!({ "attemptId": attempt, "commands": [
+            { "type": "quantity", "lineId": "cli_pikachu_a", "quantity": 4 },
+            { "type": "remove", "lineId": "cli_pikachu_b" },
+        ] })]
+    );
+    // The cart it redirects to waits for the write.
+    let (status, _, _) = pilot.send(get(to, Some("blocked"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let reads = cart_calls(&pilot);
+    assert_eq!(waits_for(&reads.last().unwrap().headers).as_deref(), Some("11"));
+
+    // A step below 1 is 1, and a post without an attempt (no script) is still one attempt.
+    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=1&delta=-1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = cart_writes(&pilot).pop().unwrap();
+    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 1 }]));
+    assert_eq!(sent["attemptId"].as_str().unwrap().len(), 36, "{sent}");
+}
+
+#[tokio::test]
+async fn remove_and_lock_send_a_command_for_each_merged_line() {
+    let pilot = Pilot::new().await;
+    let lines = "line_id=cli_pikachu_a&line_id=cli_pikachu_b";
+    let (status, _, _) = pilot.send(post(REMOVE, "blocked", &format!("attempt={}&{lines}", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, _, _) =
+        pilot.send(post(LOCK, "blocked", &format!("attempt={}&{lines}&preference=lst_pikachu", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = cart_writes(&pilot);
+    assert_eq!(
+        sent[0]["commands"],
+        json!([{ "type": "remove", "lineId": "cli_pikachu_a" }, { "type": "remove", "lineId": "cli_pikachu_b" }])
+    );
+    let lock = json!({
+        "type": "fulfillment", "fulfillmentMode": "locked-listing", "lockedListingId": "lst_pikachu",
+        "sellerPreferenceId": "lst_pikachu", "availabilityState": "available",
+    });
+    let with = |line: &str| {
+        let mut command = lock.clone();
+        command["lineId"] = json!(line);
+        command
+    };
+    assert_eq!(sent[1]["commands"], json!([with("cli_pikachu_a"), with("cli_pikachu_b")]));
+
+    // A lock without a preferred listing is refused before it is sent.
+    let (status, _, html) =
+        pilot.send(post(LOCK, "blocked", &format!("attempt={}&{lines}&preference=", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("Your cart change was not applied Choose a preferred listing before locking this cart line."),
+        "{page}"
+    );
+    assert_eq!(cart_writes(&pilot).len(), 2, "nothing sent");
+}
+
+#[tokio::test]
+async fn a_write_refused_or_applied_in_part_is_the_cart_with_what_did_not_apply() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=5&delta=1", new_attempt()), false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Your cart change was not applied Only 2 are available."), "the API's reason: {page}");
+    assert!(page.contains("Some items need attention"), "the cart as it is now: {page}");
+    assert!(html.contains(r#"data-attempt="failed-safe""#), "{html}");
+    assert!(fieldsets(&html).iter().all(|f| !f.contains("disabled")), "a refusal pauses nothing: {html}");
+
+    let body = format!("attempt={}&line_id=cli_pikachu_a&line_id=cli_gone", new_attempt());
+    let (status, _, html) = pilot.send(post(REMOVE, "blocked", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Some cart changes were not applied Some of your changes were saved. These lines were not updated: Cart line not found."), "{page}");
+    // What applied is read back after the write.
+    assert_eq!(waits_for(&cart_calls(&pilot).last().unwrap().headers).as_deref(), Some("11"));
+    assert!(cart_lookups(&pilot).is_empty(), "every answer arrived");
+}
+
+#[tokio::test]
+async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until_it_is_sent_again() {
+    let pilot = Pilot::new().await;
+    // Applied, its answer lost: the lookup finds it, and its receipt is the lookup's.
+    let attempt = new_attempt();
+    let (status, headers, html) =
+        pilot.send(post(REMOVE, "blocked", &format!("attempt={attempt}&line_id=cli_lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let receipt: Value = serde_json::from_str(&query(headers[header::LOCATION].to_str().unwrap())["after_write"]).unwrap();
+    assert_eq!(
+        receipt["sources"],
+        json!([{ "sourceContextName": "checkout", "maxGlobalPosition": "11", "eventIds": ["evt_cart"] }])
+    );
+    let hash = crate::cart_attempt::request_hash(&[crate::api::CartCommand::Remove { line_id: "cli_lost".into() }]);
+    assert_eq!(cart_lookups(&pilot), [format!("{CART_ATTEMPTS}{attempt}?kind=cart.commands&target=cart&requestHash={hash}")]);
+
+    // Not found: not known, so the cart's writes are paused and the same write can be sent again.
+    let attempt = new_attempt();
+    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=2&delta=-1");
+    let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert_eq!(cart_writes(&pilot).len(), 2, "never resent on its own");
+    assert_eq!(cart_lookups(&pilot).len(), 2, "looked up once");
+    let page = text(&html);
+    assert!(page.contains("We couldn&#39;t confirm your cart change"), "{page}");
+    let resend = forms_to(&html, QUANTITY).into_iter().find(|f| f.contains("Send the same change again")).expect("a resend");
+    assert!(
+        resend.contains(&format!(r#"name="attempt" value="{attempt}""#)) && !resend.contains("data-submit"),
+        "the same attempt: {resend}"
+    );
+    assert!(resend.contains(r#"name="quantity" value="2""#) && resend.contains(r#"name="delta" value="-1""#), "{resend}");
+    assert!(html.contains(r#"href="/account/cart">Refresh cart<"#), "{html}");
+    let fieldsets = fieldsets(&html);
+    assert_eq!(fieldsets.len(), 5, "two steppers, two removes, one lock: {html}");
+    assert!(fieldsets.iter().all(|f| f.contains("disabled")), "every line write is paused: {html}");
+}
+
+#[tokio::test]
+async fn a_cart_write_after_the_session_ended_signs_in() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post(REMOVE, "stale", &format!("attempt={}&line_id=cli_pikachu", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/sign-in?returnTo=%2Faccount%2Fcart",
+        "back to the cart, not the write"
+    );
+    assert!(cart_lookups(&pilot).is_empty(), "a refusal is not a lost answer");
+}
+
+#[tokio::test]
+async fn a_cart_not_readable_yet_after_a_write_says_so_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) =
+        pilot.send(get(&format!("{CART_SCREEN}?after_write={}", receipt_at("43")), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(headers["refresh"], "2", "read again shortly");
+    let page = text(&html);
+    assert!(page.contains("Refreshing cart We saved your cart change and are refreshing the cart view."), "{page}");
+    assert!(html.contains(r#"href="/account/cart">Refresh cart<"#) && !html.contains("data-cart-line"), "{html}");
+    // A read that failed for good is the page that says the change could not be verified.
+    let (status, headers, _) = pilot.send(get(&format!("{CART_SCREEN}?after_write={}", receipt_at("44")), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(!headers.contains_key("refresh"));
+    let (_, headers, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert!(!headers.contains_key("refresh"), "a cart read as it is waits for nothing");
 }
