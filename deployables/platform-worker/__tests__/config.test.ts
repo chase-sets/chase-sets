@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  getPlatformWorkerContextsForRuntimeProfile,
-  loadConfig,
-} from "../src/config";
+import { getPlatformWorkerContextsForRuntimeProfile, loadConfig } from "../src/config";
 import { selectSettlementBootstrapDatabaseUrl } from "../src/database-pools";
 import { createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
 
