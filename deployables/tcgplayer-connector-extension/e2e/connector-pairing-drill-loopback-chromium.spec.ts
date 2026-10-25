@@ -22,6 +22,9 @@ import {
   type PairingDrillLifecycleEnd,
   type PairingDrillReceipt,
   type PairingDrillRefusalCode,
+  forwardWorkerRequest,
+  type ForwardHandles,
+  type ForwardRequest,
 } from "./pairing-drill";
 
 // The drill refuses an active trace; automatic tracing would also retain its secret setup.
@@ -78,15 +81,24 @@ test.afterAll(() => {
 const cleanupClaims: readonly SyntheticClaimResponse[] = ["invalid-credential"];
 
 /** A fresh fake server on the fixed port; the planted paths and their counters belong to this spec. */
-async function casePlatform(claims = cleanupClaims) {
+async function casePlatform(claims = cleanupClaims, pageMode: "drop" | "delay" | undefined = undefined) {
   let redirectTargetCount = 0;
   let headersServed = 0;
+  let droppedPageCount = 0;
   const platform = await loopbackPlatform({
     port,
     requirePairingCode: true,
     claims,
     handle: async (request, reply) => {
       const path = new URL(request.url!, "http://127.0.0.1").pathname;
+      if (path === "/account/channels/connection_synthetic" && pageMode === "drop") {
+        droppedPageCount++;
+        request.socket.destroy();
+        return true;
+      }
+      if (path === "/account/channels/connection_synthetic" && pageMode === "delay") {
+        await new Promise((resolve) => setTimeout(resolve, 11_000));
+      }
       if (path === redirectPath) {
         reply.writeHead(302, { Location: redirectTarget }).end();
         return true;
@@ -110,13 +122,46 @@ async function casePlatform(claims = cleanupClaims) {
       return true;
     },
   });
-  const observe = () => ({ ...platform.drillObservation(), redirectTargetCount, headersServed });
+  const observe = () => ({ ...platform.drillObservation(), redirectTargetCount, headersServed, droppedPageCount });
   return { platform, observe };
+}
+
+async function secondServer(mode: "normal" | "drop" | "delay" = "normal") {
+  let plantedPageServed = 0;
+  let letThroughServed = 0;
+  let droppedPageCount = 0;
+  const platform = await loopbackPlatform({
+    handle: async (request, reply) => {
+      const path = new URL(request.url!, "http://127.0.0.1").pathname;
+      if (path === "/drill/planted-page") {
+        if (mode === "drop") {
+          droppedPageCount++;
+          request.socket.destroy();
+          return true;
+        }
+        if (mode === "delay") await new Promise((resolve) => setTimeout(resolve, 11_000));
+        plantedPageServed++;
+        reply.writeHead(200).end("planted");
+        return true;
+      }
+      if (path === "/drill/let-through") {
+        letThroughServed++;
+        reply.writeHead(200).end("let-through");
+        return true;
+      }
+      return false;
+    },
+  });
+  return {
+    platform,
+    observe: () => ({ plantedPageServed, letThroughServed, droppedPageCount }),
+  };
 }
 
 function drillInput(
   platform: Awaited<ReturnType<typeof casePlatform>>,
   lifecycleEnd: PairingDrillLifecycleEnd = "revoked",
+  second?: Awaited<ReturnType<typeof secondServer>>,
 ) {
   const calls = { signIn: 0, revoke: 0 };
   const input: PairingDrillInput = {
@@ -141,7 +186,13 @@ function drillInput(
       // The served claims already paused or revoked the connector; R-A only proves the call.
       calls.revoke++;
     },
-    fixture: { observe: platform.observe, redirectPath, headersPath, lifecycleEnd },
+    fixture: {
+      observe: () => ({ ...platform.observe(), ...(second?.observe() ?? {}) }),
+      redirectPath,
+      headersPath,
+      lifecycleEnd,
+      secondOrigin: second?.platform.origin,
+    },
   };
   return { input, calls };
 }
@@ -248,6 +299,272 @@ test("connector-pairing-drill-active-trace-refuses-before-sign-in", async () => 
   }
 });
 
+async function forwardKeepingHeaders(request: ForwardRequest, handles: ForwardHandles) {
+  const response = await fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body ? new Uint8Array(request.body) : undefined,
+    redirect: "manual",
+  });
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    await handles.abort(response.status);
+    return;
+  }
+  await handles.fulfill({
+    status: response.status,
+    headers: Object.fromEntries(response.headers),
+    body: Buffer.from(await response.arrayBuffer()),
+  });
+}
+
+async function forwardWithCookie(request: ForwardRequest, handles: ForwardHandles) {
+  let response: Response;
+  try {
+    response = await fetch(request.url, {
+      method: request.method,
+      headers: { ...request.headers, cookie: `${synthetic.cookieName}=${synthetic.cookieValue}` },
+      body: request.body ? new Uint8Array(request.body) : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    await handles.abort(null);
+    return;
+  }
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    await handles.abort(response.status);
+    return;
+  }
+  await handles.fulfill({
+    status: response.status,
+    headers: Object.fromEntries(
+      [...response.headers].filter(([name]) => !["set-cookie", "content-encoding", "content-length"].includes(name)),
+    ),
+    body: Buffer.from(await response.arrayBuffer()),
+  });
+}
+
+type ControlSetup = {
+  claims?: readonly SyntheticClaimResponse[];
+  pageMode?: "drop" | "delay";
+  mutate?: (input: PairingDrillInput, secondOrigin: string) => PairingDrillInput;
+};
+
+async function runControl(setup: ControlSetup) {
+  const platform = await casePlatform(setup.claims, setup.pageMode);
+  const second = await secondServer();
+  const { input } = drillInput(platform, "revoked", second);
+  try {
+    const refused = await refusal(runPairingDrill(setup.mutate?.(input, second.platform.origin) ?? input));
+    return { refused, platform, second };
+  } catch (error) {
+    await second.platform.close();
+    await platform.platform.close();
+    throw error;
+  }
+}
+
+test("connector-pairing-drill-control C1", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input, origin) => ({
+      ...input,
+      seams: {
+        pageRoute: async (route, request) =>
+          request.isNavigationRequest() && request.url().startsWith(origin) ? route.abort() : route.continue(),
+      },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-seam-ignored");
+    expect(second.observe()).toMatchObject({ plantedPageServed: 1, letThroughServed: 0 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C2", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input, origin) => ({
+      ...input,
+      seams: {
+        classify: (request) =>
+          request.url().startsWith(origin) && !request.isNavigationRequest()
+            ? "worker"
+            : request.serviceWorker()
+              ? "worker"
+              : "page",
+      },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-page-source-mismatch");
+    expect(second.observe()).toMatchObject({ plantedPageServed: 0, letThroughServed: 1 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C3", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({
+      ...input,
+      seams: { routeFilter: (url) => url.origin !== "https://connector-drill.invalid" },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-canary-unaccounted");
+    expect(refused.evidence.requests).not.toContainEqual(
+      expect.objectContaining({ origin: "https://connector-drill.invalid", source: "worker" }),
+    );
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C4", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({ ...input, seams: { forward: async (_request, handles) => handles.continue() } }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-redirect");
+    expect(platform.observe()).toMatchObject({ redirectTargetCount: 1 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C5", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({
+      ...input,
+      seams: { forward: (request, handles) => forwardKeepingHeaders(request, handles) },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-forward-headers");
+    expect(refused.evidence.forwards.some((row) => row.fulfilledHeaderNames.includes("set-cookie"))).toBe(true);
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C6", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({ ...input, seams: { forward: (request, handles) => forwardWithCookie(request, handles) } }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-forward-cookie");
+    expect(platform.observe()).toMatchObject({ tokenCookieArrived: true });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C7", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({ ...input, preparePairing: async () => "synthetic-pairing" }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-pairing-refused");
+    expect(platform.platform.observation()).toMatchObject({ tokenCount: 0 });
+    expect(platform.observe()).toMatchObject({ pairingCodeCount: 0 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C8", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({
+      ...input,
+      seams: { trigger: async (_context, _page, phase) => phase === "pairing" },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-page-status");
+    expect(platform.observe()).toMatchObject({ channelPageServed: 0 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C9", async () => {
+  const { refused, platform, second } = await runControl({ pageMode: "drop" });
+  try {
+    expect(refused.code).toBe("connector-drill-page-status");
+    expect(platform.observe().droppedPageCount).toBeGreaterThanOrEqual(1);
+    expect(platform.observe().channelPageServed).toBe(0);
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C10", async () => {
+  const { refused, platform, second } = await runControl({ pageMode: "delay" });
+  try {
+    expect(refused.code).toBe("connector-drill-page-status");
+    expect(platform.observe()).toMatchObject({ channelPageServed: 0 });
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C11", async () => {
+  const { refused, platform, second } = await runControl({ claims: ["empty"] });
+  try {
+    expect(refused.code).toBe("connector-drill-lifecycle-refused");
+    expect(platform.observe()).toMatchObject({ invalidCredentialClaimCount: 0 });
+    expect(refused.evidence.lifecycle).not.toContain("cleanup-pending");
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C12", async () => {
+  const { refused, platform, second } = await runControl({ claims: ["reservation"] });
+  try {
+    expect(refused.code).toBe("connector-drill-lifecycle-refused");
+    expect(platform.observe()).toMatchObject({ reservationClaimCount: 1 });
+    expect(refused.evidence.lifecycle).toContain("paused:unsupported-operation");
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
+test("connector-pairing-drill-control C13", async () => {
+  const { refused, platform, second } = await runControl({
+    mutate: (input) => ({
+      ...input,
+      async revoke(context) {
+        const worker = context.serviceWorkers()[0];
+        await worker.evaluate(async (url) => {
+          await fetch(url, { method: "POST", headers: { authorization: `Bearer ${synthetic.access}` }, body: "{}" });
+        }, `${platform.platform.origin}/channel-connector/oauth/connections/connection_synthetic/claim`);
+      },
+    }),
+  });
+  try {
+    expect(refused.code).toBe("connector-drill-post-revoke");
+    expect(platform.observe().claimCount).toBeGreaterThan(1);
+  } finally {
+    await second.platform.close();
+    await platform.platform.close();
+  }
+});
+
 /**
  * Runs one drill on a fresh fake server serving `claims`, retains its receipt alone in the case's own output
  * directory, and asserts the forwarder, pairing and served-page records every case shares. The caller asserts
@@ -259,7 +576,8 @@ async function drillCase(
   lifecycleEnd: PairingDrillLifecycleEnd,
 ) {
   const platform = await casePlatform(claims);
-  const { input, calls } = drillInput(platform, lifecycleEnd);
+  const second = await secondServer();
+  const { input, calls } = drillInput(platform, lifecycleEnd, second);
   let servedPairingId = "";
   try {
     const result = await runPairingDrill({
@@ -297,6 +615,9 @@ async function drillCase(
     expect(result.receipt.requests).toContainEqual(
       expect.objectContaining({ origin: platform.platform.origin, source: "page" }),
     );
+    expect(result.receipt.requests).toContainEqual(
+      expect.objectContaining({ origin: second.platform.origin, source: "page" }),
+    );
     expect(platform.platform.observation()).toEqual({
       authorizeCount: 1,
       tokenCount: 1,
@@ -313,6 +634,7 @@ async function drillCase(
       redirectTargetCount: 0,
       headersServed: 1,
     });
+    expect(second.observe()).toEqual({ plantedPageServed: 1, letThroughServed: 1, droppedPageCount: 0 });
     expect(result.forwards).toContainEqual({
       path: redirectPath,
       action: "abort",
@@ -331,6 +653,7 @@ async function drillCase(
       claimStatuses: result.forwards.filter((row) => row.path.endsWith("/claim")).map((row) => row.status),
     };
   } finally {
+    await second.platform.close();
     await platform.platform.close();
   }
 }

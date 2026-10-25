@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { chromium, type BrowserContext, type Page, type Route, type Worker } from "@playwright/test";
+import { chromium, type BrowserContext, type Page, type Request, type Route, type Worker } from "@playwright/test";
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
 
@@ -34,7 +34,11 @@ export type PairingDrillRefusalCode =
   | "connector-drill-page-status"
   | "connector-drill-lifecycle-refused"
   | "connector-drill-forward-cookie"
-  | "connector-drill-reservation-replay";
+  | "connector-drill-reservation-replay"
+  | "connector-drill-canary-unaccounted"
+  | "connector-drill-page-source-mismatch"
+  | "connector-drill-seam-ignored"
+  | "connector-drill-post-revoke";
 
 export type DrillRequestRow = Readonly<{ origin: string; source: "worker" | "page"; count: number }>;
 export type ForwardRecord = Readonly<{
@@ -56,6 +60,9 @@ export type PairingDrillObservation = Readonly<{
   abandonedReportCount: number;
   tokenCookieArrived: boolean;
   claimCookieArrived: boolean;
+  plantedPageServed?: number;
+  letThroughServed?: number;
+  droppedPageCount?: number;
 }>;
 /** The lifecycle entry the served claims must end in: a reservation the shipped dist abandons, or a 401. */
 export type PairingDrillLifecycleEnd = "paused:unsupported-operation" | "revoked";
@@ -64,6 +71,14 @@ export type PairingDrillFixture = Readonly<{
   redirectPath: string;
   headersPath: string;
   lifecycleEnd: PairingDrillLifecycleEnd;
+  secondOrigin?: string;
+}>;
+export type PairingDrillSeams = Readonly<{
+  pageRoute?: (route: Route, request: Request) => Promise<void>;
+  classify?: (request: Request) => "worker" | "page";
+  routeFilter?: (url: URL, request: Request) => boolean;
+  forward?: (request: ForwardRequest, handles: ForwardHandles, defaultForward: () => Promise<void>) => Promise<void>;
+  trigger?: (context: BrowserContext, page: Page, phase: "pairing" | "page") => Promise<boolean>;
 }>;
 export type PairingDrillInput = Readonly<{
   dist: string;
@@ -76,6 +91,7 @@ export type PairingDrillInput = Readonly<{
   revoke(context: BrowserContext): Promise<void>;
   /** Absent skips the fixture legs and every server-counter read; such a receipt says `fixture: "none"`. */
   fixture?: PairingDrillFixture;
+  seams?: PairingDrillSeams;
   /** Trace-active mutant: starts real tracing before the probe. */
   traceActive?: boolean;
 }>;
@@ -113,8 +129,13 @@ export class PairingDrillRefusal extends Error {
   }
 }
 
-type ForwardRequest = Readonly<{ url: string; method: string; headers: Record<string, string>; body: Buffer | null }>;
-type ForwardHandles = Readonly<{
+export type ForwardRequest = Readonly<{
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: Buffer | null;
+}>;
+export type ForwardHandles = Readonly<{
   fulfill(response: { status: number; headers: Record<string, string>; body: Buffer }): Promise<void>;
   abort(status: number | null): Promise<void>;
   continue(): Promise<void>;
@@ -171,7 +192,7 @@ function distCarriesClient(dist: string, clientId: string) {
 }
 
 /** Cookie-less forwarder: it acts only through the recording handles and never follows a redirect. */
-async function forwardWorkerRequest(request: ForwardRequest, handles: ForwardHandles) {
+export async function forwardWorkerRequest(request: ForwardRequest, handles: ForwardHandles) {
   let response: Response;
   try {
     response = await fetch(request.url, {
@@ -295,7 +316,7 @@ export async function runPairingDrill(
       lifecycle,
     });
   };
-  const { platformOrigin, fixture } = input;
+  const { platformOrigin, fixture, seams } = input;
   const observe = fixture?.observe;
   if (!acceptedPlatformOrigin(platformOrigin)) fail("connector-drill-platform-origin-refused");
   if (Object.keys(process.env).some((key) => providerEnvironmentPattern.test(key)))
@@ -319,17 +340,36 @@ export async function runPairingDrill(
     await context.route("**/*", async (route) => {
       const request = route.request();
       const url = new URL(request.url());
-      const source = request.serviceWorker() ? "worker" : "page";
+      if (seams?.routeFilter && !seams.routeFilter(url, request)) {
+        await route.continue();
+        return;
+      }
+      const source = seams?.classify?.(request) ?? (request.serviceWorker() ? "worker" : "page");
       const key = `${url.origin}|${source}`;
       rows.set(key, { origin: url.origin, source, count: (rows.get(key)?.count ?? 0) + 1 });
       if (url.origin === callback.origin && url.pathname === callback.pathname)
         await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>callback</title>" });
-      else if (source === "page") await route.continue();
+      else if (source === "page") await (seams?.pageRoute ? seams.pageRoute(route, request) : route.continue());
       else if (url.origin === platformOrigin)
-        await forwardWorkerRequest(
-          { url: url.href, method: request.method(), headers: request.headers(), body: request.postDataBuffer() },
-          recordingHandles(route, url.pathname, forwards),
-        );
+        await (seams?.forward
+          ? seams.forward(
+              { url: url.href, method: request.method(), headers: request.headers(), body: request.postDataBuffer() },
+              recordingHandles(route, url.pathname, forwards),
+              () =>
+                forwardWorkerRequest(
+                  {
+                    url: url.href,
+                    method: request.method(),
+                    headers: request.headers(),
+                    body: request.postDataBuffer(),
+                  },
+                  recordingHandles(route, url.pathname, forwards),
+                ),
+            )
+          : forwardWorkerRequest(
+              { url: url.href, method: request.method(), headers: request.headers(), body: request.postDataBuffer() },
+              recordingHandles(route, url.pathname, forwards),
+            ));
       else await route.abort();
     });
     if (input.traceActive) await context.tracing.start(traceOptions);
@@ -344,6 +384,16 @@ export async function runPairingDrill(
     if (!worker || !(await waitFor(async () => (await actionTitle(worker)) === "unpaired")))
       fail("connector-drill-bootstrap-refused");
     const connector = worker!;
+
+    await connector.evaluate(async () => {
+      try {
+        await fetch("https://connector-drill.invalid/canary");
+      } catch {
+        // The route abort is the evidence; the worker fetch rejection is expected.
+      }
+    });
+    const canary = rows.get("https://connector-drill.invalid|worker");
+    if (!canary || canary.count !== 1) fail("connector-drill-canary-unaccounted");
 
     if (fixture) {
       await connector.evaluate(async (url) => {
@@ -392,12 +442,37 @@ export async function runPairingDrill(
     if (
       typeof pairingId !== "string" ||
       pairingId.length < 4 ||
-      !(await triggerAction(context, page)) ||
+      !(await (seams?.trigger ? seams.trigger(context, page, "pairing") : triggerAction(context, page))) ||
       !(await waitFor(async () => (await actionTitle(connector)) === "paired-idle"))
     )
       fail("connector-drill-pairing-refused");
 
-    if (!(await triggerAction(context, page))) fail("connector-drill-page-status");
+    if (fixture?.secondOrigin) {
+      const seamPage = await context.newPage();
+      try {
+        await seamPage.goto(`${platformOrigin}/account/channels`).catch(() => null);
+        await seamPage
+          .evaluate(async (url) => {
+            try {
+              await fetch(url, { mode: "no-cors" });
+            } catch {
+              // The route and fake-server counter are the evidence.
+            }
+          }, `${fixture.secondOrigin}/drill/planted-page`)
+          .catch(() => null);
+        await seamPage.goto(`${fixture.secondOrigin}/drill/let-through`).catch(() => null);
+      } finally {
+        await seamPage.close();
+      }
+      const seamObservation = observe?.();
+      const planted = rows.get(`${fixture.secondOrigin}|page`);
+      if (!seamObservation || seamObservation.plantedPageServed !== 1 || !planted || planted.count < 1)
+        fail("connector-drill-page-source-mismatch");
+      if (seamObservation.letThroughServed !== 1) fail("connector-drill-seam-ignored");
+    }
+
+    if (!(await (seams?.trigger ? seams.trigger(context, page, "page") : triggerAction(context, page))))
+      fail("connector-drill-page-status");
     let opened: URL | undefined;
     const served = await waitFor(() => {
       opened = context
@@ -448,7 +523,13 @@ export async function runPairingDrill(
       fail("connector-drill-forward-cookie");
     if (settledObservation && settledObservation.reservationClaimCount > 1) fail("connector-drill-reservation-replay");
 
+    const claimCountBeforeRevoke = settledObservation?.claimCount ?? null;
     await input.revoke(context);
+    if (settledObservation) {
+      await fire();
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (observe!().claimCount !== claimCountBeforeRevoke) fail("connector-drill-post-revoke");
+    }
     return {
       receipt: {
         fixture: fixture ? "present" : "none",
