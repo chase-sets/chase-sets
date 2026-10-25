@@ -2489,7 +2489,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       label: "enrolls the shipped three-unit minimum capture without reusing historical timings",
       current: false,
       fileName: "bootstrap-db-capture-40078269313.json",
-      fixtureSha256: "edd8d8c95dd0a6dd2989c75aa5e01350cdc6bc4d4d1ce2f989ebcad7998d7744",
+      fixtureSha256: "97060597b7ec253ef1057a8d8a690a4035c21f594a0eabee6fca97b91817c3b6",
       minimumUnitCount: 3,
       unitProjections: [321800, 263356, 237231],
       provenance: {

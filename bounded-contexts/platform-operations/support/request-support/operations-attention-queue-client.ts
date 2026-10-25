@@ -92,14 +92,20 @@ export async function loadOperationsAttentionQueue(
   if (canViewOperationsAttentionSource("projection-poison-event", actorPermissions)) {
     sources.push({
       id: "projection-poison-event",
-      load: async (context) => mapPoisonEventsToItems(collectPoisonEvents(await projectionSnapshot()), context),
+      load: async (context) => ({
+        items: mapPoisonEventsToItems(collectPoisonEvents(await projectionSnapshot()), context),
+        total: "unknown",
+      }),
     });
   }
 
   if (canViewOperationsAttentionSource("projection-blocked-stream", actorPermissions)) {
     sources.push({
       id: "projection-blocked-stream",
-      load: async (context) => mapBlockedStreamsToItems(collectBlockedStreams(await projectionSnapshot()), context),
+      load: async (context) => ({
+        items: mapBlockedStreamsToItems(collectBlockedStreams(await projectionSnapshot()), context),
+        total: "unknown",
+      }),
     });
   }
 
@@ -112,9 +118,9 @@ export async function loadOperationsAttentionQueue(
           throw new Error("wake status unavailable");
         }
         if (!wake.wakeStore.available) {
-          return [];
+          return { items: [], total: "unknown" };
         }
-        return mapWakeStoreToItems(toWakeStoreInput(wake), context);
+        return { items: mapWakeStoreToItems(toWakeStoreInput(wake), context), total: "unknown" };
       },
     });
   }
@@ -126,7 +132,7 @@ export async function loadOperationsAttentionQueue(
         const api = createSupportRequestRequestApiClient(request);
         const query = new URLSearchParams({ limit: QUEUE_READ_LIMIT, offset: "0", now }).toString();
         const queue = await api.listSupportOperationsQueue(query);
-        return mapSupportRequestsToItems(queue.items, context);
+        return { items: mapSupportRequestsToItems(queue.items, context), total: "unknown" };
       },
     });
   }
@@ -138,7 +144,7 @@ export async function loadOperationsAttentionQueue(
         const api = createExperienceRequestApiClient(request);
         const query = new URLSearchParams({ status: "new", limit: QUEUE_READ_LIMIT, offset: "0" }).toString();
         const feedback = await api.listPlatformFeedback(query);
-        return mapPlatformFeedbackToItems(feedback.items, context);
+        return { items: mapPlatformFeedbackToItems(feedback.items, context), total: "unknown" };
       },
     });
   }

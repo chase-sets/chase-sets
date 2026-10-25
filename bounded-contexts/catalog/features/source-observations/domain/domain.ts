@@ -296,6 +296,7 @@ export type SourceObservationYugiohSetReferenceNormalized = JsonObject &
     tcg: "yugioh";
     languageCode: string;
     name: string;
+    setId?: string;
     setCode: string | null;
     setName: string;
     releaseDate: string | null;

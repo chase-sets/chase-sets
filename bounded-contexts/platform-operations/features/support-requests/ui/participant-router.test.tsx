@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { t } from "@chase-sets/localization";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
 
 const { auth } = vi.hoisted(() => ({ auth: vi.fn() }));
 vi.mock("@chase-sets/platform-runtime/auth", async () => ({
@@ -47,6 +48,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
           ...detail(),
           checklist: [],
           flow_type: "product-damaged",
+          flow: getSupportFlowDefinition("product-damaged"),
           status: reflected ? "waiting-on-buyer" : "waiting-on-seller",
         }),
       );
