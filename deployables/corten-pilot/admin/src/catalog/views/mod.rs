@@ -25,6 +25,7 @@ mod item_list;
 mod item_page;
 mod list_page;
 mod live_status;
+mod scope_list;
 mod status_pill;
 
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
@@ -42,11 +43,23 @@ pub use item_page::{
 };
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
 pub use live_status::LiveStatus;
-pub use status_pill::StatusPill;
+pub use scope_list::{ScopeRowView, scope_list};
+pub use status_pill::{StatusPill, Tone, TonePill};
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
-pub const COMPONENTS: &[Component] =
-    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, LiveStatus, PreviewDialog, ItemForm, ItemPage, corten_ui::Toaster];
+pub const COMPONENTS: &[Component] = &[
+    StatusPill,
+    ListPage,
+    DetailPage,
+    Dialog,
+    BulkRows,
+    LiveStatus,
+    ScopeRowView,
+    PreviewDialog,
+    ItemForm,
+    ItemPage,
+    corten_ui::Toaster,
+];
 
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {

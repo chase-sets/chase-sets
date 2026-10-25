@@ -14,6 +14,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` | admin-web | the list, the policy sheet, create, revise, preview, activate, retire and clone |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts |
+| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the attention queue and alias review above it, and a scope's page, which View opens in admin-web) |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 
@@ -99,6 +100,7 @@ node scripts/smoke-live.mjs            # the catalog lists stay current while an
 node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimensions list, with and without JavaScript
 node scripts/smoke-items.mjs           # the catalog items list: create, the changes count, a bulk edit, removing drafts, 390 px
 node scripts/smoke-item.mjs            # a catalog item's page: a draft through every dialog, with and without JavaScript, 390 px
+node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..] [admin-web]): same rows, the filters, View, no JavaScript, 390 px (only reads)
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
@@ -117,7 +119,7 @@ Run `corten dev` inside the app's directory; it also rebuilds on an edit in `pla
 
 `scripts/export.mjs` writes what the apps read from Chase Sets' sources: each screen's English
 text (`*/locales/en.json`), each app's navigation (`*/nav.json`), admin's default policy
-(`admin/defaults.json`), the design system's tokens (`platform/tokens.json`) and three fonts. CI
+(`admin/defaults.json`), the scope product domains (`admin/scope-domains.json`), the design system's tokens (`platform/tokens.json`) and three fonts. CI
 runs it with `--check`, so a change to the React apps' text, nav or tokens shows up here.
 `*/locales/pilot.en.json` is the pilot's own text. One image per app:
 `docker build --build-arg APP=marketplace .`.
@@ -160,6 +162,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
 | `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
 | `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
+| `admin/src/catalog/scopes.rs`, `views/scope_list.rs`, `views/scope_row_view.css` | the scopes list: its route and query, the promotion and sync of each row, and its table |
 | `admin/src/catalog/views/live_status.*` | the items list's stream: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`) |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
@@ -318,6 +321,15 @@ forward only on purpose, when a fix the pilot needs lands.
     [chase-sets/chase-sets#10554 Keep the admin Catalog Item pages current when the item projection applies an event after them](https://github.com/chase-sets/chase-sets/issues/10554).
     `smoke-item.mjs` reloads for up to 90 s before it checks a write's result, and reports a step
     as blocked (not passed) when the API's own item lacks the change too.
+26. **The scopes list repeats two web-layer rules of admin-web's**, so the two pages compare row for
+    row (`scripts/smoke-scopes.mjs`). A row's promotion comes from its lifecycle status and its
+    sync is stale 14 days after `updatedAt` (or when the time cannot be read), as
+    `scope-landing-read-model.ts` derives them; noted on
+    [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507).
+    The language filter applies only to the page shown, because the API has no language filter:
+    [chase-sets/chase-sets#10565 Filter Scope Records by language edition across every page, not only the page shown](https://github.com/chase-sets/chase-sets/issues/10565).
+    Both are marked in `scopes.rs` for removal. An API error other than sign-in or permission is
+    the list's banner over no rows, as admin-web's loader shows it.
 
 ## Corten gaps
 

@@ -21,6 +21,7 @@
 //! | `POST /catalog/dimensions/bulk?search&status&value_kind&page` | a bulk change's preview (`/catalog/fields/bulk` for fields) |
 //! | `POST /catalog/dimensions/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
 //! | `GET /catalog/jobs/{id}/live` | the job's status, again on each change until it is done (`<corten-live>`) |
+//! | `GET /catalog/scopes?search&status&product_domain&language&page` | the scopes list (`scopes`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -45,6 +46,7 @@ pub mod api;
 pub mod form;
 pub mod item;
 pub mod items;
+pub mod scopes;
 pub mod views;
 
 use crate::{
@@ -70,6 +72,7 @@ pub mod url {
     pub use super::Done;
     pub use super::item::url as item;
     pub use super::items::url::{ItemQuery, Items, ItemsBulk, ItemsDrafts, ItemsLive};
+    pub use super::scopes::url::{ScopeQuery, Scopes};
 
     /// The area: its routes, stylesheet and guard.
     #[derive(Route)]
@@ -367,6 +370,7 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
         .route::<url::Field>(get(field).with_state(shared.clone()))
         .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
         .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared.clone()));
+    let area = scopes::routes(area, shared.clone());
     item::routes(items::routes(area, shared.clone()), shared)
 }
 
@@ -1002,7 +1006,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
             .to_vec(),
         // No bulk changes.
-        Kind::ProductContents | Kind::ReferenceRecords => Vec::new(),
+        Kind::ProductContents | Kind::ReferenceRecords | Kind::ScopeRecords => Vec::new(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
 }

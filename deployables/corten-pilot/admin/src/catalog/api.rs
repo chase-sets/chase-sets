@@ -34,6 +34,23 @@ pub struct Dimension {
     pub updated_at: String,
 }
 
+/// `CatalogScopeRecordDetail` (features/scope-registry/ui/contracts.ts), the fields the scopes list
+/// shows.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeRecord {
+    pub scope_record_id: String,
+    pub product_domain: String,
+    pub scope_kind: String,
+    pub name: String,
+    #[serde(default)]
+    pub official_set_code: Option<String>,
+    #[serde(default)]
+    pub language_editions: Vec<String>,
+    pub lifecycle_status: String,
+    pub updated_at: String,
+}
+
 /// `DimensionDetail`: the dimension and its options.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DimensionDetail {
@@ -491,6 +508,7 @@ pub enum Kind {
     Items,
     ProductContents,
     ReferenceRecords,
+    ScopeRecords,
 }
 
 impl Kind {
@@ -501,6 +519,7 @@ impl Kind {
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",
+            Kind::ScopeRecords => "scope-records",
         }
     }
 }

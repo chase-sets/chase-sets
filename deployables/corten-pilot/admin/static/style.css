@@ -41,7 +41,7 @@ main { max-width: 72rem; margin: 0 auto; padding: var(--space-6); }
 a { color: var(--color-primary); }
 :focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="search"], input[type="number"], select {
   width: 100%;
   min-height: var(--control-height);
   padding: var(--control-py) var(--control-px);

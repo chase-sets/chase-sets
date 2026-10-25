@@ -9,6 +9,8 @@
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
+// - admin/scope-domains.json: the Catalog's scope product domains (`catalogScopeProductDomains`),
+//   the scopes list's domain filter.
 // - marketplace/locales/en.json: the storage-locations screen's English catalog
 //   (inventory.features.storageLocations.ui.storageLocationPage.*, inventory.recovery.*, the route's
 //   title and description).
@@ -185,6 +187,9 @@ const fonts = [
 ];
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+const { catalogScopeProductDomains } = await import(
+  pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
+);
 const { defaultPostagePolicy } = await import(pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href);
 const outputs = [
   [
@@ -210,6 +215,7 @@ const outputs = [
         ["catalog.support.shellSupport.ui.bulkLifecycleActions.", "bulk"],
         ["catalog.support.shellSupport.ui.realtimeReloadActionBar.", "realtime"],
         ["catalog.support.shellSupport.ui.realtimeConnectionStatus.", "live_status"],
+        ["catalog.features.sourceObservations.ui.scopeLanding.", "scopes"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],
         ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],
@@ -218,11 +224,13 @@ const outputs = [
         ["catalog.routes.admin.fieldsDetail.field.catalog.admin", "route.field"],
         ["catalog.routes.admin.catalogItems.catalog.items.catalog.admin", "route.items"],
         ["catalog.routes.admin.catalogItemsDetail.catalog.item.catalog.admin", "route.item"],
+        ["catalog.routes.admin.scopeLanding.scopes.catalog.admin", "route.scopes"],
       ]),
     ),
   ],
   ["admin/nav.json", json(adminNav())],
   ["admin/defaults.json", json(defaultPostagePolicy)],
+  ["admin/scope-domains.json", json(catalogScopeProductDomains)],
   [
     "marketplace/locales/en.json",
     json(

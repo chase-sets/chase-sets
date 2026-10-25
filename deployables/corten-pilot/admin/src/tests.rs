@@ -90,6 +90,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/realtime/public/events" {
         return realtime(cookie);
     }
+    if uri.path() == "/api/catalog/scope-records" {
+        return scope_records(uri.query().unwrap_or_default());
+    }
     if let Some(rest) = uri.path().strip_prefix(CATALOG) {
         return catalog_api(method, rest, &headers, &body);
     }
@@ -467,6 +470,25 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
         (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// The Catalog's Scope Records: two on the page of 51, one live and changed lately (a time to
+/// come, so it stays fresh), one a draft untouched since 2020. A search for `broken` fails.
+fn scope_records(query: &str) -> Response {
+    if query.contains("search=broken") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The scope list is unavailable.");
+    }
+    let scope = |id: &str, name: &str, code: Option<&str>, editions: &[&str], status: &str, updated: &str| {
+        json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
+                "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": name, "parentScopeRecordId": null,
+                "productLineScopeRecordId": null, "seriesScopeRecordId": null, "releaseDate": null, "officialSetCode": code,
+                "languageEditions": editions, "lifecycleStatus": status, "updatedAt": updated })
+    };
+    let items = [
+        scope("scp_paf", "Paldean Fates", Some("PAF"), &["en", "ja"], "active", "2999-01-01T00:00:00.000Z"),
+        scope("scp_base", "Base Set", None, &[], "draft", "2020-01-01T00:00:00.000Z"),
+    ];
+    Json(json!({ "items": items, "total": 51, "count": 2 })).into_response()
 }
 
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
@@ -1339,4 +1361,64 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
         "{html}"
     );
     assert!(!html.contains(r#"role="search""#), "not the filters: {html}");
+}
+
+#[tokio::test]
+async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/scopes?search=pal&status=active&product_domain=pokemon&page=2", Some("catalog-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "catalog.view is enough: {html}");
+    let calls = pilot.catalog_calls();
+    assert_eq!(calls[0].path, "/api/catalog/scope-records?search=pal&status=active&productDomain=pokemon&limit=50&offset=50");
+    assert!(html.contains("<strong>Paldean Fates</strong>") && html.contains(">PAF</span>"), "{html}");
+    assert!(html.contains("<td>pokemon · expansion</td>") && html.contains("2 edition(s): en, ja"), "{html}");
+    assert!(html.contains(">Live</span>") && html.contains(">Fresh</span>"), "an active scope, changed lately: {html}");
+    assert!(
+        html.contains("No editions yet") && html.contains(">Unpublished</span>") && html.contains(">Stale sync</span>"),
+        "{html}"
+    );
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf">View</a>"#),
+        "the scope's page is admin-web's: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/catalog/scopes?search=pal&amp;status=active&amp;product_domain=pokemon" rel="prev""#),
+        "the pager keeps the filters: {html}"
+    );
+    assert!(
+        html.contains(r#"<option value="pokemon" selected>pokemon</option>"#) && html.contains(r#"<option value="lorcana">"#),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/catalog/scopes" aria-current="page""#), "the nav's Scopes is the pilot's: {html}");
+}
+
+#[tokio::test]
+async fn the_scopes_language_filters_the_page_the_api_returned() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/scopes?language=ja", Some("staff"))).await;
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/scope-records?limit=50&offset=0", "not sent to the API");
+    assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "{html}");
+    assert!(
+        html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="en">en</option>"#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn a_scopes_list_the_api_cannot_read_is_its_banner_over_no_rows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?search=broken", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "as admin-web's loader: {html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains("The scope list is unavailable."), "{html}");
+    assert!(html.contains("No scopes found"), "{html}");
+    let mut req = get("/catalog/scopes?search=broken", Some("staff"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["error"], "The scope list is unavailable.", "{body}");
+    assert_eq!(body["data"]["items"], json!([]), "{body}");
+
+    let (status, _, _) = pilot.send(get("/catalog/scopes", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed");
 }
