@@ -20,7 +20,7 @@ import { state } from "corten";
  * The count's text, passed once when the rows are drawn and kept for the changes after it: how
  * many records match, while none is checked, and for checked rows the catalog's message, in the
  * page's locale, with the records' plural name. The markup builds it, `js::Count { .. }`.
- * @typedef {{ matching: string, entity: string, selected: Message<"count" | "entity_name"> }} Count
+ * @typedef {{ matching: string, entity: string, selected: Message<"count" | "entityName"> }} Count
  */
 
 /** The count's text the rows were drawn with. @param {Selection} sel @param {Count} [text] */
@@ -78,7 +78,7 @@ function tally(sel) {
   const rows = boxes(sel);
   const n = rows.filter((row) => row.checked).length;
   const text = counts(sel);
-  if (text) sel.count.value = n === 0 ? text.matching : text.selected({ count: n, entity_name: text.entity });
+  if (text) sel.count.value = n === 0 ? text.matching : text.selected({ count: n, entityName: text.entity });
   const box = all(sel);
   if (box) {
     box.hidden = rows.length === 0;

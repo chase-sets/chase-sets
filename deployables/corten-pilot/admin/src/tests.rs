@@ -1005,7 +1005,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entity_name&quot;,&quot; selected&quot;]})"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entityName&quot;,&quot; selected&quot;]})"#
         ),
         "the count's text is the catalog's message, sent unfilled: {html}"
     );

@@ -11,7 +11,7 @@
   "queue.source.shipment.returned": "Shipment returned",
   "queue.title": "Restock Decisions",
   "queue.view.ledger": "View ledger",
-  "queue.view.order": "View order {order_id}",
+  "queue.view.order": "View order {orderId}",
   "queue.write.off": "Write off",
   "route.description": "Choose whether returned stock is restocked or written off.",
   "route.title": "Restock Decisions | Marketplace",

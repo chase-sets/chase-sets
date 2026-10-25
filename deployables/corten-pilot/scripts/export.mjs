@@ -2,7 +2,7 @@
 // look cannot drift from the web hosts'. Every output is committed; CI runs this with --check.
 //
 // - admin/locales/en.json: the postage-policy screen's English catalog (ordering.features.postagePolicies.ui.*
-//   and the route title), keys and arguments in the snake case `messages!` takes.
+//   and the route title), keys in the snake case `messages!` takes.
 // - admin/locales/catalog.en.json: the catalog area's English catalog (the dimension, field and
 //   catalog item pages, the shared list, detail, lifecycle, bulk lifecycle and realtime reload
 //   controls, and the routes' titles).
@@ -56,10 +56,9 @@ async function catalog(file, exportName, rules) {
       if (name) break;
     }
     if (!name) continue;
-    // An argument is {name}, in the snake case `messages!` takes (workaround for
-    // todd-skelton/corten#58: the catalog's {updatedAt} is {updated_at}); any other brace is
-    // text, which `messages!` takes doubled.
-    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) => (arg ? `{${snake(arg)}}` : brace + brace));
+    // An argument is {name} as the catalog has it; any other brace is text, which `messages!`
+    // takes doubled.
+    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) => (arg ? brace : brace + brace));
   }
   return out;
 }

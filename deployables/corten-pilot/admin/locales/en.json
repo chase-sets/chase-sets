@@ -39,7 +39,7 @@
   "detail.packages": "Packages: {value}",
   "detail.parcel.reasons": "Parcel reasons: {value}",
   "detail.parcel.required": "Parcel required: {value}",
-  "detail.policy.id": "Policy id: {policy_id}",
+  "detail.policy.id": "Policy id: {policyId}",
   "detail.preview": "Preview",
   "detail.preview.result": "Preview Result",
   "detail.preview.result.action": "Preview result",

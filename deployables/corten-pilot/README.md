@@ -147,6 +147,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `014a2fd` | Corten `main` with [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32), [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33), [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34), [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35), [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39), [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44), [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45) and [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17) closed, each adopted (see Corten gaps). Breaking: `Errors::aria` and `Errors::message` are gone; a form's field errors are `errors.within(FormId)`, with typed form ids, and their ids are `{form id}-{field}-error` |
 | `c35a10a` | Corten `main` with [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49) and [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50) closed, both adopted. No breaking change for the pilot; its tests changed only where a page's markup did (`LiveStatus` now draws the `<corten-live>`, and `drawn` takes one group) |
 | `e220c14` | Corten `main` with [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54) and [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56) closed, both adopted (`t.by_key`; `{type}` as it is). No breaking change for the pilot. Also brings a feed's snapshot kept between writes (CHANGELOG, Changed 38) |
+| `26c55a8` | Corten `main` with [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58) closed and adopted: the exported catalogs keep their camelCase arguments. Breaking for the pilot only in a script: a `Message<"...">` JSDoc and its call take the catalog's names (`bulk_rows.js` says `entityName`) |
 
 ## What lives where
 
@@ -342,10 +343,8 @@ forward only on purpose, when a fix the pilot needs lands.
 27. **The attention queue's text is the API's message keys.** The queue sends each item's title,
     detail and action label as a catalog key and its arguments, which `attention::shown` draws
     with `t.by_key` (the API's key mapped to the pilot's `attention.*` key; a key the catalog
-    lacks is shown as the key). Its arguments are the API's params through `attention::Params`,
-    which looks up a catalog argument's camelCase name, since `messages!` takes only snake case
-    ([todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)),
-    and fills an alias candidate's detail `{type}` from the title's params, where the API sends it
+    lacks is shown as the key). Its arguments are the API's params, by the catalog's own
+    camelCase names, through `attention::Params`, which fills an alias candidate's detail `{type}` from the title's params, where the API sends it
     ([chase-sets/chase-sets#10569 Show the alias type in a Catalog attention queue alias candidate's detail instead of {type}](https://github.com/chase-sets/chase-sets/issues/10569); admin-web shows the text `{type}`). The queue's 214 items in the
     sandbox are all drawn, as admin-web draws them (the API does not page them); a row's Review is
     a submit button of one shared form, so a row carries only its key, and the sheet is drawn by
@@ -390,11 +389,6 @@ Open, filed in Corten (one gap each):
    because the form's component wrapped it in a `<div>`. Workaround: the form is the component's
    root, and the router tests check each refused write's patch ids (`patch_ids` in
    [`tests.rs`](marketplace/src/tests.rs)).
-3. [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)
-   (correctness of a message shown by key, then developer time). Chase Sets' catalogs have 365
-   camelCase arguments, and its APIs send params with the same names. Workaround: `export.mjs`
-   writes each argument in snake case, and `attention::Params` looks the camelCase name up in
-   the API's params ([`attention.rs`](admin/src/catalog/attention.rs)).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -418,6 +412,13 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `26c55a8` pin, workaround removed:
+
+1. [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)
+   ([todd-skelton/corten#59 A catalog argument may be camelCase](https://github.com/todd-skelton/corten/pull/59)): `export.mjs` copies each argument as the
+   catalog has it, and `attention::Params` looks the API's params up by that name; the
+   snake-case rewrite and its `camel` lookup are gone.
 
 Fixed at the `e220c14` pin, workarounds removed:
 

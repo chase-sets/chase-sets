@@ -339,11 +339,9 @@ fn snake(name: &str) -> String {
 }
 
 /// An item's message arguments as the API sends them, for `t.by_key`: the item's own and, for a
-/// name they lack, its title's. Two workarounds, each removed when its issue lands:
-/// todd-skelton/corten#58 (`messages!` takes only snake_case argument names, so the catalog's
-/// `{updatedAt}` is `{updated_at}` and this looks up the API's camelCase name), and
-/// chase-sets/chase-sets#10569 (an alias candidate's detail has `{type}`, which the API sends only
-/// with the title).
+/// name they lack, its title's. The title's are a workaround for chase-sets/chase-sets#10569 (an
+/// alias candidate's detail has `{type}`, which the API sends only with the title); remove them
+/// when it lands.
 pub struct Params<'a> {
     own: &'a Map<String, Value>,
     title: Option<&'a Map<String, Value>>,
@@ -369,26 +367,8 @@ impl<'a> Params<'a> {
 
 impl Args for Params<'_> {
     fn arg(&self, name: &str, write: &mut dyn FnMut(&dyn Display)) -> bool {
-        let name = camel(name);
-        self.own.arg(&name, write) || self.title.is_some_and(|title| title.arg(&name, write))
+        self.own.arg(name, write) || self.title.is_some_and(|title| title.arg(name, write))
     }
-}
-
-/// `updated_at` is `updatedAt`.
-fn camel(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut upper = false;
-    for c in name.chars() {
-        match c {
-            '_' => upper = true,
-            c if upper => {
-                out.push(c.to_ascii_uppercase());
-                upper = false;
-            }
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// An API message in the page: the catalog's message (`t.by_key`, escaped), or its key when the
