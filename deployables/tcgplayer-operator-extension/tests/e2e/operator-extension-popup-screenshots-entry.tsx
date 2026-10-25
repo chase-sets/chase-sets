@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import "@chase-sets/design-system/styles.css";
-import { OperatorExtensionPopup } from "@chase-sets/catalog/features/operator-session/ui/extension-popup/popup";
+import { OperatorExtensionPopup } from "../../../../bounded-contexts/catalog/features/operator-session/ui/extension-popup/popup";
 
 const state = new URLSearchParams(location.search).get("state");
 const request = async (id: string) => {
