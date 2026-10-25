@@ -13,6 +13,9 @@
     "unverified": "Storage location update could not be verified. Reload this page and try again.",
     "restock_pending": "Restock decisions are still updating. Reload this page in a moment."
   },
+  "item": {
+    "continue_on_marketplace": "Continue on marketplace"
+  },
   "error": {
     "forbidden_title": "Not allowed",
     "forbidden": "Your role cannot open storage locations.",

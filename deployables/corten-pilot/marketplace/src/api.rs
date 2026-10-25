@@ -1,5 +1,5 @@
-//! The storage-location and restock-decision calls, as the signed-in seller, and the cart read, as
-//! the signed-in buyer (the shared caller is `platform::api`).
+//! The storage-location and restock-decision calls, as the signed-in seller, the cart read, as
+//! the signed-in buyer, and the item page's read, as anyone (the shared caller is `platform::api`).
 //! Types hold only the fields the screen reads; they are also the screen's JSON for data clients.
 use corten::axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -491,5 +491,236 @@ impl Checkout for Caller<'_> {
             req = req.header(ANONYMOUS_CART_HEADER, id);
         }
         self.write(req).await
+    }
+}
+
+const DISCOVERY: &str = "discovery";
+const ITEMS: &str = "/api/marketplace/items";
+
+/// An item page's read (`GET /api/marketplace/items/{id}`, `DiscoveryItemDetail` in
+/// bounded-contexts/discovery/support/client-support/contracts.ts), the fields the page reads. The
+/// listings and offers come in the order the Discovery API ranks them (chase-sets/chase-sets#10559): the first
+/// listing a buyer can buy is the best available one, the first offer the best.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Item {
+    pub catalog_item_id: String,
+    pub slug: Option<String>,
+    pub language_code: Option<String>,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub description: Option<String>,
+    pub blueprint: Option<Blueprint>,
+    /// `active` or not.
+    pub status: String,
+    #[serde(default)]
+    pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub categories: Vec<Category>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+    #[serde(default)]
+    pub product_asset_sets: Vec<AssetSet>,
+    pub image_fallback: Option<ImageFallback>,
+    pub product_schema: Option<Schema>,
+    pub updated_at: String,
+    pub market_summary: Option<MarketSummary>,
+    #[serde(default)]
+    pub market_listings: Vec<Listing>,
+    #[serde(default)]
+    pub offer_demand_matches: Vec<Offer>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Blueprint {
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Category {
+    pub category_id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+/// A catalog field's value: text, a number, localized text (`{"values": {"en": ..}}`) or a
+/// reference, which `reference` resolves.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldValue {
+    pub field_id: String,
+    pub field_name: String,
+    #[serde(default)]
+    pub value: serde_json::Value,
+    pub reference: Option<Reference>,
+}
+
+/// A reference record and the records it relates to (an expansion is part of a series).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reference {
+    pub reference_id: String,
+    pub name: String,
+    pub type_key: String,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Relationship {
+    pub relationship_type: String,
+    pub reference: Option<Reference>,
+}
+
+/// A product picture's renditions (`DiscoveryProductAssetSet`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssetSet {
+    #[serde(default)]
+    pub variants: Vec<AssetVariant>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetVariant {
+    /// `thumbnail`, `catalog-detail` or `source`.
+    pub role: String,
+    pub density: u8,
+    pub width: u32,
+    pub height: u32,
+    pub public_url: String,
+}
+
+/// The picture an item without one shows (a card back), and whether it stays (`permanent`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ImageFallback {
+    pub url: String,
+    pub alt: String,
+    pub usage: String,
+}
+
+/// What makes a product of the item (`ProductSchema`): its dimensions, in the order a product
+/// id names them.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Schema {
+    pub dimensions: Vec<Dimension>,
+    pub canonical_dimension_order: Vec<DimensionRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionRef {
+    pub dimension_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dimension {
+    pub dimension_id: String,
+    pub dimension_name: String,
+    /// `ordered`, `numeric` or `unordered`.
+    pub value_kind: String,
+    #[serde(default)]
+    pub required: bool,
+    /// The selections under which the dimension applies (a grade only for a graded card).
+    #[serde(default)]
+    pub applies_when: Vec<Clause>,
+    pub allowed_options: Vec<DimensionOption>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Clause {
+    pub dimension_id: String,
+    pub option_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionOption {
+    pub option_id: String,
+    pub code: String,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub display_order: i64,
+    pub numeric_value: Option<f64>,
+}
+
+/// One dimension's option, as a listing or an offer names its product.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Selected {
+    pub dimension_id: String,
+    pub option_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MarketSummary {
+    pub lowest_price_amount: Option<String>,
+    pub lowest_price_currency_code: Option<String>,
+    pub active_listing_count: u64,
+    pub total_visible_quantity: u64,
+}
+
+/// `DiscoveryMarketListing`, the fields the page reads.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Listing {
+    pub listing_id: String,
+    pub account_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    #[serde(default)]
+    pub selected_options: Vec<Selected>,
+    pub product_summary: Option<String>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub quantity_cap: Option<u64>,
+    pub visible_quantity: Option<u64>,
+    pub max_units_per_order: Option<u64>,
+    pub max_units_per_day: Option<u64>,
+    pub max_units_per_customer_account: Option<u64>,
+    pub seller_slug: Option<String>,
+    pub seller_display_name: Option<String>,
+    pub seller_average_rating: Option<String>,
+    #[serde(default)]
+    pub seller_review_count: u64,
+}
+
+/// `DiscoveryOffer`, the fields the page reads.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Offer {
+    pub offer_id: String,
+    pub buyer_account_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    #[serde(default)]
+    pub selected_options: Vec<Selected>,
+    pub product_summary: Option<String>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub quantity_requested: u64,
+    pub buyer_slug: Option<String>,
+    pub buyer_display_name: Option<String>,
+    pub buyer_average_rating: Option<String>,
+    #[serde(default)]
+    pub buyer_review_count: u64,
+}
+
+/// The item page's calls.
+pub trait Discovery {
+    /// The item by its slug or its id; `None` when the API has no such item.
+    async fn item(&self, id: &str) -> Result<Option<Item>, ApiError>;
+}
+
+impl Discovery for Caller<'_> {
+    async fn item(&self, id: &str) -> Result<Option<Item>, ApiError> {
+        match self.read(&format!("{ITEMS}/{}", segment(id)), DISCOVERY).await {
+            Ok(item) => Ok(Some(item)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 }

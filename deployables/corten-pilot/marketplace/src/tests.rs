@@ -29,6 +29,7 @@ const RESTOCK: &str = "/api/inventory/restock-decisions";
 const RESTOCK_SCREEN: &str = "/account/inventory/restock-decisions";
 const CART: &str = "/api/marketplace/account/cart";
 const CART_SCREEN: &str = "/account/cart";
+const ITEMS: &str = "/api/marketplace/items/";
 const RECEIPT: &str = r#"[{"sourceContextName":"inventory","maxGlobalPosition":"42","eventIds":["e1"]}]"#;
 
 /// A call the stand-in received.
@@ -240,6 +241,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             .into_response(),
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
+    }
+    if let Some(id) = uri.path().strip_prefix(ITEMS) {
+        return discovery_item(id);
     }
     if uri.path() == CART {
         return match waits_for(&headers).as_deref() {
@@ -1358,4 +1362,254 @@ async fn a_cart_not_readable_yet_after_a_write_says_so_and_reads_again() {
     assert!(!headers.contains_key("refresh"));
     let (_, headers, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
     assert!(!headers.contains_key("refresh"), "a cart read as it is waits for nothing");
+}
+
+/// A Discovery item: a card that is raw (in one of three conditions) or graded (one of seven
+/// grades), with three listings and two offers, in the order the API ranks them.
+fn item() -> Value {
+    let option = |id: &str, label: &str, order: i64, numeric: Option<f64>| json!({ "optionId": id, "code": id, "label": label, "displayOrder": order, "numericValue": numeric });
+    let raw = json!({ "dimensionId": "dim_form", "optionId": "chc_raw" });
+    let graded = json!({ "dimensionId": "dim_form", "optionId": "chc_graded" });
+    let listing = |id: &str, account: &str, price: &str, options: Value, quantity: u64| {
+        json!({
+            "listing_id": id, "account_id": account, "catalog_catalog_item_id": "cat_charizard",
+            "product_id": format!("cat_charizard::{id}"), "selected_options": options,
+            "product_summary": "Form: raw", "price_amount": price, "price_currency_code": "USD",
+            "quantity_cap": quantity, "visible_quantity": quantity, "max_units_per_order": null,
+            "max_units_per_day": null, "max_units_per_customer_account": if id == "lst_vault" { json!(2) } else { json!(null) },
+            "seller_slug": format!("{account}-slug"), "seller_display_name": if account == "acc_vault" { "Card Vault" } else { "Chase Sets" },
+            "seller_average_rating": if account == "acc_vault" { json!(null) } else { json!("4.75") }, "seller_review_count": 4,
+        })
+    };
+    let nm = json!({ "dimensionId": "dim_condition", "optionId": "chc_nm" });
+    let offer = |id: &str, buyer: &str, price: &str| {
+        json!({
+            "offer_id": id, "buyer_account_id": buyer, "catalog_catalog_item_id": "cat_charizard",
+            "product_id": "cat_charizard::dim_form:chc_raw|dim_condition:chc_nm|dim_grade:-",
+            "selected_options": [raw, nm], "product_summary": "Form: Raw | Condition: Near Mint",
+            "price_amount": price, "price_currency_code": "USD", "quantity_requested": 2,
+            "buyer_slug": null, "buyer_display_name": if buyer == "acc_seller" { "You" } else { "Top Loader" },
+            "buyer_average_rating": null, "buyer_review_count": 0,
+        })
+    };
+    let grades: Vec<Value> =
+        (1..=7).map(|n| option(&format!("chc_grade_{n}"), &format!("Grade {n}"), 7 - n, Some(n as f64))).collect();
+    json!({
+        "catalog_item_id": "cat_charizard",
+        "slug": "charizard",
+        "language_code": "en",
+        "title": "Charizard",
+        "subtitle": "Base Set 4/102",
+        "description": "The iconic Charizard.",
+        "blueprint": { "name": "Pokemon Card Single" },
+        "status": "active",
+        "field_values": [
+            { "fieldId": "fld_number", "fieldName": "Card Number", "value": "4", "reference": null },
+            { "fieldId": "fld_set", "fieldName": "Expansion", "value": { "referenceId": "ref_base" }, "reference": {
+                "referenceId": "ref_base", "name": "Base Set", "typeKey": "expansion",
+                "relationships": [{ "relationshipType": "part-of", "reference": { "referenceId": "ref_series", "name": "Base", "typeKey": "series", "relationships": [] } }],
+            } },
+        ],
+        "categories": [{ "categoryId": "ctg_tcg", "slug": "pokemon-tcg", "name": "Pokemon TCG" }],
+        "tags": ["base-set", "base-set"],
+        "image_urls": [],
+        "product_asset_sets": [],
+        "image_fallback": { "url": "/fake-cdn/assets/back.png", "alt": "Card back", "usage": "permanent" },
+        "product_schema": {
+            "dimensions": [
+                { "dimensionId": "dim_condition", "dimensionName": "Condition", "valueKind": "ordered", "required": true,
+                  "appliesWhen": [{ "dimensionId": "dim_form", "optionIds": ["chc_raw"] }],
+                  "allowedOptions": [option("chc_lp", "Lightly Played", 1, None), option("chc_nm", "Near Mint", 0, None)] },
+                { "dimensionId": "dim_form", "dimensionName": "Form", "valueKind": "unordered", "required": true, "appliesWhen": [],
+                  "allowedOptions": [option("chc_raw", "Raw", 0, None), option("chc_graded", "Graded", 1, None)] },
+                { "dimensionId": "dim_grade", "dimensionName": "Grade", "valueKind": "numeric", "required": true,
+                  "appliesWhen": [{ "dimensionId": "dim_form", "optionIds": ["chc_graded"] }], "allowedOptions": grades },
+            ],
+            "canonicalDimensionOrder": [{ "dimensionId": "dim_form" }, { "dimensionId": "dim_condition" }, { "dimensionId": "dim_grade" }],
+        },
+        "updated_at": "2026-10-24 03:54:25.777+00",
+        "market_summary": { "lowest_price_amount": "389.00", "lowest_price_currency_code": "USD", "active_listing_count": 3, "total_visible_quantity": 4 },
+        "market_listings": [
+            listing("lst_vault", "acc_vault", "389.00", json!([raw, nm]), 2),
+            listing("lst_gone", "acc_vault", "395.00", json!([raw, nm]), 0),
+            listing("lst_chase", "acc_chase", "412.50", json!([raw, nm]), 1),
+            listing("lst_psa", "acc_vault", "735.00", json!([graded, { "dimensionId": "dim_grade", "optionId": "chc_grade_7" }]), 1),
+        ],
+        "offer_demand_matches": [offer("off_high", "acc_buyer", "380.00"), offer("off_mine", "acc_seller", "350.00")],
+    })
+}
+
+/// The Discovery API's item read: `charizard` (or its id), `down` fails, anything else is unknown.
+fn discovery_item(id: &str) -> Response {
+    match id {
+        "charizard" | "cat_charizard" => Json(item()).into_response(),
+        "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Item not found."),
+    }
+}
+
+const ITEM_PAGE: &str = "/items/charizard";
+
+/// The address of each link on the page with `text` in it.
+fn hrefs<'a>(html: &'a str, text: &str) -> Vec<&'a str> {
+    html.split("<a ")
+        .skip(1)
+        .filter(|a| a.split("</a>").next().is_some_and(|body| body.contains(text)))
+        .filter_map(|a| a.split("href=\"").nth(1)?.split('"').next())
+        .collect()
+}
+
+#[tokio::test]
+async fn anyone_reads_an_item_with_its_best_listing_and_its_market() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with(ITEMS)).cloned().unwrap();
+    assert_eq!(call.headers["chase-sets-read-target-context"], "discovery");
+    let page = text(&html);
+    assert!(page.contains("Pokemon Card Single Charizard Base Set 4/102"), "{page}");
+    // Nothing chosen and three buyable listings: the first is the best available one.
+    assert!(page.contains("Lowest ask $389.00 All active listings Available 4 Listings 3 listings Sellers 2 sellers"), "{page}");
+    assert!(page.contains("Best available listing $389.00 Card Vault \u{b7} 2 available"), "{page}");
+    // The book: the buyable listings in the API's order, the lowest marked, the limit shown.
+    assert!(page.contains("3 active listings"), "{page}");
+    let (vault, chase) = (page.find("$389.00 Lowest price").unwrap(), page.find("$412.50").unwrap());
+    assert!(vault < chase && !page.contains("$395.00"), "a listing with nothing available is not in the book: {page}");
+    assert!(page.contains("Limit 2 per customer"), "{page}");
+    assert!(page.contains("Chase Sets \u{2605} 4.8 (4)"), "{page}");
+    assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/items/charizard""#), "{html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+#[tokio::test]
+async fn an_id_or_an_old_slug_moves_to_the_slug_for_good_with_its_parameters() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/items/cat_charizard?market=sell&dimension.dim_form=chc_raw", None)).await;
+    assert_eq!(status, StatusCode::MOVED_PERMANENTLY);
+    assert_eq!(headers[header::LOCATION], "/items/charizard?market=sell&dimension.dim_form=chc_raw");
+}
+
+#[tokio::test]
+async fn an_unknown_item_is_not_found_and_a_failed_read_a_bad_gateway() {
+    let pilot = Pilot::new().await;
+    assert_eq!(pilot.send(get("/items/nope", None)).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(pilot.send(get("/items/down", None)).await.0, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn an_option_is_a_link_that_chooses_it_and_any_takes_it_away() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?dimension.dim_form=chc_raw", None)).await;
+    let page = text(&html);
+    // Raw is chosen, so its condition applies (ordered by its order) and the grade does not.
+    assert!(
+        page.contains(
+            "Form Any Raw 2 from $389.00 Graded 1 from $735.00 Condition Any Near Mint 2 from $389.00 Lightly Played none"
+        ),
+        "{page}"
+    );
+    assert!(!page.contains("Grade 7"), "{page}");
+    assert_eq!(hrefs(&html, "Graded"), ["/items/charizard?dimension.dim_form=chc_graded"]);
+    assert_eq!(hrefs(&html, "Near Mint")[0], "/items/charizard?dimension.dim_form=chc_raw&amp;dimension.dim_condition=chc_nm");
+    // Any takes Raw away; nothing left chosen, so the address says so and the page chooses nothing.
+    let any = hrefs(&html, "Any")[0];
+    assert_eq!(any, "/items/charizard?dimension.dim_form=any");
+    let (_, _, html) = pilot.send(get(&any.replace("&amp;", "&"), None)).await;
+    assert!(text(&html).contains("Chosen options All listings"), "{html}");
+}
+
+#[tokio::test]
+async fn a_dimension_with_many_options_is_a_get_form_that_keeps_the_others() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?market=sell&dimension.dim_form=chc_graded", None)).await;
+    let form = html.split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
+    assert!(form.contains(r#"method="get""#), "{form}");
+    assert!(form.contains(r#"<input type="hidden" name="market" value="sell">"#), "{form}");
+    assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
+    assert!(form.contains(r#"<select id="dim-dim_grade" name="dimension.dim_grade">"#), "{form}");
+    // Highest grade first, as a numeric dimension orders them.
+    let (seven, one) = (form.find("Grade 7").unwrap(), form.find("Grade 1").unwrap());
+    assert!(seven < one, "{form}");
+    assert!(form.contains(r#"<option value="any" selected>Any</option>"#), "{form}");
+}
+
+#[tokio::test]
+async fn choosing_a_listing_chooses_its_product_and_one_gone_says_so() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
+    assert!(hrefs(&html, "Select").contains(&"/items/charizard?listing=lst_chase"), "{html}");
+    let (_, _, html) = pilot.send(get("/items/charizard?listing=lst_chase", None)).await;
+    let page = text(&html);
+    assert!(page.contains("Selected listing $412.50 Chase Sets"), "{page}");
+    assert!(page.contains("Chosen options Form Raw Condition Near Mint"), "the listing's options are the selection: {page}");
+    assert!(html.contains(r#"aria-current="true">Selected</a>"#), "{html}");
+    let (_, _, html) = pilot.send(get("/items/charizard?listing=lst_gone", None)).await;
+    let page = text(&html);
+    assert!(page.contains("Listing unavailable"), "{page}");
+    assert!(page.contains("Best available listing $389.00"), "{page}");
+}
+
+#[tokio::test]
+async fn selling_shows_the_best_offer_first_and_the_viewers_own_as_theirs() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?market=sell", Some("buyer"))).await;
+    let page = text(&html);
+    assert!(page.contains("Best offer $380.00 All offers Requested 4 Offers 2 offers Accounts 2 accounts"), "{page}");
+    assert!(page.contains("Best offer $380.00 Top Loader"), "the rail: {page}");
+    assert!(page.contains("$350.00 Your offer You"), "{page}");
+    assert!(page.contains("You cannot accept your own offer."), "{page}");
+    // The tabs keep the side; Listings is the sell side's other tab.
+    assert_eq!(hrefs(&html, "Listings")[0], "/items/charizard?market=sell&amp;book=listings");
+}
+
+#[tokio::test]
+async fn the_details_tab_lists_the_fields_and_the_records_they_relate_to() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?book=details", None)).await;
+    let page = text(&html);
+    assert!(page.contains("Description The iconic Charizard."), "{page}");
+    assert!(
+        page.contains(
+            "Card Number 4 Expansion Base Set Series Base Language English Categories Pokemon TCG Tags base-set Last updated"
+        ),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn a_data_client_gets_the_item_screen() {
+    let pilot = Pilot::new().await;
+    let mut req = get("/items/charizard?dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7", None);
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    let data = &screen["data"];
+    assert_eq!(data["product_id"], "cat_charizard::dim_form:chc_graded|dim_condition:-|dim_grade:chc_grade_7", "{body}");
+    assert_eq!(data["complete"], true);
+    assert_eq!(data["listing_id"], "lst_psa");
+    assert_eq!(data["offers"], json!([]), "the offers are for the raw card: {body}");
+}
+
+#[test]
+fn the_address_reads_as_marketplace_reads_it_and_writes_its_choices_back() {
+    use corten::Route;
+
+    use crate::items::{Address, Book, Market, Raw};
+    let read = |query: &str| Address::read(&corten::form::from_bytes::<Raw>(query.as_bytes()).unwrap());
+    let a = read("market=sell&listing=a&listing=a&offer=x&offer=y&dimension.d1=o1&dimension.d2=o2&dimension.d2=o3&dimension.d3=");
+    assert_eq!(a.market, Market::Sell);
+    assert_eq!(a.listing.as_deref(), Some("a"), "the same id twice is one");
+    assert_eq!(a.offer, None, "two ids are none");
+    assert_eq!(a.options, [("d1".to_owned(), "o1".to_owned())], "a dimension given two options is dropped");
+    assert!(a.filtered);
+    assert_eq!(a.book(), Book::Offers);
+    assert_eq!(read("market=nope").market, Market::Buy);
+    assert!(!read("dimension.d3=+").filtered, "a blank option is no filter");
+    let link = crate::app::url::Item { slug: "a b", state: a.with_book(Book::Listings) }.href();
+    assert_eq!(link, "/items/a%20b?market=sell&listing=a&book=listings&dimension.d1=o1");
+    assert_eq!(
+        crate::app::url::Item { slug: "x", state: a.with_book(Book::Offers) }.href(),
+        "/items/x?market=sell&listing=a&dimension.d1=o1"
+    );
 }

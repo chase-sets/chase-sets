@@ -19,8 +19,10 @@
 //! | `POST /account/cart/remove` | remove a line |
 //! | `POST /account/cart/lock` | lock a line to its preferred listing |
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
+//! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //!
-//! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`.
+//! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
+//! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`.
 use std::sync::Arc;
 
 use corten::{
@@ -32,7 +34,7 @@ use platform::session;
 use crate::{
     api::{ApiError, Platform, segment},
     auth::{self, ColorMode, Session, Viewer},
-    cart, locations, restock,
+    cart, items, locations, restock,
     text::Pilot,
     views,
 };
@@ -112,6 +114,21 @@ pub mod url {
     #[derive(Route)]
     #[route("/account/cart/checkout")]
     pub struct CartCheckout;
+
+    /// Marketplace's item pages: public, with no guard.
+    #[derive(Route)]
+    #[route("/items")]
+    pub struct ItemsArea;
+
+    /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
+    /// slug).
+    #[derive(Clone, Debug, Route)]
+    #[route("/items/{slug}")]
+    pub struct Item<'a> {
+        pub slug: &'a str,
+        #[route(query)]
+        pub state: crate::items::Address,
+    }
 
     /// The storage locations, and the write to confirm.
     #[derive(Clone, Debug, Default, Route)]
@@ -205,6 +222,8 @@ pub fn app(config: Config) -> App<Session> {
                 },
             })
         })
+        // Anyone may read an item; a session only says whose offers are theirs.
+        .area::<url::ItemsArea>(|area| items::routes(area, &shared).components(views::ITEM))
         .error_page(views::error_page)
 }
 

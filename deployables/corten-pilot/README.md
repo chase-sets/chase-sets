@@ -19,6 +19,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
+| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404 (not ported yet: buying, offering, selling and watching, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -57,6 +58,26 @@ an unknown amount and are not a comparison. Measured once, 7 loads each.
 
 The pilot measured interactive sooner on mobile than on desktop. That was not profiled, and one
 run of 7 loads does not show whether it repeats.
+
+An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
+fallback card back), the pilot's release build against marketplace's dev server, desktop only for
+marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
+once, 7 loads each.
+
+| Item page | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 4,740 ms | 435 ms | 806 ms |
+| Largest contentful paint | 2,632 ms | 464 ms | 8,016 ms |
+| Server time (document) | 2,302 ms | 85 ms | 87 ms |
+| JavaScript transferred | 7,692,764 B | 7,590 B | 7,590 B |
+| HTML / CSS transferred | 510,161 / 186,198 B | 2,641 / 4,454 B | 2,641 / 4,454 B |
+| Requests | 251 | 10 | 10 |
+
+The pilot's mobile LCP is the item's picture: the fallback card back is a 1,451,020 B PNG, which
+takes most of 8 s at 1.6 Mbps. Marketplace's page shows the same file
+([chase-sets/chase-sets#10586 [discovery] Shrink the Pokemon card-back fallback pictures (1.45 MB and 2.95 MB PNGs)](https://github.com/chase-sets/chase-sets/issues/10586)).
+The measurement does not count image bytes. The picture now has `fetchpriority="high"`, added
+after this measurement.
 
 Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
 there is no React baseline for these pages yet (measured the same way, release build).
@@ -120,6 +141,7 @@ node scripts/smoke-cart.mjs            # the cart beside the API's read and mark
 node scripts/smoke-cart.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json http://localhost:7753 http://localhost:7762 --checkout
 node scripts/smoke-cart.mjs --write     # also steps a one-line card's quantity up and back, with and without JavaScript (writes, left as found)
                                         # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
+node scripts/smoke-market-item.mjs    # an item's page beside the API and marketplace's: a guest without JavaScript, the collector with it, options, a long-list form, Select, sell, 301, 404, 390 px (only reads)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -132,6 +154,7 @@ node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://local
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=cart marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=item marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
@@ -193,6 +216,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
+| `marketplace/src/items.rs`, `views/item_detail.*` | an item's page: the read, the address (its choices, read and written), marketplace's selection rules, and the page's parts |
 | `marketplace/src/cart_attempt.rs` | a cart write as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
 | `platform/src/money.rs` | what an amount the APIs send is (decimal text, at most two fraction digits, read as cents); Corten writes it (`t.money`) |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
@@ -468,6 +492,27 @@ forward only on purpose, when a fix the pilot needs lands.
     So the line writes are plain posts, not `data-patch` forms, and each step is a full page load.
     Move them to `data-patch` and drop the header once that issue lands.
 
+32. **The item page's choices are in its address.** Marketplace reads `market`, `listing`, `offer`
+    and `dimension.<id>` once and keeps later choices in React state. The pilot reads every
+    choice from the address, so each option, tab and Select is a link (and a dimension with more
+    than five options a GET form, which sends the other options along) and works without
+    JavaScript. The rules that turn the address into a selection are marketplace's page model:
+    the options normalized against the schema, the listings filtered by them, the best available
+    listing the first the API ranks, the option summaries, the product id. The scope decision on
+    [chase-sets/chase-sets#10558 [discovery] Return item-detail Listings and Offers in canonical order with each product's lowest Listing and best Offer](https://github.com/chase-sets/chase-sets/issues/10558)
+    leaves them in the web layer as presentation, and [`items`](marketplace/src/items.rs) ports
+    them as they are. Two additions: `book=` names the market book's tab (marketplace keeps
+    it in state), and `dimension.<id>=any` clears the last option, where marketplace would
+    otherwise choose the only listing's again. The keys are data, which a typed route cannot write
+    ([todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)),
+    so `Params` is written by hand. An id or an old slug is a 301 to the slug with the same
+    query, built by hand
+    ([todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)).
+    An unknown item is a 404, where marketplace answers 200
+    ([chase-sets/chase-sets#10585 [discovery] Answer an unknown item page with 404, not 200](https://github.com/chase-sets/chase-sets/issues/10585)).
+    Buying, offers, selling and watching are the next part of the port; until then the rail's
+    Continue on marketplace opens marketplace's page with the same choices.
+
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
@@ -476,6 +521,12 @@ Open, filed in Corten (one gap each):
    (correctness, then end-user performance). Workaround: the cart sends `Refresh: 2` while its
    read catches up after a write, and its line writes are plain posts so the browser loads the
    page itself ([`cart.rs`](marketplace/src/cart.rs), `render`).
+2. [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)
+   (correctness). Workaround: the item page's address implements `Params` by hand, separators
+   and encoding included ([`items.rs`](marketplace/src/items.rs), `impl Params for Address`).
+3. [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)
+   (correctness, then end-user performance). Workaround: the item page builds its 301 by hand
+   ([`items.rs`](marketplace/src/items.rs), `page`).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

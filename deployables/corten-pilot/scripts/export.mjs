@@ -20,6 +20,9 @@
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
+// - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
+//   its page view's and product selector's, discovery.routes.itemDetail.*, and the language labels
+//   the details list uses).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -271,6 +274,18 @@ const outputs = [
         ["checkout.routes.accountCart.", "route"],
       ])),
       // A line's language badge (`formatLanguageCodeLabel`).
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/item.en.json",
+    json({
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
+        ["discovery.features.itemDetail.ui.itemDetailPage.", "page"],
+        ["discovery.features.itemDetail.ui.itemDetailPageView.", "view"],
+        ["discovery.features.itemDetail.ui.productSelector.", "selector"],
+        ["discovery.routes.itemDetail.", "route"],
+      ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
   ],
