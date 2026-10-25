@@ -14,10 +14,6 @@ const entry = fileURLToPath(
 ).replaceAll("\\", "/");
 
 test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
-  page.on("pageerror", (error) => console.log(`Synthetic popup pageerror: ${error.stack ?? error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") console.log(`Synthetic popup console error: ${message.text()}`);
-  });
   const server = await createServer({
     root,
     configFile: false,
@@ -36,26 +32,14 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
       ),
     );
   });
-  console.log(`Synthetic popup fixture entry: ${entry}`);
   await server.listen();
-  console.log("Synthetic popup server listening");
   try {
     const address = server.httpServer!.address();
     if (typeof address !== "object" || address === null) throw new Error("loopback server missing");
     const origin = `http://127.0.0.1:${address.port}`;
-    console.log(`Synthetic popup origin: ${origin}`);
     await page.route("**/*", (route) => (route.request().url().startsWith(origin) ? route.continue() : route.abort()));
     for (const state of ["empty", "loading", "error", "success"]) {
-      console.log(`Synthetic popup goto: ${state}`);
       await page.goto(`${origin}/synthetic-operator-popup.html?state=${state}`, { waitUntil: "commit" });
-      console.log(`Synthetic popup committed: ${state}`);
-      await page.screenshot({ path: testInfo.outputPath(`popup-debug-${state}.png`), fullPage: true });
-      if ((await page.getByRole("heading", { name: "TCGplayer SetNames probe" }).count()) === 0) {
-        await testInfo.attach(`popup-debug-${state}.html`, {
-          body: await page.content(),
-          contentType: "text/html",
-        });
-      }
       await expect(page.getByRole("heading", { name: "TCGplayer SetNames probe" })).toBeVisible();
       if (state === "empty") {
         for (const input of await page.locator('input[inputmode="numeric"]').all()) await input.fill("");
