@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildWakeAttentionItems, normalizeWakeStatusSnapshot } from "./wake-status-contracts";
-import { deriveWakeAttentionItems } from "../../../server";
+import {
+  buildWakeAttentionItems,
+  deriveWakeAttentionItems,
+  normalizeWakeStatusSnapshot,
+} from "./wake-status-contracts";
 
 describe("wake status contracts", () => {
   it("normalizes a full wake status payload into structural fields", () => {
@@ -245,21 +248,29 @@ describe("wake status contracts", () => {
     expect(buildWakeAttentionItems(null)).toEqual([]);
   });
 
-  it("derives API wake attention from the normalized response body", () => {
-    const body = {
-      generatedAt: "2026-06-11T12:00:00.000Z",
-      wakeStore: {
-        available: true,
-        intentSummary: { failedCount: 2, staleClaimCount: 1, expiredCount: 0 },
-        checkpointSignals: { expiredPendingWaiterCount: 1 },
-      },
-      relay: { available: false },
-      schedulers: { available: false },
-      rollout: { summary: { enabledRelayFanOutContextCount: 0 } },
-      migration: {},
-    };
-    const snapshot = normalizeWakeStatusSnapshot(body);
+  it.each(["enabled", "disabled", "unavailable"] as const)(
+    "derives %s API wake attention from the normalized response body",
+    (state) => {
+      const body = {
+        generatedAt: "2026-06-11T12:00:00.000Z",
+        wakeStore: {
+          available: state !== "unavailable",
+          intentSummary: {
+            failedCount: state === "disabled" ? 0 : 2,
+            staleClaimCount: state === "disabled" ? 0 : 1,
+            expiredCount: 0,
+          },
+          checkpointSignals: { expiredPendingWaiterCount: state === "disabled" ? 0 : 1 },
+        },
+        relay: { available: false },
+        schedulers: { available: false },
+        rollout: { summary: { enabledRelayFanOutContextCount: 0 } },
+        migration: {},
+      };
+      const snapshot = normalizeWakeStatusSnapshot(body);
 
-    expect(deriveWakeAttentionItems(body)).toEqual(buildWakeAttentionItems(snapshot));
-  });
+      expect(deriveWakeAttentionItems(body)).toEqual(buildWakeAttentionItems(snapshot));
+      expect(deriveWakeAttentionItems(body)).toHaveLength(state === "enabled" ? 3 : 0);
+    },
+  );
 });

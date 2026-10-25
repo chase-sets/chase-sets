@@ -27,7 +27,9 @@ import {
 import {
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   type EvidenceWindowRegistration,
+  type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { deriveProjectionTriage, deriveWakeAttentionItems } from "@chase-sets/platform-operations/server";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import {
   createUcpEnvelope,
@@ -707,7 +709,21 @@ describe("platform api app wiring", () => {
     });
   });
 
-  it("composes projection and wake triage from the owning Platform Operations derivers", async () => {
+  it.each([
+    {
+      name: "fresh",
+      snapshotAt: "2026-07-22T00:00:00.000Z",
+      states: ["active", "stale", "expired", "unknown", "unknown"],
+    },
+    {
+      name: "old",
+      snapshotAt: "2026-07-22T01:00:00.000Z",
+      states: ["expired", "expired", "expired", "unknown", "unknown"],
+    },
+    { name: "absent", snapshotAt: undefined, states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "partial", snapshotAt: "2026-07-22T", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "invalid", snapshotAt: "invalid", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+  ])("composes canonical projection triage with $name snapshotAt", async ({ snapshotAt, states }) => {
     const projectionGroup = {
       targetContextName: "catalog",
       projectionName: "catalog-item-projection",
@@ -734,51 +750,110 @@ describe("platform api app wiring", () => {
         subscriptions: [],
       }),
     };
+    const controlPlane = {
+      listProjectionStatusSnapshots: vi.fn(async () => []),
+      readWorkerHeartbeatHistory: vi.fn<PlatformControlPlane["readWorkerHeartbeatHistory"]>(async () => ({
+        snapshotAt: snapshotAt as string,
+        workers: [
+          { worker_id: "active", heartbeat_at: "2026-07-22T00:00:00.000Z" },
+          { worker_id: "stale", heartbeat_at: "2026-07-21T23:50:00.000Z" },
+          { worker_id: "expired", heartbeat_at: "2026-07-21T23:49:59.999Z" },
+          { worker_id: "missing-heartbeat" },
+          {},
+        ],
+        summary: {
+          activeOrStaleCount: 2,
+          expiredTotalCount: 1,
+          expiredWithinDiagnosticWindowCount: 1,
+          expiredReturnedCount: 1,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 604_800_000,
+        },
+      })),
+      listRunnerStatuses: vi.fn(async () => []),
+      listProjectionOperations: vi.fn(async () => []),
+      summarizeProjectionOperations: vi.fn(async () => ({
+        queuedCount: "0",
+        runningCount: "0",
+        failedCount: "0",
+        cancelRequestedCount: "0",
+        oldestQueuedAt: null,
+        oldestRunningAt: null,
+        averageDurationMs: null,
+      })),
+    } satisfies Pick<
+      PlatformControlPlane,
+      | "listProjectionStatusSnapshots"
+      | "readWorkerHeartbeatHistory"
+      | "listRunnerStatuses"
+      | "listProjectionOperations"
+      | "summarizeProjectionOperations"
+    >;
     const app = buildPlatformApiApp(createEmptyRuntime({}, [], [projectionGroup]), {
       resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
-      workSignalStore: {
-        summarizeProjectionWakeIntents: vi.fn(async () => ({
-          queuedCount: 0,
-          claimedCount: 0,
-          failedCount: 2,
-          expiredCount: 0,
-          staleClaimCount: 1,
-          oldestQueuedAt: null,
-          oldestClaimedAt: null,
-        })),
-        summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
-        summarizeCheckpointSignals: vi.fn(async () => ({
-          readinessCount: 0,
-          expiredReadinessCount: 0,
-          latestReadyRecordedAt: null,
-          pendingWaiterCount: 0,
-          expiredPendingWaiterCount: 1,
-          satisfiedWaiterCount: 0,
-          oldestPendingWaiterAt: null,
-          pendingWaiterOrigins: [],
-        })),
-      },
+      controlPlane: controlPlane as unknown as PlatformControlPlane,
     });
 
-    const projectionResponse = await app.request("/api/platform/projections");
-    const wakeResponse = await app.request("/api/platform/projections/wake-status");
+    const response = await app.request("/api/platform/projections");
 
-    expect(projectionResponse.status).toBe(200);
-    await expect(projectionResponse.json()).resolves.toMatchObject({
-      attentionItems: expect.arrayContaining([expect.objectContaining({ id: "degraded-groups" })]),
-      repairQueue: expect.arrayContaining([expect.objectContaining({ kind: "projection-group" })]),
-      activeWorkerCount: 0,
-      staleWorkerCount: 0,
-    });
-    expect(wakeResponse.status).toBe(200);
-    await expect(wakeResponse.json()).resolves.toMatchObject({
-      attentionItems: expect.arrayContaining([
-        expect.objectContaining({ id: "wake-failed-intents" }),
-        expect.objectContaining({ id: "wake-stale-claims" }),
-        expect.objectContaining({ id: "wake-expired-waiters" }),
-      ]),
-    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const canonical = deriveProjectionTriage(body);
+    expect(body.attentionItems).toEqual(canonical.attentionItems);
+    expect(body.repairQueue).toEqual(canonical.repairQueue);
+    expect(body.activeWorkerCount).toBe(canonical.activeWorkerCount);
+    expect(body.staleWorkerCount).toBe(canonical.staleWorkerCount);
+    expect(body.workers.map((worker: Record<string, unknown>) => worker.worker_state)).toEqual(states);
+    expect(body.activeWorkerCount).toBe(snapshotAt === "2026-07-22T00:00:00.000Z" ? 1 : 0);
+    expect(body.staleWorkerCount).toBe(snapshotAt === "2026-07-22T00:00:00.000Z" ? 1 : 0);
+    expect(body.repairQueue.some((item: { kind: string }) => item.kind === "projection-group")).toBe(true);
+    expect(body).not.toHaveProperty("generatedAt");
   });
+
+  it.each(["enabled", "disabled", "unavailable"] as const)(
+    "composes canonical wake attention when wake is %s",
+    async (state) => {
+      const app = buildPlatformApiApp(createEmptyRuntime(), {
+        resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+        ...(state === "unavailable"
+          ? {}
+          : {
+              workSignalStore: {
+                summarizeProjectionWakeIntents: vi.fn(async () => ({
+                  queuedCount: 0,
+                  claimedCount: 0,
+                  failedCount: state === "enabled" ? 2 : 0,
+                  expiredCount: state === "enabled" ? 3 : 0,
+                  staleClaimCount: state === "enabled" ? 1 : 0,
+                  oldestQueuedAt: null,
+                  oldestClaimedAt: null,
+                })),
+                summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+                summarizeCheckpointSignals: vi.fn(async () => ({
+                  readinessCount: 0,
+                  expiredReadinessCount: 0,
+                  latestReadyRecordedAt: null,
+                  pendingWaiterCount: 0,
+                  expiredPendingWaiterCount: state === "enabled" ? 1 : 0,
+                  satisfiedWaiterCount: 0,
+                  oldestPendingWaiterAt: null,
+                  pendingWaiterOrigins: [],
+                })),
+              },
+            }),
+      });
+      const wakeResponse = await app.request("/api/platform/projections/wake-status");
+      expect(wakeResponse.status).toBe(200);
+      const body = await wakeResponse.json();
+      expect(body.attentionItems).toEqual(deriveWakeAttentionItems(body));
+      expect(body.attentionItems.map((item: { id: string }) => item.id)).toEqual(
+        state === "enabled"
+          ? ["wake-failed-intents", "wake-stale-claims", "wake-expired-intents", "wake-expired-waiters"]
+          : [],
+      );
+    },
+  );
 
   it("routes dotted projection names through projection operation retry endpoints", async () => {
     const enqueueProjectionOperation = vi.fn(async () => ({

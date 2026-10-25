@@ -4,12 +4,12 @@ import {
   buildAttentionItems,
   buildProjectionRepairQueue,
   buildProjectionSubscriptionRows,
+  deriveProjectionTriage,
   normalizeProjectionOperationsSnapshot,
   resolveProjectionOperatorState,
   staleWorkerCount,
   stateSeverity,
 } from "./contracts";
-import { deriveProjectionTriage } from "../../../server";
 
 describe("projection operation view models", () => {
   it("defaults missing optional collections so the operations page can render partial snapshots", () => {
