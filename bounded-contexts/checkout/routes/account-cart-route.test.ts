@@ -151,6 +151,43 @@ describe("checkout web routes: account cart", () => {
     expect(mockGetCart).not.toHaveBeenCalled();
   });
 
+  it("passes the API readiness projection through for both account and guest loader branches", async () => {
+    const readiness = {
+      loaded: { snapshotId: "loaded_api_value" },
+      declined: { snapshotId: "declined_api_value" },
+      accepted: null,
+      lineListingIds: { cli_api: "lst_api" },
+      estimatedSubtotal: { amount: "17.23", currency: "USD" },
+      blockedLineCount: 3,
+      savings: { amount: "4.56", currency: "USD" },
+    };
+
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({ items: [{ line_id: "cli_api" }], count: 1, readiness });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+    await expect(
+      accountCartLoader({
+        request: new Request("http://localhost/account/cart"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toEqual({ cart: { items: [{ line_id: "cli_api" }], count: 1, readiness }, cartRecovery: null });
+
+    vi.clearAllMocks();
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetGuestCart.mockResolvedValue({ items: [{ line_id: "cli_api" }], count: 1, readiness });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getGuestCart: mockGetGuestCart });
+    await expect(
+      accountCartLoader({
+        request: new Request("http://localhost/account/cart", {
+          headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+        }),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toEqual({ cart: { items: [{ line_id: "cli_api" }], count: 1, readiness }, cartRecovery: null });
+  });
+
   it("recovers signed-in account cart self-refresh when a fresh receipt times out waiting for projection freshness", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
     mockGetCart.mockRejectedValue(

@@ -35,6 +35,7 @@ import {
   createBootstrapDbWorkloadBaseline,
   deriveBootstrapDbWorkload,
   formatBootstrapDbWorkloadBaseline,
+  resolveApiDbWorkspaceConcurrency,
   type BootstrapDbWorkloadBaseline,
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
@@ -648,8 +649,8 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 
 // The current schedule model's own minimum unit count for the current manifest.
 // Capture-derived: an enrollment refreshes it with the projected schedule pins.
-const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [224879, 184426, 146248];
+const currentMinimumUnitCount = 3;
+const currentProjectedMakespans = [321800, 263356, 237231];
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
   return (
@@ -1094,7 +1095,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "16b8bd7dd32cd9bb2b0042492fbd408d21fb2d99438cbeba1d92be10a9f2464f",
+      "007d77bcc18cfd73e94d239c325d1b2ed8d12310d2f432bb9831d4d6591790b5",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -2462,7 +2463,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-39950765563.json",
       fixtureSha256: "069b80a17b12282d4c76a8fee3b6f52b29f69d286b7a62911e2d98e370ff8687",
       minimumUnitCount: 2,
@@ -2478,6 +2479,31 @@ describe("Platform API bootstrap DB enrollment", () => {
         artifactId: 12501280008,
         artifactSha256: "9cfcf6535f57450f32193b9aa066b9d92e8421b0bc75093ea42df956d0796895",
         sourceManifestSha256: "b9e1bea7385a3015ed2274aef9e88ae3d04ed093252cfad89107aeb012c51c52",
+        caseManifestSha256: "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
+        commandsSha256: "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
+        censusSha256: "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "enrolls the shipped three-unit minimum capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-40078269313.json",
+      fixtureSha256: "edd8d8c95dd0a6dd2989c75aa5e01350cdc6bc4d4d1ce2f989ebcad7998d7744",
+      minimumUnitCount: 3,
+      unitProjections: [321800, 263356, 237231],
+      provenance: {
+        runId: "40078269313",
+        runAttempt: "1",
+        referenceJobId: 120826240548,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "a525f369c26580e2b0ab00ac2da620f789cfad02",
+        sourceBase: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
+        captureParent: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
+        artifactId: 12555015054,
+        artifactSha256: "4bd1666b47605b219f1d982d69f8d0147a899130d663263f801c48fd6df3d149",
+        sourceManifestSha256: "ba82f8648e7a8b8aa189c808172bf76f4814aefa26c3cbc7f0c4d4c5c6b0dbe7",
         caseManifestSha256: "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
         commandsSha256: "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
         censusSha256: "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
@@ -2505,6 +2531,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     "bootstrap-db-capture-39498669434.json": 6,
     "bootstrap-db-capture-39870394270.json": 4,
     "bootstrap-db-capture-39950765563.json": 4,
+    "bootstrap-db-capture-40078269313.json": 4,
   });
 
   it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
@@ -2655,7 +2682,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   };
 
   function readCurrentCapture() {
-    const { fileName, fixtureSha256 } = currentMeasuredFloorCaptures.shipped;
+    const { fileName, fixtureSha256 } = currentCaptures[0]!;
     const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as CaptureFixture;
     const binding: BootstrapDbWorkloadCaptureBinding = { fileName, fixtureSha256, provenance: capture.provenance };
     return { capture, binding };
@@ -2767,7 +2794,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "39950765563";
+  const runId = "40078269313";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2849,11 +2876,11 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: capture.provenance.captureParent,
       });
       expect(baseline.source).toEqual({
-        commit: "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888",
+        commit: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
       });
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
-      expect(Object.keys(capture.sourceBindings)).toHaveLength(43);
+      expect(Object.keys(capture.sourceBindings)).toHaveLength(7968);
 
       // Every digest the capture measured that is also a workload member
       // reproduces in the baseline, so the baseline was derived from the
@@ -2886,51 +2913,166 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
       // Lockfile and shared-config bytes stay provenance; their W5 and W4
       // values are bound and refuse independently below.
-      expect(dispositions).toEqual({
-        "bounded-contexts/catalog/features/product-measures/api/publication.ts": "provenance-only",
-        "bounded-contexts/catalog/features/product-measures/api/runtime.ts": "provenance-only",
+      expect(
+        Object.fromEntries(Object.entries(dispositions).filter(([, section]) => section !== "provenance-only")),
+      ).toEqual({
+        "bounded-contexts/auth/context.json": "W3 selection",
+        "bounded-contexts/auth/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/auth/support/seed-support/store.ts": "W3 file",
+        "bounded-contexts/authenticity/context.json": "W3 selection",
+        "bounded-contexts/catalog/context.json": "W3 selection",
+        "bounded-contexts/catalog/features/blueprints/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/catalog-items/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/categories/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/components/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/dimensions/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/display-templates/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/fields/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/product-contents/api/seed.ts": "W3 file",
         "bounded-contexts/catalog/features/product-measures/api/seed.ts": "W3 file",
-        "contracts/product-measures/publication.ts": "provenance-only",
-        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
-        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
-        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
-        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
-        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
-        "bounded-contexts/catalog/features/operator-session/api/operation.ts": "provenance-only",
-        "bounded-contexts/catalog/features/operator-session/read-model/grant-schema.ts": "provenance-only",
-        "bounded-contexts/inventory/api.ts": "provenance-only",
-        "bounded-contexts/inventory/index.ts": "provenance-only",
+        "bounded-contexts/catalog/features/reference-data/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/base2-60-scenario.json":
+          "W3 json",
+        "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json": "W3 json",
+        "bounded-contexts/catalog/features/source-observations/api/provider-integration-profile-store.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/asset-storage.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-capture.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/runtime-test-harness.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed-migration.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/synthetic-display-identity-queryable.ts":
+          "W3 file",
+        "bounded-contexts/catalog/support/authoring-support/seed.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/aggregate-state.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/catalog-integration-state.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/context.ts": "W3 file",
+        "bounded-contexts/channels/context.json": "W3 selection",
+        "bounded-contexts/channels/features/connections/tests/browser-state-fixture.test-data.ts": "W2 file",
+        "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts": "W2 file",
+        "bounded-contexts/channels/features/manual-sync/api/seed.ts": "W3 file",
+        "bounded-contexts/channels/support/seed-support/channel-connection-browser.ts": "W3 file",
+        "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts": "W3 file",
+        "bounded-contexts/checkout/context.json": "W3 selection",
+        "bounded-contexts/checkout/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/checkout/support/seed-support/fixtures/sell-list-recovery-browser-fixture.ts": "W3 file",
+        "bounded-contexts/checkout/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/collections/context.json": "W3 selection",
+        "bounded-contexts/commercial-terms/context.json": "W3 selection",
+        "bounded-contexts/commercial-terms/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/commercial-terms/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/customer-feedback/context.json": "W3 selection",
+        "bounded-contexts/discovery/context.json": "W3 selection",
+        "bounded-contexts/fulfillment/context.json": "W3 selection",
+        "bounded-contexts/fulfillment/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/fulfillment/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/identity/context.json": "W3 selection",
+        "bounded-contexts/identity/features/account-management/tests/browser-test-support.ts": "W2 file",
+        "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts": "W3 file",
+        "bounded-contexts/identity/support/runtime-support/bootstrap-context.ts": "W3 file",
+        "bounded-contexts/identity/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/account-management-browser.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/ids.test.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/market-following-verification.test.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/market-following-verification.ts": "W3 file",
         "bounded-contexts/inventory/context.json": "W3 selection",
-        "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/route.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/checkout-reservation-authority.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/read-model/schema.ts": "provenance-only",
-        "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": "provenance-only",
-        "bounded-contexts/checkout/features/sessions/api/inventory-reservation-authority.ts": "provenance-only",
-        "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": "provenance-only",
-        "deployables/platform-api/src/app.ts": "provenance-only",
-        "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts": "provenance-only",
-        "bounded-contexts/auth/features/invitation-acceptance/read-model/schema.ts": "provenance-only",
-        "bounded-contexts/auth/support/runtime-support/schema.ts": "provenance-only",
-        "bounded-contexts/auth/support/runtime-support/services.ts": "provenance-only",
-        "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts": "provenance-only",
-        "bounded-contexts/identity/server.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/oauth.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/agent-webhooks/order-update-payload.ts": "provenance-only",
-        "bounded-contexts/identity/features/agent-grants/api/revocation.ts": "provenance-only",
+        "bounded-contexts/inventory/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/context.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/mutation-command.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/representative-services.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts": "W3 file",
         "bounded-contexts/marketplace/context.json": "W3 selection",
-        "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts": "provenance-only",
-        "bounded-contexts/marketplace/features/offers/api/runtime.ts": "provenance-only",
-        "bounded-contexts/payments/features/payments/api/mcp.ts": "provenance-only",
-        "contracts/auth-context/index.ts": "provenance-only",
-        "infrastructure/platform-runtime/ucp-contracts.ts": "provenance-only",
+        "bounded-contexts/marketplace/features/listing-evidence-policy/integrations/seed.ts": "W3 file",
+        "bounded-contexts/marketplace/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/marketplace/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/notifications/context.json": "W3 selection",
+        "bounded-contexts/ordering/context.json": "W3 selection",
+        "bounded-contexts/ordering/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/ordering/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/payments/context.json": "W3 selection",
+        "bounded-contexts/payments/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/payments/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/platform-operations/context.json": "W3 selection",
+        "bounded-contexts/platform-operations/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/platform-operations/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/pricing/context.json": "W3 selection",
+        "bounded-contexts/pricing/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/public-presence/context.json": "W3 selection",
+        "bounded-contexts/public-presence/features/promo-bar/api/seed.ts": "W3 file",
+        "bounded-contexts/public-presence/features/waitlist/api/seed.ts": "W3 file",
+        "bounded-contexts/settlement/context.json": "W3 selection",
+        "bounded-contexts/settlement/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/settlement/support/seed-support/ids.ts": "W3 file",
+        "contracts/catalog-seed/fallback-assets.ts": "W3 file",
+        "contracts/catalog-seed/ids.ts": "W3 file",
+        "contracts/catalog-seed/index.ts": "W3 file",
+        "contracts/catalog-seed/package.json": "W3 file",
+        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
+        "contracts/catalog-seed/scenario.ts": "W3 file",
+        "contracts/catalog-seed/tsconfig.json": "W3 file",
+        "contracts/catalog-seed/vitest.config.ts": "W3 file",
+        "contracts/event-core/test-support.ts": "W2 file",
+        "contracts/identity-seed/ids.ts": "W3 file",
+        "contracts/identity-seed/index.ts": "W3 file",
+        "contracts/identity-seed/package.json": "W3 file",
+        "contracts/identity-seed/tsconfig.json": "W3 file",
+        "contracts/identity-seed/vitest.config.ts": "W3 file",
+        "contracts/money-movement/test-support.ts": "W2 file",
+        "contracts/payment-processing/test-support.ts": "W2 file",
+        "contracts/postage-labels/test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/db-fixture.ts": "W2 file",
+        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/seed-command-catalog.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts": "W1 file",
+        "deployables/platform-api/src/admin-qa-actor-fixtures.ts": "W3 file",
+        "deployables/platform-api/src/database-pools.ts": "W3 file",
+        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/src/test-support/provider-gateways.ts": "W2 file",
+        "infrastructure/bounded-context-runtime/seed-aggregate-state.ts": "W3 file",
+        "infrastructure/bounded-context-runtime/seeding.ts": "W3 file",
+        "infrastructure/bounded-context-runtime/test-support.ts": "W3 file",
         "infrastructure/platform-runtime/api.ts": "W3 file",
-        "pnpm-lock.yaml": "provenance-only",
-        "vitest.shared.mjs": "provenance-only",
+        "infrastructure/platform-runtime/context-pools.ts": "W3 file",
+        "infrastructure/platform-runtime/host-runtime-selection.ts": "W3 file",
       });
+      // The digest pins the whole map, including the provenance-only remainder.
+      expect(sha256Of(canonicalJson(dispositions))).toBe(
+        "fe99c6b57fd760fd5fb5e45d03f9672f1d19d04cfb6cfe6c6304847449ac95a8",
+      );
 
       // The baseline's hosted values are the ones the capture executed under.
       expect(String(capture.provenance.vitest)).toMatch(
@@ -3113,6 +3255,54 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
         refusal("it is unreadable (its root is not a JSON object)"),
       );
+    });
+  });
+
+  describe("DB workspace concurrency derives from the API matrix cell", () => {
+    const workflowPath = join(repositoryRoot, ".github/workflows/platform-pr.yml");
+
+    it("resolves the exact b1bbb7ec workflow expression to API concurrency 2", () => {
+      const result = resolveApiDbWorkspaceConcurrency(readFileSync(workflowPath, "utf8"));
+      expect(result).toEqual({ value: "2", gaps: [] });
+    });
+
+    it.each([
+      {
+        label: "an other-only expression",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "${{ matrix.db-workspace-group == 'other' && '3' }}",
+          ),
+      },
+      {
+        label: "a literal removed without an environment declaration",
+        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\r?\n/m, ""),
+      },
+      {
+        label: "two environment declarations",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}\n      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+          ),
+      },
+      {
+        label: "a non-integer value",
+        edit: (workflow: string) => workflow.replace("&& '3' || '2'", "&& 'three' || '2'"),
+      },
+      {
+        label: "a literal and environment concurrency together",
+        edit: (workflow: string) =>
+          workflow.replace(
+            '--concurrency="$DB_WORKSPACE_CONCURRENCY"',
+            '--concurrency=2 --concurrency="$DB_WORKSPACE_CONCURRENCY"',
+          ),
+      },
+    ])("fails closed for $label", ({ edit }) => {
+      const result = resolveApiDbWorkspaceConcurrency(edit(readFileSync(workflowPath, "utf8")));
+      expect(result.value).toBeNull();
+      expect(result.gaps.length).toBeGreaterThan(0);
     });
   });
 
@@ -3816,13 +4006,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(53109);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52570);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1268819,
+      1947829,
     );
   });
 
@@ -3838,8 +4028,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [29, 29],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(555553);
-    expect(schedule.aggregateWithOverheadMs).toBe(608662);
+    expect(schedule.aggregateMs).toBe(822387);
+    expect(schedule.aggregateWithOverheadMs).toBe(874957);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
@@ -4386,7 +4576,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(refusal).toBeNull();
     expect(result.schedule.measuredOneFewerUnitFloor).toEqual({
       applied: false,
-      reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
+      reason:
+        "the measured one-fewer-unit floor binds shipped reference run 39950765563, not the schedule model's 40078269313",
     });
     const extraUnitFixture = await shippedCaptureFixture(extraUnitAssignment);
     expect(
@@ -5362,7 +5553,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(expectNotApplied(fixture, syntheticFloor, reason).violations).toContain(violation);
     });
 
-    it("T6: applies the measured floor to the current enrollment", () => {
+    it("T6: binds the declared floor to its measured pair and applies it exactly when it binds the current model", () => {
       const { shipped, paired } = readCurrentMeasuredCaptures();
       const derived = deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: shipped, pairedCapture: paired });
       expect(derived.refusal).toBeNull();
@@ -5370,8 +5561,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(bootstrapDbMeasuredOneFewerUnitFloor).not.toBeNull();
       const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
       expect(enrollment.result.schedule).toMatchObject({
-        measuredOneFewerUnitFloor: { applied: true },
-        minimumUnitCount: 2,
+        measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model),
+        minimumUnitCount: currentMinimumUnitCount,
         effectiveMinimumUnitCount: 3,
         observedUnitCount: 3,
       });
@@ -5412,7 +5603,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         worstMakespanMs: number;
       } | null;
       if (!twoUnitProjection) throw new Error("accepted model did not project a two-unit assignment");
-      return model.executionUnitCeilingMs - twoUnitProjection.worstMakespanMs + 1;
+      return Math.max(0, model.executionUnitCeilingMs - twoUnitProjection.worstMakespanMs + 1);
     }
 
     /** Historical workload with its derived floor passed explicitly; its model minimum is 2. */

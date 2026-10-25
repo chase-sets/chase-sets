@@ -93,6 +93,8 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  deriveProjectionTriage,
+  deriveWakeAttentionItems,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -1011,6 +1013,16 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                   readyForFulfillmentAt: fact.ready_for_fulfillment_at,
                   label: `${fact.display_reference}`,
                   permalinkUrl: `/account/purchases/${fact.order_id}`,
+                  totals: {
+                    itemSubtotal: fact.item_subtotal_amount,
+                    shipping: fact.shipping_charge_amount,
+                    tax: fact.sales_tax_amount,
+                    total: fact.total_amount,
+                  },
+                  lines: fact.lines.map((line) => ({
+                    listingId: line.listing_id,
+                    unitPrice: line.unit_price_amount,
+                  })),
                 }));
             }
           : async () => [],
@@ -1122,6 +1134,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
       workSignalStore: options.workSignalStore,
+      deriveProjectionTriage,
+      deriveWakeAttentionItems,
     }),
   );
   if (marketplacePlatformRoutesEnabled) {

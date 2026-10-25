@@ -249,6 +249,16 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+// #10462 threads the canonical staging Admin keys into only the isolated coordinate-preview capture step.
+const scrydexCoordinatePreviewDelta = ["name:Capture Scrydex coordinate preview#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-coordinate-preview",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
   ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
     file: ".github/workflows/catalog-staging-provider-uat.yml",
@@ -881,8 +891,9 @@ describe("managed Postgres authority source generator", () => {
     const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
     expectParity(original, historicalGenerated);
 
+    for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(1588);
+    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRetiredVerifierRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
@@ -903,6 +914,7 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexCoordinatePreviewDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...productionMemoryProbeDelta,
@@ -925,7 +937,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1725);
+    // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
@@ -966,6 +978,12 @@ describe("managed Postgres authority source generator", () => {
         ...generated,
         grants: [...generated.grants, { ...reviewedCatalogDelta[0], stepAnchor: "name:Apply sixth Catalog grant#99" }],
       },
+      ...["file", "jobId", "stepAnchor", "secretName"].map((key) => ({
+        ...generated,
+        grants: generated.grants.map((record, index) =>
+          index === repeatedIndex ? { ...record, [key]: `${record[key]}-renamed` } : record,
+        ),
+      })),
     ];
     for (const mutation of mutations) expect(() => expectParity(expected, mutation)).toThrow();
 

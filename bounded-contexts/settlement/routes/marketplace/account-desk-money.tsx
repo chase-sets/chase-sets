@@ -18,7 +18,6 @@ import type {
 } from "../../support/request-support/api-client";
 import { createSettlementRequestApiClient, SettlementApiError } from "../../support/request-support/api-client";
 import { settlementApiErrorAdapter } from "../../support/request-support/route-api-error";
-import { resolvePayoutAmountSelection } from "../../features/payouts/api/payout-form";
 import { stripeConnectHeaders } from "../../features/payout-readiness/ui/stripe-connect-csp";
 import {
   SettlementMoneyDashboardPage,
@@ -38,14 +37,6 @@ export function headers() {
   return stripeConnectHeaders();
 }
 
-function payoutAmount(formData: FormData) {
-  return resolvePayoutAmountSelection({
-    amount: String(formData.get("amount") ?? ""),
-    shortcut: String(formData.get("quickAmount") ?? ""),
-    availableAmount: String(formData.get("availableAmount") ?? "0"),
-  });
-}
-
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({ request, permission: "payouts.view" });
   const settlementApi = createSettlementRequestApiClient(request);
@@ -60,11 +51,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
         throw error;
       })
     : Promise.resolve(null);
-  const [wallet, entries, payouts, payoutReadiness, selectedWalletAdjustment] = await Promise.all([
+  const [wallet, entries, payouts, payoutReadiness, quickAmounts, selectedWalletAdjustment] = await Promise.all([
     settlementApi.getWallet(),
     settlementApi.listWalletEntries(),
     settlementApi.listPayouts(),
     settlementApi.getPayoutReadiness(),
+    settlementApi.getPayoutQuickAmounts(),
     walletAdjustment,
   ]);
 
@@ -73,6 +65,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     entries,
     payouts,
     payoutReadiness,
+    quickAmounts,
     selectedWalletAdjustment,
     evaluatedAt: new Date().toISOString(),
     canRequestPayouts: actor.permissions.includes("payouts.request"),
@@ -89,10 +82,13 @@ export const action = defineFormAction({
       if (!actor!.permissions.includes("payouts.request")) {
         return { error: t("settlement.features.moneyDashboard.ui.requestPermissionRequired") };
       }
-      const amount = payoutAmount(formData);
+      const quickAmount = String(formData.get("quickAmount") ?? "");
+      const amount = String(formData.get("amount") ?? "");
       const note = formData.get("note") ? String(formData.get("note")) : null;
-      const preview = await createSettlementRequestApiClient(request).previewPayout({ amount });
-      return { confirmation: { amount, note, preview } };
+      const preview = await createSettlementRequestApiClient(request).previewPayout(
+        quickAmount === "minimum" || quickAmount === "available" ? { amountSelection: quickAmount } : { amount },
+      );
+      return { confirmation: { amount: preview.requested_amount, note, preview } };
     },
     "edit-payout": ({ actor, formData }) => {
       if (!actor!.permissions.includes("payouts.request")) {
@@ -157,6 +153,7 @@ export default function MarketplaceAccountDeskMoneyRoute() {
       entries={(data.entries.items ?? []) as SettlementLedgerEntryRow[]}
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
       payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
+      quickAmounts={data.quickAmounts}
       selectedWalletAdjustment={data.selectedWalletAdjustment as SettlementWalletAdjustmentAccountDetail | null}
       evaluatedAt={data.evaluatedAt}
       canRequestPayouts={data.canRequestPayouts}

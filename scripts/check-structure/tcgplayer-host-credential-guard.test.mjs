@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { policy, validateTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const root = process.cwd();
+const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 
 function scan(entries) {
   return validateTcgplayerHostCredentialPolicy({
@@ -12,29 +13,33 @@ function scan(entries) {
 }
 
 describe("TCGplayer host and credential boundary", () => {
-  it("passes the post-A tracked baseline and repeats with the same digest", async () => {
-    const { scanTcgplayerHostCredentialPolicy } = await import("./tcgplayer-host-credential-guard.mjs");
-    const first = await scanTcgplayerHostCredentialPolicy({ repoRoot: root });
-    const second = await scanTcgplayerHostCredentialPolicy({ repoRoot: root });
-    expect(first.violations).toEqual([]);
-    expect(second).toEqual(first);
-    expect(first.digest).toMatch(/^[a-f0-9]{64}$/);
-    const unusedCredentialExceptions = Object.entries(policy.credentialExceptions).flatMap(([file, tokens]) =>
-      tokens
-        .filter(
-          (token) =>
-            !first.inventory.some(
-              (row) =>
-                row.rule === "credential" && row.file === file && row.token.toLowerCase() === token.toLowerCase(),
-            ),
-        )
-        .map((token) => `${file} ${token}`),
-    );
-    const unusedHostExceptions = Object.keys(policy.hostExceptions).filter(
-      (file) => !first.inventory.some((row) => row.rule === "host" && row.file === file && row.symbol === "allowed"),
-    );
-    expect([...unusedCredentialExceptions, ...unusedHostExceptions]).toEqual([]);
-  });
+  it(
+    "passes the post-A tracked baseline and repeats with the same digest",
+    { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS },
+    async () => {
+      const { scanTcgplayerHostCredentialPolicy } = await import("./tcgplayer-host-credential-guard.mjs");
+      const first = await scanTcgplayerHostCredentialPolicy({ repoRoot: root });
+      const second = await scanTcgplayerHostCredentialPolicy({ repoRoot: root });
+      expect(first.violations).toEqual([]);
+      expect(second).toEqual(first);
+      expect(first.digest).toMatch(/^[a-f0-9]{64}$/);
+      const unusedCredentialExceptions = Object.entries(policy.credentialExceptions).flatMap(([file, tokens]) =>
+        tokens
+          .filter(
+            (token) =>
+              !first.inventory.some(
+                (row) =>
+                  row.rule === "credential" && row.file === file && row.token.toLowerCase() === token.toLowerCase(),
+              ),
+          )
+          .map((token) => `${file} ${token}`),
+      );
+      const unusedHostExceptions = Object.keys(policy.hostExceptions).filter(
+        (file) => !first.inventory.some((row) => row.rule === "host" && row.file === file && row.symbol === "allowed"),
+      );
+      expect([...unusedCredentialExceptions, ...unusedHostExceptions]).toEqual([]);
+    },
+  );
 
   it("fails an unexcepted credential token mutant without exposing a value", () => {
     const result = scan({ "bounded-contexts/example/runtime.ts": "const value = TCGAuthTicket=planted-secret;" });

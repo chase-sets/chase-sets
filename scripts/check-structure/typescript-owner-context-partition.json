@@ -31,7 +31,6 @@
     "resolution.aliasEntryPath",
     "resolution.implementationPath",
     "resolution.lockfilePath",
-    "resolution.lockfileSha256",
     "resolution.lockfileKeys"
   ],
   "inventory": [
@@ -50,7 +49,6 @@
     "resolution.implementationPath",
     "resolution.implementationSourceSha256",
     "resolution.lockfilePath",
-    "resolution.lockfileSha256",
     "resolution.lockfileKeys",
     "sourceSymbols.functionLikeDeclarationKind",
     "sourceSymbols.functionLikeKind",

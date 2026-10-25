@@ -1,5 +1,6 @@
-import type { AnySchema } from "ajv/dist/2020";
 import { UCP_MCP_TOOLS } from "./ucp-contracts";
+
+type JsonSchema = Record<string, unknown>;
 
 const BASE = "https://ucp.dev/2026-08-25/schemas/";
 const checkout = `${BASE}shopping/checkout.json`;
@@ -17,16 +18,16 @@ const meta = {
   additionalProperties: false,
   properties: { "ucp-agent": { type: "object" }, "idempotency-key": { type: "string" } },
 } as const;
-const ref = (value: string): AnySchema => ({ $ref: value });
-const union = (...refs: string[]): AnySchema => ({ anyOf: refs.map((value) => ref(value)) });
-const object = (properties: Record<string, AnySchema>, required: string[] = []): AnySchema => ({
+const ref = (value: string): JsonSchema => ({ $ref: value });
+const union = (...refs: string[]): JsonSchema => ({ anyOf: refs.map((value) => ref(value)) });
+const object = (properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema => ({
   type: "object",
   additionalProperties: false,
   properties: { ...properties, meta },
   ...(required.length ? { required } : {}),
 });
 
-const checkoutRequest: AnySchema = {
+const checkoutRequest: JsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -40,7 +41,7 @@ const checkoutRequest: AnySchema = {
   required: ["line_items"],
 };
 
-const completeCheckoutRequest: AnySchema = {
+const completeCheckoutRequest: JsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -51,7 +52,7 @@ const completeCheckoutRequest: AnySchema = {
   required: ["payment"],
 };
 
-const inputSchemas: Record<string, AnySchema> = {
+const inputSchemas: Record<string, JsonSchema> = {
   search_catalog: object({ catalog: ref(searchRequest) }, ["catalog"]),
   lookup_catalog: object({ catalog: ref(lookupRequest) }, ["catalog"]),
   get_product: object({ catalog: ref(productRequest) }, ["catalog"]),
@@ -63,7 +64,7 @@ const inputSchemas: Record<string, AnySchema> = {
   get_order: object({ id: { type: "string" } }, ["id"]),
 };
 
-const outputSchemas: Record<string, AnySchema> = {
+const outputSchemas: Record<string, JsonSchema> = {
   search_catalog: union(searchResponse, errorResponse),
   lookup_catalog: union(lookupResponse, errorResponse),
   get_product: union(productResponse, errorResponse),
@@ -75,13 +76,13 @@ const outputSchemas: Record<string, AnySchema> = {
   get_order: union(order, errorResponse),
 };
 
-export function ucpToolInputSchema(tool: (typeof UCP_MCP_TOOLS)[number]["name"]): AnySchema {
+export function ucpToolInputSchema(tool: (typeof UCP_MCP_TOOLS)[number]["name"]): JsonSchema {
   const schema = inputSchemas[tool];
   if (!schema) throw new Error(`unknown UCP MCP tool: ${tool}`);
   return schema;
 }
 
-export function ucpToolOutputSchema(tool: (typeof UCP_MCP_TOOLS)[number]["name"]): AnySchema {
+export function ucpToolOutputSchema(tool: (typeof UCP_MCP_TOOLS)[number]["name"]): JsonSchema {
   const schema = outputSchemas[tool];
   if (!schema) throw new Error(`unknown UCP MCP tool: ${tool}`);
   return schema;

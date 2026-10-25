@@ -1,3 +1,5 @@
+export { deriveProjectionTriage } from "./features/projection-operations/read-model/contracts";
+export { deriveWakeAttentionItems } from "./features/projection-operations/read-model/wake-status-contracts";
 export type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,
@@ -38,7 +40,7 @@ export {
   openSupportEvidenceCanonicalizer,
   createSupportEvidenceCanonicalizationQueue,
 } from "./features/support-requests/api/evidence-canonicalization";
-export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";
+export type { SupportRequestDetailResponse as SupportRequestDetail } from "./support/request-support/support-request-api-client";
 export {
   attachmentOperationStreamId,
   createAttachmentManifest,

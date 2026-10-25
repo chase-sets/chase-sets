@@ -34,6 +34,7 @@ export type CatalogSyncAcceptedScopeMapping = Readonly<{
   seriesId?: string | null;
   setId?: string | null;
   setName?: string | null;
+  languageCode?: string | null;
   mappingId: string;
   mappingVersion: string;
   reviewStatus: string;
@@ -66,6 +67,7 @@ export function catalogSyncAcceptedScopeMappingFromRow(row: {
   series_id: string | null;
   set_id: string | null;
   set_name: string | null;
+  language_coordinates?: unknown;
   mapping_id: string;
   review_status: string;
   updated_at: string;
@@ -78,6 +80,7 @@ export function catalogSyncAcceptedScopeMappingFromRow(row: {
     seriesId: normalizeOptionalKey(row.series_id),
     setId: normalizeOptionalKey(row.set_id),
     setName: row.set_name?.trim() || null,
+    languageCode: readLanguageCode(row.language_coordinates),
     mappingId: row.mapping_id,
     mappingVersion: row.updated_at,
     reviewStatus: row.review_status,
@@ -245,7 +248,7 @@ export async function previewCatalogSyncProviderParticipation(input: {
       scope,
       version,
       unitKey,
-      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
+      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey, scope.languageCode),
       registry: input.providerAdapterRegistry,
       rolloutControlPolicy: input.rolloutControlPolicy,
       includeOperationalGates: input.includeOperationalGates ?? false,
@@ -686,7 +689,7 @@ function childScopeForProviderUnit(
     provider: version.providerKey,
     profileKey: version.profileKey,
     ingestionUnitKey: unitKey,
-    language: scope.languageCode ?? undefined,
+    language: scope.languageCode ?? normalizeOptionalKey(mapping?.languageCode) ?? undefined,
     productLineId: mapping?.productLineId ?? undefined,
     seriesId: mapping?.seriesId ?? undefined,
     setId: mapping?.setId ?? undefined,
@@ -798,13 +801,18 @@ function acceptedMappingFor(
   mappings: readonly CatalogSyncAcceptedScopeMapping[],
   providerKey: string,
   unitKey: CatalogIntegrationUnitKey,
+  scopeLanguageCode: string | null | undefined,
 ): CatalogSyncAcceptedScopeMapping | null {
   const providerMappings = mappings.filter((mapping) => mapping.providerKey === providerKey);
-  return (
+  const mapping =
     providerMappings.find((mapping) => mapping.unitKey === unitKey) ??
     providerMappings.find((mapping) => !mapping.unitKey) ??
-    null
-  );
+    null;
+  const mappingLanguageCode = normalizeOptionalKey(mapping?.languageCode);
+  if (!mapping || !scopeLanguageCode || !mappingLanguageCode || mappingLanguageCode === scopeLanguageCode) {
+    return mapping;
+  }
+  return { ...mapping, productLineId: null, seriesId: null, setId: null, setName: null };
 }
 
 function unitMatchesProductDomain(unitKey: CatalogIntegrationUnitKey, productDomain: string): boolean {
@@ -839,4 +847,10 @@ function normalizeRequiredKey(
 function normalizeOptionalKey(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function readLanguageCode(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const languageCode = (value as { languageCode?: unknown }).languageCode;
+  return typeof languageCode === "string" && languageCode.trim() ? languageCode.trim().toLowerCase() : null;
 }

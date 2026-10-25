@@ -3,6 +3,7 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createAccessHubMcpHandlers } from "./mcp";
 import type { AccessHubServices } from "./runtime";
+import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 
 const actor = {
   sessionId: "sess_1",
@@ -32,6 +33,34 @@ function request(arguments_: Record<string, unknown>, requestActor: ResolvedActo
 }
 
 describe("identity access-hub MCP handlers", () => {
+  it("publishes the exact operator read contract", () => {
+    const tool = findMcpTool("identity.get-account-access-hub")!;
+    expect(tool.availability).toBe("available");
+    expect(tool.risk).toBe("read");
+    expect(tool.inputSchema.properties).toEqual({ accountId: { type: "string", description: "Account to inspect." } });
+    expect(tool.inputSchema.required).toEqual(["accountId"]);
+    expect(tool.permissionBoundary).toMatchObject({
+      scope: "operator",
+      accountScoped: false,
+      requiredPermissions: ["accounts.view"],
+      requiredScopes: [],
+    });
+  });
+
+  it("reads an account access hub and refuses a mismatched account before the query", async () => {
+    const getAccount = vi.fn(async () => ({ account: { account_id: "acc_1" } }));
+    const handlers = createAccessHubMcpHandlers({ getAccount } as unknown as AccessHubServices).toolHandlers;
+    await expect(handlers["identity.get-account-access-hub"]?.(request({ accountId: "acc_1" }))).resolves.toEqual({
+      account: { account_id: "acc_1" },
+    });
+    await expect(
+      handlers["identity.get-account-access-hub"]?.(
+        request({ accountId: "acc_other" }, { ...actor, roleKey: "manager" }),
+      ),
+    ).rejects.toThrow("cannot manage this account");
+    expect(getAccount).toHaveBeenCalledTimes(1);
+  });
+
   it("MCP source-call contract coverage exercises every mapped tool", async () => {
     const getUserAccountLink = vi.fn(async (userId: string) => ({ account_id: `acc-for-${userId}` }));
     const handlers = createAccessHubMcpHandlers({ getUserAccountLink } as unknown as AccessHubServices).toolHandlers;
