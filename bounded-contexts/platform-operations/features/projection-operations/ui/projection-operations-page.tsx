@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActionBar,
   Badge,
@@ -73,6 +73,7 @@ export function ProjectionOperationsPage({
 }>) {
   const [streamedOperations, setStreamedOperations] = useState<Readonly<Record<string, ProjectionOperation>>>({});
   const [operationConnectionState, setOperationConnectionState] = useState<Readonly<Record<string, boolean>>>({});
+  const lastKnownOperationStates = useRef<Readonly<Record<string, ProjectionOperation["state"]>>>({});
   const liveData = useMemo(
     () => ({ ...data, operations: mergeProjectionOperations(data.operations, streamedOperations) }),
     [data, streamedOperations],
@@ -89,16 +90,26 @@ export function ProjectionOperationsPage({
 
   useEffect(() => {
     const watchedOperationIds = watchKey ? watchKey.split("\u0000") : [];
+    lastKnownOperationStates.current = Object.fromEntries(
+      liveData.operations
+        .filter((operation) => watchedOperationIds.includes(operation.operationId))
+        .map((operation) => [operation.operationId, operation.state]),
+    );
     setOperationConnectionState(Object.fromEntries(watchedOperationIds.map((operationId) => [operationId, false])));
     const subscriptions = watchedOperationIds.map((operationId) =>
       subscribeDurableJobStatus<ProjectionOperation>({
         url: `/api/platform/projections/operations/${encodeURIComponent(operationId)}/events`,
         isTerminal: isTerminalProjectionOperation,
-        onStatus: (operation) =>
-          setStreamedOperations((current) => ({ ...current, [operation.operationId]: operation })),
-        onTerminal: (operation) => {
+        onStatus: (operation) => {
+          const previousState = lastKnownOperationStates.current[operation.operationId];
+          lastKnownOperationStates.current = {
+            ...lastKnownOperationStates.current,
+            [operation.operationId]: operation.state,
+          };
           setStreamedOperations((current) => ({ ...current, [operation.operationId]: operation }));
-          onOperationTerminal?.();
+          if (previousState !== undefined && previousState !== operation.state) {
+            onOperationTerminal?.();
+          }
         },
         onConnectionStateChange: (connected) => {
           setOperationConnectionState((current) =>
