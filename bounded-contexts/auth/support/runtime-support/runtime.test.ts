@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import { ROLE_PERMISSIONS, type ResolvedActor } from "@chase-sets/auth-context";
 import { createIdentityOperatorAuthority } from "@chase-sets/identity/server";
 import { createMcpRoutes, type McpToolHandlerInput } from "@chase-sets/platform-runtime/mcp";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { createAuthServices, type AuthServices } from "./services";
 import {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
@@ -583,7 +582,7 @@ describe("operator authority reads aggregate", () => {
         user_id: "usr_op",
         account_id: "acc_op",
         role_key: "platform-admin",
-        role_permissions: [...AUTH_ROLE_PERMISSIONS["platform-admin"]],
+        role_permissions: [...ROLE_PERMISSIONS["platform-admin"]],
         status: "active",
         updated_at: new Date().toISOString(),
       },

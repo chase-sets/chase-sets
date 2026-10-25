@@ -36,7 +36,7 @@ import {
  * Purpose-specific wallet-adjustment permissions ratified by ADR 0020, distinct
  * from `payouts.*`: an ordinary account operator with payout authority can never
  * reach the platform adjustment surface. Granted to platform-admin only (see
- * `ROLE_PERMISSIONS`/`AUTH_ROLE_PERMISSIONS`, contract-tested there). Posting
+ * `ROLE_PERMISSIONS` in `@chase-sets/auth-context`, contract-tested there). Posting
  * (`create`), approval, and reversal additionally require the acting session
  * to be recently authenticated -- see `requireRecentAuthentication` below.
  */

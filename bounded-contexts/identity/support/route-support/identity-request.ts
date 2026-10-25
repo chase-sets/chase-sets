@@ -6,7 +6,7 @@ import {
 } from "@chase-sets/platform-runtime/auth";
 import { resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
-import type { PermissionKey } from "../runtime-support/common";
+import type { PermissionKey } from "@chase-sets/auth-context";
 export { createIdentityRequestApiClient } from "../request-support/api-client";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
