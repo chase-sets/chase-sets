@@ -133,7 +133,5 @@ async function readBody(
     return { ok: true, bytes, text: new TextDecoder().decode(merged) };
   } catch {
     return { ok: false, bytes, code: signal.aborted ? "timeout" : "network-error" };
-  } finally {
-    reader.releaseLock();
   }
 }
