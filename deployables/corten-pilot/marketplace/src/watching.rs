@@ -66,10 +66,6 @@ pub mod field {
     pub const CURRENCY: &str = WatchFields::FIELDS.currency.as_str();
 }
 
-pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    area.route::<url::ItemWatch>(post(watch).with_state(shared.clone()))
-}
-
 /// Which side of the market an alert watches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -174,7 +170,7 @@ fn refused(req: &Req, item: Item, address: &Address, input: WatchInput, message:
 }
 
 /// Watch listings and Watch offers (the action's `create-product-alert`).
-async fn watch(
+pub(crate) async fn watch(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,

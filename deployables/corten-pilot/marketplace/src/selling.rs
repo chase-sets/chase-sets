@@ -69,10 +69,6 @@ pub mod field {
     pub const QUANTITY: &str = SellFields::FIELDS.quantity.as_str();
 }
 
-pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    area.route::<url::ItemSellList>(post(add).with_state(shared.clone()))
-}
-
 /// The rail's sell forms, each of which shows its own refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SellForm {
@@ -242,7 +238,7 @@ async fn refused(
 
 /// Accept offer, Add offer to Sell List and Add product to Sell List (the action's `sell-now`,
 /// `add-to-sell-list` and `add-product-to-sell-list`).
-async fn add(
+pub(crate) async fn add(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,

@@ -221,6 +221,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `c590b8a` | Corten `main` with [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60) and [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63) closed, both adopted (`t.money`, `t.date_time`, `t.js().date_time`). No breaking change for the pilot. Its tests changed only where its own output did: a line's price in the screen JSON is now the amount and currency, and the live status's markup carries the date format |
 | `993eeac` | Corten `main` with [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69) closed and adopted (`Meta::read_again`; the cart's line writes are `data-patch`). No breaking change for the pilot. The runtime grows 282 B gzipped (Corten's measurement) |
 | `9326a3f` | Corten `main` with [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71) and [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72) closed ([todd-skelton/corten#73 Routes: query parameters named by data, and a permanent redirect](https://github.com/todd-skelton/corten/pull/73)) and adopted, plus the breaking change to pages ([todd-skelton/corten#75 Pages are documents built from components, and routes name their handlers](https://github.com/todd-skelton/corten/pull/75)): `Meta` and `App::shell` are gone, so each app's shell became its `Layout` component (in `views.rs`; it reads the session with `req.context::<Session>()`), every page is `req.page`/`req.screen` of a `Layout` with its title and head tags as `html!` (the cart's pending read is `<ReadAgain>` there), and `error_page` takes `&Req` and `Failure` (Corten sends it with `X-Robots-Tag: noindex`). Three gaps found and filed ([#76](https://github.com/todd-skelton/corten/issues/76), [#77](https://github.com/todd-skelton/corten/issues/77), [#78](https://github.com/todd-skelton/corten/issues/78); see [Corten gaps](#corten-gaps)). The same bytes on the item page and the cart |
+| `91af573` | Corten `main` with [todd-skelton/corten#76 A page cannot write JSON-LD in its head since Meta was removed (an expression in <script> is escaped as HTML)](https://github.com/todd-skelton/corten/issues/76), [todd-skelton/corten#77 A view that is one component cannot pass a reference to its own locals (E0515 since the document change)](https://github.com/todd-skelton/corten/issues/77) and [todd-skelton/corten#78 An area's routes cannot name their handlers (#[corten::routes] covers only App::new)](https://github.com/todd-skelton/corten/issues/78) closed ([todd-skelton/corten#80 JsonLd, views that own their lets, and routes modules for areas](https://github.com/todd-skelton/corten/pull/80)), each adopted (see Corten gaps). No breaking change for the pilot: `<script>` and `<style>` now refuse an expression at compile time, and the pilot wrote none after its `JsonLd` was removed. Only the item area moved to an area routes module; the cart, inventory, postage and catalog areas keep `.route::<R>()` calls, which Corten still accepts; moving them is mechanical and checks nothing new |
 
 ## What lives where
 
@@ -627,19 +628,7 @@ forward only on purpose, when a fix the pilot needs lands.
 
 ## Corten gaps
 
-Open, filed in Corten (one gap each):
-
-1. [todd-skelton/corten#76 A page cannot write JSON-LD in its head since Meta was removed (an expression in <script> is escaped as HTML)](https://github.com/todd-skelton/corten/issues/76)
-   (correctness, security). Workaround: `views::JsonLd` writes the item page's `Product` and
-   `BreadcrumbList` scripts with `<` as `\u003c`, as `Meta::json_ld` did, with a unit test that a
-   `</script>` in the text cannot close it ([`views.rs`](marketplace/src/views.rs), `JsonLd`).
-2. [todd-skelton/corten#77 A view that is one component cannot pass a reference to its own locals (E0515 since the document change)](https://github.com/todd-skelton/corten/issues/77)
-   (neither; a compile error the migration notes do not describe). Workaround: a leading `let`
-   in four admin views keeps each a closure that owns its locals
-   ([`item_list.rs`](admin/src/catalog/views/item_list.rs), [`bulk_dialogs.rs`](admin/src/catalog/views/bulk_dialogs.rs)).
-3. [todd-skelton/corten#78 An area's routes cannot name their handlers (#[corten::routes] covers only App::new)](https://github.com/todd-skelton/corten/issues/78)
-   (correctness). No workaround: every pilot route is in an area, so the routes stay
-   `#[derive(Route)]` structs that each area mounts, and the new handler check covers none of them.
+Open, filed in Corten (one gap each): none at the `91af573` pin.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -663,6 +652,20 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `91af573` pin, workarounds removed:
+
+1. [todd-skelton/corten#76 A page cannot write JSON-LD in its head since Meta was removed (an expression in <script> is escaped as HTML)](https://github.com/todd-skelton/corten/issues/76): the pilot's `views::JsonLd` is gone; the item page's `Product` and `BreadcrumbList`
+   are Corten's `<JsonLd value={..} />` among its head tags. A unit test renders the product with a
+   description that says `</script>` and reads the JSON back
+   ([`tests.rs`](marketplace/src/tests.rs), `the_production_item_writes_its_product_as_json_ld_that_no_description_can_end`).
+2. [todd-skelton/corten#77 A view that is one component cannot pass a reference to its own locals (E0515 since the document change)](https://github.com/todd-skelton/corten/issues/77): the documented form is the workaround's form, so the four admin views now make their
+   title, description or links inside the markup and their workaround notes are gone. The
+   preview dialog still moves its title and description in, because a long `match` decides them.
+3. [todd-skelton/corten#78 An area's routes cannot name their handlers (#[corten::routes] covers only App::new)](https://github.com/todd-skelton/corten/issues/78): the item pages' routes are `#[corten::routes(area = ItemsArea)] mod items` in
+   [`app.rs`](marketplace/src/app.rs), served by one `items::Pages` that names every handler
+   ([`items.rs`](marketplace/src/items.rs)); `ItemAdded` and `ItemWatched` are links to the item's
+   route. The other areas still mount `#[derive(Route)]` structs (see the pin row).
 
 Fixed at the `9326a3f` pin, workarounds removed:
 

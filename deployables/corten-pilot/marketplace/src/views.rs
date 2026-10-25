@@ -105,39 +105,6 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
         .join(", ")
 }
 
-/// A JSON-LD block among a page's head tags, written from the JSON as `Meta::json_ld` wrote it.
-/// `html!` escapes an expression inside `<script>` as HTML text, which would break the JSON, so
-/// this writes the script itself. Workaround for todd-skelton/corten#76: remove it when Corten
-/// writes JSON-LD.
-pub struct JsonLd(pub String);
-
-impl Render for JsonLd {
-    fn render(&self, out: &mut String) {
-        out.push_str(r#"<script type="application/ld+json">"#);
-        // `<` only ever appears inside a JSON string, where `\u003c` reads the same, so the text
-        // cannot close the script.
-        for (i, part) in self.0.split('<').enumerate() {
-            if i > 0 {
-                out.push_str("\\u003c");
-            }
-            out.push_str(part);
-        }
-        out.push_str("</script>");
-    }
-}
-
-#[cfg(test)]
-mod json_ld_tests {
-    use super::*;
-
-    #[test]
-    fn json_ld_cannot_close_its_script() {
-        let mut out = String::new();
-        JsonLd(r#"{"name":"A </script><b>"}"#.to_owned()).render(&mut out);
-        assert_eq!(out, r#"<script type="application/ld+json">{"name":"A \u003c/script>\u003cb>"}</script>"#);
-    }
-}
-
 /// The document around every page: marketplace's top bar and the user's color mode, `title`, the
 /// page's own `head` tags (description, canonical, social, JSON-LD, `ReadAgain`) and the page
 /// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.

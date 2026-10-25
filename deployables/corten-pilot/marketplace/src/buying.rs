@@ -75,12 +75,6 @@ pub mod field {
 /// How long a guest cart's cookie lasts (`THIRTY_DAYS_SECONDS`).
 const GUEST_CART_SECONDS: i64 = 30 * 24 * 60 * 60;
 
-pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    area.route::<url::ItemCart>(post(add).with_state(shared.clone()))
-        .route::<url::ItemBuy>(post(buy).with_state(shared.clone()))
-        .route::<url::ItemOffer>(post(offer).with_state(shared.clone()))
-}
-
 /// Which button sent a buy form.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Intent {
@@ -416,7 +410,7 @@ fn sign_in(req: &Req, slug: &str) -> corten::Result {
 }
 
 /// Add to cart and Buy best match (the action's `add-to-cart` and `buy-best-match`).
-async fn add(
+pub(crate) async fn add(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -475,7 +469,7 @@ async fn add(
 /// started once per form (its `SubmitKey` is the entry key, so sending it again is the same
 /// session), then marketplace's checkout. A guest goes to marketplace's guest checkout with the
 /// listing, as marketplace sends one.
-async fn buy(
+pub(crate) async fn buy(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -562,7 +556,7 @@ pub fn price(text: &str) -> Option<String> {
 /// Make an offer (the action's `submit-offer`): checked as marketplace checks it, then
 /// marketplace's offer checkout with the product and the offer in its query. Nothing is written
 /// here; the offer is placed there.
-async fn offer(
+pub(crate) async fn offer(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,

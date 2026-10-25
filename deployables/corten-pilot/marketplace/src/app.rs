@@ -115,77 +115,81 @@ pub mod url {
     #[route("/account/cart/checkout")]
     pub struct CartCheckout;
 
-    /// Marketplace's item pages: public, with no guard.
-    #[derive(Route)]
-    #[route("/items")]
-    pub struct ItemsArea;
+    pub use items::*;
 
-    /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
-    /// slug).
-    #[derive(Clone, Debug, Route)]
-    #[route("/items/{slug}")]
-    pub struct Item<'a> {
-        pub slug: &'a str,
-        #[route(query)]
-        pub state: crate::items::Address,
-    }
+    /// Marketplace's item pages, public with no guard: each route names its handler in
+    /// `items::Pages`, so a link from an item page cannot reach a route nobody serves.
+    #[corten::routes(area = ItemsArea)]
+    pub mod items {
+        use corten::Route;
 
-    /// Add the item's listing or product to the buy cart, or buy the best match.
-    #[derive(Route)]
-    #[route("/items/{slug}/cart")]
-    pub struct ItemCart<'a> {
-        pub slug: &'a str,
-    }
+        /// The area: its routes and stylesheet.
+        #[derive(Route)]
+        #[route("/items")]
+        pub struct ItemsArea;
 
-    /// Buy the listing the item page shows now.
-    #[derive(Route)]
-    #[route("/items/{slug}/buy")]
-    pub struct ItemBuy<'a> {
-        pub slug: &'a str,
-    }
+        /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
+        /// slug).
+        #[derive(Clone, Debug)]
+        #[route("/items/{slug}")]
+        pub struct Item<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+        }
 
-    /// Make an offer for the product the item page shows: checked, then marketplace's offer checkout.
-    #[derive(Route)]
-    #[route("/items/{slug}/offer")]
-    pub struct ItemOffer<'a> {
-        pub slug: &'a str,
-    }
+        /// Add the item's listing or product to the buy cart, or buy the best match.
+        #[route("/items/{slug}/cart")]
+        pub struct ItemCart<'a> {
+            pub slug: &'a str,
+        }
 
-    /// Add the offer the item page shows (Accept offer, Add offer to Sell List), or its product,
-    /// to the sell list.
-    #[derive(Route)]
-    #[route("/items/{slug}/sell-list")]
-    pub struct ItemSellList<'a> {
-        pub slug: &'a str,
-    }
+        /// Buy the listing the item page shows now.
+        #[route("/items/{slug}/buy")]
+        pub struct ItemBuy<'a> {
+            pub slug: &'a str,
+        }
 
-    /// Set a Watch alert for the product the item page shows: an account's alert, or a guest's
-    /// intent and then marketplace's registration.
-    #[derive(Route)]
-    #[route("/items/{slug}/watch")]
-    pub struct ItemWatch<'a> {
-        pub slug: &'a str,
-    }
+        /// Make an offer for the product the item page shows: checked, then marketplace's offer checkout.
+        #[route("/items/{slug}/offer")]
+        pub struct ItemOffer<'a> {
+            pub slug: &'a str,
+        }
 
-    /// The item on its Watch tab after Set alert: the page says the alert was saved, with the
-    /// write's receipt (empty for none).
-    #[derive(Route)]
-    #[route("/items/{slug}")]
-    pub struct ItemWatched<'a> {
-        pub slug: &'a str,
-        #[route(query)]
-        pub state: crate::items::Address,
-        pub watched: &'a str,
-    }
+        /// Add the offer the item page shows (Accept offer, Add offer to Sell List), or its product,
+        /// to the sell list.
+        #[route("/items/{slug}/sell-list")]
+        pub struct ItemSellList<'a> {
+            pub slug: &'a str,
+        }
 
-    /// The item after Add to cart: the page says so, with the write's receipt (empty for none).
-    #[derive(Route)]
-    #[route("/items/{slug}")]
-    pub struct ItemAdded<'a> {
-        pub slug: &'a str,
-        #[route(query)]
-        pub state: crate::items::Address,
-        pub added: &'a str,
+        /// Set a Watch alert for the product the item page shows: an account's alert, or a guest's
+        /// intent and then marketplace's registration.
+        #[route("/items/{slug}/watch")]
+        pub struct ItemWatch<'a> {
+            pub slug: &'a str,
+        }
+
+        /// A link (the item's route serves it): the item on its Watch tab after Set alert: the page says the alert was saved, with the
+        /// write's receipt (empty for none).
+        #[derive(Route)]
+        #[route("/items/{slug}")]
+        pub struct ItemWatched<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+            pub watched: &'a str,
+        }
+
+        /// A link (the item's route serves it): the item after Add to cart: the page says so, with the write's receipt (empty for none).
+        #[derive(Route)]
+        #[route("/items/{slug}")]
+        pub struct ItemAdded<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+            pub added: &'a str,
+        }
     }
 
     /// The storage locations, and the write to confirm.

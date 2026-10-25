@@ -1641,6 +1641,22 @@ async fn anyone_reads_an_item_with_its_best_listing_and_its_market() {
     assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
 }
 
+#[test]
+fn the_production_item_writes_its_product_as_json_ld_that_no_description_can_end() {
+    use corten::prelude::*;
+    let mut value = item();
+    value["description"] = json!("A </script><b> Charizard");
+    let item: crate::api::Item = serde_json::from_value(value).unwrap();
+    let product = crate::views::product_json_ld(&item, "https://marketplace.chasesets.com/items/charizard")
+        .expect("an active item with a price");
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+    assert_eq!(product["description"], "A </script><b> Charizard");
+}
+
 #[tokio::test]
 async fn an_id_or_an_old_slug_moves_to_the_slug_for_good_with_its_parameters() {
     let pilot = Pilot::new().await;

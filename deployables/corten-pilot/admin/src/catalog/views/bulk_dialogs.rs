@@ -72,10 +72,8 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Render 
 /// what it did. `live` is its stream (none once it is done, or when the job is not known).
 #[component(css = PreviewDialog)]
 pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job<Value>>, label: &'a str, live: Option<&'a str>) -> impl Render {
-    let title = t.bulk_result_title(label).to_string();
-    // Workaround for todd-skelton/corten#77 (one component's view cannot borrow its locals): a `let` keeps the view a closure that owns them.
     html! {
-        let title = title;
+        let title = t.bulk_result_title(label).to_string();
         <Dialog id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
             if let Some(src) = live {
                 <corten-live src={src}>{job_status(t, p, job)}</corten-live>

@@ -44,10 +44,36 @@ use crate::{
 };
 
 pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    watching::routes(
-        selling::routes(buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared), shared),
-        shared,
-    )
+    url::items::area(area, Pages(shared.clone()))
+}
+
+/// The handler of each item route; the routes module does not compile without one per route.
+struct Pages(Shared);
+
+impl url::items::Handlers for Pages {
+    fn item(&self) -> MethodRouter {
+        get(page).with_state(self.0.clone())
+    }
+
+    fn item_cart(&self) -> MethodRouter {
+        post(buying::add).with_state(self.0.clone())
+    }
+
+    fn item_buy(&self) -> MethodRouter {
+        post(buying::buy).with_state(self.0.clone())
+    }
+
+    fn item_offer(&self) -> MethodRouter {
+        post(buying::offer).with_state(self.0.clone())
+    }
+
+    fn item_sell_list(&self) -> MethodRouter {
+        post(selling::add).with_state(self.0.clone())
+    }
+
+    fn item_watch(&self) -> MethodRouter {
+        post(watching::watch).with_state(self.0.clone())
+    }
 }
 
 /// The side of the market the page shows (`MarketIntent`).
@@ -752,8 +778,8 @@ pub fn render(
         item.description.as_deref().filter(|d| !d.trim().is_empty()).unwrap_or(t.route_browse_the_chase_sets_marketplace_with());
     let title = t.route_meta_title(&item.title).to_string();
     let image = views::item_image(item).map(|image| image.src.clone());
-    let product = views::product_json_ld(item, &canonical).map(|ld| views::JsonLd(ld.to_json()));
-    let breadcrumb = views::breadcrumb_json_ld(t, item, &canonical).map(|ld| views::JsonLd(ld.to_json()));
+    let product = views::product_json_ld(item, &canonical);
+    let breadcrumb = views::breadcrumb_json_ld(t, item, &canonical);
     let og_title = title.as_str();
     let head = html! {
         <meta name="description" content={description}>
@@ -765,10 +791,10 @@ pub fn render(
             <meta property="og:image" content={image}>
         }
         if let Some(ld) = &product {
-            {ld}
+            <JsonLd value={ld} />
         }
         if let Some(ld) = &breadcrumb {
-            {ld}
+            <JsonLd value={ld} />
         }
     };
     let view = views::item_page(t, &screen, address, slug, notice);
