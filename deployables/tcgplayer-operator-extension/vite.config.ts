@@ -9,12 +9,7 @@ import { operatorManifest } from "./src/manifest-contract";
 acquireHeavySlot("build");
 export default defineConfig({
   define: {
-    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(
-      execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: resolve(import.meta.dirname, "../.."),
-        encoding: "utf8",
-      }).trim(),
-    ),
+    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildIdentity()),
   },
   resolve: { alias: createWorkspaceSourceAliases() },
   build: {
@@ -56,3 +51,13 @@ export default defineConfig({
     },
   ],
 });
+
+function buildIdentity() {
+  const cwd = resolve(import.meta.dirname, "../..");
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+  const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
+  return dirty ? `${commit}-dirty` : commit;
+}

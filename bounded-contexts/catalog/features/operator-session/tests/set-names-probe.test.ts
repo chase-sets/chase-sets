@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { probeTcgplayerSetNames, tcgplayerSingleCardUnitConstraints } from "../domain/extension/set-names/probe";
+import {
+  probeTcgplayerSetNames,
+  setNamesProbeUnitConstraints,
+  type SetNamesRequestResult,
+} from "../domain/extension/set-names/probe";
 
 const validEntry = (categoryId: number) => ({
   setNameId: 1,
@@ -19,7 +23,7 @@ function json(value: unknown) {
 
 describe("TCGplayer SetNames probe", () => {
   it("defines the five fixture product-line units", () => {
-    expect(tcgplayerSingleCardUnitConstraints.map((unit) => unit.productLineId)).toEqual(["1", "2", "3", "68", "82"]);
+    expect(setNamesProbeUnitConstraints.map((unit) => unit.productLineId)).toEqual(["1", "2", "3", "68", "82"]);
   });
 
   it("records receipt and summary before reduction and redacts hostile values", async () => {
@@ -49,7 +53,65 @@ describe("TCGplayer SetNames probe", () => {
     expect(report.rows[0]?.summary.otherFieldCount).toBe(1);
   });
 
-  it.each([
+  it("keeps edited and repeated inputs bound to their explicit units", async () => {
+    const result = {
+      ok: true,
+      status: 200,
+      contentClass: "json" as const,
+      bytes: 10,
+      body: { errors: [], results: [validEntry(71)] },
+    };
+    const report = await probeTcgplayerSetNames({
+      request: vi.fn(async () => result),
+      extensionVersion: "0.1.0",
+      buildCommit: "synthetic-build",
+      browserMajor: "synthetic-browser",
+      productLineInputs: [
+        { unitKey: "tcgplayer:lorcana:single-card:source-observation-import", productLineId: "71" },
+        { unitKey: "tcgplayer:mtg:single-card:source-observation-import", productLineId: "71" },
+      ],
+      minIntervalMs: 0,
+    });
+    expect(report.rows.map((row) => [row.unitKey, row.requestedProductLineId])).toEqual([
+      ["tcgplayer:lorcana:single-card:source-observation-import", "71"],
+      ["tcgplayer:mtg:single-card:source-observation-import", "71"],
+    ]);
+  });
+
+  it("spaces requests by at least one second and never targets Chase Sets", async () => {
+    let clock = 0;
+    const starts: number[] = [];
+    const request = vi.fn(async (productLineId: string) => {
+      starts.push(clock);
+      expect(productLineId).toMatch(/^\d+$/);
+      return {
+        ok: false,
+        status: 503,
+        contentClass: "unknown" as const,
+        bytes: 0,
+        body: null,
+        code: "http-not-success" as const,
+      };
+    });
+    await probeTcgplayerSetNames({
+      request,
+      extensionVersion: "0.1.0",
+      buildCommit: "synthetic-build",
+      browserMajor: "synthetic-browser",
+      productLineInputs: [
+        { unitKey: "u1", productLineId: "1" },
+        { unitKey: "u2", productLineId: "2" },
+        { unitKey: "u3", productLineId: "3" },
+      ],
+      now: () => clock,
+      sleep: async (milliseconds) => {
+        clock += milliseconds;
+      },
+    });
+    expect(starts).toEqual([0, 1_000, 2_000]);
+  });
+
+  it.each<[string, SetNamesRequestResult, string]>([
     [
       "non-2xx",
       { ok: false, status: 503, contentClass: "unknown", bytes: 2, body: null, code: "http-not-success" },
@@ -102,5 +164,45 @@ describe("TCGplayer SetNames probe", () => {
       productLineIds: ["3"],
     });
     expect(report.rows[0]?.qualification).toEqual({ status: "unqualified", reasons: [reason] });
+  });
+
+  it("accepts documented release-date strings and classifies offsets honestly", async () => {
+    const dates = ["2023-02-10T00:00:00", "2023-02-10T00:00:00Z", "2023-02-10T00:00:00.000+00:00", "2023-02-10"];
+    const report = await probeTcgplayerSetNames({
+      request: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        contentClass: "json" as const,
+        bytes: 10,
+        body: { errors: [], results: dates.map((releaseDate) => ({ ...validEntry(3), releaseDate })) },
+      })),
+      extensionVersion: "0.1.0",
+      buildCommit: "synthetic-build",
+      browserMajor: "synthetic-browser",
+      productLineIds: ["3"],
+    });
+    expect(report.rows[0]?.qualification.status).toBe("qualified");
+    expect(report.rows[0]?.summary.releaseDate).toEqual({ dateOnly: 1, instant: 2, other: 1 });
+  });
+
+  it("counts controls, not printable non-ASCII, as non-printable", async () => {
+    const report = await probeTcgplayerSetNames({
+      request: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        contentClass: "json" as const,
+        bytes: 10,
+        body: {
+          errors: [],
+          results: [{ ...validEntry(3), name: "Pokémon — Set", cleanSetName: "A\u0007B\u200B" }],
+        },
+      })),
+      extensionVersion: "0.1.0",
+      buildCommit: "synthetic-build",
+      browserMajor: "synthetic-browser",
+      productLineIds: ["3"],
+    });
+    expect(report.rows[0]?.summary.fields.name.nonPrintableCount).toBe(0);
+    expect(report.rows[0]?.summary.fields.cleanSetName.nonPrintableCount).toBe(2);
   });
 });

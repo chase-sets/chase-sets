@@ -61,6 +61,16 @@ export async function fetchTcgplayerSetNames(
         code: consumed.code,
       };
     }
+    if (controller.signal.aborted) {
+      return {
+        ok: false,
+        status: response.status,
+        contentClass,
+        bytes: consumed.bytes,
+        body: null,
+        code: "timeout",
+      };
+    }
     if (!response.ok) {
       return {
         ok: false,
@@ -90,8 +100,6 @@ export async function fetchTcgplayerSetNames(
   }
 }
 
-export const requestTcgplayerSetNames = fetchTcgplayerSetNames;
-
 async function readBody(
   response: Response,
   signal: AbortSignal,
@@ -113,6 +121,10 @@ async function readBody(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  const cancelOnAbort = () => {
+    void reader.cancel();
+  };
+  signal.addEventListener("abort", cancelOnAbort, { once: true });
   try {
     for (;;) {
       const next = await reader.read();
@@ -133,5 +145,7 @@ async function readBody(
     return { ok: true, bytes, text: new TextDecoder().decode(merged) };
   } catch {
     return { ok: false, bytes, code: signal.aborted ? "timeout" : "network-error" };
+  } finally {
+    signal.removeEventListener("abort", cancelOnAbort);
   }
 }

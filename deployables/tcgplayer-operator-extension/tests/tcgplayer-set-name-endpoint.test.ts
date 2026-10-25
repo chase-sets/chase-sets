@@ -35,4 +35,23 @@ describe("tcgplayer set-name endpoint", () => {
     );
     await expect(fetchTcgplayerSetNames("3", fetcher)).resolves.toMatchObject({ code: "body-cap-exceeded" });
   });
+
+  it("aborts an endless body at the fixed timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([123]));
+        },
+      });
+      const fetcher = vi.fn(
+        async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }),
+      );
+      const result = fetchTcgplayerSetNames("3", fetcher);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(result).resolves.toMatchObject({ code: "timeout" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -1,18 +1,25 @@
 export { createOperatorBackground } from "../../domain/extension/background";
 export type { OperatorAdapters } from "../../domain/extension/background";
-export { installOperatorBridge } from "../../domain/extension/bridge";
+export {
+  createOperatorSandboxCopyReport,
+  createOperatorSandboxSetNamesRequest,
+  installOperatorBridge,
+  isCopyProbeReportMessage,
+  isProbeSetNamesMessage,
+} from "../../domain/extension/bridge";
 export { operatorExtensionId } from "../../domain/extension/protocol";
 export {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
   sha256SetNamesProbeReport,
-  tcgplayerSingleCardUnitConstraints,
+  setNamesProbeUnitConstraints,
 } from "../../domain/extension/set-names/probe";
 export type {
   SetNamesProbeReport,
   SetNamesRequest,
   SetNamesRequestResult,
 } from "../../domain/extension/set-names/probe";
+export { isSetNamesRequestResult } from "../../domain/extension/set-names/probe";
 import type { SetNamesRequest } from "../../domain/extension/set-names/probe";
 export type { OperatorCommand, OperatorStatus, OperatorEnvironment } from "../../domain/extension/protocol";
 export async function renderOperatorExtensionPopup(
@@ -20,6 +27,7 @@ export async function renderOperatorExtensionPopup(
   bridgeOrigin: string,
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
+    copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;
     browserMajor?: string;

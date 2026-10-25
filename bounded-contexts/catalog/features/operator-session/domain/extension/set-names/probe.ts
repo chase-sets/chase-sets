@@ -11,7 +11,7 @@ export const setNameDocumentedFields = [
 ] as const;
 export type SetNameDocumentedField = (typeof setNameDocumentedFields)[number];
 
-export const tcgplayerSingleCardUnitConstraints = [
+export const setNamesProbeUnitConstraints = [
   { unitKey: "tcgplayer:mtg:single-card:source-observation-import", productLineId: "1" },
   { unitKey: "tcgplayer:yugioh:single-card:source-observation-import", productLineId: "2" },
   { unitKey: "tcgplayer:pokemon:single-card:source-observation-import", productLineId: "3" },
@@ -25,9 +25,16 @@ export type SetNamesRequestResult = Readonly<{
   contentClass: "json" | "non-json" | "unknown";
   bytes: number;
   body: unknown;
-  code?: string;
+  code?:
+    | "invalid-product-line-id"
+    | "http-not-success"
+    | "non-json"
+    | "body-cap-exceeded"
+    | "timeout"
+    | "network-error";
 }>;
 export type SetNamesRequest = (productLineId: string) => Promise<SetNamesRequestResult>;
+export type SetNamesProbeTarget = Readonly<{ unitKey: string; productLineId: string }>;
 
 export type SetNamesReceipt = Readonly<{
   status: number | null;
@@ -87,6 +94,7 @@ export type SetNamesProbeInput = Readonly<{
   browserMajor: string;
   probedAt?: string;
   productLineIds?: readonly string[];
+  productLineInputs?: readonly SetNamesProbeTarget[];
   minIntervalMs?: number;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -120,28 +128,34 @@ const emptySummary = (): SetNamesSummary => ({
 });
 
 export async function probeTcgplayerSetNames(input: SetNamesProbeInput): Promise<SetNamesProbeReport> {
-  const ids = input.productLineIds ?? tcgplayerSingleCardUnitConstraints.map((unit) => unit.productLineId);
+  const targets =
+    input.productLineInputs ??
+    (input.productLineIds ?? setNamesProbeUnitConstraints.map((unit) => unit.productLineId)).map((productLineId) => ({
+      unitKey:
+        setNamesProbeUnitConstraints.find((unit) => unit.productLineId === productLineId)?.unitKey ??
+        `tcgplayer:unmapped:${productLineId}:source-observation-import`,
+      productLineId,
+    }));
   const rows: SetNamesRow[] = [];
   const now = input.now ?? Date.now;
   const sleep =
     input.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const minimum = Math.max(0, input.minIntervalMs ?? 1_000);
   let lastStarted: number | null = null;
-  for (const productLineId of ids) {
+  for (const target of targets) {
     if (lastStarted !== null) {
       const wait = minimum - (now() - lastStarted);
       if (wait > 0) await sleep(wait);
     }
     lastStarted = now();
-    const result = await input.request(productLineId);
-    const receipt = receiptFor(result);
+    const result = await input.request(target.productLineId);
+    const summary = summarize(result.body, target.productLineId);
+    const receipt = receiptFor(result, summary);
     input.onReceipt?.(receipt);
-    const summary = summarize(result.body, productLineId);
     input.onSummary?.(summary);
-    const unit = tcgplayerSingleCardUnitConstraints.find((candidate) => candidate.productLineId === productLineId);
     rows.push({
-      unitKey: unit?.unitKey ?? "tcgplayer:unknown:single-card:source-observation-import",
-      requestedProductLineId: productLineId,
+      unitKey: target.unitKey,
+      requestedProductLineId: target.productLineId,
       receipt,
       summary,
       qualification: qualify(result, summary),
@@ -171,8 +185,7 @@ export async function sha256SetNamesProbeReport(report: SetNamesProbeReport): Pr
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function receiptFor(result: SetNamesRequestResult): SetNamesReceipt {
-  const summary = summarize(result.body, "");
+function receiptFor(result: SetNamesRequestResult, summary: SetNamesSummary): SetNamesReceipt {
   const body = asEnvelope(result.body);
   return {
     status: result.status,
@@ -226,9 +239,11 @@ function summarize(body: unknown, requestedProductLineId: string): SetNamesSumma
       }
       const type: JsonType = Array.isArray(value) ? "array" : (typeof value as JsonType);
       const types = { ...fields[field].types, [type]: fields[field].types[type] + 1 };
-      const stringLength = typeof value === "string" ? value.length : 0;
+      const stringLength = typeof value === "string" ? [...value].length : 0;
       const nonPrintable =
-        typeof value === "string" ? [...value].filter((character) => /[^\x20-\x7E]/.test(character)).length : 0;
+        typeof value === "string"
+          ? [...value].filter((character) => /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/u.test(character)).length
+          : 0;
       fields[field] = {
         ...fields[field],
         present: fields[field].present + 1,
@@ -238,13 +253,11 @@ function summarize(body: unknown, requestedProductLineId: string): SetNamesSumma
       };
       if (field === "releaseDate") {
         releaseDate = {
-          dateOnly: releaseDate.dateOnly + (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? 1 : 0),
-          instant: releaseDate.instant + (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value) ? 1 : 0),
+          dateOnly: releaseDate.dateOnly + (typeof value === "string" && isDateOnly(value) ? 1 : 0),
+          instant: releaseDate.instant + (typeof value === "string" && isInstantWithOffset(value) ? 1 : 0),
           other:
             releaseDate.other +
-            (typeof value !== "string" || (!/^\d{4}-\d{2}-\d{2}$/.test(value) && !/^\d{4}-\d{2}-\d{2}T/.test(value))
-              ? 1
-              : 0),
+            (typeof value !== "string" || (!isDateOnly(value) && !isInstantWithOffset(value)) ? 1 : 0),
         };
       }
     }
@@ -296,23 +309,47 @@ function validEntry(value: unknown): boolean {
   for (const [field, type] of Object.entries(required)) if (typeof value[field] !== type) return false;
   if (Object.hasOwn(value, "abbreviation") && value.abbreviation !== null && typeof value.abbreviation !== "string")
     return false;
-  if (
-    Object.hasOwn(value, "releaseDate") &&
-    value.releaseDate !== null &&
-    (typeof value.releaseDate !== "string" || !isReleaseDate(value.releaseDate))
-  )
+  if (Object.hasOwn(value, "releaseDate") && value.releaseDate !== null && typeof value.releaseDate !== "string")
     return false;
   return true;
 }
 
-function isReleaseDate(value: string): boolean {
+function isDateOnly(value: string): boolean {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const parsed = new Date(`${value}T00:00:00.000Z`);
     return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   }
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  return false;
+}
+
+function isInstantWithOffset(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return false;
   const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+  return Number.isFinite(parsed.getTime());
+}
+
+export function isSetNamesRequestResult(value: unknown): value is SetNamesRequestResult {
+  if (!isRecord(value)) return false;
+  if (Object.keys(value).some((key) => !["ok", "status", "contentClass", "bytes", "body", "code"].includes(key)))
+    return false;
+  if (typeof value.ok !== "boolean") return false;
+  if (value.status !== null && (typeof value.status !== "number" || !Number.isInteger(value.status))) return false;
+  if (value.contentClass !== "json" && value.contentClass !== "non-json" && value.contentClass !== "unknown")
+    return false;
+  if (typeof value.bytes !== "number" || !Number.isSafeInteger(value.bytes) || value.bytes < 0) return false;
+  if (
+    value.code !== undefined &&
+    ![
+      "invalid-product-line-id",
+      "http-not-success",
+      "non-json",
+      "body-cap-exceeded",
+      "timeout",
+      "network-error",
+    ].includes(value.code as string)
+  )
+    return false;
+  return true;
 }
 
 function asEnvelope(value: unknown): { errors?: unknown[]; results?: unknown[] } {

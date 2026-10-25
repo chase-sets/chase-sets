@@ -4,6 +4,7 @@ import { Button } from "@chase-sets/design-system/button";
 import { Stack, Inset } from "@chase-sets/design-system/layout";
 import { NativeSelect } from "@chase-sets/design-system/select";
 import { TextInput } from "@chase-sets/design-system/text-input";
+import { Textarea } from "@chase-sets/design-system/forms";
 import { Text, Heading } from "@chase-sets/design-system/typography";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import { catalogOperatorExtensionEnglishTranslations as copy } from "@chase-sets/localization/locales/en/catalog/operator-extension";
@@ -11,7 +12,8 @@ import { createOperatorPopupClient } from "../../domain/extension/bridge";
 import {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
-  tcgplayerSingleCardUnitConstraints,
+  sha256SetNamesProbeReport,
+  setNamesProbeUnitConstraints,
   type SetNamesRequest,
 } from "../../domain/extension/set-names/probe";
 import {
@@ -26,12 +28,14 @@ const t = (key: keyof typeof copy) => copy[key];
 export function OperatorExtensionPopup({
   request,
   setNameRequest,
+  copyProbeReport,
   extensionVersion = "0.1.0",
   buildCommit = "unknown",
   browserMajor = "unknown",
 }: {
   request: (command: OperatorCommand) => Promise<OperatorStatus>;
   setNameRequest?: SetNamesRequest;
+  copyProbeReport?: (text: string) => Promise<void>;
   extensionVersion?: string;
   buildCommit?: string;
   browserMajor?: string;
@@ -44,11 +48,13 @@ export function OperatorExtensionPopup({
   const input = useRef<HTMLInputElement>(null);
   const generation = useRef(0);
   const [productLineIds, setProductLineIds] = useState<Record<string, string>>(() =>
-    Object.fromEntries(tcgplayerSingleCardUnitConstraints.map((unit) => [unit.unitKey, unit.productLineId])),
+    Object.fromEntries(setNamesProbeUnitConstraints.map((unit) => [unit.unitKey, unit.productLineId])),
   );
   const [probeBusy, setProbeBusy] = useState(false);
   const [probeReport, setProbeReport] = useState<string | null>(null);
+  const [probeSha, setProbeSha] = useState<string | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [probeCopyError, setProbeCopyError] = useState(false);
   async function run(command: OperatorCommand) {
     const current = ++generation.current;
     setBusy(true);
@@ -85,19 +91,25 @@ export function OperatorExtensionPopup({
     setProbeBusy(true);
     setProbeError(null);
     setProbeReport(null);
+    setProbeSha(null);
+    setProbeCopyError(false);
     try {
       const report = await probeTcgplayerSetNames({
         request: setNameRequest,
         extensionVersion,
         buildCommit,
         browserMajor,
-        productLineIds: tcgplayerSingleCardUnitConstraints
-          .map((unit) => productLineIds[unit.unitKey]?.trim())
-          .filter((value): value is string => Boolean(value)),
+        productLineInputs: setNamesProbeUnitConstraints
+          .map((unit) => ({ unitKey: unit.unitKey, productLineId: productLineIds[unit.unitKey]?.trim() ?? "" }))
+          .filter((target) => /^\d+$/.test(target.productLineId)),
       });
-      setProbeReport(serializeSetNamesProbeReport(report));
+      const serialized = serializeSetNamesProbeReport(report);
+      setProbeReport(serialized);
+      setProbeSha(await sha256SetNamesProbeReport(report));
+      const reasons = [...new Set(report.rows.flatMap((row) => row.qualification.reasons))];
+      if (reasons.length > 0) setProbeError(reasons.join(", "));
     } catch {
-      setProbeError("Probe unavailable. Reopen the extension to try again.");
+      setProbeError(t("catalog.operatorExtension.probe.error"));
     } finally {
       setProbeBusy(false);
     }
@@ -183,10 +195,12 @@ export function OperatorExtensionPopup({
         <Text size="sm">{t("catalog.operatorExtension.offboarding")}</Text>
         <Heading level={2}>{t("catalog.operatorExtension.probe.title")}</Heading>
         <Stack gap={2}>
-          {tcgplayerSingleCardUnitConstraints.map((unit) => (
+          {setNamesProbeUnitConstraints.map((unit) => (
             <TextInput
               key={unit.unitKey}
-              label={unit.unitKey}
+              label={t(
+                `catalog.operatorExtension.probe.unit.${unit.unitKey.split(":")[1] ?? "unknown"}` as keyof typeof copy,
+              )}
               inputMode="numeric"
               value={productLineIds[unit.unitKey] ?? ""}
               disabled={probeBusy}
@@ -201,14 +215,34 @@ export function OperatorExtensionPopup({
           {probeBusy ? t("catalog.operatorExtension.probe.running") : t("catalog.operatorExtension.probe.run")}
         </Button>
         {probeError ? <Text role="alert">{probeError}</Text> : null}
-        {!probeBusy && !probeError && !probeReport ? <Text>{t("catalog.operatorExtension.probe.empty")}</Text> : null}
+        {!probeBusy &&
+        !probeError &&
+        !probeReport &&
+        !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim())) ? (
+          <Text>{t("catalog.operatorExtension.probe.empty")}</Text>
+        ) : null}
         {probeReport ? (
           <Stack gap={2}>
             <Text role="status">{t("catalog.operatorExtension.probe.success")}</Text>
-            <TextInput label={t("catalog.operatorExtension.probe.report")} value={probeReport} readOnly />
-            <Button tone="secondary" onClick={() => void navigator.clipboard?.writeText(probeReport)}>
+            <Textarea label={t("catalog.operatorExtension.probe.report")} value={probeReport} readOnly rows={8} />
+            <Text size="sm">
+              {t("catalog.operatorExtension.probe.sha256")}: {probeSha}
+            </Text>
+            <Button
+              tone="secondary"
+              onClick={async () => {
+                setProbeCopyError(false);
+                try {
+                  if (!copyProbeReport) throw new Error("unavailable");
+                  await copyProbeReport(probeReport);
+                } catch {
+                  setProbeCopyError(true);
+                }
+              }}
+            >
               {t("catalog.operatorExtension.probe.copy")}
             </Button>
+            {probeCopyError ? <Text role="alert">{t("catalog.operatorExtension.probe.copyFailed")}</Text> : null}
           </Stack>
         ) : null}
       </Stack>
@@ -221,6 +255,7 @@ export function renderOperatorExtensionPopup(
   bridgeOrigin: string,
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
+    copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;
     browserMajor?: string;
@@ -230,7 +265,12 @@ export function renderOperatorExtensionPopup(
   const root = createRoot(element);
   root.render(
     <ChaseRoot>
-      <OperatorExtensionPopup request={client.request} {...options} />
+      <OperatorExtensionPopup
+        {...options}
+        request={client.request}
+        setNameRequest={options.setNameRequest ?? client.requestSetNames}
+        copyProbeReport={options.copyProbeReport ?? client.copyProbeReport}
+      />
     </ChaseRoot>,
   );
   return () => {
