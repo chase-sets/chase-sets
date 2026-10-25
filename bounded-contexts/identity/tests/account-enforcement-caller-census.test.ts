@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 
 const identityRoot = path.resolve(import.meta.dirname, "..");
 
@@ -31,9 +32,9 @@ describe("Account enforcement caller census", () => {
       );
 
     expect(callers).toEqual([
-      { file: "features/accounts/api/route.ts", command: "SuspendAccount" },
-      { file: "features/accounts/api/route.ts", command: "ReactivateAccount" },
-      { file: "features/accounts/api/route.ts", command: "CloseAccount" },
+      { file: "features/accounts/api/account-enforcement.ts", command: "SuspendAccount" },
+      { file: "features/accounts/api/account-enforcement.ts", command: "ReactivateAccount" },
+      { file: "features/accounts/api/account-enforcement.ts", command: "CloseAccount" },
       { file: "support/runtime-support/seed.ts", command: "SuspendAccount" },
     ]);
 
@@ -57,6 +58,25 @@ describe("Account enforcement caller census", () => {
       expect(accountDetail).toContain(`value="${intent}"`);
       expect(accessHub).toContain(`value="${intent}"`);
     }
-    expect(source("features/accounts/api/mcp.ts")).not.toMatch(/suspend|reactivate|close/i);
+    const mcp = source("features/accounts/api/mcp.ts");
+    expect(mcp).toContain('"identity.suspend-account"');
+    expect(mcp).toContain('"identity.reactivate-account"');
+    expect(mcp).toContain('"identity.close-account"');
+    expect(mcp).not.toMatch(/requiredScopes/);
+
+    for (const name of ["suspend-account", "reactivate-account", "close-account"]) {
+      const descriptor = findMcpTool(`identity.${name}`);
+      expect(descriptor?.permissionBoundary).toMatchObject({
+        scope: "operator",
+        requiredPermissions: ["accounts.manage"],
+        requiredScopes: [],
+      });
+      expect(descriptor?.inputSchema.required).toContain("reference");
+      expect(descriptor?.inputSchema.properties?.reference?.type).toEqual(["object", "null"]);
+    }
+    expect(findMcpTool("identity.get-account")?.permissionBoundary).toMatchObject({ scope: "account" });
+    expect(mcp).not.toContain('"identity.get-account": suspendAccount');
+    expect(mcp).not.toContain('"identity.get-account": reactivateAccount');
+    expect(mcp).not.toContain('"identity.get-account": closeAccount');
   });
 });
