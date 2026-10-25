@@ -30,6 +30,7 @@ import type {
   PlatformRemedyProposalPreview,
   SupportOperationsQueueFilters,
   SupportRequestDetail,
+  SupportRequestDetailResponse,
   SupportRequestListItem,
 } from "./contracts";
 import { EntityDetailDrawer } from "./support-request-detail-drawer";
@@ -44,7 +45,7 @@ type SupportOperationsPageProps = Readonly<{
   queue: Readonly<{ items: readonly SupportRequestListItem[]; total: number; count: number }>;
   filters?: SupportOperationsQueueFilters;
   pagination?: Readonly<{ limit: number; offset: number }>;
-  selectedRequest?: SupportRequestDetail | null;
+  selectedRequest?: SupportRequestDetailResponse | null;
   queueNow?: string;
   unavailableMessage?: string | null;
   drawerUnavailableMessage?: string | null;
