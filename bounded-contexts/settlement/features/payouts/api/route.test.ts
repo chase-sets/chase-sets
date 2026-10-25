@@ -236,6 +236,20 @@ describe("settlement payout routes", () => {
       context,
     );
 
+    for (const amountSelection of [null, ""] as const) {
+      previewPayoutRequest.mockClear();
+      const unchanged = await app.request("/payouts/preview", {
+        method: "POST",
+        body: JSON.stringify({ amount: "12.50", amountSelection }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(unchanged.status).toBe(200);
+      expect(previewPayoutRequest).toHaveBeenCalledWith(
+        { accountId: "acc_seller", amount: "12.50", amountSelection },
+        context,
+      );
+    }
+
     previewPayoutRequest.mockClear();
     const unknown = await app.request("/payouts/preview", {
       method: "POST",

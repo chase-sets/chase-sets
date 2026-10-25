@@ -407,6 +407,22 @@ describe("settlement payout runtime", () => {
       full_available_amount: "250.00",
     });
 
+    for (const holdCase of [
+      { supportHoldAmount: "30.00", spendHoldAmount: "20.00", expected: "150.00" },
+      { supportHoldAmount: "30.00", spendHoldAmount: "0.00", expected: "170.00" },
+      { supportHoldAmount: "0.00", spendHoldAmount: "20.00", expected: "180.00" },
+    ]) {
+      const holdRuntime = createPayoutArithmeticRuntime({
+        walletAvailableAmount: "200.00",
+        supportHoldAmount: holdCase.supportHoldAmount,
+        spendHoldAmount: holdCase.spendHoldAmount,
+        boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+      });
+      await expect(
+        holdRuntime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never }),
+      ).resolves.toMatchObject({ full_available_amount: holdCase.expected });
+    }
+
     for (const walletAvailableAmount of ["0.00", "-5.00"]) {
       const zeroRuntime = createPayoutArithmeticRuntime({
         walletAvailableAmount,
@@ -449,6 +465,18 @@ describe("settlement payout runtime", () => {
     expect(available).toEqual(directAvailable);
     expect(available.requested_amount).toBe("100.00");
 
+    for (const amountSelection of [null, ""] as const) {
+      const selected = await runtime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "12.50", amountSelection },
+        context,
+      );
+      const direct = await runtime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "12.50" },
+        context,
+      );
+      expect(selected).toEqual(direct);
+    }
+
     const zeroRuntime = createPayoutArithmeticRuntime({
       walletAvailableAmount: "20.00",
       supportHoldAmount: "20.00",
@@ -456,6 +484,20 @@ describe("settlement payout runtime", () => {
     });
     await expectNamedSettlementRejection(
       zeroRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+
+    const negativeRuntime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "10.00",
+      supportHoldAmount: "15.00",
+      spendHoldAmount: "5.00",
+      boundsPolicy: options.boundsPolicy,
+    });
+    await expectNamedSettlementRejection(
+      negativeRuntime.payouts.previewPayoutRequest(
         { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
         context,
       ),
