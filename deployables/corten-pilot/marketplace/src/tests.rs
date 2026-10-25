@@ -27,6 +27,8 @@ const ATTEMPTS: &str = "/api/inventory/mutation-attempts/";
 const SCREEN: &str = "/account/inventory/locations";
 const RESTOCK: &str = "/api/inventory/restock-decisions";
 const RESTOCK_SCREEN: &str = "/account/inventory/restock-decisions";
+const CART: &str = "/api/marketplace/account/cart";
+const CART_SCREEN: &str = "/account/cart";
 const RECEIPT: &str = r#"[{"sourceContextName":"inventory","maxGlobalPosition":"42","eventIds":["e1"]}]"#;
 
 /// A call the stand-in received.
@@ -70,6 +72,112 @@ fn decision() -> Value {
     })
 }
 
+/// A cart line for `item`, locked to `locked` or Smart Match, with listings `(id, seller, price)`.
+fn cart_line(id: &str, item: &str, quantity: u32, locked: Option<&str>, listings: &[(&str, &str, &str)], updated: &str) -> Value {
+    let options: Vec<Value> = listings
+        .iter()
+        .map(|(listing, seller, price)| {
+            json!({
+                "listing_id": listing, "seller_account_id": "acc_x", "seller_slug": "x", "seller_display_name": seller,
+                "seller_average_rating": if *seller == "Chase Sets" { json!("5.00") } else { Value::Null },
+                "seller_review_count": if *seller == "Chase Sets" { 1 } else { 0 },
+                "price_amount": price, "price_currency_code": "USD", "listing_stream_version": 1, "available_quantity": 4,
+                "product_summary": "Form: raw | Condition: excellent", "product_measure_snapshot": { "source": "profile" },
+            })
+        })
+        .collect();
+    json!({
+        "line_id": id, "catalog_catalog_item_id": format!("cat_{item}"), "product_id": format!("cat_{item}::raw"),
+        "item_language_code": null, "item_title": item, "item_subtitle": "Base Set", "item_image_url": null,
+        "item_image_srcset": null, "item_image_loading_url": null, "item_image_loading_alt": null,
+        "item_image_loading_srcset": null, "selected_options": [], "product_summary": "Form: Raw | Condition: Near Mint",
+        "quantity": quantity, "fulfillment_mode": if locked.is_some() { "locked-listing" } else { "optimize" },
+        "locked_listing_id": locked, "selected_listing_id": null, "selected_listing_seller_account_id": null,
+        "selected_listing_seller_display_name": null, "selected_listing_seller_slug": null,
+        "selected_listing_price_amount": null, "selected_listing_price_currency_code": null,
+        "selected_listing_stream_version": null, "selected_listing_snapshot_source": null,
+        "selected_listing_snapshot_captured_at": null, "seller_preference_id": null, "availability_state": "available",
+        "seller_options": options, "created_at": updated, "updated_at": updated,
+    })
+}
+
+/// A readiness snapshot of `status` with each line's reason and the optimization's `decision`.
+fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, offer: bool) -> Value {
+    let outcomes: Vec<Value> =
+        reasons.iter().map(|(line, reason)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+    json!({
+        "schemaVersion": "checkout.cart-readiness.v1", "source": "cart", "sourceRevision": "cr_rev", "snapshotId": id,
+        "status": status, "lineCount": reasons.len(), "includedLineIds": [], "unresolvedLineIds": [],
+        "lineOutcomes": outcomes,
+        "optimization": {
+            "available": offer, "decision": decision,
+            "proposedLineId": if offer { json!("cli_charizard") } else { Value::Null },
+            "proposedListingId": if offer { json!("lst_vault_charizard") } else { Value::Null },
+            "currentListingId": null, "savingsAmount": if offer { json!("10.99") } else { Value::Null }, "currency": "USD",
+        },
+        "fulfillmentGroups": [], "customerSafeFacts": [],
+    })
+}
+
+/// The cart the session's account has: `buyer`'s is the seed's (two locked lines, ready, a
+/// lower price offered); `blocked`'s has two Smart Match lines for one product, which the page
+/// merges, and a line in another currency, so nothing can check out; `empty`'s has no line.
+fn cart(session: &str) -> Value {
+    let charizard = [("lst_chase_charizard", "Chase Sets", "399.99"), ("lst_vault_charizard", "Card Vault", "389.00")];
+    match session {
+        "blocked" => {
+            let pikachu = [("lst_pikachu", "Card Vault", "17.95")];
+            let reasons = [
+                ("cli_pikachu_a", "unassigned-fulfillment"),
+                ("cli_pikachu_b", "unassigned-fulfillment"),
+                ("cli_eur", "currency-mismatch"),
+            ];
+            json!({
+                "items": [
+                    cart_line("cli_pikachu_a", "Pikachu", 1, None, &pikachu, "2026-10-24T03:00:00.000Z"),
+                    cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z"),
+                    cart_line("cli_pikachu_b", "Pikachu", 2, None, &pikachu, "2026-10-24T04:00:00.000Z"),
+                ],
+                "count": 3,
+                "readiness": {
+                    "loaded": snapshot("cr_loaded", "blocked", &reasons, "none", false),
+                    "declined": snapshot("cr_declined", "blocked", &reasons, "declined", false),
+                    "accepted": null,
+                    "lineListingIds": { "cli_pikachu_a": "lst_pikachu", "cli_pikachu_b": "lst_pikachu", "cli_eur": null },
+                    "estimatedSubtotal": null, "blockedLineCount": 2, "savings": null,
+                },
+            })
+        }
+        "empty" => json!({
+            "items": [], "count": 0,
+            "readiness": {
+                "loaded": snapshot("cr_loaded", "blocked", &[], "none", false),
+                "declined": snapshot("cr_declined", "blocked", &[], "none", false),
+                "accepted": null, "lineListingIds": {}, "estimatedSubtotal": null, "blockedLineCount": 0, "savings": null,
+            },
+        }),
+        _ => {
+            let reasons = [("cli_charizard", "ready"), ("cli_pikachu", "ready")];
+            json!({
+                "items": [
+                    cart_line("cli_pikachu", "Pikachu", 1, Some("lst_chase_pikachu"), &[("lst_chase_pikachu", "Chase Sets", "21.50")], "2026-10-24T03:55:54.259Z"),
+                    cart_line("cli_charizard", "Charizard", 1, Some("lst_chase_charizard"), &charizard, "2026-10-24T03:55:54.247Z"),
+                ],
+                "count": 2,
+                "readiness": {
+                    "loaded": snapshot("cr_loaded", "ready", &reasons, "none", true),
+                    "declined": snapshot("cr_declined", "ready", &reasons, "declined", true),
+                    "accepted": snapshot("cr_accepted", "ready", &reasons, "accepted", true),
+                    "lineListingIds": { "cli_pikachu": "lst_chase_pikachu", "cli_charizard": "lst_chase_charizard" },
+                    "estimatedSubtotal": { "amount": "421.49", "currency": "USD" },
+                    "blockedLineCount": 0,
+                    "savings": { "amount": "10.99", "currency": "USD" },
+                },
+            })
+        }
+    }
+}
+
 fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
 }
@@ -109,7 +217,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return match session {
             "seller" => actor(&["inventory.view", "inventory.manage"]),
             "reader" => actor(&["inventory.view"]),
-            "other" => actor(&[]),
+            // A buyer: any account has a cart, and none of these may see inventory.
+            "other" | "buyer" | "blocked" | "empty" => actor(&[]),
+            "guest" => actor(&["guest-checkout.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -122,6 +232,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             .into_response(),
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
+    }
+    if uri.path() == CART {
+        return Json(cart(session)).into_response();
     }
     if let Some(rest) = uri.path().strip_prefix(RESTOCK) {
         return restock(&stand, &method, rest, &headers, &body);
@@ -680,4 +793,128 @@ async fn the_restock_read_after_a_write_waits_and_says_when_it_cannot_be_verifie
     assert!(html.contains("The update could not be verified."), "the screen's words: {html}");
     let (_, _, html) = pilot.send(get(&format!("{SCREEN}?after_write={}", receipt_at("44")), Some("seller"))).await;
     assert!(html.contains("Storage location update could not be verified."), "{html}");
+}
+
+/// The calls to the cart read.
+fn cart_calls(pilot: &Pilot) -> Vec<Call> {
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == CART).cloned().collect()
+}
+
+/// The text of `html` with its tags taken out, its runs of space made one.
+fn text(html: &str) -> String {
+    let mut out = String::new();
+    let mut tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => tag = true,
+            '>' => {
+                tag = false;
+                out.push(' ');
+            }
+            c if !tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[tokio::test]
+async fn the_cart_shows_each_line_the_total_and_the_lower_price_the_api_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Save $10.99 by switching to Card Vault"), "the API's savings and the proposed seller: {page}");
+    // Newest first, each with its badge, options, lock, seller and price.
+    let (pikachu, charizard) = (page.find("Pikachu").unwrap(), page.find("Charizard").unwrap());
+    assert!(pikachu < charizard, "{page}");
+    assert_eq!(html.matches("data-reason>Ready<").count(), 2, "{html}");
+    assert!(page.contains("Raw Near Mint"), "{page}");
+    assert!(page.contains("Chase Sets is locked for checkout unless availability changes."), "{page}");
+    assert!(page.contains("Chase Sets \u{2605} 5.0 (1)"), "{page}");
+    assert!(page.contains("$21.50") && page.contains("$399.99"), "{page}");
+    assert!(page.contains("Estimated total $421.49 Final total confirmed at checkout"), "the API's subtotal: {page}");
+    assert!(!page.contains("Find alternatives"), "every line can be fulfilled: {page}");
+    // Checkout is marketplace's (todd-skelton/corten#64: links, not forms).
+    assert!(html.contains(r#"href="http://localhost:7753/checkout/buy/readiness">Check out<"#), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/cart">Use lower price<"#), "{html}");
+    assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/assets/pokemon-card-back.png""#), "{html}");
+    assert!(!html.contains("<script>"), "the page needs no inline script");
+
+    let reads = cart_calls(&pilot);
+    assert_eq!(reads.len(), 1, "{reads:?}");
+    assert_eq!(reads[0].headers["chase-sets-read-target-context"], "checkout");
+    assert_eq!(reads[0].headers[header::COOKIE], "chase_sets_session=buyer");
+}
+
+#[tokio::test]
+async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("blocked"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Some items need attention"), "{page}");
+    assert!(page.contains("2 items need fulfillment, shipping measure, or availability resolved before checkout."), "{page}");
+    assert!(!page.contains("Save "), "a cart that needs attention offers no lower price: {page}");
+    // The two Pikachu lines are one, quantity 3, before the older Mew; Smart Match prices it "from".
+    assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
+    assert!(html.contains(r#"data-cart-line="cli_pikachu_a""#), "the merged line keeps the first one's id: {html}");
+    assert!(html.contains("data-quantity>3<"), "{html}");
+    assert!(page.contains("from $53.85"), "{page}");
+    assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
+    // The API says the other currency's line needs review (marketplace draws it Ready).
+    assert!(html.contains("data-reason>Needs review<"), "{html}");
+    assert!(page.contains("Priced at checkout"), "a line without a priced listing, and the total: {page}");
+    assert_eq!(page.matches("Find alternatives").count(), 1, "only the line with no fulfillment: {page}");
+    assert!(html.contains(r#"href="http://localhost:7753/search?q=Pikachu""#), "{html}");
+    assert!(html.contains(">Continue to checkout<") && !html.contains(">Check out<"), "{html}");
+    assert!(page.contains("Resolve item availability before payment starts."), "{page}");
+    assert!(!page.contains("Use lower price"), "{page}");
+}
+
+#[tokio::test]
+async fn an_empty_cart_offers_to_keep_shopping() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Your buy cart is empty"), "{page}");
+    assert!(page.contains("Checkout protection stays visible"), "{page}");
+    assert!(html.contains(r#"href="http://localhost:7753/search">Keep shopping<"#), "{html}");
+    assert!(!page.contains("Estimated total"), "no totals or checkout bar: {page}");
+}
+
+#[tokio::test]
+async fn any_account_has_a_cart_and_a_guest_goes_to_marketplaces() {
+    let pilot = Pilot::new().await;
+    for session in [None, Some("expired"), Some("guest")] {
+        let (status, headers, _) = pilot.send(get(CART_SCREEN, session)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{session:?}");
+        assert_eq!(headers[header::LOCATION], "http://localhost:7753/account/cart", "{session:?}");
+    }
+    assert!(cart_calls(&pilot).is_empty(), "nothing is read for a visitor without an account cart");
+    let (status, _, _) = pilot.send(get(CART_SCREEN, Some("down"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "a failed lookup must not send the user away");
+    // A seller's inventory permission is not needed for the cart, and a buyer's is not enough for inventory.
+    let (status, _, _) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_data_client_gets_the_cart_screen() {
+    let pilot = Pilot::new().await;
+    let mut req = get(CART_SCREEN, Some("blocked"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    let lines = &screen["data"]["lines"];
+    assert_eq!(lines[0]["line_ids"], json!(["cli_pikachu_a", "cli_pikachu_b"]), "{body}");
+    assert_eq!(lines[0]["reason"], "unassigned-fulfillment", "{body}");
+    assert_eq!(lines[0]["price"], json!({ "state": "from", "text": "$53.85" }), "{body}");
+    assert_eq!(lines[1]["reason"], "currency-mismatch", "{body}");
+    assert_eq!(lines[1]["price"], json!({ "state": "deferred" }), "{body}");
+    assert_eq!(screen["data"]["readiness"]["blockedLineCount"], 2, "{body}");
 }

@@ -7,17 +7,17 @@ use serde::Serialize;
 use crate::{
     api::{Inventory as _, Location},
     app::{Config, Shared, read_failed, sign_in, url, viewer},
+    auth::Session,
     form::LocationInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot},
     views::{self, Draft, Forms},
 };
 
-pub fn routes(router: Router<Shared>, _shared: Shared) -> Router<Shared> {
-    router
-        .route(url::Locations::PATH, get(list).post(create))
-        .route(url::Location::PATH, post(update))
-        .route(url::Archive::PATH, post(archive))
+pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
+    area.route::<url::Locations>(get(list).post(create).with_state(shared.clone()))
+        .route::<url::Location>(post(update).with_state(shared.clone()))
+        .route::<url::Archive>(post(archive).with_state(shared.clone()))
 }
 
 /// The screen's view model: what the page shows and what a data client gets.

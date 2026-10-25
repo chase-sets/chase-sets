@@ -17,6 +17,9 @@
 // - marketplace/locales/restock.en.json: the restock decisions screen's English catalog
 //   (inventory.features.restockDecisions.ui.queue.*, the route's title and description, and the
 //   resource route's "could not be verified").
+// - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
+//   and checkout.routes.accountCart.*, the route's title, description and messages, and the
+//   language labels a line's badge uses).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -258,6 +261,17 @@ const outputs = [
       ])),
       // What marketplace's resource route says when the read after a write fails for good.
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.routeResource.unverified", "unverified"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/cart.en.json",
+    json({
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.cart.ui.cartPage.", "page"],
+        ["checkout.routes.accountCart.", "route"],
+      ])),
+      // A line's language badge (`formatLanguageCodeLabel`).
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],

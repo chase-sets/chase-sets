@@ -13,28 +13,38 @@ use platform::{
 use crate::{
     app::url,
     auth::{Session, Viewer},
+    cart::CartScreen,
     form::LocationInput,
     locations::Screen,
     recovery::{Check, Status},
     restock::RestockScreen,
-    text::{Msg, Pilot, Restock},
+    text::{CartMsg, Msg, Pilot, Restock},
 };
 
+mod cart_item;
 mod decision_card;
 mod location_card;
 mod market_nav;
 mod page_actions;
 mod recovery;
 
+pub use cart_item::{
+    CartHeading, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutLink, EmptyCart, Reputation,
+};
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 
-/// Every component with a stylesheet or a script, tokens first.
-pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, MarketNav, Section, PageActions, Recovery, handlers::COMPONENT, LocationCard, DecisionCard];
+/// Every component with a stylesheet or a script that pages in both areas render, tokens first.
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
+
+/// The inventory screens' components (`/account/inventory`).
+pub const INVENTORY: &[Component] = &[PageActions, Recovery, handlers::COMPONENT, LocationCard, DecisionCard];
+
+/// The cart's components (`/account/cart`).
+pub const CART: &[Component] = &[CartItem];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
@@ -73,7 +83,7 @@ pub fn marketplace(path: &str) -> Option<Uri> {
 pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
     let p: Pilot = doc.t();
     let viewer = match &session {
-        Some(Session::Seller(viewer)) => Some(viewer.clone()),
+        Some(Session::Account(viewer)) => Some(viewer.clone()),
         _ => None,
     };
     let theme = viewer.as_ref().and_then(|v| v.color_mode.theme());
@@ -296,6 +306,82 @@ pub fn RefusedDecision<'a>(
         match which {
             Decided::Restock(id) => { <RestockForm t={t} m={m} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
             Decided::WriteOff(id) => { <WriteOffForm t={t} m={m} viewer={viewer} id={id.as_str()} draft={draft} enabled /> }
+        }
+    }
+}
+
+/// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
+/// the checkout bar, or the empty cart.
+pub fn cart_page<'a>(t: CartMsg, _viewer: &'a Viewer, screen: &'a CartScreen) -> impl Render + 'a {
+    let readiness = screen.readiness.as_ref();
+    let money = |m: Option<&crate::api::Money>| match m {
+        Some(m) => platform::money::amount(&m.amount, &m.currency),
+        None => t.page_priced_at_checkout().to_owned(),
+    };
+    let total = money(readiness.and_then(|r| r.estimated_subtotal.as_ref()));
+    let known = readiness.is_some_and(|r| r.estimated_subtotal.is_some());
+    let savings = money(readiness.and_then(|r| r.savings.as_ref()));
+    let needs_review = readiness.is_some() && !screen.lines.is_empty() && !screen.ready();
+    let blocked = readiness.map_or(0, |r| r.blocked_line_count);
+    let offered = screen.offered();
+    let offered_seller = offered.and_then(|o| o.seller_display_name.as_deref().map(|name| crate::cart::Seller::of(name, o)));
+    let offer_title = match &offered_seller {
+        Some(seller) => t.page_optimization_switch_to_seller_title(&savings, seller.name).to_string(),
+        None => t.page_optimization_available_title(&savings).to_string(),
+    };
+    let context = if screen.ready() || readiness.is_none() {
+        t.page_taxes_and_shipping_calculated()
+    } else {
+        t.page_resolve_before_payment()
+    };
+    // Check out when the cart is ready as it is, Continue to checkout to resolve it first.
+    let checkout =
+        if readiness.is_some_and(|r| r.declined.status == "ready") { t.page_check_out() } else { t.page_resolve_fulfillment() };
+    let lower_price = readiness.is_some_and(|r| r.accepted.is_some()) && screen.offer();
+    let (search, resolve, own_cart) =
+        (cart_item::link("/search"), cart_item::link("/checkout/buy/readiness"), cart_item::link("/account/cart"));
+    html! {
+        <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
+        <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
+        if screen.lines.is_empty() {
+            <EmptyCart t={t} />
+        } else {
+            <CartStack>
+                if needs_review {
+                    <CartNotice title={t.page_fulfillment_needs_review()} warning>
+                        if blocked == 1 {
+                            <p>{t.page_fulfillment_needs_review_description_one()}</p>
+                        } else {
+                            <p>{t.page_fulfillment_needs_review_description_many(blocked)}</p>
+                        }
+                    </CartNotice>
+                } else if screen.offer() {
+                    <CartNotice title={&offer_title} warning={false}>
+                        <p>{t.page_optimization_available_description()}</p>
+                        if let Some(seller) = &offered_seller {
+                            <Reputation t={t} seller={seller} />
+                        }
+                    </CartNotice>
+                }
+                <CartList>
+                    for line in &screen.lines {
+                        <CartItem t={t} line={line} />
+                    }
+                </CartList>
+                <CartTotals t={t} items={screen.item_count()} total={&total} known={known} />
+                <CheckoutBar
+                    t={t}
+                    total={&total}
+                    context={context}
+                    primary={html! { <CheckoutLink href={&resolve} label={checkout} primary /> }}
+                    secondary={html! {
+                        if lower_price {
+                            <CheckoutLink href={&own_cart} label={t.page_use_lower_fulfillment()} primary={false} />
+                        }
+                        <CheckoutLink href={&search} label={t.page_keep_shopping()} primary={false} />
+                    }}
+                />
+            </CartStack>
         }
     }
 }

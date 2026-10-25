@@ -1,8 +1,9 @@
 //! The screens' text. `Msg` (storage locations) and `Restock` (restock decisions) are the
-//! Inventory context's own catalogs for each screen (exported from contracts/localization by
+//! Inventory context's own catalogs for each screen, and `CartMsg` the Checkout context's cart page's (exported from contracts/localization by
 //! scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell, input checks and
 //! the routes' own messages. `messages!` checks every call against the catalogs when the crate
 //! compiles.
+pub use cart::CartMsg;
 pub use inventory::Msg;
 pub use pilot::Pilot;
 pub use restock::Restock;
@@ -16,6 +17,12 @@ mod inventory {
 mod restock {
     corten::i18n::messages! {
         pub struct Restock { "en" => "locales/restock.en.json" }
+    }
+}
+
+mod cart {
+    corten::i18n::messages! {
+        pub struct CartMsg { "en" => "locales/cart.en.json" }
     }
 }
 

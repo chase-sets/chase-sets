@@ -1,10 +1,17 @@
 // Signs a synthetic seed user in through the app's own sign-in page and saves the browser state,
 // so the pilot's smoke tests and benchmark run as a real session: admin-web's browser-e2e platform
-// admin, or marketplace's seed seller (`marketplaceBrowserE2eSeedContract.seller`).
-// Usage: node scripts/sign-in.mjs <app-url> <state-file> [admin|marketplace]
+// admin, marketplace's seed seller (`marketplaceBrowserE2eSeedContract.seller`), or the auth
+// seed's collector, whose seeded cart has two lines.
+// Usage: node scripts/sign-in.mjs <app-url> <state-file> [admin|marketplace|collector] [--api <platform-api-url>]
+// With --api the session comes from the platform API's /api/auth/password-sign-in, as marketplace's
+// e2e `signInWithPassword` starts one, so the web host need not be running.
+import { writeFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7752", stateFile = "artifacts/admin-state.json", app = "admin"] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const apiAt = args.indexOf("--api");
+const api = apiAt >= 0 ? args.splice(apiAt, 2)[1] : undefined;
+const [base = "http://localhost:7752", stateFile = "artifacts/admin-state.json", app = "admin"] = args;
 const users = {
   admin: {
     path: "/access/sign-in?returnTo=%2Fcommerce",
@@ -16,9 +23,30 @@ const users = {
     email: process.env.MARKETPLACE_E2E_SELLER_EMAIL ?? "demo@chasesets.test",
     password: process.env.MARKETPLACE_E2E_SELLER_PASSWORD ?? "demo1234",
   },
+  collector: {
+    path: "/sign-in?returnTo=%2Faccount%2Fcart",
+    email: process.env.PILOT_COLLECTOR_EMAIL ?? "collector@chasesets.test",
+    password: process.env.PILOT_COLLECTOR_PASSWORD ?? "collector1234",
+  },
 };
-if (!(app in users)) throw new Error(`unknown app ${app}: admin or marketplace`);
+if (!(app in users)) throw new Error(`unknown app ${app}: admin, marketplace or collector`);
 const { path: signInPath, email, password } = users[app];
+
+if (api) {
+  const response = await fetch(new URL("/api/auth/password-sign-in", api), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (response.status !== 200) throw new Error(`password sign-in answered ${response.status}`);
+  const { sessionToken } = await response.json();
+  if (!sessionToken) throw new Error("password sign-in returned no session token");
+  const { hostname } = new URL(base);
+  const cookie = { name: "chase_sets_session", value: sessionToken, domain: hostname, path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" };
+  writeFileSync(stateFile, JSON.stringify({ cookies: [cookie], origins: [] }, null, 2));
+  console.log(`signed in through ${api}; state in ${stateFile}`);
+  process.exit(0);
+}
 
 const browser = await chromium.launch();
 const context = await browser.newContext();

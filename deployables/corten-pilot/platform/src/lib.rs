@@ -1,10 +1,11 @@
 //! What the pilot's apps share: the platform API called as the signed-in user ([`api`]), the
 //! read-after-write receipt ([`receipt`]), the realtime stream's changes ([`realtime`]), a durable job's status ([`jobs`]), the React apps' nav rules ([`nav`]), the session cookie
 //! and color mode ([`session`]), the design system's tokens ([`theme`]), and the page parts both
-//! apps draw ([`section`]), and a time as Chase Sets writes one ([`when`]). Each app owns its
+//! apps draw ([`section`]), a time and an amount of money as Chase Sets writes them ([`when`], [`money`]). Each app owns its
 //! screens, its shell and its API calls.
 pub mod api;
 pub mod jobs;
+pub mod money;
 pub mod nav;
 pub mod realtime;
 pub mod receipt;

@@ -1,4 +1,4 @@
-//! Who is asking, and what they may see: the seller session marketplace signed in, the color mode
+//! Who is asking, and what they may see: the session marketplace signed in, the color mode
 //! they chose, and marketplace's top nav filtered by the same rules as `resolveWebHostNavItems`.
 use std::sync::LazyLock;
 
@@ -13,7 +13,8 @@ use crate::api::{Caller, Identity};
 /// `App::context`: present for a request with a session cookie.
 #[derive(Clone, Debug, Hash)]
 pub enum Session {
-    Seller(Viewer),
+    /// Someone signed in: a seller on the inventory screens, a buyer on the cart.
+    Account(Viewer),
     /// The cookie is there but the API could not say whose it is. Not "signed out": sending the
     /// user to sign in again would loop while the API is down.
     Unavailable,
@@ -29,7 +30,7 @@ pub struct Viewer {
 /// signed in.
 pub async fn session(caller: Caller<'_>, color_mode: ColorMode) -> Option<Session> {
     match caller.identify().await {
-        Identity::Actor(actor) => Some(Session::Seller(Viewer { actor, color_mode })),
+        Identity::Actor(actor) => Some(Session::Account(Viewer { actor, color_mode })),
         Identity::SignedOut => None,
         Identity::Unknown => Some(Session::Unavailable),
     }

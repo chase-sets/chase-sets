@@ -18,6 +18,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
+| `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar (not ported yet: the writes, which are quantity, remove and lock; the guest cart; and checkout itself, which is marketplace's) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -96,6 +97,8 @@ cd deployables/corten-pilot/admin; corten dev --port 7790          # or marketpl
 cd ..
 node scripts/smoke-admin.mjs           # every action in a browser, with and without JavaScript (writes sandbox data)
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
+node scripts/sign-in.mjs http://localhost:7792 ../../artifacts/corten-pilot/collector-state.json collector --api http://localhost:7762
+node scripts/smoke-cart.mjs            # the cart beside the API's read and marketplace's page: lines, badges, prices, total, the offer, no JavaScript, 390 px (only reads)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -107,6 +110,7 @@ node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=cart marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
@@ -165,7 +169,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/recovery.rs` | the write's attempt id, the address's `Check`, and confirming a write the browser did not hear back about |
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
-| `platform/src/when.rs` | a time as Chase Sets writes one (`Mar 22, 2026, 12:00 PM UTC`), until Corten can |
+| `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, and the page's parts, whose stylesheet is `sections/account/cart.css` |
+| `platform/src/when.rs`, `money.rs` | a time and an amount of money as Chase Sets writes them (`Mar 22, 2026, 12:00 PM UTC`, `$1,234.50`), until Corten can |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
@@ -376,15 +381,46 @@ forward only on purpose, when a fix the pilot needs lands.
     so `scripts/smoke-restock.mjs` checks refusals and recovery only, and the router tests check
     an applied decision.
 
+29. **The cart is the API's read, drawn.** marketplace's two areas are Corten areas, each with
+    its guard and stylesheet: `/account/inventory` needs `inventory.view` (writes
+    `inventory.manage`), and `/account/cart` any account but a guest checkout's. A visitor with
+    no account cart is sent to marketplace's own `/account/cart`, which reads the guest cart; the
+    pilot does not port it. The readiness, the estimated subtotal, the blocked count and the
+    savings are the Checkout API's ([chase-sets/chase-sets#10504 [checkout] Return Cart readiness, subtotal and savings from the cart read](https://github.com/chase-sets/chase-sets/issues/10504)). Each line's badge is the API's line outcome rather
+    than a copy of marketplace's rules. That differs from marketplace in one case: a line in
+    another currency is "Needs review" here and "Ready" there
+    ([chase-sets/chase-sets#10576 Draw each cart line's readiness from the cart read instead of recomputing it in the cart page](https://github.com/chase-sets/chase-sets/issues/10576)). The line's price is still worked out here as marketplace's page does (exact for a
+    locked listing, "from" for Smart Match, "Priced at checkout" without a priced listing), and
+    lines for one product and fulfillment are merged as `groupCartLines` merges them. Money is
+    written as `formatMoney` writes it, by hand, in `en-US` (`platform::money`), because Corten
+    cannot ([todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)). Check out and Use lower price are links, not the forms marketplace posts to
+    its `/checkout/buy/readiness`: every Corten page's CSP has `form-action 'self'`, so the
+    browser does not send a form to marketplace's origin ([todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64)). Check out opens that page,
+    which reads the readiness again; Use lower price opens marketplace's own cart, since a link
+    cannot carry the choice. A line without an image shows marketplace's card back from
+    marketplace's origin, a 2.9 MB PNG ([chase-sets/chase-sets#10577 Shrink the cart's 2.9 MB fallback card-back thumbnail](https://github.com/chase-sets/chase-sets/issues/10577)); the policy allows images from that origin,
+    since it is plain http locally. The writes are next.
+
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
+1. [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64)
+   (correctness, then developer time). The cart's Check out and Use lower price post the
+   readiness snapshot and the optimization choice to marketplace's origin; the browser blocks the
+   form before it is sent, and says so only in the console. Workaround: links (`CheckoutLink` in
+   [`cart_item.rs`](marketplace/src/views/cart_item.rs)); Use lower price loses the choice.
+2. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
+   (correctness, then end-user performance). Chase Sets writes money with `formatMoney` in 71
+   `.tsx` files; Corten's own examples format prices by hand three times. Workaround:
+   `platform::money::amount` writes `en-US` by hand ([`money.rs`](platform/src/money.rs)), with
+   `formatMoney`'s own test cases.
+
+3. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
    (correctness, then end-user performance). Chase Sets writes times with `formatDateTime` in 65
    of its `.tsx` files. Workaround: `platform::when::date_time` writes `en` in UTC by hand
    ([`when.rs`](platform/src/when.rs)), with `formatDateTime`'s own test cases.
-2. [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61)
+4. [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61)
    (correctness). The restock page's refused write-off was in the 422 body and never on the page,
    because the form's component wrapped it in a `<div>`. Workaround: the form is the component's
    root, and the router tests check each refused write's patch ids (`patch_ids` in

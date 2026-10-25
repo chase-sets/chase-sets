@@ -23,6 +23,11 @@ fn parse(value: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(&text, &Rfc3339).ok()
 }
 
+/// The instant an API timestamp names, for ordering; `None` when it is not a time.
+pub fn instant(value: &str) -> Option<OffsetDateTime> {
+    parse(value)
+}
+
 /// `value` as `Mar 22, 2026, 12:00 PM UTC`, or `value` itself when it is not a time.
 pub fn date_time(value: &str) -> String {
     let Some(at) = parse(value) else {

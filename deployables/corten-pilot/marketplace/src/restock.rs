@@ -9,17 +9,17 @@ use serde::Serialize;
 use crate::{
     api::{Decision, Inventory as _, Outcome},
     app::{Config, Shared, read_failed, sign_in, url, viewer},
+    auth::Session,
     form::DecisionInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot, Restock},
     views::{self, Decided, DecisionDraft, Posted},
 };
 
-pub fn routes(router: Router<Shared>, _shared: Shared) -> Router<Shared> {
-    router
-        .route(url::Restock::PATH, get(list))
-        .route(url::Restocked::PATH, post(restock))
-        .route(url::WrittenOff::PATH, post(write_off))
+pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
+    area.route::<url::Restock>(get(list).with_state(shared.clone()))
+        .route::<url::Restocked>(post(restock).with_state(shared.clone()))
+        .route::<url::WrittenOff>(post(write_off).with_state(shared.clone()))
 }
 
 /// The screen's view model: what the page shows and what a data client gets.

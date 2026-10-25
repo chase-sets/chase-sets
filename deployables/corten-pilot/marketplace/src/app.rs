@@ -1,4 +1,5 @@
-//! The app: who may come in, the shell, and the routes of both screens (`locations`, `restock`).
+//! The app: who may come in, the shell, and two areas, each with its routes, stylesheet and guard:
+//! the seller's inventory screens (`locations`, `restock`) and the buyer's cart (`cart`).
 //! Every write is its own typed route (marketplace posts one form with an `intent`). A write the
 //! input or the API refuses answers its form again, as a patch or the page (422); one the API
 //! applies redirects to its list, carrying the write's receipt and the attempt, which the list
@@ -13,6 +14,7 @@
 //! | `GET /account/inventory/restock-decisions?<check>` | the pending restock decisions, and what the last write did |
 //! | `POST /account/inventory/restock-decisions/{id}/restock` | restock a decision's items |
 //! | `POST /account/inventory/restock-decisions/{id}/write-off` | write them off, with a damage note |
+//! | `GET /account/cart` | the account's cart, its readiness and total |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`.
 use std::sync::Arc;
@@ -26,13 +28,15 @@ use platform::session;
 use crate::{
     api::{ApiError, Platform, segment},
     auth::{self, ColorMode, Session, Viewer},
-    locations, restock,
+    cart, locations, restock,
     text::Pilot,
     views,
 };
 
 pub const VIEW: &str = "inventory.view";
 pub const MANAGE: &str = "inventory.manage";
+/// A guest checkout's session (marketplace's `canUseAccountCart`): it has no account cart.
+pub const GUEST_CHECKOUT: &str = "guest-checkout.manage";
 
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
@@ -66,6 +70,21 @@ pub mod url {
     use corten::Route;
 
     use crate::recovery::Check;
+
+    /// The seller's inventory screens: their routes, stylesheet and guard.
+    #[derive(Route)]
+    #[route("/account/inventory")]
+    pub struct InventoryArea;
+
+    /// The buyer's cart: its routes, stylesheet and guard.
+    #[derive(Route)]
+    #[route("/account/cart")]
+    pub struct CartArea;
+
+    /// The account's cart.
+    #[derive(Route)]
+    #[route("/account/cart")]
+    pub struct Cart;
 
     /// The storage locations, and the write to confirm.
     #[derive(Clone, Debug, Default, Route)]
@@ -120,7 +139,7 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
 pub fn app(config: Config) -> App<Session> {
     let shared: Shared = Arc::new(config);
     let context = shared.clone();
-    App::new(routes(shared))
+    App::new(Router::new())
         .context(move |headers: &HeaderMap| {
             let forward = session::forwarded(headers);
             let color_mode = ColorMode::from_headers(headers);
@@ -130,31 +149,54 @@ pub fn app(config: Config) -> App<Session> {
                 auth::session(config.platform.caller(&forward, config.proto, None), color_mode).await
             }
         })
-        // Sellers who may see their inventory read the screens; writing needs inventory.manage, as
-        // marketplace's actions require. The API checks both again.
-        .guard(move |session, req| match session {
-            Some(Session::Seller(viewer)) if viewer.actor.can(if req.writes() { MANAGE } else { VIEW }) => Access::ALLOW,
-            Some(Session::Seller(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
-            Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
-            None => match sign_in_at(req.uri().path()) {
-                Some(to) => Access::sign_in(&to),
-                None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-            },
-        })
+        // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
+        // default policy takes any https image).
+        .policy(corten::security::Policy::new().img_src(marketplace_origin()))
         .shell(views::shell)
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)
+        // Sellers who may see their inventory read the screens; writing needs inventory.manage, as
+        // marketplace's actions require. The API checks both again.
+        .area::<url::InventoryArea>(|area| {
+            restock::routes(locations::routes(area, &shared), &shared).components(views::INVENTORY).guard(|session, req| {
+                match session {
+                    Some(Session::Account(viewer)) if viewer.actor.can(if req.writes() { MANAGE } else { VIEW }) => Access::ALLOW,
+                    Some(Session::Account(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
+                    other => signed_out(other, req.uri().path()),
+                }
+            })
+        })
+        // Any signed-in account has a cart. The guest cart is not ported: a visitor without an
+        // account, or a guest checkout's session, is sent to marketplace's own cart, which reads it.
+        .area::<url::CartArea>(|area| {
+            cart::routes(area, &shared).components(views::CART).guard(|session, _| match session {
+                Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT) => Access::ALLOW,
+                Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
+                _ => match views::marketplace("/account/cart") {
+                    Some(to) => Access::sign_in(&to),
+                    None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
+                },
+            })
+        })
         .error_page(views::error_page)
 }
 
-fn routes(shared: Shared) -> Router {
-    restock::routes(locations::routes(Router::new(), shared.clone()), shared.clone()).with_state(shared)
+/// A guard's answer without an account: the API could not say whose the cookie is (signing in
+/// again would loop while it is down), or no one is signed in.
+fn signed_out(session: Option<&Session>, path: &str) -> Access {
+    match session {
+        Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
+        _ => match sign_in_at(path) {
+            Some(to) => Access::sign_in(&to),
+            None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
+        },
+    }
 }
 
 /// The signed-in seller; the guard let only sellers in.
 pub fn viewer(req: &Req) -> Result<&Viewer, corten::Error> {
     match req.context::<Session>() {
-        Some(Session::Seller(viewer)) => Ok(viewer),
+        Some(Session::Account(viewer)) => Ok(viewer),
         _ => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
     }
 }
