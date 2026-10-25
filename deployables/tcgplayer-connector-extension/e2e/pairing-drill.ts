@@ -77,8 +77,18 @@ export type PairingDrillSeams = Readonly<{
   pageRoute?: (route: Route, request: Request) => Promise<void>;
   classify?: (request: Request) => "worker" | "page";
   routeFilter?: (url: URL, request: Request) => boolean;
-  forward?: (request: ForwardRequest, handles: ForwardHandles, defaultForward: () => Promise<void>) => Promise<void>;
-  trigger?: (context: BrowserContext, page: Page, phase: "pairing" | "page") => Promise<boolean>;
+  forward?: (
+    request: ForwardRequest,
+    handles: ForwardHandles,
+    defaultForward: () => Promise<void>,
+    context: BrowserContext,
+  ) => Promise<void>;
+  trigger?: (
+    context: BrowserContext,
+    page: Page,
+    phase: "pairing" | "page",
+    defaultTrigger: () => Promise<boolean>,
+  ) => Promise<boolean>;
 }>;
 export type PairingDrillInput = Readonly<{
   dist: string;
@@ -350,27 +360,17 @@ export async function runPairingDrill(
       if (url.origin === callback.origin && url.pathname === callback.pathname)
         await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>callback</title>" });
       else if (source === "page") await (seams?.pageRoute ? seams.pageRoute(route, request) : route.continue());
-      else if (url.origin === platformOrigin)
-        await (seams?.forward
-          ? seams.forward(
-              { url: url.href, method: request.method(), headers: request.headers(), body: request.postDataBuffer() },
-              recordingHandles(route, url.pathname, forwards),
-              () =>
-                forwardWorkerRequest(
-                  {
-                    url: url.href,
-                    method: request.method(),
-                    headers: request.headers(),
-                    body: request.postDataBuffer(),
-                  },
-                  recordingHandles(route, url.pathname, forwards),
-                ),
-            )
-          : forwardWorkerRequest(
-              { url: url.href, method: request.method(), headers: request.headers(), body: request.postDataBuffer() },
-              recordingHandles(route, url.pathname, forwards),
-            ));
-      else await route.abort();
+      else if (url.origin === platformOrigin) {
+        const forwardRequest = {
+          url: url.href,
+          method: request.method(),
+          headers: request.headers(),
+          body: request.postDataBuffer(),
+        };
+        const handles = recordingHandles(route, url.pathname, forwards);
+        const defaultForward = () => forwardWorkerRequest(forwardRequest, handles);
+        await (seams?.forward ? seams.forward(forwardRequest, handles, defaultForward, context) : defaultForward());
+      } else await route.abort();
     });
     if (input.traceActive) await context.tracing.start(traceOptions);
     try {
@@ -442,7 +442,9 @@ export async function runPairingDrill(
     if (
       typeof pairingId !== "string" ||
       pairingId.length < 4 ||
-      !(await (seams?.trigger ? seams.trigger(context, page, "pairing") : triggerAction(context, page))) ||
+      !(await (seams?.trigger
+        ? seams.trigger(context, page, "pairing", () => triggerAction(context, page))
+        : triggerAction(context, page))) ||
       !(await waitFor(async () => (await actionTitle(connector)) === "paired-idle"))
     )
       fail("connector-drill-pairing-refused");
@@ -471,7 +473,11 @@ export async function runPairingDrill(
       if (seamObservation.letThroughServed !== 1) fail("connector-drill-seam-ignored");
     }
 
-    if (!(await (seams?.trigger ? seams.trigger(context, page, "page") : triggerAction(context, page))))
+    if (
+      !(await (seams?.trigger
+        ? seams.trigger(context, page, "page", () => triggerAction(context, page))
+        : triggerAction(context, page)))
+    )
       fail("connector-drill-page-status");
     let opened: URL | undefined;
     const served = await waitFor(() => {

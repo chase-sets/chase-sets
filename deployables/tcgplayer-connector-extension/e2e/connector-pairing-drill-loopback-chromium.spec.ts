@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { build } from "vite";
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import {
   createSyntheticPairingCode,
   loopbackPlatform,
@@ -22,7 +22,6 @@ import {
   type PairingDrillLifecycleEnd,
   type PairingDrillReceipt,
   type PairingDrillRefusalCode,
-  forwardWorkerRequest,
   type ForwardHandles,
   type ForwardRequest,
 } from "./pairing-drill";
@@ -126,20 +125,13 @@ async function casePlatform(claims = cleanupClaims, pageMode: "drop" | "delay" |
   return { platform, observe };
 }
 
-async function secondServer(mode: "normal" | "drop" | "delay" = "normal") {
+async function secondServer() {
   let plantedPageServed = 0;
   let letThroughServed = 0;
-  let droppedPageCount = 0;
   const platform = await loopbackPlatform({
     handle: async (request, reply) => {
       const path = new URL(request.url!, "http://127.0.0.1").pathname;
       if (path === "/drill/planted-page") {
-        if (mode === "drop") {
-          droppedPageCount++;
-          request.socket.destroy();
-          return true;
-        }
-        if (mode === "delay") await new Promise((resolve) => setTimeout(resolve, 11_000));
         plantedPageServed++;
         reply.writeHead(200).end("planted");
         return true;
@@ -154,7 +146,7 @@ async function secondServer(mode: "normal" | "drop" | "delay" = "normal") {
   });
   return {
     platform,
-    observe: () => ({ plantedPageServed, letThroughServed, droppedPageCount }),
+    observe: () => ({ plantedPageServed, letThroughServed }),
   };
 }
 
@@ -300,13 +292,23 @@ test("connector-pairing-drill-active-trace-refuses-before-sign-in", async () => 
 });
 
 async function forwardKeepingHeaders(request: ForwardRequest, handles: ForwardHandles) {
-  const response = await fetch(request.url, {
-    method: request.method,
-    headers: request.headers,
-    body: request.body ? new Uint8Array(request.body) : undefined,
-    redirect: "manual",
-  });
-  if (response.status >= 300 && response.status < 400) {
+  let response: Response;
+  try {
+    response = await fetch(request.url, {
+      method: request.method,
+      headers: Object.fromEntries(
+        Object.entries(request.headers).filter(
+          ([name]) => !["cookie", "host", "content-length"].includes(name.toLowerCase()),
+        ),
+      ),
+      body: request.body ? new Uint8Array(request.body) : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    await handles.abort(null);
+    return;
+  }
+  if ((response.status >= 300 && response.status < 400) || response.type === "opaqueredirect") {
     await response.body?.cancel();
     await handles.abort(response.status);
     return;
@@ -318,12 +320,19 @@ async function forwardKeepingHeaders(request: ForwardRequest, handles: ForwardHa
   });
 }
 
-async function forwardWithCookie(request: ForwardRequest, handles: ForwardHandles) {
+async function forwardWithCookie(request: ForwardRequest, handles: ForwardHandles, context: BrowserContext) {
   let response: Response;
   try {
+    const headers = Object.fromEntries(
+      Object.entries(request.headers).filter(
+        ([name]) => !["cookie", "host", "content-length"].includes(name.toLowerCase()),
+      ),
+    );
+    const cookies = await context.cookies(new URL(request.url).origin);
+    if (cookies.length) headers.cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
     response = await fetch(request.url, {
       method: request.method,
-      headers: { ...request.headers, cookie: `${synthetic.cookieName}=${synthetic.cookieValue}` },
+      headers,
       body: request.body ? new Uint8Array(request.body) : undefined,
       redirect: "manual",
     });
@@ -331,7 +340,7 @@ async function forwardWithCookie(request: ForwardRequest, handles: ForwardHandle
     await handles.abort(null);
     return;
   }
-  if (response.status >= 300 && response.status < 400) {
+  if ((response.status >= 300 && response.status < 400) || response.type === "opaqueredirect") {
     await response.body?.cancel();
     await handles.abort(response.status);
     return;
@@ -447,7 +456,12 @@ test("connector-pairing-drill-control C5", async () => {
   });
   try {
     expect(refused.code).toBe("connector-drill-forward-headers");
-    expect(refused.evidence.forwards.some((row) => row.fulfilledHeaderNames.includes("set-cookie"))).toBe(true);
+    expect(refused.evidence.forwards).toContainEqual(
+      expect.objectContaining({
+        path: headersPath,
+        fulfilledHeaderNames: expect.arrayContaining(["set-cookie", "content-encoding", "content-length"]),
+      }),
+    );
   } finally {
     await second.platform.close();
     await platform.platform.close();
@@ -456,7 +470,10 @@ test("connector-pairing-drill-control C5", async () => {
 
 test("connector-pairing-drill-control C6", async () => {
   const { refused, platform, second } = await runControl({
-    mutate: (input) => ({ ...input, seams: { forward: (request, handles) => forwardWithCookie(request, handles) } }),
+    mutate: (input) => ({
+      ...input,
+      seams: { forward: (request, handles, _defaultForward, context) => forwardWithCookie(request, handles, context) },
+    }),
   });
   try {
     expect(refused.code).toBe("connector-drill-forward-cookie");
@@ -485,7 +502,10 @@ test("connector-pairing-drill-control C8", async () => {
   const { refused, platform, second } = await runControl({
     mutate: (input) => ({
       ...input,
-      seams: { trigger: async (_context, _page, phase) => phase === "pairing" },
+      seams: {
+        trigger: (_context, _page, phase, defaultTrigger) =>
+          phase === "pairing" ? defaultTrigger() : Promise.resolve(true),
+      },
     }),
   });
   try {
@@ -549,16 +569,23 @@ test("connector-pairing-drill-control C13", async () => {
     mutate: (input) => ({
       ...input,
       async revoke(context) {
-        const worker = context.serviceWorkers()[0];
-        await worker.evaluate(async (url) => {
-          await fetch(url, { method: "POST", headers: { authorization: `Bearer ${synthetic.access}` }, body: "{}" });
-        }, `${input.platformOrigin}/channel-connector/oauth/connections/connection_synthetic/claim`);
+        const worker = context.serviceWorkers().find((candidate) => candidate.url().endsWith("/background.js"));
+        if (!worker) throw new Error("connector worker unavailable");
+        await worker.evaluate(
+          async ({ url, bearer }) => {
+            await fetch(url, { method: "POST", headers: { authorization: `Bearer ${bearer}` }, body: "{}" });
+          },
+          {
+            url: `${input.platformOrigin}/channel-connector/oauth/connections/connection_synthetic/claim`,
+            bearer: synthetic.access,
+          },
+        );
       },
     }),
   });
   try {
     expect(refused.code).toBe("connector-drill-post-revoke");
-    expect(platform.observe().claimCount).toBeGreaterThan(1);
+    expect(platform.observe().claimCount).toBe(2);
   } finally {
     await second.platform.close();
     await platform.platform.close();
@@ -634,7 +661,7 @@ async function drillCase(
       redirectTargetCount: 0,
       headersServed: 1,
     });
-    expect(second.observe()).toEqual({ plantedPageServed: 1, letThroughServed: 1, droppedPageCount: 0 });
+    expect(second.observe()).toEqual({ plantedPageServed: 1, letThroughServed: 1 });
     expect(result.forwards).toContainEqual({
       path: redirectPath,
       action: "abort",
