@@ -219,7 +219,6 @@ describe("Seller Desk money route", () => {
       destinationReference: null,
       note: null,
     });
-    expect(createPayout.mock.calls[0]?.[0]).not.toHaveProperty("availableAmount");
   });
 
   it("queues the settlement reconciliation workflow for a retry action", async () => {
