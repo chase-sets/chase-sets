@@ -1620,7 +1620,10 @@ async fn an_id_or_an_old_slug_moves_to_the_slug_for_good_with_its_parameters() {
 #[tokio::test]
 async fn an_unknown_item_is_not_found_and_a_failed_read_a_bad_gateway() {
     let pilot = Pilot::new().await;
-    assert_eq!(pilot.send(get("/items/nope", None)).await.0, StatusCode::NOT_FOUND);
+    let (status, headers, html) = pilot.send(get("/items/nope", None)).await;
+    // The error page is in the layout, and Corten keeps it out of search engines.
+    assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()));
+    assert!(html.starts_with("<!DOCTYPE html><html lang=\"en\">") && html.contains("<main><h1>"), "{html}");
     assert_eq!(pilot.send(get("/items/down", None)).await.0, StatusCode::BAD_GATEWAY);
 }
 

@@ -105,17 +105,53 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
         .join(", ")
 }
 
-/// The document: marketplace's top bar, the user's color mode.
-pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
-    let p: Pilot = doc.t();
-    let viewer = match &session {
-        Some(Session::Account(viewer)) => Some(viewer.clone()),
+/// A JSON-LD block among a page's head tags, written from the JSON as `Meta::json_ld` wrote it.
+/// `html!` escapes an expression inside `<script>` as HTML text, which would break the JSON, so
+/// this writes the script itself. Workaround for todd-skelton/corten#76: remove it when Corten
+/// writes JSON-LD.
+pub struct JsonLd(pub String);
+
+impl Render for JsonLd {
+    fn render(&self, out: &mut String) {
+        out.push_str(r#"<script type="application/ld+json">"#);
+        // `<` only ever appears inside a JSON string, where `\u003c` reads the same, so the text
+        // cannot close the script.
+        for (i, part) in self.0.split('<').enumerate() {
+            if i > 0 {
+                out.push_str("\\u003c");
+            }
+            out.push_str(part);
+        }
+        out.push_str("</script>");
+    }
+}
+
+#[cfg(test)]
+mod json_ld_tests {
+    use super::*;
+
+    #[test]
+    fn json_ld_cannot_close_its_script() {
+        let mut out = String::new();
+        JsonLd(r#"{"name":"A </script><b>"}"#.to_owned()).render(&mut out);
+        assert_eq!(out, r#"<script type="application/ld+json">{"name":"A \u003c/script>\u003cb>"}</script>"#);
+    }
+}
+
+/// The document around every page: marketplace's top bar and the user's color mode, `title`, the
+/// page's own `head` tags (description, canonical, social, JSON-LD, `ReadAgain`) and the page
+/// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
+#[component]
+pub fn Layout<'a, H: Render, C: Render>(req: &'a Req, title: &'a str, head: H, children: C) -> impl Document + 'a {
+    let p: Pilot = req.t();
+    let viewer = match req.context::<Session>() {
+        Some(Session::Account(viewer)) => Some(viewer),
         _ => None,
     };
-    let theme = viewer.as_ref().and_then(|v| v.color_mode.theme());
+    let theme = viewer.and_then(|v| v.color_mode.theme());
     html! {
         <!DOCTYPE html>
-        <html lang={doc.lang()} data-theme={theme}>
+        <html lang={req.lang()} data-theme={theme}>
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -124,37 +160,43 @@ pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
                     as="font"
                     type="font/woff2"
                     crossorigin
-                    href={doc.asset("fonts/ibm-plex-sans-latin-400-normal.woff2")}
+                    href={req.asset("fonts/ibm-plex-sans-latin-400-normal.woff2")}
                 >
-                <link rel="stylesheet" href={doc.asset("style.css")}>
-                {doc.head}
-                <script type="module" src={doc.asset("app.js")}></script>
+                <link rel="stylesheet" href={req.asset("style.css")}>
+                <title>{title}</title>
+                {head}
+                <Corten />
+                <script type="module" src={req.asset("app.js")}></script>
             </head>
             <body>
-                if let Some(viewer) = &viewer {
-                    <MarketNav p={p} viewer={viewer} path={doc.path()} />
+                if let Some(viewer) = viewer {
+                    <MarketNav p={p} viewer={viewer} path={req.path()} />
                 }
-                <main>{doc.main}</main>
+                <main>{children}</main>
             </body>
         </html>
     }
 }
 
-/// The error page, in the shell.
-pub fn error_page(status: StatusCode) -> (Meta, impl Render) {
-    let p = Pilot::default();
-    let (title, text) = match status {
+/// The page for a failed request, in the layout (`App::error_page`). Under `corten dev` it shows
+/// the error; Corten sends it with `X-Robots-Tag: noindex`.
+pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
+    let p: Pilot = req.t();
+    let (title, text) = match failure.status {
         StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
         StatusCode::NOT_FOUND => (p.error_not_found_title(), p.error_not_found()),
         _ => (p.error_failed_title(), p.error_failed()),
     };
-    (
-        Meta::new(title),
-        html! {
+    let detail = failure.detail;
+    html! {
+        <Layout req={req} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
-        },
-    )
+            if let Some(detail) = &detail {
+                <pre>{detail}</pre>
+            }
+        </Layout>
+    }
 }
 
 /// A page that could not be drawn: its title and what to do.

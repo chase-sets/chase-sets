@@ -148,7 +148,6 @@ pub fn app(config: Config) -> App<Session> {
                 None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             },
         })
-        .shell(views::shell)
         .messages::<Msg>()
         .components(views::COMPONENTS)
         .area::<url::PostageArea>(|area| {
@@ -254,7 +253,7 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &url::Po
     let screen = Screen { policies, selected, preview, limit, offset };
     let t: Msg = req.t();
     let view = views::page(t, req.t(), &screen, forms);
-    req.screen(Meta::new(t.route_title()), &screen, view)
+    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_title()} head="">{view}</crate::views::Layout> })
 }
 
 async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<url::Policies>) -> corten::Result {

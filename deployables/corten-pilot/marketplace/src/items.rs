@@ -23,8 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use corten::{
     axum::{
         extract::{Path, State},
-        http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
-        response::IntoResponse,
+        http::{HeaderMap, StatusCode, Uri},
     },
     prelude::*,
     route::Params,
@@ -34,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{
         Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
-        StandardTerms, segment,
+        StandardTerms,
     },
     app::{Shared, marketplace_origin, url},
     auth::Session,
@@ -219,21 +218,29 @@ impl Address {
     }
 }
 
-/// Written in a fixed order, `buy` and the side's own tab left out. By hand, separators and
-/// encoding included: a typed route cannot write keys that are data (todd-skelton/corten#71).
+/// The address as query parameters, in a fixed order: `buy` and the side's own tab left out,
+/// then `dimension.<id>=<option>` in the schema's order.
+#[derive(Route)]
+#[route(query)]
+struct AddressQuery<'a> {
+    market: Option<&'a str>,
+    listing: Option<&'a str>,
+    offer: Option<&'a str>,
+    book: Option<&'a str>,
+    #[route(prefix = "dimension.")]
+    dimensions: &'a [(String, String)],
+}
+
 impl Params for Address {
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
-        for (key, value) in self.pairs() {
-            out.push_str(match (*first, html) {
-                (true, _) => "?",
-                (false, true) => "&amp;",
-                (false, false) => "&",
-            });
-            *first = false;
-            out.push_str(&segment(&key));
-            out.push('=');
-            out.push_str(&segment(&value));
+        AddressQuery {
+            market: (self.market != Market::Buy).then(|| self.market.as_str()),
+            listing: self.listing.as_deref(),
+            offer: self.offer.as_deref(),
+            book: self.book.filter(|b| *b != self.side_book()).map(Book::as_str),
+            dimensions: &self.options,
         }
+        .write_params(first, html, out)
     }
 }
 
@@ -685,10 +692,8 @@ async fn page(
             to.push('?');
             to.push_str(query);
         }
-        // Corten's `Req::redirect` is a 303 after a write; a page that moved needs a 301
-        // (todd-skelton/corten#72).
-        let to = HeaderValue::try_from(to).map_err(corten::Error::new)?;
-        return Ok((StatusCode::MOVED_PERMANENTLY, [(header::LOCATION, to)]).into_response());
+        let to: Uri = to.parse().map_err(corten::Error::new)?;
+        return req.moved(&to);
     }
     let address = Address::read(&raw);
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
@@ -739,21 +744,26 @@ pub fn render(
     let description =
         item.description.as_deref().filter(|d| !d.trim().is_empty()).unwrap_or(t.route_browse_the_chase_sets_marketplace_with());
     let title = t.route_meta_title(&item.title).to_string();
-    let mut meta = Meta::new(title.clone())
-        .description(description)
-        .canonical(&canonical)
-        .property("og:title", &title)
-        .property("og:description", description)
-        .property("og:type", "product");
-    if let Some(image) = views::item_image(item) {
-        meta = meta.property("og:image", &image.src);
-    }
-    if let Some(ld) = views::product_json_ld(item, &canonical) {
-        meta = meta.json_ld(&ld);
-    }
-    if let Some(ld) = views::breadcrumb_json_ld(t, item, &canonical) {
-        meta = meta.json_ld(&ld);
-    }
+    let image = views::item_image(item).map(|image| image.src.clone());
+    let product = views::product_json_ld(item, &canonical).map(|ld| views::JsonLd(ld.to_json()));
+    let breadcrumb = views::breadcrumb_json_ld(t, item, &canonical).map(|ld| views::JsonLd(ld.to_json()));
+    let og_title = title.as_str();
+    let head = html! {
+        <meta name="description" content={description}>
+        <link rel="canonical" href={&canonical}>
+        <meta property="og:title" content={og_title}>
+        <meta property="og:description" content={description}>
+        <meta property="og:type" content="product">
+        if let Some(image) = &image {
+            <meta property="og:image" content={image}>
+        }
+        if let Some(ld) = &product {
+            {ld}
+        }
+        if let Some(ld) = &breadcrumb {
+            {ld}
+        }
+    };
     let view = views::item_page(t, &screen, address, slug, notice);
-    req.screen_with_status(status, meta, &screen, view)
+    req.screen_with_status(status, &screen, html! { <views::Layout req={req} title={&title} head={head}>{view}</views::Layout> })
 }

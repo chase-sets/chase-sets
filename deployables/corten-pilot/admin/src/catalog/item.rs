@@ -361,7 +361,7 @@ async fn render(req: &Req, config: &Shared, headers: &HeaderMap, id: &str, after
     let t: Cat = req.t();
     let (notice, open) = (after.done.map(|done| done.notice(t)), after.done.and_then(Change::fold));
     let view = views::item_page(t, req.t(), &screen, notice, open, back);
-    req.screen(Meta::new(t.route_item()), &screen, view)
+    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_item()} head="">{view}</crate::views::Layout> })
 }
 
 /// After a write to item \`id\`: its page, waiting for the write.

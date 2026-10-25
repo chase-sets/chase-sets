@@ -11,7 +11,7 @@ use crate::{
     form::LocationInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot},
-    views::{self, Draft, Forms},
+    views::{self, Draft, Forms, Layout},
 };
 
 pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
@@ -58,11 +58,11 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, 
     };
     let screen = Screen { locations, pending, status };
     let t: Msg = req.t();
-    let meta = Meta::new(t.route_title()).description(t.route_description());
+    let (title, head) = (t.route_title(), html! { <meta name="description" content={t.route_description()}> });
     // The status's "check again" link: the same check, without the receipt.
     let again = url::Locations { check: query.again() };
     let view = views::page(t, req.t(), viewer, &screen, &again, forms);
-    req.screen(meta, &screen, view)
+    req.screen(&screen, html! { <Layout req={req} title={title} head={head}>{view}</Layout> })
 }
 
 async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<Check>) -> corten::Result {

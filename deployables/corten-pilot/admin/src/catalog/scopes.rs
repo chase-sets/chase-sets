@@ -268,7 +268,10 @@ pub async fn render(
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = super::manages(req);
     let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
-    req.screen(Meta::new(t.route_scopes()), &view, page_view)
+    req.screen(
+        &view,
+        html! { <crate::views::Layout req={&req} title={t.route_scopes()} head="">{page_view}</crate::views::Layout> },
+    )
 }
 
 #[cfg(test)]

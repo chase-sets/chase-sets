@@ -90,6 +90,13 @@ HTML 3,430 B and CSS 4,837 B; cart HTML 2,733 B and CSS 4,325 B. The times on th
 widely on a busy machine (item page interactive 983 ms desktop and 607 ms mobile, cart 377 ms and
 1,265 ms), so they are not compared with the runs above.
 
+At the `9326a3f` pin, after the move to layouts (measured once, 7 loads, pilot release only): the
+same bytes as at `993eeac`. JavaScript is 7,847 B on both pages; the item page is HTML 3,430 B and
+CSS 4,837 B, and the cart is HTML 2,733 B and CSS 4,325 B. Item page: interactive 341 ms on desktop
+and 660 ms on mobile, server 80 ms and 183 ms. Cart: interactive 523 ms and 780 ms, server 253 ms
+and 246 ms. This was one run on a busy machine, so the times are noise. The item page's mobile
+LCP of 7,956 ms was an outlier and was not re-run.
+
 Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
 there is no React baseline for these pages yet (measured the same way, release build).
 
@@ -212,6 +219,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `c268ecc` | Corten `main` with [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61) and [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64) closed, both adopted: the router tests' `patch_ids` is gone, and the cart's Check out is a form whose redirect goes to marketplace (`Policy::form_action`). No breaking change for the pilot |
 | `c590b8a` | Corten `main` with [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60) and [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63) closed, both adopted (`t.money`, `t.date_time`, `t.js().date_time`). No breaking change for the pilot. Its tests changed only where its own output did: a line's price in the screen JSON is now the amount and currency, and the live status's markup carries the date format |
 | `993eeac` | Corten `main` with [todd-skelton/corten#69 A page cannot ask to be read again shortly, and the Refresh header only works on a full load](https://github.com/todd-skelton/corten/issues/69) closed and adopted (`Meta::read_again`; the cart's line writes are `data-patch`). No breaking change for the pilot. The runtime grows 282 B gzipped (Corten's measurement) |
+| `9326a3f` | Corten `main` with [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71) and [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72) closed ([todd-skelton/corten#73 Routes: query parameters named by data, and a permanent redirect](https://github.com/todd-skelton/corten/pull/73)) and adopted, plus the breaking change to pages ([todd-skelton/corten#75 Pages are documents built from components, and routes name their handlers](https://github.com/todd-skelton/corten/pull/75)): `Meta` and `App::shell` are gone, so each app's shell became its `Layout` component (in `views.rs`; it reads the session with `req.context::<Session>()`), every page is `req.page`/`req.screen` of a `Layout` with its title and head tags as `html!` (the cart's pending read is `<ReadAgain>` there), and `error_page` takes `&Req` and `Failure` (Corten sends it with `X-Robots-Tag: noindex`). Three gaps found and filed ([#76](https://github.com/todd-skelton/corten/issues/76), [#77](https://github.com/todd-skelton/corten/issues/77), [#78](https://github.com/todd-skelton/corten/issues/78); see [Corten gaps](#corten-gaps)). The same bytes on the item page and the cart |
 
 ## What lives where
 
@@ -502,8 +510,8 @@ forward only on purpose, when a fix the pilot needs lands.
     The checkout read model is often behind the write. In the dev sandbox every quantity write
     the smoke test sent was read before it caught up. That read is marketplace's
     `pending-fresh-write`: the page says the change is saved and reads itself again every 2 s
-    until the receipt is 30 s old. The page asks for that with Corten's `Meta::read_again`
-    (2 s), only while it is behind: the runtime reads the address again in place, or without
+    until the receipt is 30 s old. The page asks for that with Corten's `<ReadAgain>` among its
+    head tags (2 s), only while it is behind: the runtime reads the address again in place, or without
     JavaScript the browser reloads it. The line writes are `data-patch` forms, so a step and the
     reads after it swap the page in place rather than loading it; the smoke test checks both, with
     and without JavaScript. Check out stays a plain form, since it leaves for marketplace.
@@ -523,10 +531,9 @@ forward only on purpose, when a fix the pilot needs lands.
     them as they are. Two additions: `book=` names the market book's tab (marketplace keeps
     it in state), and `dimension.<id>=any` clears the last option, where marketplace would
     otherwise choose the only listing's again. The keys are data, which a typed route cannot write
-    ([todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)),
-    so `Params` is written by hand. An id or an old slug is a 301 to the slug with the same
-    query, built by hand
-    ([todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)).
+    ([todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71), fixed at the `9326a3f` pin), so they are a `#[route(prefix = "dimension.")]`
+    field of a derived query that `Params for Address` writes. An id or an old slug is a 301 to
+    the slug with the same query (`req.moved`, [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)).
     An unknown item is a 404, where marketplace answers 200
     ([chase-sets/chase-sets#10585 [discovery] Answer an unknown item page with 404, not 200](https://github.com/chase-sets/chase-sets/issues/10585)).
     Watching and listing at a price are the next part of the port; until then the rail's Continue
@@ -598,12 +605,17 @@ forward only on purpose, when a fix the pilot needs lands.
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71)
-   (correctness). Workaround: the item page's address implements `Params` by hand, separators
-   and encoding included ([`items.rs`](marketplace/src/items.rs), `impl Params for Address`).
-2. [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)
-   (correctness, then end-user performance). Workaround: the item page builds its 301 by hand
-   ([`items.rs`](marketplace/src/items.rs), `page`).
+1. [todd-skelton/corten#76 A page cannot write JSON-LD in its head since Meta was removed (an expression in <script> is escaped as HTML)](https://github.com/todd-skelton/corten/issues/76)
+   (correctness, security). Workaround: `views::JsonLd` writes the item page's `Product` and
+   `BreadcrumbList` scripts with `<` as `\u003c`, as `Meta::json_ld` did, with a unit test that a
+   `</script>` in the text cannot close it ([`views.rs`](marketplace/src/views.rs), `JsonLd`).
+2. [todd-skelton/corten#77 A view that is one component cannot pass a reference to its own locals (E0515 since the document change)](https://github.com/todd-skelton/corten/issues/77)
+   (neither; a compile error the migration notes do not describe). Workaround: a leading `let`
+   in four admin views keeps each a closure that owns its locals
+   ([`item_list.rs`](admin/src/catalog/views/item_list.rs), [`bulk_dialogs.rs`](admin/src/catalog/views/bulk_dialogs.rs)).
+3. [todd-skelton/corten#78 An area's routes cannot name their handlers (#[corten::routes] covers only App::new)](https://github.com/todd-skelton/corten/issues/78)
+   (correctness). No workaround: every pilot route is in an area, so the routes stay
+   `#[derive(Route)]` structs that each area mounts, and the new handler check covers none of them.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -627,6 +639,14 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `9326a3f` pin, workarounds removed:
+
+1. [todd-skelton/corten#71 A typed route cannot carry query parameters whose names are data (dimension.<id>=<option>)](https://github.com/todd-skelton/corten/issues/71): the item page's address writes `dimension.<id>=<option>` through a
+   `#[route(prefix = "dimension.")]` field of a derived `#[route(query)]` struct; the hand-written
+   separators and encoding are gone.
+2. [todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72): an id or an old slug answers `req.moved` (301, `private, max-age=86400`), checked by
+   `smoke-market-item.mjs` and by hand.
 
 Fixed at the `993eeac` pin, workaround removed:
 

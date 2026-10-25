@@ -29,7 +29,7 @@ use crate::{
     auth::Session,
     cart_attempt::{self, State as Attempted},
     text::CartMsg,
-    views,
+    views::{self, Layout},
 };
 
 /// The guest cart a browser carries from before it signed in (marketplace's
@@ -495,17 +495,23 @@ async fn render(
         }
     };
     let t: CartMsg = req.t();
-    let meta = Meta::new(t.route_cart_marketplace()).description(t.route_review_cart_lines_adjust_quantity_and());
     // Read the same address again in 2 s, as marketplace's revalidation does, until the receipt
     // it carries is too old to wait for (the read then fails for good and stops asking).
-    let meta = if screen.pending { meta.read_again(Duration::from_secs(2)) } else { meta };
+    let pending = screen.pending;
+    let head = html! {
+        <meta name="description" content={t.route_review_cart_lines_adjust_quantity_and()}>
+        if pending {
+            <ReadAgain after={Duration::from_secs(2)} />
+        }
+    };
     let status = match &notice {
         None => StatusCode::OK,
         Some(Notice::Attempt(a)) if a.state != Attempted::FailedSafe => StatusCode::CONFLICT,
         Some(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
     let view = views::cart_page(t, viewer, &screen, notice.as_ref());
-    req.screen_with_status(status, meta, &screen, view)
+    let title = t.route_cart_marketplace();
+    req.screen_with_status(status, &screen, html! { <Layout req={&req} title={title} head={head}>{view}</Layout> })
 }
 
 async fn quantity(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LineInput>) -> corten::Result {

@@ -81,17 +81,20 @@ pub fn now_iso() -> String {
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z", rest / 3_600, rest % 3_600 / 60, rest % 60)
 }
 
-/// The document: admin-web's frame (its sections and the commerce pages), the user's color mode.
-pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
-    let p: Pilot = doc.t();
-    let viewer = match &session {
-        Some(Session::Staff(viewer)) => Some(viewer.clone()),
+/// The document around every page: admin-web's frame (its sections and the commerce pages) and the
+/// user's color mode, `title`, the page's own `head` tags and the page (`children`). A client
+/// navigation gets only the title, the head tags and `<main>`'s children.
+#[component]
+pub fn Layout<'a, H: Render, C: Render>(req: &'a Req, title: &'a str, head: H, children: C) -> impl Document + 'a {
+    let p: Pilot = req.t();
+    let viewer = match req.context::<Session>() {
+        Some(Session::Staff(viewer)) => Some(viewer),
         _ => None,
     };
-    let theme = viewer.as_ref().and_then(|v| v.color_mode.theme());
+    let theme = viewer.and_then(|v| v.color_mode.theme());
     html! {
         <!DOCTYPE html>
-        <html lang={doc.lang()} data-theme={theme}>
+        <html lang={req.lang()} data-theme={theme}>
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -100,38 +103,44 @@ pub fn shell(doc: Document, session: Option<Session>) -> impl Render {
                     as="font"
                     type="font/woff2"
                     crossorigin
-                    href={doc.asset("fonts/ibm-plex-sans-latin-400-normal.woff2")}
+                    href={req.asset("fonts/ibm-plex-sans-latin-400-normal.woff2")}
                 >
-                <link rel="stylesheet" href={doc.asset("style.css")}>
-                {doc.head}
-                <script type="module" src={doc.asset("app.js")}></script>
+                <link rel="stylesheet" href={req.asset("style.css")}>
+                <title>{title}</title>
+                {head}
+                <Corten />
+                <script type="module" src={req.asset("app.js")}></script>
             </head>
             <body>
-                if let Some(viewer) = &viewer {
-                    <AdminNav p={p} viewer={viewer} path={doc.path()} />
+                if let Some(viewer) = viewer {
+                    <AdminNav p={p} viewer={viewer} path={req.path()} />
                 }
-                <main>{doc.main}</main>
+                <main>{children}</main>
             </body>
         </html>
     }
 }
 
-/// The error page, in the shell.
-pub fn error_page(status: StatusCode) -> (Meta, impl Render) {
-    let p = Pilot::default();
-    let (title, text) = match status {
+/// The page for a failed request, in the layout (`App::error_page`). Under `corten dev` it shows
+/// the error; Corten sends it with `X-Robots-Tag: noindex`.
+pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
+    let p: Pilot = req.t();
+    let (title, text) = match failure.status {
         StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
         StatusCode::NOT_FOUND => (p.error_not_found_title(), p.error_not_found()),
         StatusCode::SERVICE_UNAVAILABLE => (p.error_failed_title(), p.error_pending()),
         _ => (p.error_failed_title(), p.error_failed()),
     };
-    (
-        Meta::new(title),
-        html! {
+    let detail = failure.detail;
+    html! {
+        <Layout req={req} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
-        },
-    )
+            if let Some(detail) = &detail {
+                <pre>{detail}</pre>
+            }
+        </Layout>
+    }
 }
 
 /// A link to an admin-web page outside the pilot.

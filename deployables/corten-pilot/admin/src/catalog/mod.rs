@@ -514,7 +514,10 @@ async fn dimension_list(
     let bulk = bulk(req, t, Kind::Dimensions, notice.job.is_some(), preview, screen.job.as_ref());
     let notice = notice.done.map(|done| done.dimension(t));
     let view = views::dimension_list(t, req.t(), query, &screen, create, notice, bulk);
-    req.screen(Meta::new(t.route_dimensions()), &screen, view)
+    req.screen(
+        &screen,
+        html! { <crate::views::Layout req={&req} title={t.route_dimensions()} head="">{view}</crate::views::Layout> },
+    )
 }
 
 async fn dimensions_live(
@@ -594,7 +597,10 @@ async fn dimension_page(
     let t: Cat = req.t();
     let notice = after.done.map(|done| done.dimension(t));
     let view = views::dimension_page(t, req.t(), &detail, notice, forms);
-    req.screen(Meta::new(t.route_dimension()), &detail, view)
+    req.screen(
+        &detail,
+        html! { <crate::views::Layout req={&req} title={t.route_dimension()} head="">{view}</crate::views::Layout> },
+    )
 }
 
 /// After a write to dimension `id`: its page, waiting for the write.
@@ -833,7 +839,7 @@ async fn field_list(
     let bulk = bulk(req, t, Kind::Fields, notice.job.is_some(), preview, screen.job.as_ref());
     let notice = notice.done.map(|done| done.field(t));
     let view = views::field_list(t, req.t(), query, &screen, create, notice, bulk);
-    req.screen(Meta::new(t.route_fields()), &screen, view)
+    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_fields()} head="">{view}</crate::views::Layout> })
 }
 
 /// The fields list's API query.
@@ -924,7 +930,7 @@ async fn field_page(
     let t: Cat = req.t();
     let notice = after.done.map(|done| done.field(t));
     let view = views::field_page(t, req.t(), &field, notice, forms);
-    req.screen(Meta::new(t.route_field()), &field, view)
+    req.screen(&field, html! { <crate::views::Layout req={&req} title={t.route_field()} head="">{view}</crate::views::Layout> })
 }
 
 fn to_field(req: &Req, id: &str, written: &Written, done: Done) -> corten::Result {

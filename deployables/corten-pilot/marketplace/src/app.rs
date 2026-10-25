@@ -235,7 +235,6 @@ pub fn app(config: Config) -> App<Session> {
         // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
         // default policy takes any https image), and Check out redirects to its checkout.
         .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))
-        .shell(views::shell)
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)
         // Sellers who may see their inventory read the screens; writing needs inventory.manage, as
@@ -305,7 +304,12 @@ pub fn read_failed(req: &Req, error: ApiError, after_write: Option<&str>) -> cor
             Some(unverified) => {
                 tracing::warn!("the read after a write failed: {error}");
                 let title = req.t::<Pilot>().error_failed_title();
-                return req.page_with_status(StatusCode::CONFLICT, Meta::new(title).noindex(), views::failed(title, unverified));
+                let view = views::failed(title, unverified);
+                let head = html! { <meta name="robots" content="noindex"> };
+                return req.page_with_status(
+                    StatusCode::CONFLICT,
+                    html! { <views::Layout req={req} title={title} head={head}>{view}</views::Layout> },
+                );
             }
             None => StatusCode::BAD_GATEWAY,
         },

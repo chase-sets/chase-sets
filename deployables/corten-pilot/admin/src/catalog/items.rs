@@ -288,7 +288,7 @@ async fn item_list(
     });
     let parts = views::ItemParts { create, notice: notice(t, after), manage: manages(req), dialog, job };
     let view = views::item_list(t, p, query, &screen, parts);
-    req.screen(Meta::new(t.route_items()), &screen, view)
+    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_items()} head="">{view}</crate::views::Layout> })
 }
 
 /// How many items changed for `<corten-live>`: drawn on each change to the items until the API

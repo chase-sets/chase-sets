@@ -13,7 +13,7 @@ use crate::{
     form::DecisionInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot, Restock},
-    views::{self, Decided, DecisionDraft, Posted},
+    views::{self, Decided, DecisionDraft, Layout, Posted},
 };
 
 pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
@@ -59,10 +59,10 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, 
     };
     let screen = RestockScreen { decisions, pending, status };
     let t: Restock = req.t();
-    let meta = Meta::new(t.route_title()).description(t.route_description());
+    let (title, head) = (t.route_title(), html! { <meta name="description" content={t.route_description()}> });
     let again = url::Restock { check: query.again() };
     let view = views::restock_page(t, req.t(), req.t(), viewer, &screen, &again, posted);
-    req.screen(meta, &screen, view)
+    req.screen(&screen, html! { <Layout req={req} title={title} head={head}>{view}</Layout> })
 }
 
 async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<Check>) -> corten::Result {

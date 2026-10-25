@@ -222,7 +222,9 @@ pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Render + 'a {
     let live = url::ItemsLive { query: query.clone() }.href();
     let list = url::Items::default().href();
     let kept = query.kept();
+    // Workaround for todd-skelton/corten#77 (one component's view cannot borrow its locals): a `let` keeps the view a closure that owns them.
     html! {
+        let (live, list, kept) = (live, list, kept);
         <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
             {item_changes(t, query, Pending::default())}
         </LiveStatus>
@@ -454,7 +456,9 @@ pub fn ItemPreviewDialog<'a>(
         _ if publish => t.item_list_publish_ready_items(),
         _ => t.bulk_confirm(),
     };
+    // Workaround for todd-skelton/corten#77 (one component's view cannot borrow its locals): a `let` keeps the view a closure that owns them.
     html! {
+        let (title, description) = (title, description);
         <Dialog id={ids::PREVIEW_DIALOG} title={&title} description={description.as_deref()} open close={p.catalog_close()}>
             if let Some(note) = note {
                 <p class={Note}>{note}</p>
@@ -567,7 +571,9 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
     let f = ItemBulkInput::FIELDS;
     let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
     let ready = !ids.is_empty() && errors.is_empty();
+    // Workaround for todd-skelton/corten#77 (one component's view cannot borrow its locals): a `let` keeps the view a closure that owns them.
     html! {
+        let description = description;
         <Dialog
             id={ids::PREVIEW_DIALOG}
             title={t.item_list_remove_draft_catalog_items()}
