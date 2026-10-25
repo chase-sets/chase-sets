@@ -17,7 +17,7 @@ vi.mock("../../features/projection-operations/api/client", () => ({
     contextName: "",
     projectionName: "",
     search: "",
-    selected: "",
+    selected: new URL(request.url).searchParams.get("selected") ?? "",
   }),
   rebuildProjectionContext: vi.fn(),
   rebuildProjectionGroup: vi.fn(),
@@ -66,7 +66,11 @@ const operation = {
   error: null,
 };
 
-function buildSnapshot(loadNumber: number): Awaited<ReturnType<typeof loadProjectionOperationsSnapshot>> {
+function buildSnapshot(
+  loadNumber: number,
+  initialState = "running",
+  nextState = "cancel_requested",
+): Awaited<ReturnType<typeof loadProjectionOperationsSnapshot>> {
   return {
     summary: {
       status: "ok",
@@ -104,22 +108,26 @@ function buildSnapshot(loadNumber: number): Awaited<ReturnType<typeof loadProjec
     operations: [
       {
         ...operation,
-        state: loadNumber > 1 ? "cancel_requested" : "running",
+        state: loadNumber > 1 ? nextState : initialState,
         updatedAt: loadNumber > 1 ? "2026-05-26T00:02:00.000Z" : operation.updatedAt,
       },
     ],
   };
 }
 
-function renderRoute() {
+async function renderRoute() {
   const router = createMemoryRouter([{ path: "/platform/projections", loader, Component: ProjectionOperationsRoute }], {
-    initialEntries: ["/platform/projections"],
+    initialEntries: ["/platform/projections?selected=op_running"],
   });
-  render(<RouterProvider router={router} />);
+  await act(async () => {
+    render(<RouterProvider router={router} />);
+  });
   return router;
 }
 
 describe("ProjectionOperationsRoute live revalidation", () => {
+  const originalEventSource = globalThis.EventSource;
+
   beforeEach(() => {
     let loadNumber = 0;
     vi.mocked(loadProjectionOperationsSnapshot).mockImplementation(async () => buildSnapshot(++loadNumber));
@@ -131,18 +139,25 @@ describe("ProjectionOperationsRoute live revalidation", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-    Object.defineProperty(globalThis, "EventSource", { value: undefined, configurable: true });
+    Object.defineProperty(globalThis, "EventSource", { value: originalEventSource, configurable: true });
   });
 
-  it("revalidates once when a streamed non-terminal state changes", async () => {
-    renderRoute();
-    await screen.findAllByText("rebuild-projection-group");
+  it.each([
+    ["queued", "running"],
+    ["running", "cancel_requested"],
+  ])("revalidates once when a streamed non-terminal state changes from %s to %s", async (initialState, nextState) => {
+    let loadNumber = 0;
+    vi.mocked(loadProjectionOperationsSnapshot).mockImplementation(async () =>
+      buildSnapshot(++loadNumber, initialState, nextState),
+    );
+    await renderRoute();
+    await screen.findByText(`rebuild-projection-group / ${initialState}`);
     expect(screen.getByText("Source lag").parentElement?.nextElementSibling?.textContent).toBe("1");
 
     await act(async () => {
       FakeEventSource.instances[0]?.emit(
         "status",
-        { ...operation, state: "cancel_requested", updatedAt: "2026-05-26T00:02:00.000Z" },
+        { ...operation, state: nextState, updatedAt: "2026-05-26T00:02:00.000Z" },
         "1",
       );
     });
@@ -150,25 +165,41 @@ describe("ProjectionOperationsRoute live revalidation", () => {
     await waitFor(() =>
       expect(screen.getByText("Source lag").parentElement?.nextElementSibling?.textContent).toBe("2"),
     );
-    expect(screen.getAllByText("cancel_requested").length).toBeGreaterThan(0);
+    expect(screen.getByText(`rebuild-projection-group / ${nextState}`)).toBeTruthy();
+    expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    await act(async () => {
+      FakeEventSource.instances[0]?.emit(
+        "status",
+        { ...operation, state: nextState, updatedAt: "2026-05-26T00:03:00.000Z" },
+        "2",
+      );
+    });
     expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("does not revalidate for a streamed progress event with the same state", async () => {
-    renderRoute();
-    await screen.findAllByText("rebuild-projection-group");
+    await renderRoute();
+    await screen.findByText("rebuild-projection-group / running");
 
     await act(async () => {
-      FakeEventSource.instances[0]?.emit("status", { ...operation, updatedAt: "2026-05-26T00:02:00.000Z" }, "1");
+      FakeEventSource.instances[0]?.emit("status", operation, "1");
+      FakeEventSource.instances[0]?.emit(
+        "status",
+        { ...operation, claimOwnerId: "worker-progress", updatedAt: "2026-05-26T00:02:00.000Z" },
+        "2",
+      );
     });
 
-    expect((await screen.findAllByText("running")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("worker-progress")).toBeTruthy();
+    expect(screen.getByText("rebuild-projection-group / running")).toBeTruthy();
     expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("revalidates exactly once for a streamed terminal transition", async () => {
-    renderRoute();
-    await screen.findAllByText("rebuild-projection-group");
+    await renderRoute();
+    await screen.findByText("rebuild-projection-group / running");
 
     await act(async () => {
       FakeEventSource.instances[0]?.emit(
@@ -184,6 +215,8 @@ describe("ProjectionOperationsRoute live revalidation", () => {
     });
 
     await waitFor(() => expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("rebuild-projection-group / succeeded")).toBeTruthy();
+    expect(screen.getByText("Source lag").parentElement?.nextElementSibling?.textContent).toBe("2");
     expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
   });
 });
