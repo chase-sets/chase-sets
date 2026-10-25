@@ -774,7 +774,6 @@ export type ScopeSyncBatchPreviewProbeRow = ScopeSyncBatchPreviewProbeRowDefinit
     refresh: readonly ScopeSyncBatchPreviewProbeRefreshResult[];
     inbox: ScopeSyncBatchPreviewProbeInboxResult;
     preview: ScopeSyncBatchPreviewProbePreviewResult;
-    scopeRecordSet: Readonly<{ sharedWith: ScopeSyncBatchPreviewProbeRowKey | null; reason: string | null }>;
     gaps: readonly string[];
   }>;
 
@@ -831,8 +830,6 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
       }));
     const inbox = capture?.inbox ?? summarizeScopeSyncBatchPreviewProbeInbox(null, unreached);
     const preview = capture?.preview ?? summarizeScopeSyncBatchPreviewProbePreview(null, unreached);
-    const sharedWith =
-      definition.rowKey === "pokemon-en" ? "pokemon-ja" : definition.rowKey === "pokemon-ja" ? "pokemon-en" : null;
     const gaps = [
       ...(input.roster ? [] : ["roster-unknown"]),
       ...(input.roster?.source === "registry-at-admitted-sha" ? ["roster-not-read-from-deployed-admin"] : []),
@@ -865,12 +862,6 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
       refresh,
       inbox,
       preview,
-      scopeRecordSet: {
-        sharedWith,
-        reason: sharedWith
-          ? "matching-scope selection ignores languageCode; EN and JA rows resolve one Scope Record set"
-          : null,
-      },
       gaps,
     };
   });
@@ -1103,9 +1094,6 @@ function validateRow(definition: ScopeSyncBatchPreviewProbeRowDefinition, row: R
   if (wallClock.estimate !== "unknown" && !isRecord(wallClock.rate)) {
     errors.push(`row ${key} wall-clock estimate needs a measured rate`);
   }
-  const shared = isRecord(row.scopeRecordSet) ? row.scopeRecordSet.sharedWith : undefined;
-  const expectedShared = key === "pokemon-en" ? "pokemon-ja" : key === "pokemon-ja" ? "pokemon-en" : null;
-  if (shared !== expectedShared) errors.push(`row ${key} must declare its shared Scope Record set`);
   if (!Array.isArray(row.gaps)) errors.push(`row ${key} gaps are missing`);
   return errors;
 }

@@ -165,6 +165,58 @@ describe("whole Magic mapping preview", () => {
   });
 });
 
+describe("Pokemon English preview regression", () => {
+  it("keeps the selected ids, units, and fingerprint stable for English records", async () => {
+    const record = scopeRecord("scope_synthetic_pokemon_en");
+    const pokemonRecord = {
+      ...record,
+      product_domain: "pokemon" as const,
+      scope_kind: "expansion" as const,
+      reference_type_key: "expansion",
+      language_editions: ["en"],
+    };
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        if (sql.includes("FROM catalog_scope_records")) {
+          expect(values).toEqual(["pokemon", "expansion", "en"]);
+          expect(sql).toContain("language_editions ? $3");
+          return { rows: [pokemonRecord] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+    const planner = createScopeSyncBatchPlanner({
+      db,
+      now: () => timestamp,
+      previewCatalogSyncScope: async (input) => ({
+        previewVersion: "catalog-sync-provider-participation-preview-v1",
+        scope: input.scope,
+        status: "ready",
+        startAllowed: true,
+        units: [],
+        estimate: {
+          totalEstimatedRequestCount: 0,
+          estimateState: "estimated",
+          estimateReason: null,
+          creditConsumingProviders: [],
+        },
+        blockers: [],
+        explanation: "synthetic",
+      }),
+    });
+    const { preview, plans } = await planner.resolve({
+      selection: {
+        mode: "matching-scope",
+        query: { productDomain: "pokemon", scopeKind: "expansion", languageCode: "en" },
+      },
+      context,
+    });
+    expect(plans.map((plan) => plan.scopeRecordId)).toEqual(["scope_synthetic_pokemon_en"]);
+    expect(preview.counts).toMatchObject({ scopes: 1, providerUnits: 0 });
+    expect(preview.planFingerprint).toBe("05021260c31ac09ab2c1485a2581ae9adab1e527c2c3941f16faae35dbd13c68");
+  });
+});
+
 describe("held-set batch required participation", () => {
   it("retains every non-TCGplayer required unit and blocks the zero-unit Yu-Gi-Oh scope", async () => {
     const domains = [
