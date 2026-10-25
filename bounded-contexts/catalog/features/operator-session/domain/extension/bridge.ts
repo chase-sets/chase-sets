@@ -65,12 +65,9 @@ export function installOperatorBridge(
       void relay(event.data.id, { action: "probe-set-names", productLineId: event.data.productLineId });
       return;
     }
-    if (
-      closed(event.data, ["id", "action", "text"]) &&
-      safeInteger(event.data.id) &&
-      isCopyProbeReportMessage(event.data)
-    ) {
-      void relay(event.data.id, event.data);
+    if (closed(event.data, ["id", "action", "text"]) && safeInteger(event.data.id)) {
+      const id = event.data.id;
+      if (isCopyProbeReportMessage(event.data)) void relay(id, event.data);
     }
   };
   host.addEventListener("message", receive);

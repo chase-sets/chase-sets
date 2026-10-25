@@ -87,7 +87,9 @@ describe("TCGplayer SetNames popup states", () => {
     const actualReport = JSON.parse(report.value) as Parameters<typeof serializeSetNamesProbeReport>[0];
     expect(report.value).toBe(serializeSetNamesProbeReport(actualReport));
     const expectedSha = createHash("sha256").update(serializeSetNamesProbeReport(actualReport), "utf8").digest("hex");
-    expect(screen.getByText(`Canonical report SHA-256: ${expectedSha}`)).toBeTruthy();
+    expect(
+      screen.getByText((_, element) => element?.textContent === `Canonical report SHA-256: ${expectedSha}`),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy report" }));
     await waitFor(() =>
       expect(screen.getByText("Copy failed. Select and copy the report text manually.")).toBeTruthy(),
