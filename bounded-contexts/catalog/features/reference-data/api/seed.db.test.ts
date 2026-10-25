@@ -336,6 +336,34 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
       },
     });
     await drain();
+
+    // Bootstrap may already have reconciled the canonical record before this
+    // fixture is shaped. Re-fence that retained record into the historical
+    // staging state explicitly so the duplicate-provisioning assertion below
+    // discriminates the fixture from the retirement mapping.
+    const canonicalState = await folded(canonicalId);
+    const canonicalEventCount = (await eventTypes(canonicalId)).length;
+    const stagingAttributes = Object.fromEntries(
+      Object.entries({
+        ...canonicalState.attributes,
+        "tcgdex-set-id": staleTcgdexSetIds[canonicalId],
+      }).filter(([key]) => key !== input.omitCanonicalAttribute),
+    );
+    await recordHandler({
+      streamId: recordStream(canonicalId),
+      command: {
+        type: "ReviseReferenceRecord",
+        typeKey: canonicalState.typeKey!,
+        key: canonicalState.key!,
+        name: canonicalState.name!,
+        description: canonicalState.description!,
+        attributes: stagingAttributes,
+        relationships: canonicalState.relationships,
+      },
+      context: seedContext,
+      expectedVersion: canonicalEventCount,
+    });
+    await drain();
     expect(await provision()).toBe(duplicateId);
     await createCatalogItem("itm_synthetic_10062_canonical", canonicalId);
     await createCatalogItem("itm_synthetic_10062_duplicate", duplicateId);
