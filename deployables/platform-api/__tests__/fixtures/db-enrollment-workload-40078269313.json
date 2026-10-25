@@ -2,7 +2,7 @@
   "schema": "db-enrollment-workload/v1",
   "capture": {
     "fileName": "bootstrap-db-capture-40078269313.json",
-    "fixtureSha256": "edd8d8c95dd0a6dd2989c75aa5e01350cdc6bc4d4d1ce2f989ebcad7998d7744",
+    "fixtureSha256": "97060597b7ec253ef1057a8d8a690a4035c21f594a0eabee6fca97b91817c3b6",
     "runId": "40078269313",
     "checkoutSha": "a525f369c26580e2b0ab00ac2da620f789cfad02",
     "sourceBase": "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
@@ -12,7 +12,7 @@
     "commit": "4b18cca2b65df8094fbe93d5c4213c421e6d842e"
   },
   "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
-  "bindingsSha256": "842d0dadc9ab14e6a2c412fe648a5f20d6d65e7fe1e43d55170a4baf8e335098",
+  "bindingsSha256": "c421a43b2db0008484f68bc4f3bbc80014b8296179745c59b3ae78bc114a79cb",
   "bindings": [
     [
       "W1 case identities",
@@ -1765,6 +1765,11 @@
               "portName": "offerEconomicsCrossContext",
               "providedBy": "platform-api",
               "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, Commercial Terms' published standard fee schedule terms, and Settlement's protection-reserve summary, each bound to its owning context's database pool and assembled once in the platform-api composition root."
+            },
+            {
+              "portName": "operationsAttentionRuntimeReads",
+              "providedBy": "platform-api",
+              "purpose": "Host-runtime projection blocked-projection and wake-store reads for the Operations Attention API, assembled once from the same builders used by the projection operations routes."
             }
           ],
           "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
