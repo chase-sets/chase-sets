@@ -268,6 +268,12 @@ export interface DiscoveryItemDetail {
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
   offer_demand_matches: DiscoveryOffer[];
+  market_products?: {
+    product_id: string;
+    lowest_listing_id: string | null;
+    best_offer_id: string | null;
+  }[];
+  market_product_listings?: DiscoveryMarketListing[];
   contents: DiscoveryProductContentLine[];
   included_in: DiscoveryProductContentLine[];
   updated_at: string;
