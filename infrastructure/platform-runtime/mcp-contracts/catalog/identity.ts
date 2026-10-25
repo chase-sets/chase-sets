@@ -3,6 +3,7 @@ import {
   booleanProperty,
   integerProperty,
   idempotencyKeyProperty,
+  nullableProperty,
   objectSchema,
   readTool,
   resource,
@@ -21,6 +22,38 @@ const operatorMutationInput = (idName: string, description: string) =>
     },
     [idName, "idempotencyKey", "confirmed", "confirmationText"],
   );
+
+const accountEnforcementReference = nullableProperty({
+  type: "object",
+  description: "Optional supporting support-request reference.",
+  additionalProperties: false,
+  properties: {
+    kind: stringProperty("Reference kind.", ["support-request"]),
+    supportRequestId: stringProperty("Support request identifier."),
+  },
+  required: ["kind", "supportRequestId"],
+});
+
+const accountEnforcementInput = (reasons: readonly string[]) =>
+  objectSchema(
+    {
+      accountId: stringProperty("Account to administer."),
+      reason: stringProperty("Enforcement reason.", reasons),
+      reference: accountEnforcementReference,
+      idempotencyKey: idempotencyKeyProperty(),
+      confirmed: booleanProperty("Must be true after the operator confirms this action."),
+      confirmationText: stringProperty("Exact tool-title confirmation text."),
+    },
+    ["accountId", "reason", "reference", "idempotencyKey", "confirmed", "confirmationText"],
+  );
+
+const operatorAccountId = stringProperty("Account to administer.");
+const accountListInput = objectSchema({
+  search: stringProperty("Optional account name search."),
+  status: stringProperty("Optional account status filter."),
+  limit: integerProperty("Maximum number of accounts to return."),
+  offset: integerProperty("Number of accounts to skip."),
+});
 
 export const identityService = {
   ...service(
@@ -45,6 +78,160 @@ export const identityService = {
         objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
         "account",
         ["Use when an agent needs account profile facts or status."],
+      ),
+      availability: "available",
+    },
+    {
+      ...readTool(
+        "identity",
+        "list-accounts",
+        "List Accounts",
+        "List accounts visible to a platform operator.",
+        "accounts.view",
+        accountListInput,
+        "account",
+        ["Use to locate accounts before administering account state."],
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "update-account-profile",
+        "Update Account Profile",
+        "Update an account profile.",
+        "accounts.manage",
+        objectSchema(
+          {
+            accountId: operatorAccountId,
+            name: stringProperty("Account legal name."),
+            displayName: stringProperty("Account display name."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the operator confirms this action."),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["accountId", "name", "displayName", "idempotencyKey", "confirmed", "confirmationText"],
+        ),
+        "account",
+        ["Use for a confirmed account profile correction."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "suspend-account",
+        "Suspend Account",
+        "Suspend an account with an enforcement reason and reference.",
+        "accounts.manage",
+        accountEnforcementInput([
+          "policy-violation",
+          "fulfillment-failure",
+          "payment-risk",
+          "identity-verification",
+          "seller-requested",
+          "operator-other",
+        ]),
+        "account",
+        ["Use for a confirmed account suspension."],
+        "destructive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "reactivate-account",
+        "Reactivate Account",
+        "Reactivate an account with a reversal reason and reference.",
+        "accounts.manage",
+        accountEnforcementInput(["appeal-upheld", "issue-resolved", "operator-error", "operator-other"]),
+        "account",
+        ["Use for a confirmed account reactivation."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "close-account",
+        "Close Account",
+        "Close an account with an enforcement reason and reference.",
+        "accounts.manage",
+        accountEnforcementInput([
+          "policy-violation",
+          "fulfillment-failure",
+          "payment-risk",
+          "identity-verification",
+          "seller-requested",
+          "operator-other",
+        ]),
+        "account",
+        ["Use for a confirmed account closure."],
+        "destructive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "assign-account-badge",
+        "Assign Account Badge",
+        "Assign a supported badge to an account.",
+        "accounts.manage",
+        objectSchema(
+          {
+            accountId: operatorAccountId,
+            badgeKey: stringProperty("Supported account badge key.", [
+              "founding-account",
+              "manual-payout-review",
+              "trusted-seller",
+            ]),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the operator confirms this action."),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["accountId", "badgeKey", "idempotencyKey", "confirmed", "confirmationText"],
+        ),
+        "account",
+        ["Use for a confirmed account badge assignment."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "identity",
+        "remove-account-badge",
+        "Remove Account Badge",
+        "Remove a supported badge from an account.",
+        "accounts.manage",
+        objectSchema(
+          {
+            accountId: operatorAccountId,
+            badgeKey: stringProperty("Supported account badge key.", [
+              "founding-account",
+              "manual-payout-review",
+              "trusted-seller",
+            ]),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the operator confirms this action."),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["accountId", "badgeKey", "idempotencyKey", "confirmed", "confirmationText"],
+        ),
+        "account",
+        ["Use for a confirmed account badge removal."],
+        "destructive",
+        "operator",
       ),
       availability: "available",
     },
