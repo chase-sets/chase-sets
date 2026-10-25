@@ -60,10 +60,7 @@ import {
   buildCheckoutPaymentPreviewStatus,
   type CheckoutPaymentPreviewStatus,
 } from "../support/route-support/checkout-session/payment-preview";
-import {
-  assertCheckoutDeliveryServiceableForAction,
-  deliveryCorrectionActionData,
-} from "../support/route-support/checkout-session/delivery-correction";
+import { deliveryCorrectionActionData } from "../support/route-support/checkout-session/delivery-correction";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment");
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
@@ -253,7 +250,7 @@ async function resolveCheckoutShippingAddress(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   formData: FormData,
-  options: Readonly<{ persistAddressBook?: boolean; validateServiceability?: boolean }> = {},
+  options: Readonly<{ persistAddressBook?: boolean }> = {},
 ): Promise<CheckoutShippingAddressResolution> {
   const selectedShippingAddressId = normalizeText(formData.get("shippingAddressId"));
   const addressBookAction = String(formData.get("addressBookAction") ?? "checkout-only");
@@ -275,16 +272,7 @@ async function resolveCheckoutShippingAddress(
   );
   const actorAccountId = persistAddressBook && canManageAddressBook && actor ? actor.accountId : null;
 
-  function assertServiceable(address: ReturnType<typeof shippingAddressFromForm>) {
-    if (!options.validateServiceability) {
-      return;
-    }
-
-    assertCheckoutDeliveryServiceableForAction(address);
-  }
-
   if (!canReadAddressBook) {
-    assertServiceable(formAddress);
     return { shippingAddress: { ...formAddress, shippingAddressId: null }, pendingAddressBookWrite: null };
   }
 
@@ -298,12 +286,10 @@ async function resolveCheckoutShippingAddress(
 
   if (selectedSavedAddress && addressBookAction !== "save-new" && addressBookAction !== "update-selected") {
     const savedAddress = shippingAddressFromSavedAddress(selectedSavedAddress);
-    assertServiceable(savedAddress);
     return { shippingAddress: savedAddress, pendingAddressBookWrite: null };
   }
 
   if (addressBookAction === "update-selected" && selectedSavedAddress && actorAccountId) {
-    assertServiceable(formAddress);
     return {
       shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress.shipping_address_id },
       pendingAddressBookWrite: {
@@ -316,7 +302,6 @@ async function resolveCheckoutShippingAddress(
   }
 
   if (addressBookAction === "save-new" && actorAccountId) {
-    assertServiceable(formAddress);
     return {
       shippingAddress: { ...formAddress, shippingAddressId: null },
       pendingAddressBookWrite: {
@@ -328,7 +313,6 @@ async function resolveCheckoutShippingAddress(
     };
   }
 
-  assertServiceable(formAddress);
   return {
     shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null },
     pendingAddressBookWrite: null,
@@ -854,7 +838,6 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     if (intent === "refresh-checkout-preview") {
       const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: false,
-        validateServiceability: true,
       });
       const shippingAddress = shippingAddressResolution.shippingAddress;
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
@@ -899,7 +882,6 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 
       const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: true,
-        validateServiceability: true,
       });
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
