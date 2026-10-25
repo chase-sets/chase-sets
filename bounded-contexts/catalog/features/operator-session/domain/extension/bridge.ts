@@ -34,15 +34,25 @@ export function installOperatorBridge(
   frame: HTMLIFrameElement,
   send: (message: OperatorBridgeMessage) => Promise<unknown>,
 ) {
-  const receive = async (event: MessageEvent<unknown>) => {
+  const relay = async (id: number, message: OperatorBridgeMessage) => {
+    try {
+      const result = await send(message);
+      if (isCommand(message)) {
+        if (isStatus(result)) frame.contentWindow?.postMessage({ id, status: result }, "*");
+      } else if (isProbeSetNamesMessage(message)) {
+        if (isSetNamesRequestResult(result)) frame.contentWindow?.postMessage({ id, result }, "*");
+      } else {
+        frame.contentWindow?.postMessage({ id, copied: result === true }, "*");
+      }
+    } catch {
+      if (isCopyProbeReportMessage(message)) frame.contentWindow?.postMessage({ id, copied: false }, "*");
+      /* The sandbox deadline supplies a closed UI error, never an exception echo. */
+    }
+  };
+  const receive = (event: MessageEvent<unknown>) => {
     if (event.source !== frame.contentWindow || event.origin !== "null") return;
     if (closed(event.data, ["id", "command"]) && safeInteger(event.data.id) && isCommand(event.data.command)) {
-      try {
-        const status = await send(event.data.command);
-        if (isStatus(status)) frame.contentWindow?.postMessage({ id: event.data.id, status }, "*");
-      } catch {
-        /* The sandbox deadline supplies a closed UI error, never an exception echo. */
-      }
+      void relay(event.data.id, event.data.command);
       return;
     }
     if (
@@ -52,12 +62,7 @@ export function installOperatorBridge(
       typeof event.data.productLineId === "string" &&
       /^\d+$/.test(event.data.productLineId)
     ) {
-      try {
-        const result = await send({ action: "probe-set-names", productLineId: event.data.productLineId });
-        if (isSetNamesRequestResult(result)) frame.contentWindow?.postMessage({ id: event.data.id, result }, "*");
-      } catch {
-        /* The sandbox deadline supplies a closed UI error, never an exception echo. */
-      }
+      void relay(event.data.id, { action: "probe-set-names", productLineId: event.data.productLineId });
       return;
     }
     if (
@@ -65,15 +70,7 @@ export function installOperatorBridge(
       safeInteger(event.data.id) &&
       isCopyProbeReportMessage(event.data)
     ) {
-      try {
-        const result = await send(event.data);
-        frame.contentWindow?.postMessage(
-          { id: (event.data as unknown as { id: number }).id, copied: result === true },
-          "*",
-        );
-      } catch {
-        frame.contentWindow?.postMessage({ id: (event.data as unknown as { id: number }).id, copied: false }, "*");
-      }
+      void relay(event.data.id, event.data);
     }
   };
   host.addEventListener("message", receive);

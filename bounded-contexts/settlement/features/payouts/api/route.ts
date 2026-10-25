@@ -130,6 +130,15 @@ export function createPayoutRoutes(services: PayoutServices) {
     });
   });
 
+  app.get("/payouts/quick-amounts", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getPayoutQuickAmounts({ accountId: access.actor.accountId as AccountId }));
+  });
+
   app.get("/payouts/reconciliation", async (c) => {
     const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
@@ -204,11 +213,22 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     try {
+      const amountSelection = body.amountSelection;
+      if (
+        amountSelection !== undefined &&
+        amountSelection !== null &&
+        amountSelection !== "" &&
+        amountSelection !== "minimum" &&
+        amountSelection !== "available"
+      ) {
+        throw new Error(t("settlement.features.payouts.api.route.amount.selection.invalid"));
+      }
       return c.json(
         await services.previewPayoutRequest(
           {
             accountId: access.actor.accountId as AccountId,
             amount: String(body.amount ?? ""),
+            amountSelection,
           },
           context,
         ),

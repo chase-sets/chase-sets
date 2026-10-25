@@ -144,7 +144,7 @@ export async function renderAuthRoute(route: RouteObject, path: string) {
     },
     async revalidate() {
       await act(async () => {
-        router.revalidate();
+        await router.revalidate();
       });
       await waitFor(() => {
         if (router.state.revalidation !== "idle") throw new Error("Not revalidated");

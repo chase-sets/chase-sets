@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
+import { getSupportFlowDefinition } from "../features/support-requests/domain/flow-catalog";
 
 const { mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
@@ -730,6 +731,7 @@ describe("platform operations mutation consistency route actions", () => {
         seller_account_id: "acc_seller",
         opened_by_account_id: "acc_buyer",
         flow_type: "product-damaged",
+        flow: getSupportFlowDefinition("product-damaged"),
       });
     });
     vi.stubGlobal("fetch", fetchMock);

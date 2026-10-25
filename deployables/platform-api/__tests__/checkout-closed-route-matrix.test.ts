@@ -1119,6 +1119,7 @@ describe("checkout-closed-session-lifecycle", () => {
     const [a, b] = started;
     expect(a).not.toBe(b);
     const savedAddressId = createId("adr");
+    const restrictedAddressId = createId("adr");
     const savedAddresses = vi.spyOn(f.checkout.sellList, "listShipFromAddresses").mockResolvedValue([
       {
         shipping_address_id: savedAddressId,
@@ -1137,6 +1138,23 @@ describe("checkout-closed-session-lifecycle", () => {
         is_default: true,
         updated_at: "2026-09-22T00:00:00.000Z",
       },
+      {
+        shipping_address_id: restrictedAddressId,
+        account_id: "acc_synthetic",
+        label: "Synthetic PO box",
+        recipient_name: "Synthetic Buyer",
+        company: null,
+        line1: "PO Box 100",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postal_code: "60601",
+        country: "US",
+        phone: null,
+        email: null,
+        is_default: false,
+        updated_at: "2026-09-22T00:00:00.000Z",
+      },
     ]);
     const setAddress = vi.spyOn(sessions, "setShippingAddress");
     const select = await nativeTool(
@@ -1150,6 +1168,32 @@ describe("checkout-closed-session-lifecycle", () => {
     });
     expect(savedAddresses).toHaveBeenCalledTimes(1);
     expect(setAddress).toHaveBeenCalledTimes(1);
+    const beforeRestrictedAddressEvents = store.allEvents.filter(
+      (event) => event.eventType === "checkout.session.shipping-address-set",
+    ).length;
+    const restrictedSelect = await nativeTool(
+      buildPlatformApiApp(f.runtime, f.options),
+      "checkout.select-saved-address",
+      { sessionId: a, shippingAddressId: restrictedAddressId },
+      "lifecycle-open-restricted-select",
+    );
+    const restrictedBody = await restrictedSelect.json();
+    expect(restrictedBody).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+          },
+        ],
+      },
+    });
+    expect(store.allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(
+      beforeRestrictedAddressEvents,
+    );
+    expect(restrictedBody.result).not.toHaveProperty("structuredContent");
+    await expect(setAddress.mock.results[1]!.value).rejects.toMatchObject({ code: "shipping_address_restricted" });
     const closedSelect = await nativeTool(
       f.closed,
       "checkout.select-saved-address",
@@ -1159,8 +1203,8 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(await closedSelect.json()).toMatchObject({
       result: { isError: true, content: [{ type: "text", text: "checkout_closed" }] },
     });
-    expect(savedAddresses).toHaveBeenCalledTimes(1);
-    expect(setAddress).toHaveBeenCalledTimes(1);
+    expect(savedAddresses).toHaveBeenCalledTimes(2);
+    expect(setAddress).toHaveBeenCalledTimes(2);
     const cartRead = vi.spyOn(f.checkout.cart, "listAuthorizedCartLines");
     const retainedCart = await nativeTool(
       buildPlatformApiApp(f.runtime, { ...f.options, checkoutClosed: true }),

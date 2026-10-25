@@ -278,7 +278,7 @@ export default function AccountPaymentMethodsRoute() {
   };
   const reload = (formKey: string) => {
     setAttempts(({ [formKey]: _reloaded, ...rest }) => rest);
-    revalidator.revalidate();
+    void revalidator.revalidate();
   };
   const statusFor = (formKey: string) => (submittingKey === formKey ? "submitting" : attempts[formKey]?.state);
   const attemptForm = (

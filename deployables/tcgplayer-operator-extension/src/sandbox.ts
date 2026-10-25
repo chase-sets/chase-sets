@@ -9,7 +9,7 @@ import { operatorManifest } from "./manifest-contract";
 
 const root = document.getElementById("root");
 if (root)
-  renderOperatorExtensionPopup(root, `chrome-extension://${operatorExtensionId}`, {
+  await renderOperatorExtensionPopup(root, `chrome-extension://${operatorExtensionId}`, {
     setNameRequest: createOperatorSandboxSetNamesRequest(window, `chrome-extension://${operatorExtensionId}`),
     copyProbeReport: createOperatorSandboxCopyReport(window, `chrome-extension://${operatorExtensionId}`),
     extensionVersion: operatorManifest.version,

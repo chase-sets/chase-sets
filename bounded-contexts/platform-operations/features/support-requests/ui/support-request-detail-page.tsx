@@ -27,7 +27,7 @@ import type {
   SupportRequesterRole,
   SupportResponseType,
 } from "../domain/common";
-import type { SupportFlowDefinition } from "../domain/flow-catalog";
+import type { SupportFlowDetail } from "../api/support-flow-projection";
 import type { SupportRequestDetail } from "./contracts";
 import { formatSupportDateTime, SupportDeadlineCountdown } from "./support-request-presentation";
 
@@ -35,7 +35,7 @@ export type SupportParticipantRole = Exclude<SupportRequesterRole, "support">;
 
 type SupportRequestDetailPageProps = Readonly<{
   request: SupportRequestDetail;
-  flow: SupportFlowDefinition;
+  flow: SupportFlowDetail;
   viewerRole: SupportParticipantRole;
   now: string;
   canCancel?: boolean;
@@ -182,10 +182,7 @@ function EvidencePrompt({
   );
 }
 
-function ResponseForm({
-  flow,
-  viewerRole,
-}: Readonly<{ flow: SupportFlowDefinition; viewerRole: SupportParticipantRole }>) {
+function ResponseForm({ flow, viewerRole }: Readonly<{ flow: SupportFlowDetail; viewerRole: SupportParticipantRole }>) {
   const allowedResponses = flow.allowedResponses.filter((response) => response !== "request-support-review");
   const firstResponse = allowedResponses[0];
   const [responseType, setResponseType] = useState<SupportResponseType | null>(firstResponse ?? null);

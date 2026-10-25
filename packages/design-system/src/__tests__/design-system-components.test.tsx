@@ -2311,7 +2311,7 @@ describe("design system components", () => {
             <CopyButton value="test-value" label="Copy ID" />
           </ChaseRoot>,
         );
-        act(() => vi.runOnlyPendingTimers());
+        await act(() => vi.runOnlyPendingTimers());
         expect(vi.getTimerCount()).toBe(0);
 
         await act(async () => {
@@ -2323,7 +2323,7 @@ describe("design system components", () => {
 
         unmount();
         expect(vi.getTimerCount()).toBe(0);
-        act(() => vi.advanceTimersByTime(2001));
+        await act(() => vi.advanceTimersByTime(2001));
         expect(vi.getTimerCount()).toBe(0);
         expect(consoleError).not.toHaveBeenCalled();
         expect(windowError).not.toHaveBeenCalled();
@@ -2338,30 +2338,54 @@ describe("design system components", () => {
           <CopyButton value="test-value" label="Copy ID" />
         </ChaseRoot>,
       );
-      act(() => vi.runOnlyPendingTimers());
+      await act(() => vi.runOnlyPendingTimers());
       expect(vi.getTimerCount()).toBe(0);
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
       });
-      act(() => vi.advanceTimersByTime(1999));
+      await act(() => vi.advanceTimersByTime(1999));
       expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
-      act(() => vi.advanceTimersByTime(1));
+      await act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
       });
-      act(() => vi.advanceTimersByTime(1000));
+      await act(() => vi.advanceTimersByTime(1000));
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Copied" }));
       });
       expect(vi.getTimerCount()).toBe(1);
-      act(() => vi.advanceTimersByTime(1999));
+      await act(() => vi.advanceTimersByTime(1999));
       expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
-      act(() => vi.advanceTimersByTime(1));
+      await act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
       expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(3);
+    });
+
+    it("reports a rejected clipboard write and keeps the copy label", async () => {
+      const failure = new Error("synthetic clipboard denial");
+      const reportError = vi.fn();
+      vi.stubGlobal("reportError", reportError);
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(failure);
+      try {
+        render(
+          <ChaseRoot reducedMotion="always">
+            <CopyButton value="test-value" label="Copy ID" />
+          </ChaseRoot>,
+        );
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+        });
+
+        expect(reportError).toHaveBeenCalledWith(failure);
+        expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 

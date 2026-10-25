@@ -33,6 +33,7 @@ import {
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "../provider-adapters/tcgplayer";
+import { createTcgdexProviderAdapter } from "./tcgdex/adapter";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
 
@@ -89,9 +90,11 @@ describe("MTGJSON accepted mapping planning parity", () => {
         series_id: candidate.coordinates.seriesId,
         set_id: candidate.coordinates.setId,
         set_name: candidate.coordinates.setName,
+        language_coordinates: { languageCode: "en" },
         review_status: candidate.reviewStatus,
         updated_at: "2026-10-14T00:00:00.000Z",
       });
+      expect(mapping.languageCode).toBe("en");
       const deniedFetch = vi.fn<typeof fetch>(async () => {
         throw new Error("Live fetch denied.");
       });
@@ -120,6 +123,46 @@ describe("MTGJSON accepted mapping planning parity", () => {
       });
     },
   );
+});
+
+describe("Pokemon mapping language coordinates", () => {
+  it("fails closed for a language-mismatched TCGdex mapping", async () => {
+    const profile = requireProfile("tcgdex", "pokemon-tcg");
+    const unitKey = unitKeyForCatalogProviderProfileVersion(profile);
+    const adapter = createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profile });
+    const planImport = vi.spyOn(adapter, "planImport");
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: { ...pokemonBaseSetScope(), languageCode: "ja" },
+      acceptedScopeMappings: [tcgdexBaseSetMapping(unitKey, { languageCode: "en" })],
+      providerProfileVersions: [profile],
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+    });
+    expect(preview.status).toBe("blocked");
+    expect(preview.units[0]).toMatchObject({
+      eligibility: "ineligible",
+      childExecutionScope: null,
+      blockers: [expect.objectContaining({ code: "provider-scope-mapping-missing" })],
+    });
+    expect(planImport).not.toHaveBeenCalled();
+  });
+
+  it("uses a mapping language when the Pokemon scope language is blank", async () => {
+    const profile = requireProfile("tcgdex", "pokemon-tcg");
+    const unitKey = unitKeyForCatalogProviderProfileVersion(profile);
+    const adapter = createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profile });
+    const planImport = vi.spyOn(adapter, "planImport");
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: { ...pokemonBaseSetScope(), languageCode: null },
+      acceptedScopeMappings: [tcgdexBaseSetMapping(unitKey, { languageCode: "ja" })],
+      providerProfileVersions: [profile],
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+    });
+    expect(preview.status).toBe("ready");
+    expect(preview.units[0]?.childExecutionScope).toMatchObject({ language: "ja" });
+    expect(planImport).toHaveBeenCalledWith(
+      expect.objectContaining({ values: expect.objectContaining({ language: "ja" }) }),
+    );
+  });
 });
 
 describe("server-unplannable provider units", () => {
@@ -980,8 +1023,11 @@ function acceptedMapping(
   };
 }
 
-function tcgdexBaseSetMapping(unitKey: string): CatalogSyncAcceptedScopeMapping {
-  return acceptedMapping({ providerKey: "tcgdex", unitKey, setId: "base1", seriesId: "base" });
+function tcgdexBaseSetMapping(
+  unitKey: string,
+  overrides: Partial<CatalogSyncAcceptedScopeMapping> = {},
+): CatalogSyncAcceptedScopeMapping {
+  return acceptedMapping({ providerKey: "tcgdex", unitKey, setId: "base1", seriesId: "base", ...overrides });
 }
 
 function tcgplayerBaseSetMapping(
