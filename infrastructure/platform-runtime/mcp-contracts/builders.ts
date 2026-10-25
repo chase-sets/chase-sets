@@ -142,6 +142,7 @@ export const CORE_MCP_SERVICE_IDS = [
   "ordering",
   "payments",
   "platform-operations",
+  "projection-operations",
   "pricing",
   "reputation",
   "settlement",

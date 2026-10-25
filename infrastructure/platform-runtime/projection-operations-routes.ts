@@ -51,6 +51,87 @@ export type ProjectionOperationsRouteOptions = Readonly<{
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
 }>;
 
+export type ProjectionOperationsSnapshot = Readonly<{
+  summary: ReturnType<typeof summarizeProjectionReplayStatuses>;
+  projectionGroups: readonly ContextProjectionGroupStatus[];
+  blockedProjections: readonly Readonly<{
+    projectionKey: string;
+    blockedStreamCount: number;
+    poisonEventCount: number;
+  }>[];
+  projectionStatusSource: "runtime-memory" | "worker-snapshot" | "mixed";
+  workers: readonly Record<string, unknown>[];
+  workerHeartbeatHistory: WorkerHeartbeatHistorySnapshot["summary"];
+  runners: readonly Record<string, unknown>[];
+  operations: readonly Awaited<ReturnType<PlatformControlPlane["listProjectionOperations"]>>[number][];
+  operationSummary: Awaited<ReturnType<PlatformControlPlane["summarizeProjectionOperations"]>> | null;
+}>;
+
+export function createProjectionStatusRefresher(runtime: ApiHostRuntime) {
+  let cached:
+    | Readonly<{
+        projectionGroups: readonly ContextProjectionGroupStatus[];
+        refreshedAtMs: number;
+      }>
+    | undefined;
+  let inFlight: Promise<readonly ContextProjectionGroupStatus[]> | undefined;
+
+  return async (): Promise<readonly ContextProjectionGroupStatus[]> => {
+    if (cached && Date.now() - cached.refreshedAtMs < PROJECTION_STATUS_REFRESH_CACHE_TTL_MS) {
+      return cached.projectionGroups;
+    }
+
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const refresh = refreshProjectionGroupStatuses(runtime)
+      .then((projectionGroups) => {
+        cached = {
+          projectionGroups,
+          refreshedAtMs: Date.now(),
+        };
+        return projectionGroups;
+      })
+      .finally(() => {
+        if (inFlight === refresh) {
+          inFlight = undefined;
+        }
+      });
+    inFlight = refresh;
+    return refresh;
+  };
+}
+
+export async function readProjectionOperationsSnapshot(
+  runtime: ApiHostRuntime,
+  options: ProjectionOperationsRouteOptions,
+): Promise<ProjectionOperationsSnapshot> {
+  const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
+  const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
+  const projectionGroups = snapshotOverlay.projectionGroups;
+
+  const workerHeartbeatHistory = options.controlPlane
+    ? await options.controlPlane.readWorkerHeartbeatHistory()
+    : emptyWorkerHeartbeatHistorySnapshot();
+  const classifiedWorkers = classifyWorkerHeartbeats(
+    workerHeartbeatHistory.workers,
+    Date.parse(workerHeartbeatHistory.snapshotAt),
+  );
+
+  return {
+    summary: summarizeProjectionReplayStatuses(projectionGroups),
+    projectionGroups,
+    blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
+    projectionStatusSource: snapshotOverlay.source,
+    workers: classifiedWorkers,
+    workerHeartbeatHistory: workerHeartbeatHistory.summary,
+    runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
+    operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
+    operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
+  };
+}
+
 export function createProjectionOperationsRoutes(
   runtime: ApiHostRuntime,
   options: ProjectionOperationsRouteOptions = {},
@@ -64,29 +145,7 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
-    const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
-    const projectionGroups = snapshotOverlay.projectionGroups;
-
-    const workerHeartbeatHistory = options.controlPlane
-      ? await options.controlPlane.readWorkerHeartbeatHistory()
-      : emptyWorkerHeartbeatHistorySnapshot();
-    const classifiedWorkers = classifyWorkerHeartbeats(
-      workerHeartbeatHistory.workers,
-      Date.parse(workerHeartbeatHistory.snapshotAt),
-    );
-
-    return c.json({
-      summary: summarizeProjectionReplayStatuses(projectionGroups),
-      projectionGroups,
-      blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
-      projectionStatusSource: snapshotOverlay.source,
-      workers: classifiedWorkers,
-      workerHeartbeatHistory: workerHeartbeatHistory.summary,
-      runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
-      operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
-      operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
-    });
+    return c.json(await readProjectionOperationsSnapshot(runtime, options));
   });
 
   app.post("/refresh", async (c) => {
@@ -146,27 +205,7 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const [wakeStore, relay, schedulers] = await Promise.all([
-      readWakeStoreStatus(options.workSignalStore),
-      readWakeRelayStatus(options.controlPlane),
-      readWakeSchedulerStatus(options.controlPlane),
-    ]);
-
-    return c.json({
-      generatedAt: new Date().toISOString(),
-      wakeStore,
-      relay,
-      schedulers,
-      rollout: readWakeRolloutStatus(),
-      // Push-first migration inventory: disposition by projection
-      // group derived from the wake registry. Structural metadata only:
-      // names, owners, states, counts.
-      migration: readWakeMigrationStatus(),
-      // Static composite-origin disposition inventory: which
-      // wake families ride the work-signal composite versus documented
-      // exceptions. Structural metadata only.
-      origins: listWorkSignalOriginDispositions(),
-    });
+    return c.json(await readProjectionWakeStatus(options));
   });
 
   app.get("/:projectionKey/blocked-streams", async (c) => {
@@ -369,40 +408,22 @@ export function createProjectionOperationsRoutes(
   return app;
 }
 
-function createProjectionStatusRefresher(runtime: ApiHostRuntime) {
-  let cached:
-    | Readonly<{
-        projectionGroups: readonly ContextProjectionGroupStatus[];
-        refreshedAtMs: number;
-      }>
-    | undefined;
-  let inFlight: Promise<readonly ContextProjectionGroupStatus[]> | undefined;
+export async function readProjectionWakeStatus(options: ProjectionOperationsRouteOptions) {
+  const [wakeStore, relay, schedulers] = await Promise.all([
+    readWakeStoreStatus(options.workSignalStore),
+    readWakeRelayStatus(options.controlPlane),
+    readWakeSchedulerStatus(options.controlPlane),
+  ]);
 
-  return async (): Promise<readonly ContextProjectionGroupStatus[]> => {
-    if (cached && Date.now() - cached.refreshedAtMs < PROJECTION_STATUS_REFRESH_CACHE_TTL_MS) {
-      return cached.projectionGroups;
-    }
-
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const refresh = refreshProjectionGroupStatuses(runtime)
-      .then((projectionGroups) => {
-        cached = {
-          projectionGroups,
-          refreshedAtMs: Date.now(),
-        };
-        return projectionGroups;
-      })
-      .finally(() => {
-        if (inFlight === refresh) {
-          inFlight = undefined;
-        }
-      });
-    inFlight = refresh;
-    return refresh;
-  };
+  return {
+    generatedAt: new Date().toISOString(),
+    wakeStore,
+    relay,
+    schedulers,
+    rollout: readWakeRolloutStatus(),
+    migration: readWakeMigrationStatus(),
+    origins: listWorkSignalOriginDispositions(),
+  } as const;
 }
 
 async function readWakeStoreStatus(workSignalStore: ProjectionWakeStatusWorkSignalStore | undefined) {
@@ -845,7 +866,7 @@ function readProjectionOperationState(value: string | undefined) {
     : undefined;
 }
 
-async function enqueueProjectionOperation(
+export async function enqueueProjectionOperation(
   controlPlane: PlatformControlPlane | undefined,
   actor: ResolvedActor,
   input: Readonly<{
