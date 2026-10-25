@@ -753,10 +753,7 @@ const doksFoundationMain = readFileSync(resolve("infrastructure/digitalocean/dok
 const doksFoundationLocals = readFileSync(resolve("infrastructure/digitalocean/doks/locals.tf"), "utf8");
 const doksFoundationVariables = readFileSync(resolve("infrastructure/digitalocean/doks/variables.tf"), "utf8");
 const doksFoundationReadme = readFileSync(resolve("infrastructure/digitalocean/doks/README.md"), "utf8");
-const doksFoundationAuthority = readFileSync(
-  resolve(".github/authority/platform-doks-foundation/apply.json"),
-  "utf8",
-);
+const doksFoundationAuthority = readFileSync(resolve(".github/authority/platform-doks-foundation/apply.json"), "utf8");
 const platformObservabilityStateMigrationWorkflow = readFileSync(
   resolve(".github/workflows/platform-observability-state-migration.yml"),
   "utf8",
