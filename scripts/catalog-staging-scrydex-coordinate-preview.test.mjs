@@ -1574,7 +1574,7 @@ describe("archive *", () => {
   };
 
   const readCanonicalReceipt = (archive) => {
-    const entries = unzipJsonEntries(archive, { include: (name) => name.endsWith(".json") });
+    const entries = unzipJsonEntries(archive);
     if (entries.size !== 1 || !entries.has("receipt.json")) throw new Error("archive-receipt-shape");
     const bytes = entries.get("receipt.json");
     const candidate = JSON.parse(bytes.toString("utf8"));
@@ -1607,11 +1607,20 @@ describe("archive *", () => {
     return candidate;
   };
 
+  const assertUploadGatesClosed = () => {
+    const [completeUpload, diagnosticUpload] = uploadSteps();
+    const refused = { capture: "success", receipt: "failure", status: undefined };
+    expect(evaluateGate(completeUpload.if, refused)).toBe(false);
+    expect(evaluateGate(diagnosticUpload.if, refused)).toBe(false);
+  };
+
   it("archive complete: accepts only the validated root receipt and complete gate", async () => {
     const { bytes } = await archiveFromValidatedArtifact(completeReceipt());
-    const archive = buildZip([{ name: "receipt.json", bytes, method: 8 }]);
+    const uploadPath = uploadSteps()[0].with.path;
+    const archiveEntryName = uploadPath.split("/").at(-1);
+    const archive = buildZip([{ name: archiveEntryName, bytes, method: 8 }]);
     const expectedPath = "artifacts/catalog-scrydex-coordinate-preview/receipt.json";
-    expect(uploadSteps()[0].with.path).toBe(expectedPath);
+    expect(uploadPath).toBe(expectedPath);
     const pathMutant = workflow();
     const pathMutantUpload = coordinateJob(pathMutant).steps.find((step) =>
       step.uses?.startsWith("actions/upload-artifact@"),
@@ -1627,7 +1636,7 @@ describe("archive *", () => {
       }),
     ).toMatchObject({ outcome: "complete" });
 
-    const directoryUpload = buildZip([{ name: "catalog-scrydex-coordinate-preview/receipt.json", bytes }]);
+    const directoryUpload = buildZip([{ name: `catalog-scrydex-coordinate-preview/${archiveEntryName}`, bytes }]);
     expect(() =>
       assertArchive(directoryUpload, {
         outcome: "complete",
@@ -1668,29 +1677,32 @@ describe("archive *", () => {
     await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview-other"), { recursive: true });
     await writeFile(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview-other", "receipt.json"), bytes);
     await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    assertUploadGatesClosed();
     const archive = buildZip([{ name: "catalog-scrydex-coordinate-preview-other/receipt.json", bytes }]);
     expect(() => readCanonicalReceipt(archive)).toThrow("archive-receipt-shape");
     expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes }]))).not.toThrow();
-    const basenameMutant = unzipJsonEntries(archive);
-    expect(JSON.parse(basenameMutant.values().next().value.toString("utf8"))).toMatchObject({ outcome: "complete" });
   });
 
   it("archive duplicate-candidate: rejects a second receipt candidate and one-entry mutant", async () => {
-    const { bytes, workspace, env } = await archiveFromValidatedArtifact(completeReceipt());
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(completeReceipt(), [], env, workspace, runner);
+    const bytes = readFileSync(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "capture.json"));
     await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "nested"), { recursive: true });
     await writeFile(
       join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "nested", "receipt.json"),
       bytes,
     );
     await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    assertUploadGatesClosed();
     const archive = buildZip([
       { name: "receipt.json", bytes },
       { name: "nested/receipt.json", bytes },
     ]);
     expect(() => readCanonicalReceipt(archive)).toThrow("archive-receipt-shape");
     expect(readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes }]))).toMatchObject({ outcome: "complete" });
-    const oneEntryMutant = unzipJsonEntries(archive, { include: (name) => name === "receipt.json" });
-    expect(JSON.parse(oneEntryMutant.get("receipt.json").toString("utf8"))).toMatchObject({ outcome: "complete" });
   });
 
   it("archive missing-receipt: rejects a valid payload under a noncanonical JSON name", async () => {
@@ -1702,9 +1714,8 @@ describe("archive *", () => {
     await mkdir(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview"), { recursive: true });
     await writeFile(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "notes.json"), bytes);
     await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+    assertUploadGatesClosed();
     expect(() => readCanonicalReceipt(buildZip([{ name: "notes.json", bytes }]))).toThrow("archive-receipt-shape");
-    const basenameMutant = unzipJsonEntries(buildZip([{ name: "notes.json", bytes }]));
-    expect(JSON.parse(basenameMutant.values().next().value.toString("utf8"))).toMatchObject({ outcome: "complete" });
   });
 
   it("archive malformed-receipt: rejects truncated and schema-invalid payloads", async () => {
@@ -1724,6 +1735,7 @@ describe("archive *", () => {
       JSON.stringify({ identity: runner, sha256: createHash("sha256").update(malformed).digest("hex") }),
     );
     await expect(validateCoordinatePreviewUpload(malformedEnv, malformedWorkspace)).rejects.toThrow(SyntaxError);
+    assertUploadGatesClosed();
 
     const invalid = Buffer.from(JSON.stringify({ ...completeReceipt(), unexpected: true }));
     expect(() => readCanonicalReceipt(buildZip([{ name: "receipt.json", bytes: invalid }]))).toThrow(
