@@ -477,15 +477,15 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
  * Historical captures remain immutable; normal final-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
-  referenceRunId: 40078269313,
-  referenceJobId: 120826240548,
-  referenceJobName: "Diagnostic API Bootstrap Measurement Only",
-  referenceHeadSha: "a525f369c26580e2b0ab00ac2da620f789cfad02",
-  referenceEvent: "push",
+  referenceRunId: 40165642883,
+  referenceJobId: 121086090997,
+  referenceJobName: "Diagnostic API Bootstrap Measurement Only (current three-unit)",
+  referenceHeadSha: "0c80214fe8886943a1b92e3d1afc975a0b57eb77",
+  referenceEvent: "workflow_dispatch",
   maxWorkersPerExecutionUnit: 3,
-  testFileFixedCostMs: 1500,
-  executionUnitFixedCostMs: 13336,
-  jobOverheadMs: 52570,
+  testFileFixedCostMs: 3914,
+  executionUnitFixedCostMs: 7850,
+  jobOverheadMs: 50147,
   executionUnitCeilingMs: 420000,
   aggregateCeilingMs: 1080000,
   maximumCaseReferenceDurationMs: 600000,
@@ -498,8 +498,8 @@ export const bootstrapDbScheduleModel = Object.freeze({
 // model after measurement; discovery never expands this workload. The accepted
 // capture binding is not hosted qualification of the shipping topology.
 export const platformApiNonBootstrapDbCensus = Object.freeze({
-  referenceRunId: 40078269313,
-  referenceJobId: 120826240548,
+  referenceRunId: 40165642883,
+  referenceJobId: 121086090997,
   entries: Object.freeze({
     "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
     "__tests__/operator-session/operator-session-grant-scope.db.test.ts": "test:db:2",
@@ -1509,12 +1509,12 @@ function bootBearingCaseCount(partition) {
  * the Unit test binds to those captures.
  */
 export const bootstrapDbMeasuredOneFewerUnitFloor = Object.freeze({
-  shippedReferenceRunId: 39950765563,
-  pairedReferenceRunId: 39950765563,
-  pairedReferenceJobId: 120408068635,
-  pairedArtifactSha256: "2589d255052d62828b0b65e178d186f002f6aec1988247d2ed499503313a77b2",
+  shippedReferenceRunId: 40165642883,
+  pairedReferenceRunId: 40165642883,
+  pairedReferenceJobId: 121087552215,
+  pairedArtifactSha256: "95fefe0c8dc32729246788eedc8395054fb19a9ff55dfce0fe3c6d4749290a2b",
   unitCount: 2,
-  assignment: Object.freeze({
+  assignment: {
     "bootstrap-scenario.db.test.ts": "test:db:1",
     "catalog-seed-aggregate-state.db.test.ts": "test:db:1",
     "inventory-seed-resume.db.test.ts": "test:db:1",
@@ -1527,8 +1527,11 @@ export const bootstrapDbMeasuredOneFewerUnitFloor = Object.freeze({
     "bootstrap-lock-contention.db.test.ts": "test:db:2",
     "seed-command-full-pools.db.test.ts": "test:db:2",
     "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:2",
-  }),
-  unitMakespansMs: Object.freeze({ "test:db:1": 429804, "test:db:2": 416927 }),
+  },
+  unitMakespansMs: {
+    "test:db:1": 424011,
+    "test:db:2": 404360,
+  },
 });
 
 const measuredFloorProvenanceFields = Object.freeze([

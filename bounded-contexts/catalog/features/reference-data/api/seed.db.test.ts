@@ -65,16 +65,52 @@ const staleTcgdexSetIds: Readonly<Record<string, string>> = {
   [expansionIds.surgingSparks]: "sv8",
   [expansionIds.twilightMasquerade]: "sv6",
 };
-/** SHA-256 of each seeded expansion's sorted attributes once its English TCGdex id is exact. */
-const correctedAttributeDigests = {
-  "base-set": "dc19084c9ebfd0f4b83f7243930c4aa3544b1c23d83929dc1bfc394fdce1678f",
-  jungle: "8186d9d25f08320c7b1cbcdf6caeca5276483760722cc1ace132fa0f7e41bec0",
-  "neo-genesis": "4ad20b7f287a7c673f5290540359bfe9fb21479d10ca5080dc6cd5ce79be25ae",
-  "wizards-black-star-promos": "bca0ac1ac5c674ec809074a9cb74f3e4f9acbfe21c1a4effa432db2734c88900",
-  "prismatic-evolutions": "98dda5dea4ec2852ffb2d6314c15db89783e64470976916db34e8bc651016d4e",
-  "surging-sparks": "6cbab639671875fde4b04b4fb3ceefdea51068ae56789063502dd83acb7bb099",
-  "twilight-masquerade": "aff3fe70860e45645b50eca42cff24853e453ccb676996d40a6c5711e01a2c1b",
+/** Explicit expected attributes for every seeded expansion after reconciliation. */
+const expectedAttributesBySeedKey = {
+  "base-set": {
+    abbreviation: "BS",
+    "card-count": 102,
+    "release-date": "1999-01-09",
+    "tcgdex-set-id": "base1",
+    "language-editions": ["en"],
+  },
+  jungle: {
+    abbreviation: "JU",
+    "card-count": 64,
+    "release-date": "1999-06-16",
+    "tcgdex-set-id": "base2",
+    "language-editions": ["en"],
+  },
+  "neo-genesis": {
+    abbreviation: "N1",
+    "card-count": 111,
+    "release-date": "2000-12-16",
+    "tcgdex-set-id": "neo1",
+    "language-editions": ["en"],
+  },
+  "wizards-black-star-promos": { abbreviation: "PR", "tcgdex-set-id": "basep", "language-editions": ["en"] },
+  "prismatic-evolutions": {
+    abbreviation: "PRE",
+    "release-date": "2025-01-17",
+    "tcgdex-set-id": "sv08.5",
+    "language-editions": ["en"],
+  },
+  "surging-sparks": {
+    abbreviation: "SSP",
+    "release-date": "2024-11-08",
+    "tcgdex-set-id": "sv08",
+    "language-editions": ["en"],
+  },
+  "twilight-masquerade": {
+    abbreviation: "TWM",
+    "release-date": "2024-05-24",
+    "tcgdex-set-id": "sv06",
+    "language-editions": ["en"],
+  },
 } as const;
+const correctedAttributeDigests = Object.fromEntries(
+  Object.entries(expectedAttributesBySeedKey).map(([key, attributes]) => [key, attributeDigest(attributes)]),
+) as Record<keyof typeof expectedAttributesBySeedKey, string>;
 const duplicateId = "ref_tcgdex_expansion_sv08" as ReferenceRecordId;
 const canonicalId = expansionIds.surgingSparks as ReferenceRecordId;
 const surgingSparksIds = [canonicalId, duplicateId];
@@ -262,7 +298,9 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
    * carries a SYNTHETIC Catalog Item; the duplicate also carries a proposed
    * mapping, and the canonical record an accepted one unless stated otherwise.
    */
-  async function stagingShapedPreChangeState(input: { acceptedMappingOn?: string } = {}): Promise<void> {
+  async function stagingShapedPreChangeState(
+    input: { acceptedMappingOn?: string; omitCanonicalAttribute?: string } = {},
+  ): Promise<void> {
     const recordHandler = services.referenceData.referenceRecordCommandHandler;
     await seedReferenceData({
       ...services,
@@ -279,7 +317,17 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
                   ...command,
                   command: {
                     ...command.command,
-                    attributes: { ...command.command.attributes, "tcgdex-set-id": stale },
+                    attributes: {
+                      ...command.command.attributes,
+                      "tcgdex-set-id": stale,
+                      ...(command.command.referenceRecordId === canonicalId && input.omitCanonicalAttribute
+                        ? Object.fromEntries(
+                            Object.entries(command.command.attributes ?? {}).filter(
+                              ([key]) => key !== input.omitCanonicalAttribute,
+                            ),
+                          )
+                        : {}),
+                    },
                   },
                 }
               : command,
@@ -312,7 +360,7 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
     expect(await provision()).toBe(canonicalId);
   });
 
-  it("corrects the three stale ids and retires the Surging Sparks duplicate once, keeping items, mappings and history", async () => {
+  it("seed-idempotence corrects the three stale ids and retires the Surging Sparks duplicate once, keeping items, mappings and history", async () => {
     await stagingShapedPreChangeState();
     expect(await seededTcgdexSetIds()).toEqual({
       ...englishTcgdexSetIds,
@@ -359,6 +407,14 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
     expect(await seededAttributeDigests()).toEqual(correctedAttributeDigests);
     expect(await activeSurgingSparksRecords()).toEqual([canonicalId]);
     expect((await folded(duplicateId)).status).toBe("deprecated");
+  });
+
+  it("merges a missing and corrected attribute in one fenced revision", async () => {
+    await stagingShapedPreChangeState({ omitCanonicalAttribute: "language-editions" });
+    const before = await eventTypes(canonicalId);
+    await runSeed();
+    expect(await eventTypes(canonicalId)).toEqual([...before, "catalog.reference-record.revised"]);
+    expect((await folded(canonicalId)).attributes).toEqual(expectedAttributesBySeedKey["surging-sparks"]);
   });
 
   it("refuses to retire a Surging Sparks duplicate that still owns an accepted mapping", async () => {

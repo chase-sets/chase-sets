@@ -712,7 +712,10 @@ function seededExpansionHarness() {
             : [];
         return {
           rowCount: rows.length,
-          rows: rows.map((row) => ({ reference_record_id: row.reference_record_id })) as T[],
+          rows: rows.map((row) => ({
+            reference_record_id: row.reference_record_id,
+            attributes: row.attributes,
+          })) as T[],
         };
       },
     },
@@ -810,7 +813,7 @@ describe("TCGdex English and Japanese set ids against the seeded Pokemon expansi
       englishTargets[def.key] = { preview: await h.preview(normalized), provision: await h.provision(normalized) };
     }
     const japaneseTargets: Record<string, string> = {};
-    for (const setId of ["SV8", "SV9", "SV1a"]) {
+    for (const setId of ["SV8", "SV9", "SV1a", "neo1"]) {
       japaneseTargets[setId] = await h.provision(tcgdexSetObservation("ja", capturedTcgdexSet(jaSets, setId)));
     }
 
@@ -826,6 +829,7 @@ describe("TCGdex English and Japanese set ids against the seeded Pokemon expansi
       SV8: "ref_tcgdex_expansion_ja_sv8",
       SV9: "ref_tcgdex_expansion_ja_sv9",
       SV1a: "ref_tcgdex_expansion_ja_sv1a",
+      neo1: "ref_tcgdex_expansion_ja_neo1",
     });
     expect(await h.seededHistories()).toEqual(seededHistories);
     expect(fetchSpy).not.toHaveBeenCalled();
