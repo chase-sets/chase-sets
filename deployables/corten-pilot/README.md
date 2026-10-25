@@ -125,6 +125,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `ad8d3af` | the four commits above rebased onto Corten `main` at `340c133`, which closed the pilot's gaps: `App::guard`, `FieldName` in the prelude, `Result<T, E>` (see Corten gaps) |
 | `04989b5` | Corten `main` with the pilot's commits merged ([todd-skelton/corten#7 Pilot fixes, and areas and APIs checked at compile time](https://github.com/todd-skelton/corten/pull/7)), and its breaking changes: `App<C>` (`.context` before `.shell` and `.guard`), `App::guard` without a prefix for the whole app, `corten::serve(app)` |
 | `860d985` | [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12) closed two of the pilot's gaps (the workaround in `recovery.js` is gone), and [todd-skelton/corten#8 Less work per page: escape, route parameters and module tags](https://github.com/todd-skelton/corten/pull/8); no breaking change for the pilot |
+| `733fdd4` | [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14) closed [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13): the lifecycle button is `action` again and its router test is gone; no breaking change for the pilot |
 
 ## What lives where
 
@@ -197,8 +198,7 @@ forward only on purpose, when a fix the pilot needs lands.
     same record and the Catalog API refuses the second.
 14. **Not ported**: bulk lifecycle changes (the selection, preview, confirm and job progress), a
     larger slice of its own.
-15. **The lifecycle forms' button is named `step`, not `action`**: see Corten gaps.
-16. **The lists are live**, as admin-web's are (`useCatalogRealtimeRevalidation` on the
+15. **The lists are live**, as admin-web's are (`useCatalogRealtimeRevalidation` on the
     dimensions and fields lists; their detail pages are not live in admin-web either). The rows
     and pager are a `<corten-live>` whose route (`/catalog/dimensions/live`, with the list's
     filters and page) follows the Catalog topic `catalog:admin:dimensions` on the platform's
@@ -217,19 +217,7 @@ Open, filed in Corten (one gap each):
    carry one, but a `data-patch` form cannot get one from Corten, and the runtime aborts a pending
    submit when a newer one differs, which does not stop the first write on the server. The
    pilot's workaround is item 7 above.
-2. [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13)
-   (correctness). The catalog's
-   lifecycle buttons were `<button name="action" value="activate">`, as admin-web's handler
-   names its argument. In a form, `form.action` is then the named control (a DOM rule from
-   before HTML5), so the runtime's `new URL(submitter?.getAttribute("formaction") || form.action)`
-   posts to `/catalog/dimensions/[object HTMLButtonElement]`: a 405, the error page, and no
-   write. Without JavaScript the browser posts to the right URL, so only the JavaScript path
-   breaks. Checked in Chromium: `form.action` is the button and `form.method` the input when
-   controls carry those names. Expected: the runtime resolves the form's own action and method
-   (from the attribute, against the page's URL), or `corten dev` flags the name. Workaround: the
-   field is `step` ([`ActionInput`](admin/src/catalog/form.rs)), and a router test asserts no
-   catalog page has a control named `action`.
-3. [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15)
+2. [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15)
    (correctness, then performance). `corten::live` events carry no `id`, so a reconnect sends no
    `Last-Event-ID` and the route cannot tell it from a first connection. Workaround: the live
    lists draw their rows on every connection, so each page view and reconnect costs one more
@@ -246,6 +234,12 @@ Filed as [#10520 Let the Catalog API reorder a dimension's options instead of re
 once it lands, the smoke test's reorder step should pass instead of being reported blocked.
 
 Closed:
+
+Fixed in [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14), at the pin, workaround removed:
+
+1. [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13)
+   (correctness): the lifecycle buttons were named `step`, with a router test that no catalog
+   page had a control named `action`.
 
 Fixed in [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12), at the pin, workarounds removed:
 
