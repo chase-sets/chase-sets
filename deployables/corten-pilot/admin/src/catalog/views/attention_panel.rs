@@ -12,7 +12,7 @@ use super::{Dialog, Empty, KeyValues, Tone, TonePill, ids};
 use crate::{
     catalog::{
         api::{AttentionItem, AttentionKind, AttentionQueue, Resolution, ResolutionMode, Severity},
-        attention::{ParkInput, Parked, RestoreInput, item_text, url as at},
+        attention::{Params, ParkInput, Parked, RestoreInput, shown, url as at},
         scopes::url::{AttentionDone, ScopeQuery},
     },
     text::Cat,
@@ -148,10 +148,8 @@ fn Metric<'a>(label: &'a str, value: &'a str, trend: &'a str) -> impl Render {
 /// An item: its title, detail and badges; its provider and unit; its commands and Review.
 #[component(css = AttentionPanel)]
 fn AttentionRow<'a>(t: Cat, query: &'a ScopeQuery, item: &'a AttentionItem, manage: bool) -> impl Render {
-    let title = item_text(t, &item.title_key, &item.title_params);
-    let detail = item_text(t, &item.detail_key, &item.detail_params);
+    let (title, detail, none) = (Params::title(item), Params::detail(item), Params::none());
     let (severity, tone) = severity(t, item.severity);
-    let label = item_text(t, &item.resolution.label_key, &Default::default());
     let commands: Vec<&Resolution> = std::iter::once(&item.resolution)
         .filter(|r| r.mode == ResolutionMode::Command)
         .chain(&item.secondary_resolutions)
@@ -160,8 +158,8 @@ fn AttentionRow<'a>(t: Cat, query: &'a ScopeQuery, item: &'a AttentionItem, mana
         <tr>
             <td>
                 <div class={Item}>
-                    <strong class={ItemTitle}>{&title}</strong>
-                    <span class={Muted}>{&detail}</span>
+                    <strong class={ItemTitle}>{shown(t, &item.title_key, &title)}</strong>
+                    <span class={Muted}>{shown(t, &item.detail_key, &detail)}</span>
                     <span class={Badges}>
                         <TonePill text={severity} tone={tone} />
                         <TonePill text={kind(t, item.kind)} tone={Tone::Neutral} />
@@ -188,7 +186,7 @@ fn AttentionRow<'a>(t: Cat, query: &'a ScopeQuery, item: &'a AttentionItem, mana
                         name="item"
                         value={&item.item_key}
                     >
-                        {&label}
+                        {shown(t, &item.resolution.label_key, &none)}
                     </button>
                 </div>
             </td>
@@ -205,7 +203,8 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
         "alias.reject" => Some(at::AliasReject { query: query.clone() }.href()),
         _ => None,
     };
-    let label = item_text(t, &resolution.label_key, &Default::default());
+    let none = Params::none();
+    let label = shown(t, &resolution.label_key, &none).to_string();
     let hashes = resolution.fields.get("aliasHashes").map(String::as_str).unwrap_or("");
     html! {
         if let Some(action) = &action {
@@ -235,7 +234,8 @@ pub fn AttentionSheet<'a>(
         match item {
             None => <dialog id={ids::ATTENTION_DIALOG}></dialog>,
             Some(item) => {
-                let title = item_text(t, &item.title_key, &item.title_params);
+                let params = Params::title(item);
+                let title = shown(t, &item.title_key, &params).to_string();
                 let evidence = evidence(t, item);
                 let destination = item.resolution.href.as_deref().and_then(admin_web).map(|u| u.to_string());
                 let blank = || Draft::new(ParkInput::of(item));

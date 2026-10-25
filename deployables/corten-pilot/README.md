@@ -144,6 +144,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `f80d4a1` | Corten `main` with the pilot's earlier gaps closed: [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9) (`SubmitKey`), [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20), [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24) and [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26). Breaking: `Json`, `req.screen` and `json_ld` take `ToJson`, so the screens and the catalog's read types derive it. `DimensionDetail` flattens a struct, which the derive refuses ([todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)), so it writes itself through serde. `SubmitKey` is not used yet: it was 32 hex digits and the Inventory API takes a UUID ([todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)) |
 | `014a2fd` | Corten `main` with [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32), [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33), [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34), [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35), [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39), [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44), [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45) and [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17) closed, each adopted (see Corten gaps). Breaking: `Errors::aria` and `Errors::message` are gone; a form's field errors are `errors.within(FormId)`, with typed form ids, and their ids are `{form id}-{field}-error` |
 | `c35a10a` | Corten `main` with [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49) and [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50) closed, both adopted. No breaking change for the pilot; its tests changed only where a page's markup did (`LiveStatus` now draws the `<corten-live>`, and `drawn` takes one group) |
+| `e220c14` | Corten `main` with [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54) and [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56) closed, both adopted (`t.by_key`; `{type}` as it is). No breaking change for the pilot. Also brings a feed's snapshot kept between writes (CHANGELOG, Changed 38) |
 
 ## What lives where
 
@@ -334,12 +335,13 @@ forward only on purpose, when a fix the pilot needs lands.
     Both are marked in `scopes.rs` for removal. An API error other than sign-in or permission is
     the list's banner over no rows, as admin-web's loader shows it.
 27. **The attention queue's text is the API's message keys.** The queue sends each item's title,
-    detail and action label as a catalog key and its arguments; `messages!` has no lookup by key
-    ([todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54)),
-    so `attention::item_text` matches the 20 keys to their methods. One argument is `{type}`, which
-    `messages!` refuses as a Rust keyword
-    ([todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56)):
-    `export.mjs` renames such an argument with a trailing underscore. The queue's 214 items in the
+    detail and action label as a catalog key and its arguments, which `attention::shown` draws
+    with `t.by_key` (the API's key mapped to the pilot's `attention.*` key; a key the catalog
+    lacks is shown as the key). Its arguments are the API's params through `attention::Params`,
+    which looks up a catalog argument's camelCase name, since `messages!` takes only snake case
+    ([todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)),
+    and fills an alias candidate's detail `{type}` from the title's params, where the API sends it
+    ([chase-sets/chase-sets#10569 Show the alias type in a Catalog attention queue alias candidate's detail instead of {type}](https://github.com/chase-sets/chase-sets/issues/10569); admin-web shows the text `{type}`). The queue's 214 items in the
     sandbox are all drawn, as admin-web draws them (the API does not page them); a row's Review is
     a submit button of one shared form, so a row carries only its key, and the sheet is drawn by
     the server when opened. The pilot trusts the API's counts; admin-web recomputes them and drops
@@ -357,14 +359,11 @@ forward only on purpose, when a fix the pilot needs lands.
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54)
-   (correctness, then developer time). The Catalog attention queue sends its items' text as
-   message keys and arguments. Workaround: `attention::item_text` matches the 20 keys to their
-   methods ([`attention.rs`](admin/src/catalog/attention.rs)). Corten has a pull request up,
-   [todd-skelton/corten#55 t.by_key: a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/pull/55).
-2. [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56)
-   (developer time). Chase Sets' catalog has `{type}`. Workaround: `export.mjs` renames a
-   reserved argument with a trailing underscore (`{type_}`).
+1. [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58)
+   (correctness of a message shown by key, then developer time). Chase Sets' catalogs have 365
+   camelCase arguments, and its APIs send params with the same names. Workaround: `export.mjs`
+   writes each argument in snake case, and `attention::Params` looks the camelCase name up in
+   the API's params ([`attention.rs`](admin/src/catalog/attention.rs)).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -388,6 +387,13 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `e220c14` pin, workarounds removed:
+
+1. [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54)
+   ([todd-skelton/corten#55 t.by_key: a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/pull/55)): the attention queue's text is `t.by_key`; the 20-key `item_text` match is gone.
+2. [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56)
+   ([todd-skelton/corten#57 A catalog argument may be named like a Rust keyword](https://github.com/todd-skelton/corten/pull/57)): the catalog keeps `{type}`; `export.mjs` no longer renames it `{type_}`.
 
 Fixed at the `c35a10a` pin, workarounds removed:
 

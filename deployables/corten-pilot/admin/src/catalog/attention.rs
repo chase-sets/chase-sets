@@ -15,11 +15,15 @@
 //!
 //! The panel trusts the API's counts. admin-web recomputes them from the items and rejects a
 //! queue whose counts differ, which chase-sets/chase-sets#10507 removes.
-use std::collections::BTreeMap;
+use std::fmt::Display;
 
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{
+    axum::http::HeaderMap,
+    i18n::{Args, Found},
+    prelude::*,
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{
     Sent,
@@ -308,78 +312,183 @@ fn failed(req: &Req, query: ScopeQuery) -> corten::Result {
     req.redirect(&scopes::url::Scopes { query, notice })
 }
 
-/// A parameter of an item's message, as text (the API sends strings and numbers).
-fn param(params: &BTreeMap<String, Value>, name: &str) -> String {
-    match params.get(name) {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Null) | None => String::new(),
-        Some(other) => other.to_string(),
+/// An API message key as the pilot's catalog files it: `export.mjs` writes
+/// `catalog.features.attentionQueue.<rest>` as `attention.<rest>`, each segment in snake case.
+fn catalog_key(key: &str) -> Option<String> {
+    let rest = key.strip_prefix("catalog.features.attentionQueue.")?;
+    let mut out = String::from("attention");
+    for segment in rest.split('.') {
+        out.push('.');
+        out.push_str(&snake(segment));
+    }
+    Some(out)
+}
+
+/// `aliasCandidate` is `alias_candidate`, as `export.mjs` writes a name.
+fn snake(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    let mut after_word = false;
+    for c in name.chars() {
+        if c.is_ascii_uppercase() && after_word {
+            out.push('_');
+        }
+        after_word = c.is_ascii_lowercase() || c.is_ascii_digit();
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// An item's message arguments as the API sends them, for `t.by_key`: the item's own and, for a
+/// name they lack, its title's. Two workarounds, each removed when its issue lands:
+/// todd-skelton/corten#58 (`messages!` takes only snake_case argument names, so the catalog's
+/// `{updatedAt}` is `{updated_at}` and this looks up the API's camelCase name), and
+/// chase-sets/chase-sets#10569 (an alias candidate's detail has `{type}`, which the API sends only
+/// with the title).
+pub struct Params<'a> {
+    own: &'a Map<String, Value>,
+    title: Option<&'a Map<String, Value>>,
+}
+
+impl<'a> Params<'a> {
+    /// A title's arguments.
+    pub fn title(item: &'a AttentionItem) -> Self {
+        Params { own: &item.title_params, title: None }
+    }
+
+    /// A detail's arguments, then the title's.
+    pub fn detail(item: &'a AttentionItem) -> Self {
+        Params { own: &item.detail_params, title: Some(&item.title_params) }
+    }
+
+    /// A resolution's label, which has none.
+    pub fn none() -> Self {
+        static EMPTY: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
+        Params { own: &EMPTY, title: None }
     }
 }
 
-/// An item's title or detail, or a resolution's label, from the API's message key and arguments.
-///
-/// Workaround for todd-skelton/corten#54: `messages!` has no lookup by key, so this matches the
-/// keys the queue's collectors use (features/attention-queue/read-model/collectors.ts) to their
-/// methods. A key it does not know is shown as the key; admin-web shows `[missing:en:<key>]`.
-pub fn item_text(t: Cat, key: &str, params: &BTreeMap<String, Value>) -> String {
-    let a = |name: &str| param(params, name);
-    let Some(name) = key.strip_prefix("catalog.features.attentionQueue.") else {
-        return key.to_owned();
-    };
-    match name {
-        "item.unmappedScope.title" => t.attention_item_unmapped_scope_title(a("label"), a("provider")).to_string(),
-        "item.unmappedScope.detail" => t.attention_item_unmapped_scope_detail(a("unit"), a("confidence")).to_string(),
-        "item.mergeConflict.title" => t.attention_item_merge_conflict_title(a("conflicts"), a("candidate")).to_string(),
-        "item.mergeConflict.detail" => t.attention_item_merge_conflict_detail(a("observations"), a("reason")).to_string(),
-        "item.mergeStale.title" => t.attention_item_merge_stale_title(a("candidate")).to_string(),
-        "item.mergeStale.detail" => t.attention_item_merge_stale_detail(a("observations"), a("reason")).to_string(),
-        "item.providerHealth.title" => t.attention_item_provider_health_title(a("unit"), a("provider")).to_string(),
-        "item.providerHealth.detail" => t.attention_item_provider_health_detail(a("blocker"), a("code")).to_string(),
-        "item.importJob.title" => t.attention_item_import_job_title(a("job"), a("status")).to_string(),
-        "item.importJob.detail" => t.attention_item_import_job_detail(a("provider"), a("action"), a("scope")).to_string(),
-        "item.aliasCandidate.title" => t.attention_item_alias_candidate_title(a("alias")).to_string(),
-        "item.aliasCandidate.detail" => {
-            t.attention_item_alias_candidate_detail(a("provider"), a("type"), a("confidence")).to_string()
+impl Args for Params<'_> {
+    fn arg(&self, name: &str, write: &mut dyn FnMut(&dyn Display)) -> bool {
+        let name = camel(name);
+        self.own.arg(&name, write) || self.title.is_some_and(|title| title.arg(&name, write))
+    }
+}
+
+/// `updated_at` is `updatedAt`.
+fn camel(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut upper = false;
+    for c in name.chars() {
+        match c {
+            '_' => upper = true,
+            c if upper => {
+                out.push(c.to_ascii_uppercase());
+                upper = false;
+            }
+            c => out.push(c),
         }
-        "item.staleScopeSync.title" => t.attention_item_stale_scope_sync_title(a("scope"), a("domain")).to_string(),
-        "item.staleScopeSync.detail" => t.attention_item_stale_scope_sync_detail(a("kind"), a("updatedAt")).to_string(),
-        "action.reviewMapping" => t.attention_action_review_mapping().to_owned(),
-        "action.resolveConflict" => t.attention_action_resolve_conflict().to_owned(),
-        "action.reviewHealth" => t.attention_action_review_health().to_owned(),
-        "action.reviewJob" => t.attention_action_review_job().to_owned(),
-        "action.acceptAlias" => t.attention_action_accept_alias().to_owned(),
-        "action.rejectAlias" => t.attention_action_reject_alias().to_owned(),
-        "action.reviewScopeSync" => t.attention_action_review_scope_sync().to_owned(),
-        _ => key.to_owned(),
+    }
+    out
+}
+
+/// An API message in the page: the catalog's message (`t.by_key`, escaped), or its key when the
+/// catalog lacks it or an argument is missing (admin-web shows `[missing:en:<key>]`).
+pub struct Shown<'a> {
+    found: Option<Found<'a, Params<'a>>>,
+    key: &'a str,
+}
+
+/// `key`'s message with `args`.
+pub fn shown<'a>(t: Cat, key: &'a str, args: &'a Params<'a>) -> Shown<'a> {
+    Shown { found: catalog_key(key).and_then(|k| t.by_key(&k, args)), key }
+}
+
+impl Render for Shown<'_> {
+    fn render(&self, out: &mut String) {
+        match &self.found {
+            Some(message) => message.render(out),
+            None => self.key.render(out),
+        }
+    }
+}
+
+impl Display for Shown<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.found {
+            Some(message) => message.fmt(f),
+            None => f.write_str(self.key),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::api::{Resolution, ResolutionMode, Severity};
+
+    fn item(title_key: &str, title: Value, detail_key: &str, detail: Value) -> AttentionItem {
+        let map = |v: Value| v.as_object().cloned().unwrap_or_default();
+        AttentionItem {
+            item_key: "k".into(),
+            kind: AttentionKind::AliasCandidate,
+            severity: Severity::Info,
+            title_key: title_key.into(),
+            title_params: map(title),
+            detail_key: detail_key.into(),
+            detail_params: map(detail),
+            provider_key: None,
+            unit_key: None,
+            observed_at: String::new(),
+            resolution: Resolution {
+                intent: "alias.accept".into(),
+                mode: ResolutionMode::Command,
+                label_key: "catalog.features.attentionQueue.action.acceptAlias".into(),
+                fields: Default::default(),
+                href: None,
+                requires_reason: false,
+            },
+            secondary_resolutions: vec![],
+        }
+    }
 
     #[test]
     fn an_items_text_is_its_message_with_the_apis_arguments() {
         let t = Cat::default();
-        let params: BTreeMap<String, Value> =
-            serde_json::from_value(json!({ "unit": "TCGplayer Magic Single Cards", "provider": "tcgplayer" })).unwrap();
-        assert_eq!(
-            item_text(t, "catalog.features.attentionQueue.item.providerHealth.title", &params),
-            "Unblock TCGplayer Magic Single Cards on tcgplayer"
+        let alias = item(
+            "catalog.features.attentionQueue.item.aliasCandidate.title",
+            json!({ "alias": "Elsa & Anna", "type": "printed-name" }),
+            "catalog.features.attentionQueue.item.aliasCandidate.detail",
+            json!({ "provider": "tcgplayer", "confidence": 0.92 }),
         );
-        let numbers: BTreeMap<String, Value> = serde_json::from_value(json!({ "candidate": "mc_1", "conflicts": 2 })).unwrap();
+        let title = Params::title(&alias);
+        assert_eq!(shown(t, &alias.title_key, &title).to_string(), "Review alias Elsa & Anna", "a string without its quotes");
+        let message = shown(t, &alias.title_key, &title);
+        let html = html! { <p>{message}</p> }.to_html();
+        assert_eq!(html, "<p>Review alias Elsa &amp; Anna</p>", "escaped in the page");
+        let detail = Params::detail(&alias);
         assert_eq!(
-            item_text(t, "catalog.features.attentionQueue.item.mergeConflict.title", &numbers),
-            "Resolve 2 blocking conflicts on mc_1"
+            shown(t, &alias.detail_key, &detail).to_string(),
+            "tcgplayer · printed-name · confidence 0.92",
+            "{{type}} from the title's params"
         );
-        let stale: BTreeMap<String, Value> =
-            serde_json::from_value(json!({ "kind": "expansion", "updatedAt": "2026-10-01T00:00:00Z" })).unwrap();
+
+        let stale = item(
+            "catalog.features.attentionQueue.item.staleScopeSync.title",
+            json!({ "scope": "Base Set", "domain": "pokemon" }),
+            "catalog.features.attentionQueue.item.staleScopeSync.detail",
+            json!({ "kind": "expansion", "updatedAt": "2026-10-01T00:00:00Z" }),
+        );
+        let detail = Params::detail(&stale);
         assert_eq!(
-            item_text(t, "catalog.features.attentionQueue.item.staleScopeSync.detail", &stale),
-            "expansion · last refreshed 2026-10-01T00:00:00Z"
+            shown(t, &stale.detail_key, &detail).to_string(),
+            "expansion · last refreshed 2026-10-01T00:00:00Z",
+            "a camelCase argument"
         );
-        assert_eq!(item_text(t, "catalog.features.attentionQueue.action.reviewHealth", &BTreeMap::new()), "Review health");
-        assert_eq!(item_text(t, "catalog.other.key", &BTreeMap::new()), "catalog.other.key", "an unknown key is itself");
+
+        let none = Params::none();
+        assert_eq!(shown(t, "catalog.features.attentionQueue.action.reviewHealth", &none).to_string(), "Review health");
+        assert_eq!(shown(t, "catalog.other.key", &none).to_string(), "catalog.other.key", "an unknown key is itself");
+        let missing = Params::title(&stale);
+        assert_eq!(shown(t, &stale.detail_key, &missing).to_string(), stale.detail_key, "a missing argument shows the key");
     }
 }

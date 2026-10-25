@@ -35,13 +35,6 @@ const apps = ["admin", "marketplace"];
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
-/** The argument names `messages!` refuses (its `RESERVED`): Rust's keywords and its own names. */
-const reserved = new Set(
-  `as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub
-  ref return self Self static struct super trait true type unsafe use where while yield abstract become box do final gen
-  macro override priv try typeof unsized virtual locale index from_index negotiate js`.split(/\s+/),
-);
-
 /**
  * The entries of a localization catalog the rules pick, renamed: a rule is [prefix, name] for
  * every key under `prefix` (named `name.<rest>`, or `<rest>` for an empty name) or [key, name]
@@ -60,11 +53,10 @@ async function catalog(file, exportName, rules) {
       if (name) break;
     }
     if (!name) continue;
-    // An argument is {name}; any other brace is text, which `messages!` takes doubled. An
-    // argument `messages!` reserves (a Rust keyword) gets a trailing underscore: workaround for
-    // todd-skelton/corten#56.
-    const argument = (arg) => (reserved.has(snake(arg)) ? `${snake(arg)}_` : snake(arg));
-    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) => (arg ? `{${argument(arg)}}` : brace + brace));
+    // An argument is {name}, in the snake case `messages!` takes (workaround for
+    // todd-skelton/corten#58: the catalog's {updatedAt} is {updated_at}); any other brace is
+    // text, which `messages!` takes doubled.
+    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) => (arg ? `{${snake(arg)}}` : brace + brace));
   }
   return out;
 }

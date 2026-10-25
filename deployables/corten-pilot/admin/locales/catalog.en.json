@@ -40,7 +40,7 @@
   "attention.item.import_job.title": "Import job {job} is {status}",
   "attention.item.import_job.detail": "{provider} · {action} · {scope}",
   "attention.item.alias_candidate.title": "Review alias {alias}",
-  "attention.item.alias_candidate.detail": "{provider} · {type_} · confidence {confidence}",
+  "attention.item.alias_candidate.detail": "{provider} · {type} · confidence {confidence}",
   "attention.item.stale_scope_sync.title": "Re-sync {scope} ({domain})",
   "attention.item.stale_scope_sync.detail": "{kind} · last refreshed {updated_at}",
   "attention.action.review_mapping": "Review mapping",

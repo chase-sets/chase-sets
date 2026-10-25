@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use corten::prelude::ToJson;
 
@@ -87,10 +87,10 @@ pub struct AttentionItem {
     pub severity: Severity,
     pub title_key: String,
     #[serde(default)]
-    pub title_params: BTreeMap<String, Value>,
+    pub title_params: Map<String, Value>,
     pub detail_key: String,
     #[serde(default)]
-    pub detail_params: BTreeMap<String, Value>,
+    pub detail_params: Map<String, Value>,
     pub provider_key: Option<String>,
     pub unit_key: Option<String>,
     pub observed_at: String,
