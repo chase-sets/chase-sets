@@ -239,7 +239,16 @@ describe("projection operations routes", () => {
     expect(deriveProjectionTriage).toHaveBeenCalledTimes(1);
     const [body] = deriveProjectionTriage.mock.calls[0] ?? [];
     expect(body).toMatchObject({
-      summary: { status: "ok", totalGroups: 0, caughtUpGroups: 0, behindGroups: 0, staleGroups: 0, runningGroups: 0, errorGroups: 0, outstandingEventCount: "0" },
+      summary: {
+        status: "ok",
+        totalGroups: 0,
+        caughtUpGroups: 0,
+        behindGroups: 0,
+        staleGroups: 0,
+        runningGroups: 0,
+        errorGroups: 0,
+        outstandingEventCount: "0",
+      },
       projectionGroups: [],
       blockedProjections: [],
       projectionStatusSource: "runtime-memory",

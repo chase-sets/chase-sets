@@ -58,10 +58,7 @@ export type ProjectionOperationsRouteOptions = Readonly<{
   deriveWakeAttentionItems: (body: unknown) => readonly unknown[];
 }>;
 
-export function createProjectionOperationsRoutes(
-  runtime: ApiHostRuntime,
-  options: ProjectionOperationsRouteOptions,
-) {
+export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, options: ProjectionOperationsRouteOptions) {
   const app = new Hono<ProjectionOperationsRouteEnv>();
   const refreshProjectionStatuses = createProjectionStatusRefresher(runtime);
 
