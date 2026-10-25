@@ -5,7 +5,10 @@ import { resolve } from "node:path";
 import { createWorkspaceSourceAliases } from "../../../../scripts/workspace-source-aliases.mjs";
 
 const root = resolve(import.meta.dirname, "../../../..");
-const entry = resolve(import.meta.dirname, "operator-extension-popup-screenshots-entry.tsx");
+const entry = resolve(
+  root,
+  "bounded-contexts/catalog/features/operator-session/tests/operator-extension-popup-screenshots-entry.tsx",
+);
 
 test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
   const server = await createServer({
