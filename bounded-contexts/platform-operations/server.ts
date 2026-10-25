@@ -1,3 +1,5 @@
+export { deriveProjectionTriage } from "./features/projection-operations/read-model/contracts";
+export { deriveWakeAttentionItems } from "./features/projection-operations/read-model/wake-status-contracts";
 export type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,

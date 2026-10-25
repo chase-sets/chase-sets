@@ -29,7 +29,7 @@ import {
   type CheckoutCommandAttemptResult,
 } from "../../command-attempts/api/contracts";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
-import { parseCartReadinessDecisionInput } from "../domain/readiness";
+import { createCartReadinessRead, parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
 import { normalizePresentedAnonymousCartId, toPublicCheckoutCartLines } from "./contracts";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -430,10 +430,16 @@ export function createAccountCartRoutes(
       return access.response;
     }
 
-    const items = await services.listAuthorizedCartLines({ accountId: access.actor.accountId });
+    const presentedAnonymousCartId = normalizePresentedAnonymousCartId(c.req.header("x-checkout-anonymous-cart-id"));
+    const cartRead = await services.readCart({
+      accountId: access.actor.accountId,
+      ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
+    });
+    const items = cartRead.lines;
     return c.json({
       items: toPublicCheckoutCartLines(items),
       count: countCartItems(items),
+      readiness: cartRead.readiness,
     });
   });
 
@@ -580,14 +586,23 @@ export function createGuestCartRoutes(
   app.get("/cart", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ items: [], count: 0 });
+      return c.json({
+        items: [],
+        count: 0,
+        readiness: createCartReadinessRead([]),
+      });
     }
 
     // A claimed key resolves to zero readable lines, so a refusal returns the
     // byte-identical empty payload a request with no key already returns.
     // Nothing in the response distinguishes claimed, foreign, or absent.
-    const items = await services.listAuthorizedCartLines({ accountId: ownerId });
-    return c.json({ items: toPublicCheckoutCartLines(items), count: countCartItems(items) });
+    const cartRead = await services.readCart({ accountId: ownerId });
+    const items = cartRead.lines;
+    return c.json({
+      items: toPublicCheckoutCartLines(items),
+      count: countCartItems(items),
+      readiness: cartRead.readiness,
+    });
   });
 
   app.post("/cart/readiness", async (c) => {

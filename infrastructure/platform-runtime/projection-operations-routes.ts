@@ -49,12 +49,16 @@ export type ProjectionWakeStatusWorkSignalStore = Pick<
 export type ProjectionOperationsRouteOptions = Readonly<{
   controlPlane?: PlatformControlPlane;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
+  deriveProjectionTriage: (body: unknown) => Readonly<{
+    attentionItems: readonly unknown[];
+    repairQueue: readonly unknown[];
+    activeWorkerCount: number;
+    staleWorkerCount: number;
+  }>;
+  deriveWakeAttentionItems: (body: unknown) => readonly unknown[];
 }>;
 
-export function createProjectionOperationsRoutes(
-  runtime: ApiHostRuntime,
-  options: ProjectionOperationsRouteOptions = {},
-) {
+export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, options: ProjectionOperationsRouteOptions) {
   const app = new Hono<ProjectionOperationsRouteEnv>();
   const refreshProjectionStatuses = createProjectionStatusRefresher(runtime);
 
@@ -76,7 +80,7 @@ export function createProjectionOperationsRoutes(
       Date.parse(workerHeartbeatHistory.snapshotAt),
     );
 
-    return c.json({
+    const body = {
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
@@ -86,7 +90,8 @@ export function createProjectionOperationsRoutes(
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
       operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
       operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
-    });
+    };
+    return c.json({ ...body, ...options.deriveProjectionTriage(body) });
   });
 
   app.post("/refresh", async (c) => {
@@ -152,7 +157,7 @@ export function createProjectionOperationsRoutes(
       readWakeSchedulerStatus(options.controlPlane),
     ]);
 
-    return c.json({
+    const body = {
       generatedAt: new Date().toISOString(),
       wakeStore,
       relay,
@@ -166,7 +171,8 @@ export function createProjectionOperationsRoutes(
       // wake families ride the work-signal composite versus documented
       // exceptions. Structural metadata only.
       origins: listWorkSignalOriginDispositions(),
-    });
+    };
+    return c.json({ ...body, attentionItems: options.deriveWakeAttentionItems(body) });
   });
 
   app.get("/:projectionKey/blocked-streams", async (c) => {

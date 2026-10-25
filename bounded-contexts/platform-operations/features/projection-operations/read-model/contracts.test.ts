@@ -4,6 +4,7 @@ import {
   buildAttentionItems,
   buildProjectionRepairQueue,
   buildProjectionSubscriptionRows,
+  deriveProjectionTriage,
   normalizeProjectionOperationsSnapshot,
   resolveProjectionOperatorState,
   staleWorkerCount,
@@ -300,5 +301,33 @@ describe("projection operation view models", () => {
         operatorState: "running",
       },
     ]);
+  });
+
+  it("derives the API triage fields from the normalized response body", () => {
+    const body = {
+      summary: { status: "degraded", totalGroups: 1 },
+      projectionStatusSource: "worker-snapshot",
+      workers: [
+        { worker_id: "active", worker_state: "active" },
+        { worker_id: "stale", worker_state: "stale" },
+      ],
+      projectionGroups: [
+        {
+          targetContextName: "catalog",
+          projectionName: "catalog-item-projection",
+          state: "degraded",
+          poisonEventCount: 1,
+          blockedStreamCount: 0,
+        },
+      ],
+    };
+    const snapshot = normalizeProjectionOperationsSnapshot(body);
+
+    expect(deriveProjectionTriage(body)).toEqual({
+      attentionItems: buildAttentionItems(snapshot),
+      repairQueue: buildProjectionRepairQueue(snapshot),
+      activeWorkerCount: activeWorkerCount(snapshot),
+      staleWorkerCount: staleWorkerCount(snapshot),
+    });
   });
 });
