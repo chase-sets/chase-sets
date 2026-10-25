@@ -34,6 +34,7 @@ import {
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -361,14 +362,15 @@ function buildApp(
     "support.remedies.waive",
     "support.remedies.correct",
   ],
+  accountId = "acc_operator",
 ) {
   const app = new Hono<SupportApiEnv>();
 
   app.use("*", async (c, next) => {
-    c.set("actor", evidenceActor("platform-admin", permissions, false, "acc_operator"));
+    c.set("actor", evidenceActor("platform-admin", permissions, false, accountId));
     c.set("context", {
       tenantId: "tnt_identity",
-      audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
+      audit: { performedByUserId: "usr_operator", forAccountId: accountId },
     } as never);
     await next();
   });
@@ -1082,6 +1084,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(async () => []),
+    resolveSupportFlowDefinition: vi.fn(async (flowType) => getSupportFlowDefinition(flowType)),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
     uploadAttachments: vi.fn(),
@@ -1114,6 +1117,36 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
+  it.each([
+    [
+      "support",
+      "acc_operator",
+      null,
+      getSupportFlowDefinition("product-not-received").allowedResponses,
+      getSupportFlowDefinition("product-not-received").allowedResolutions,
+    ],
+    ["seller", "acc_seller", null, getSupportFlowDefinition("product-not-received").allowedResponses, []],
+    ["escalated seller", "acc_seller", "2026-06-01T01:00:00.000Z", [], []],
+    ["buyer", "acc_buyer", null, [], []],
+  ] as const)(
+    "projects detail flow action arrays for %s from server role and state",
+    async (_label, accountId, escalatedAt, allowedResponses, allowedResolutions) => {
+      const detail = { ...supportRequestDetail(), escalated_at: escalatedAt };
+      const services = createServices({
+        getSupportOperationsRequest: vi.fn(async () => detail),
+        getAccountSupportRequest: vi.fn(async () => detail),
+      });
+      const permissions = accountId === "acc_operator" ? ["support.manage"] : ["support.view"];
+      const response = await buildApp(services, permissions, accountId).request(
+        accountId === "acc_operator" ? "/support-requests/ops/sup_1" : "/support-requests/sup_1",
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" },
+      });
+    },
+  );
+
   it("proposes and records remedy execution through purpose-authorized command endpoints", async () => {
     const proposeRemedy = vi.fn(async () => ({
       supportRequestId: "sup_1",

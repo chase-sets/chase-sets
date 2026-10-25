@@ -38,7 +38,7 @@ export {
   openSupportEvidenceCanonicalizer,
   createSupportEvidenceCanonicalizationQueue,
 } from "./features/support-requests/api/evidence-canonicalization";
-export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";
+export type { SupportRequestDetailResponse as SupportRequestDetail } from "./support/request-support/support-request-api-client";
 export {
   attachmentOperationStreamId,
   createAttachmentManifest,
