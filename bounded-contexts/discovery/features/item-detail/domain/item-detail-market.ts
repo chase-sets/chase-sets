@@ -275,9 +275,7 @@ export function getBestAccountOfferMatch(
   );
 }
 
-export function sortAccountOfferMatchesForReview(
-  offers: readonly DiscoveryAccountOfferMatch[],
-): DiscoveryAccountOfferMatch[] {
+export function sortAccountOfferMatchesForReview<T extends DiscoveryAccountOfferMatch>(offers: readonly T[]): T[] {
   return [...offers].sort((left, right) => {
     const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
     if (fulfillableDelta !== 0) {
