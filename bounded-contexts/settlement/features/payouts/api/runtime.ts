@@ -169,6 +169,14 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementPayoutRow[]; total: number }>;
   getPayout: (payoutId: string, accountId: string) => Promise<SettlementPayoutRow | null>;
+  getPayoutQuickAmounts: (params: Readonly<{ accountId: AccountId }>) => Promise<
+    Readonly<{
+      currency_code: string;
+      minimum_amount: string;
+      maximum_amount: string;
+      full_available_amount: string;
+    }>
+  >;
   getPayoutMoneyTimeline: (params: Readonly<{ payoutId: string; accountId: string }>) => Promise<
     Readonly<{
       payout_id: string;
@@ -220,7 +228,11 @@ export type PayoutServices = Readonly<{
     }>
   >;
   previewPayoutRequest: (
-    params: Readonly<{ accountId: AccountId; amount: string }>,
+    params: Readonly<{
+      accountId: AccountId;
+      amount: string;
+      amountSelection?: "minimum" | "available" | null | "";
+    }>,
     context: EventStoreContext,
   ) => Promise<
     Readonly<{
