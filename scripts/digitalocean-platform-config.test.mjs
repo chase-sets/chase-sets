@@ -970,8 +970,18 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function resolveDoksTestJqPath() {
+  const configured = process.env.DOKS_TEST_JQ_PATH?.trim();
+  const jqPath = configured || execFileSync(operatorBash, ["-lc", "command -v jq"], { encoding: "utf8" }).trim();
+  if (!jqPath) throw new Error("A real jq executable is required for the DOKS preflight control.");
+  const version = spawnSync(operatorBash, ["-lc", `"${jqPath}" --version`], { encoding: "utf8" });
+  if (version.status !== 0) throw new Error("The configured DOKS jq executable could not be run.");
+  return jqPath;
+}
+
 function executeDoksPreflight({ providerResponse, providerResponseText, providerReadFails = false }) {
   const root = mkdtempSync(join(tmpdir(), "doks-preflight-control-"));
+  const jqPath = resolveDoksTestJqPath();
   const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
   const runStart = preflightStep.indexOf("run: |\n");
   expect(runStart).not.toBe(-1);
@@ -993,7 +1003,7 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
           JQ_FILTER="$2" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(process.env.JQ_FILTER === ".version" ? value.version : Array.isArray(value) ? value.length : 1);' "$3"
           ;;
         -ce|-e)
-          JQ_FILTER="$2" node -e 'const fs = require("node:fs"); let value; try { value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(1); } const validFields = (candidate) => candidate && typeof candidate === "object" && typeof candidate.id === "string" && typeof candidate.version === "string"; const candidate = Array.isArray(value) && value.length === 1 ? value[0] : value; const ok = Array.isArray(value) ? value.length === 1 && validFields(candidate) : validFields(value); if (!ok) process.exit(1); console.log(JSON.stringify(candidate));' "$3"
+          "$DOKS_TEST_JQ_PATH" "$@"
           ;;
         --arg)
           JQ_CAPTURED_AT="$3" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const candidate = Array.isArray(value) ? value[0] : value; console.log(JSON.stringify({ state: "present", id: candidate.id, version: candidate.version, captured_at: process.env.JQ_CAPTURED_AT }));' "$5"
@@ -1015,6 +1025,7 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
   try {
     const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], {
       cwd: root,
+      env: { ...process.env, DOKS_TEST_JQ_PATH: jqPath },
       encoding: "utf8",
     });
     if (result.error) throw result.error;
