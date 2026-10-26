@@ -110,6 +110,8 @@ const SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS = 30_000;
 const SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS = 15_000;
 const SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS = 500;
 
+const seedSubstepInFlight = new WeakMap<AbortSignal, Set<Promise<unknown>>>();
+
 export function createProjectionGroupLeasePort(
   controlPlane: PlatformControlPlane,
   hostName: ApiHostName,
@@ -117,31 +119,88 @@ export function createProjectionGroupLeasePort(
   return {
     runWithLease: async (group, signal, work) => {
       const leaseName = createProjectionGroupRunnerLeaseName(group);
-      if (signal?.aborted) {
-        throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
+      const run = (async () => {
+        if (signal?.aborted) {
+          throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
+        }
+
+        const acquireDeadline = signal ? Number.POSITIVE_INFINITY : Date.now() + SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS;
+        let attempts = 0;
+        for (;;) {
+          if (signal?.aborted) {
+            throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
+          }
+          attempts += 1;
+          const outcome = await tryRunWithRenewedLease(
+            controlPlane,
+            {
+              leaseName,
+              ownerId: `seed:${hostName}`,
+              ttlMs: SEED_PROJECTION_LEASE_TTL_MS,
+              renewIntervalMs: SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS,
+              acquireTimeoutMs: 0,
+              acquireRetryIntervalMs: 0,
+              signal,
+              shouldAbort: async () => signal?.aborted === true,
+              abortPollIntervalMs: 50,
+              metadata: { origin: "seed-api-host", hostName },
+            },
+            async (context) => {
+              if (signal?.aborted || context.signal?.aborted) {
+                throw new Error(`Seed projection lease '${leaseName}' was cancelled before leased work.`);
+              }
+              return work(context);
+            },
+          );
+          if (outcome.acquired) {
+            console.log(`[seed-api-host] lease ${leaseName} acquired after ${attempts} attempt(s).`);
+            return outcome.result;
+          }
+
+          if (Date.now() >= acquireDeadline) {
+            console.error(`[seed-api-host] lease ${leaseName} unavailable after ${attempts} attempt(s).`);
+            throw new ProjectionRunnerLeaseUnavailableError(leaseName);
+          }
+          const remainingMs = acquireDeadline - Date.now();
+          if (!signal) {
+            await new Promise((resolve) => setTimeout(resolve, Math.min(SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS, remainingMs)));
+          } else {
+            await waitForSeedLeaseRetry(signal, SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS);
+          }
+        }
+      })();
+      const inFlight = signal ? seedSubstepInFlight.get(signal) : undefined;
+      if (inFlight) {
+        inFlight.add(run);
+        void run.then(
+          () => inFlight.delete(run),
+          () => inFlight.delete(run),
+        );
       }
-      const outcome = await tryRunWithRenewedLease(
-        controlPlane,
-        {
-          leaseName,
-          ownerId: `seed:${hostName}`,
-          ttlMs: SEED_PROJECTION_LEASE_TTL_MS,
-          renewIntervalMs: SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS,
-          acquireTimeoutMs: SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS,
-          acquireRetryIntervalMs: SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS,
-          signal,
-          shouldAbort: async () => signal?.aborted === true,
-          abortPollIntervalMs: 50,
-          metadata: { origin: "seed-api-host", hostName },
-        },
-        work,
-      );
-      if (!outcome.acquired) {
-        throw new ProjectionRunnerLeaseUnavailableError(leaseName);
-      }
-      return outcome.result;
+      return run;
     },
   };
+}
+
+async function waitForSeedLeaseRetry(signal: AbortSignal, delayMs: number): Promise<void> {
+  if (signal.aborted) {
+    throw new Error("Seed projection lease acquisition was cancelled.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new Error("Seed projection lease acquisition was cancelled."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
 }
 
 export type ApiHostMount = ResolvedApiMount;
@@ -439,13 +498,14 @@ async function withSeedSubstepTimeout<T>(
   action: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const abortController = new AbortController();
+  const inFlight = new Set<Promise<unknown>>();
+  seedSubstepInFlight.set(abortController.signal, inFlight);
   const actionPromise = Promise.resolve().then(() => action(abortController.signal));
-  if (timeoutMs === undefined) {
-    return actionPromise;
-  }
-
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    if (timeoutMs === undefined) {
+      return await actionPromise;
+    }
     return await Promise.race([
       actionPromise,
       new Promise<never>((_resolve, reject) => {
@@ -457,24 +517,15 @@ async function withSeedSubstepTimeout<T>(
   } catch (error) {
     if (error instanceof SeedApiHostSubstepTimeoutError) {
       abortController.abort();
-      // Projection substeps are lease-port actions and must settle after the
-      // abort, including exact-token release, before the timeout escapes. Seed
-      // and schema actions are not uniformly abort-aware, so observe those
-      // late rejections without turning a bounded timeout into a hang.
-      if (label.startsWith("projection-")) {
-        await actionPromise.then(
-          () => undefined,
-          () => undefined,
-        );
-      } else {
-        void actionPromise.catch(() => undefined);
-      }
+      void actionPromise.catch(() => undefined);
+      await Promise.allSettled([...inFlight]);
     }
     throw error;
   } finally {
     if (timer) {
       clearTimeout(timer);
     }
+    seedSubstepInFlight.delete(abortController.signal);
   }
 }
 

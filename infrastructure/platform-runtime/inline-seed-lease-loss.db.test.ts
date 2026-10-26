@@ -50,4 +50,32 @@ describeDb("inline seed lease loss", () => {
     expect(work).not.toHaveBeenCalled();
     await expect(controlPlane.listLeases()).resolves.toEqual([]);
   });
+
+  it("waits inside the caller abort budget and never acquires after rejection", async () => {
+    await bootstrapPlatformControlPlane(pools.platform);
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const holder = await controlPlane.acquireLease({
+      leaseName: "projection-group:catalog.catalog-items",
+      ownerId: "operation:held",
+      ttlMs: 120_000,
+      metadata: { origin: "projection-operation" },
+    });
+    expect(holder).not.toBeNull();
+
+    const port = createProjectionGroupLeasePort(controlPlane, "platform-api");
+    const abort = new AbortController();
+    const work = vi.fn(async () => undefined);
+    const rejected = port.runWithLease(
+      { targetContextName: "catalog", projectionName: "catalog-items" },
+      abort.signal,
+      work,
+    );
+    setTimeout(() => abort.abort(), 150);
+    await expect(rejected).rejects.toThrow(/cancelled|aborted/);
+    expect(work).not.toHaveBeenCalled();
+
+    await controlPlane.releaseLease(holder!);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await expect(controlPlane.listLeases()).resolves.toEqual([]);
+  });
 });

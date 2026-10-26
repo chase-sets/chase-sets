@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
@@ -58,5 +58,33 @@ describeDb("inline seed group lease", () => {
     );
 
     await expect(controlPlane.listLeases()).resolves.toEqual([]);
+  });
+
+  it("does not reset or run work while a worker-owned group lease is held", async () => {
+    await bootstrapPlatformControlPlane(pools.platform);
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const holder = await controlPlane.acquireLease({
+      leaseName: "projection-group:catalog.catalog-items",
+      ownerId: "worker:platform:catalog-items",
+      ttlMs: 120_000,
+      metadata: { origin: "projection-group-worker" },
+    });
+    expect(holder).not.toBeNull();
+
+    const port = createProjectionGroupLeasePort(controlPlane, "platform-api");
+    const abort = new AbortController();
+    const work = vi.fn(async () => undefined);
+    const attempt = port.runWithLease(
+      { targetContextName: "catalog", projectionName: "catalog-items" },
+      abort.signal,
+      work,
+    );
+    setTimeout(() => abort.abort(), 120);
+    await expect(attempt).rejects.toThrow(/cancelled|aborted/);
+    expect(work).not.toHaveBeenCalled();
+    await expect(controlPlane.listLeases()).resolves.toEqual([
+      expect.objectContaining({ owner_id: "worker:platform:catalog-items" }),
+    ]);
+    await controlPlane.releaseLease(holder!);
   });
 });

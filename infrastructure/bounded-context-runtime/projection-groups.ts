@@ -1310,18 +1310,22 @@ export async function syncContextProjectionGroups(
         throw new Error(`Runtime has ungrouped subscriptions for '${contextName}'; refusing an unleased seed drain.`);
       }
     }
-    for (const group of allContextGroups) {
-      if (options.runWithLease) {
-        await options.runWithLease(group, options.context?.signal, (leaseContext) =>
-          drainContextProcesses(
-            { subscriptionRunners: group.subscriptionRunners },
-            mergeProjectionRunContexts(options.context, leaseContext),
-          ),
-        );
-      } else {
-        await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, options.context);
+    let processed: number;
+    do {
+      processed = 0;
+      for (const group of allContextGroups) {
+        if (options.runWithLease) {
+          processed += await options.runWithLease(group, options.context?.signal, (leaseContext) =>
+            drainContextProcesses(
+              { subscriptionRunners: group.subscriptionRunners },
+              mergeProjectionRunContexts(options.context, leaseContext),
+            ),
+          );
+        } else {
+          processed += await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, options.context);
+        }
       }
-    }
+    } while (processed > 0);
     return;
   }
 
@@ -1356,18 +1360,22 @@ export async function drainProjectionGroups(
       throw new Error("Runtime has ungrouped subscriptions; refusing an unleased seed drain.");
     }
   }
-  for (const group of sortProjectionGroups(runtime.projectionGroups)) {
-    const drain = (leaseContext: ProjectionRunContext) =>
-      drainContextProcesses(
-        { subscriptionRunners: group.subscriptionRunners },
-        mergeProjectionRunContexts(context, leaseContext),
-      );
-    if (runWithLease) {
-      await runWithLease(group, context?.signal, drain);
-    } else {
-      await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+  let processed: number;
+  do {
+    processed = 0;
+    for (const group of sortProjectionGroups(runtime.projectionGroups)) {
+      const drain = (leaseContext: ProjectionRunContext) =>
+        drainContextProcesses(
+          { subscriptionRunners: group.subscriptionRunners },
+          mergeProjectionRunContexts(context, leaseContext),
+        );
+      if (runWithLease) {
+        processed += await runWithLease(group, context?.signal, drain);
+      } else {
+        processed += await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+      }
     }
-  }
+  } while (processed > 0);
 }
 
 function mergeProjectionRunContexts(

@@ -194,7 +194,10 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
       expect.anything(),
       "platform-api",
       expect.anything(),
-      expect.objectContaining({ enabledDataProfiles: representativeCommerceStateDataProfiles }),
+      expect.objectContaining({
+        enabledDataProfiles: representativeCommerceStateDataProfiles,
+        projectionGroupLeasePort: expect.objectContaining({ runWithLease: expect.any(Function) }),
+      }),
     );
     expect(state.completed.indexOf("seed data profiles")).toBeLessThan(
       state.completed.indexOf("publish representative listings"),
