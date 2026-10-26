@@ -10,7 +10,7 @@ use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
     items::{Address, Market},
-    search::{Activity, Filter, Kind, MOST_SHOWN, PAGE_SIZE, SearchScreen, Terms, category_href},
+    search::{Activity, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, SearchScreen, Terms, category_href},
     text::{Pilot, SearchMsg},
 };
 
@@ -244,7 +244,7 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
             }
             <div class={Body}>
                 <Filters t={t} screen={screen} facets={facets} summary={summary.as_deref()} />
-                <section class={Results} aria-labelledby="search-results-heading">
+                <section class={Results} aria-labelledby={screen.shelf.is_none().then_some("search-results-heading")}>
                     if failed {
                         <div class={Banner} data-tone="danger" role="alert">
                             <p class={BannerTitle}>{t.page_error()}</p>
@@ -259,7 +259,9 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
                             </button>
                         </div>
                     }
-                    if !failed && results.items.is_empty() {
+                    if let Some(shelf) = &screen.shelf {
+                        <Shelf t={t} shelf={shelf} />
+                    } else if !failed && results.items.is_empty() {
                         <NoResults t={t} screen={screen} />
                     } else if !failed {
                         <Found t={t} screen={screen} results={results} />
@@ -591,6 +593,109 @@ fn NoResults<'a>(t: SearchMsg, screen: &'a SearchScreen) -> impl Render {
                 <a class={Secondary} href={&on_marketplace(SAVED_SEARCH)}>{t.page_save_search()}</a>
             </p>
         </div>
+    }
+}
+
+/// The home page's merchandising in place of the results (`HomeMerchandising`): the featured
+/// categories, each with its count and a link to its page, and the newest items, each with its
+/// lowest price and a link to it.
+#[component(css = SearchPage)]
+fn Shelf<'a>(t: SearchMsg, shelf: &'a HomeShelf) -> impl Render {
+    let newest = url::Search { terms: Terms { sort: "newest".to_owned(), ..Terms::default() } }.href();
+    html! {
+        if !shelf.featured.is_empty() {
+            <section class={ShelfSection} aria-labelledby="home-featured-heading">
+                <div class={ShelfHead}>
+                    <div>
+                        <h2 id="home-featured-heading" class={ResultsTitle}>{t.home_featured_categories()}</h2>
+                        <p class={Muted}>{t.home_featured_categories_description()}</p>
+                    </div>
+                </div>
+                <ul class={Featured}>
+                    for category in &shelf.featured {
+                        <li class={Feature}>
+                            <h3 class={CardTitle}>{&category.name}</h3>
+                            if let Some(description) = category.description.as_deref().filter(|d| !d.trim().is_empty()) {
+                                <p class={Description}>{description}</p>
+                            }
+                            <p class={Muted}>{t.home_item_count(category.item_count)}</p>
+                            <a class={Secondary} href={&url::Category { slug: &category.slug, terms: Terms::default() }.href()}>
+                                {t.home_browse_category(&category.name)}
+                            </a>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+        if !shelf.arrivals.is_empty() {
+            <section class={ShelfSection} aria-labelledby="home-arrivals-heading">
+                <div class={ShelfHead}>
+                    <div>
+                        <h2 id="home-arrivals-heading" class={ResultsTitle}>{t.home_new_arrivals()}</h2>
+                        <p class={Muted}>{t.home_new_arrivals_description()}</p>
+                    </div>
+                    <a class={Secondary} href={&newest}>{t.home_browse_all_new_arrivals()}</a>
+                </div>
+                <ol class={Arrivals}>
+                    for (index, item) in shelf.arrivals.iter().enumerate() {
+                        <Arrival t={t} item={item} index={index} />
+                    }
+                </ol>
+            </section>
+        }
+    }
+}
+
+/// A new arrival's card: its picture and title link to the item, its subtitle, its lowest price
+/// ("From"), and View item.
+#[component(css = SearchPage)]
+fn Arrival<'a>(t: SearchMsg, item: &'a SearchItem, index: usize) -> impl Render {
+    let card = &item.card;
+    let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
+    let href = url::Item { slug, state: Address::default() }.href();
+    let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
+        None => t.identity_title(&card.title).to_string(),
+    };
+    let image = similar_image(card);
+    let price = item
+        .market_summary
+        .as_ref()
+        .and_then(|m| Some(money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
+    let priority = index < PRIORITY_IMAGES;
+    html! {
+        <li class={Card}>
+            <a class={CardMedia} href={&href} tabindex="-1" aria-hidden="true">
+                match &image {
+                    Some(image) => {
+                        <img
+                            src={&image.src}
+                            srcset={image.srcset.as_deref()}
+                            sizes={image.srcset.as_ref().filter(|s| s.ends_with('w')).map(|_| "(min-width: 768px) 164px, 124px")}
+                            width={image.width.unwrap_or(224)}
+                            height={image.height.unwrap_or(314)}
+                            loading={if priority { "eager" } else { "lazy" }}
+                            fetchpriority={if priority { "high" } else { "auto" }}
+                            decoding="async"
+                            alt=""
+                        >
+                    }
+                    None => { <span class={NoImage}></span> }
+                }
+            </a>
+            <div class={CardBody}>
+                <h3 class={CardTitle}>
+                    <a href={&href} aria-label={&t.card_view_details_for(&identity).to_string()}>{&card.title}</a>
+                </h3>
+                if let Some(subtitle) = card.subtitle.as_deref().filter(|s| !s.trim().is_empty()) {
+                    <p class={Muted}>{subtitle}</p>
+                }
+                if let Some(price) = &price {
+                    <p class={Price}><span class={Muted}>{t.home_from()}" "</span><span class={Strong}>{price}</span></p>
+                }
+                <p class={Intents}><a class={Primary} href={&href}>{t.home_view_item()}</a></p>
+            </div>
+        </li>
     }
 }
 

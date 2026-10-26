@@ -218,13 +218,35 @@
 .intents { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-2) 0 0; }
 .intents .primary, .intents .ghost { min-height: 2.5rem; padding: var(--space-1) var(--space-3); font-size: 0.875rem; }
 
+/* The home page's shelf: featured categories (1, 2 from md, 4 from xl) and new arrivals (1, 2
+   from lg, 3 from 2xl), as marketplace's grids are. */
+.shelf-section { display: grid; gap: var(--space-3); min-width: 0; }
+.shelf-head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; justify-content: space-between; }
+.shelf-head > div { display: grid; gap: var(--space-1); min-width: 0; }
+.featured, .arrivals { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.arrivals { gap: var(--space-4); }
+.feature {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.description { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+.feature .secondary { margin-top: auto; }
+
 @media (min-width: 48rem) {
   .card { grid-template-columns: 10.25rem minmax(0, 1fr); }
+  .featured { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 64rem) {
   .body { grid-template-columns: 17rem minmax(0, 1fr); align-items: start; }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid, .arrivals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* The dialog drawn in place as the rail: a closed dialog is only hidden by display. */
   .filters {
     position: sticky;
@@ -239,4 +261,12 @@
   .filters-head .muted, .close { display: none; }
   .filter-bar { display: none; }
   .summary-wide { display: block; }
+}
+
+@media (min-width: 80rem) {
+  .featured { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 96rem) {
+  .arrivals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

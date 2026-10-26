@@ -7,6 +7,9 @@
 //   change; a category in the rail is its own path.
 // - At 390 px: Filters opens the filters as a modal dialog, a choice there waits for Show results,
 //   nothing scrolls sideways and every control is at least 40 px tall.
+// - The home page (`/`): the featured categories (four columns at 1280 px) and the three newest
+//   items (two columns) in place of the results; words searched there stay at `/`; at 390 px one
+//   column, nothing sideways and 40 px controls.
 // Load more needs more than 24 results, which the sandbox's seed does not have; the router tests
 // cover it. The first search after a quiet minute fails in the sandbox
 // (chase-sets/chase-sets#10609), so the smoke reads once before it starts.
@@ -141,6 +144,54 @@ async function settled(page, url) {
   });
   check(layout.overflow <= 0, `nothing scrolls sideways (${layout.overflow})`);
   check(layout.small.length === 0, `every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+  check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
+  await ctx.close();
+}
+
+// The home page.
+const columns = (page, selector) =>
+  page.evaluate((s) => getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(" ").length, selector);
+const layoutAt = (page) =>
+  page.evaluate(() => {
+    const small = [];
+    for (const el of document.querySelectorAll("main a, main button, main input, main select")) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || el.closest("dialog:not([open])") || el.closest(".visually-hidden") || el.type === "checkbox" || el.type === "radio" || el.type === "hidden" || el.getAttribute("aria-hidden") === "true") continue;
+      if (r.height < 40) small.push(`${el.tagName} ${(el.textContent || el.getAttribute("name") || "").trim().slice(0, 30)} ${Math.round(r.height)}`);
+    }
+    return { overflow: document.documentElement.scrollWidth - window.innerWidth, small };
+  });
+{
+  const categories = await (await fetch(`${base.replace(/:\d+$/, ":7762")}/api/marketplace/categories`)).json().catch(() => null);
+  const expected = Math.min(4, categories?.items?.length ?? 0);
+  const { ctx, page, problems } = await context();
+  await page.goto(`${base}/`);
+  await page.waitForFunction(() => window.__hydratedAt);
+  const featured = await page.locator('[aria-labelledby="home-featured-heading"] li').count();
+  check(expected > 0 && featured === expected, `the featured categories: ${featured} of ${expected}`);
+  check((await page.getByRole("link", { name: "View item" }).count()) === 3, "the three newest items");
+  check((await page.locator('li[id^="result-"]').count()) === 0, "the shelf is in place of the results");
+  check((await columns(page, '[aria-labelledby="home-featured-heading"] ul')) === 4, "four featured columns at 1280 px");
+  check((await columns(page, '[aria-labelledby="home-arrivals-heading"] ol')) === 2, "two arrival columns at 1280 px");
+  const newest = await page.getByRole("link", { name: "Browse all new arrivals" }).getAttribute("href");
+  check(newest === "/search?sort=newest", `Browse all new arrivals: ${newest}`);
+  await page.locator('input[name="q"]').first().fill("charizard");
+  await page.locator('input[name="q"]').first().press("Enter");
+  await settled(page, /\?q=charizard/);
+  check(new URL(page.url()).pathname === "/" && (await page.locator('li[id^="result-"]').count()) > 0, `words searched at the home page stay there: ${page.url()}`);
+  check((await page.locator('[aria-labelledby="home-featured-heading"]').count()) === 0, "and show results, not the shelf");
+  check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
+  await ctx.close();
+}
+{
+  const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${base}/`);
+  await page.waitForFunction(() => window.__hydratedAt);
+  check((await columns(page, '[aria-labelledby="home-featured-heading"] ul')) === 1, "one featured column at 390 px");
+  check((await columns(page, '[aria-labelledby="home-arrivals-heading"] ol')) === 1, "one arrival column at 390 px");
+  const layout = await layoutAt(page);
+  check(layout.overflow <= 0, `the home page does not scroll sideways (${layout.overflow})`);
+  check(layout.small.length === 0, `every home page control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }

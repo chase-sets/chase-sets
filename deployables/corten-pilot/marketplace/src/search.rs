@@ -9,7 +9,10 @@
 //! the API reads filters from (`charizard psa 10`) redirect to the address with those filters
 //! applied and the words left, marked `interpreted` so they are not read again.
 //!
-//! Not ported: the home page's merchandising (`/`), Add to List and the bulk add to the buy cart
+//! The home page (`/`) is the same route, as marketplace's index route is: with nothing asked it
+//! shows the four featured categories and the three newest items in place of the results.
+//!
+//! Not ported: Add to List and the bulk add to the buy cart
 //! from a result, the realtime market patches, the facet option search and the automatic load on
 //! scroll. Load more shows the address's results again with a page more, as Corten cannot add rows
 //! to a list (todd-skelton/corten#90), up to the 192 the API reads at once.
@@ -360,11 +363,13 @@ impl corten::route::Params for Terms {
     }
 }
 
-/// Where the search is: `/search`, or a category's page.
+/// Where the search is: `/search`, a category's page, or the home page (marketplace's index
+/// route is the search route).
 #[derive(Clone, Copy, Debug)]
 pub enum Place<'a> {
     Search,
     Category(&'a str),
+    Home,
 }
 
 impl Place<'_> {
@@ -373,8 +378,21 @@ impl Place<'_> {
         match self {
             Place::Search => url::Search { terms: terms.clone() }.href(),
             Place::Category(slug) => url::Category { slug, terms: terms.clone() }.href(),
+            Place::Home => url::Home { terms: terms.clone() }.href(),
         }
     }
+}
+
+/// Featured categories the home page shows (`HOME_FEATURED_CATEGORY_LIMIT`).
+const HOME_CATEGORIES: usize = 4;
+/// New arrivals the home page shows (`HOME_NEW_ARRIVALS_LIMIT`).
+const HOME_ARRIVALS: usize = 3;
+
+/// The home page's merchandising, in place of the results: the first categories by their order
+/// and the newest items.
+pub struct HomeShelf {
+    pub featured: Vec<SearchCategory>,
+    pub arrivals: Vec<crate::api::SearchItem>,
 }
 
 /// `/categories/{slug}`, or `/search` for none, with `terms` but its category and page
@@ -392,11 +410,20 @@ pub struct SearchScreen {
     pub categories: Vec<SearchCategory>,
     /// `None` when the read failed.
     pub results: Option<SearchResults>,
+    /// On the home page with nothing asked (`isHomeLanding`), when there is something to show.
+    pub shelf: Option<HomeShelf>,
+    pub home: bool,
 }
 
 impl SearchScreen {
     pub fn place(&self) -> Place<'_> {
-        if self.category.is_empty() { Place::Search } else { Place::Category(&self.category) }
+        if !self.category.is_empty() {
+            Place::Category(&self.category)
+        } else if self.home {
+            Place::Home
+        } else {
+            Place::Search
+        }
     }
 
     /// The category's name (`activeCategoryLabel`), else "All Categories".
@@ -480,8 +507,24 @@ async fn show(
             return req.moved(&to);
         }
     }
+    let home = uri.path() == "/";
+    let landing = home && !terms.focused(&category);
     let limit = PAGE_SIZE + terms.more;
-    let results = match caller.search(&terms.api_query(&category, limit)).await {
+    let query = terms.api_query(&category, limit);
+    let newest = Terms { sort: "newest".to_owned(), ..Terms::default() }.api_query("", HOME_ARRIVALS);
+    let (results, arrivals) = tokio::join!(caller.search(&query), async {
+        if !landing {
+            return Vec::new();
+        }
+        match caller.search(&newest).await {
+            Ok(newest) => newest.items,
+            Err(error) => {
+                tracing::warn!("the new arrivals' read failed: {error}");
+                Vec::new()
+            }
+        }
+    });
+    let results = match results {
         Ok(results) => Some(results),
         Err(error) => {
             tracing::warn!("the search's read failed: {error}");
@@ -493,7 +536,11 @@ async fn show(
         && terms.interpreted.is_none()
     {
         let next = terms.interpreted(interpretation);
-        let place = if slug.is_some() { Place::Category(&category) } else { Place::Search };
+        let place = match (&slug, home) {
+            (Some(_), _) => Place::Category(&category),
+            (None, true) => Place::Home,
+            (None, false) => Place::Search,
+        };
         let to: Uri = place.href(&next).parse().map_err(corten::Error::new)?;
         return req.redirect(&to);
     }
@@ -502,7 +549,14 @@ async fn show(
     let failed = results.is_none();
     // A category the path names that does not exist shows no results, as marketplace's does.
     let category = if slug.is_some() { category } else { String::new() };
-    let screen = SearchScreen { terms, category, categories, results };
+    let shelf = landing.then(|| {
+        let mut featured = categories.clone();
+        featured.sort_by_key(|c| c.display_order);
+        featured.truncate(HOME_CATEGORIES);
+        HomeShelf { featured, arrivals }
+    });
+    let shelf = shelf.filter(|s| !s.featured.is_empty() || !s.arrivals.is_empty());
+    let screen = SearchScreen { terms, category, categories, results, shelf, home };
     render(&req, viewer, &screen, failed)
 }
 

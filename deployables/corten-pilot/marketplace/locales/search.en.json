@@ -1,4 +1,13 @@
 {
+  "home.browse.all.new.arrivals": "Browse all new arrivals",
+  "home.browse.category": "Browse {category}",
+  "home.featured.categories": "Featured categories",
+  "home.featured.categories.description": "Explore popular parts of the marketplace.",
+  "home.from": "From",
+  "home.item.count": "{count} items",
+  "home.new.arrivals": "New arrivals",
+  "home.new.arrivals.description": "See the latest items added to the catalog.",
+  "home.view.item": "View item",
   "page.all": "All",
   "page.all.categories": "All Categories",
   "page.all.languages": "All languages",

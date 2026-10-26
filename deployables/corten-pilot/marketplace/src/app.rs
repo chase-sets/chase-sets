@@ -83,12 +83,27 @@ pub type Shared = Arc<Config>;
 pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::{Categories, Category};
+    pub use home::Home;
     pub use inventory::{Archive, InventoryArea, Location, Locations, Restock, Restocked, WrittenOff};
     pub use items::{
         Item, ItemAdded, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSaved, ItemSellList, ItemShipFrom,
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
     pub use search::Search;
+
+    /// The home page, public: marketplace's index route is its search route, so it is the search
+    /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
+    /// is the start of each of its paths, and every path starts with `/`.
+    #[corten::routes(state = crate::app::Shared)]
+    pub mod home {
+        /// The search's landing, or the results for the address's terms.
+        #[derive(Clone, Debug, Default)]
+        #[route("/", get = crate::search::page)]
+        pub struct Home {
+            #[route(query)]
+            pub terms: crate::search::Terms,
+        }
+    }
 
     /// Marketplace search, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`.
@@ -335,7 +350,7 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
-    App::new(Router::new())
+    App::new(url::home::router(shared.clone()))
         // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
         // default policy takes any https image), and Check out redirects to its checkout.
         .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))

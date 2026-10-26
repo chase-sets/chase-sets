@@ -768,7 +768,10 @@ fn saved_lists(stand: &Stand, session: &str, method: &Method, path: &str, header
 
 /// The search's category, as Discovery has it.
 fn singles() -> Value {
-    json!({ "category_id": "ctg_singles", "key": "singles", "slug": "singles-x1", "name": "Singles", "display_order": 0 })
+    json!({
+        "category_id": "ctg_singles", "key": "singles", "slug": "singles-x1", "name": "Singles", "display_order": 0,
+        "description": "Raw and graded single cards.", "item_count": 12,
+    })
 }
 
 /// Search's reads, as the stand-in answers them: one category, `singles-x1`; 30 results, the first
@@ -3673,6 +3676,39 @@ async fn a_category_page_searches_in_it_and_the_landing_offers_categories() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Find trading cards worth "), "{html}");
     assert!(html.contains(r#"href="/categories/singles-x1">Singles</a>"#), "{html}");
+}
+
+#[tokio::test]
+async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_something_is_asked() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The results' read and the new arrivals' (the three newest, in no category).
+    let reads = search_reads(&pilot);
+    assert_eq!(reads.len(), 2, "{reads:?}");
+    let arrivals = reads.iter().find(|r| r.get("limit").map(String::as_str) == Some("3")).expect("the new arrivals' read");
+    assert_eq!(arrivals.get("sort").map(String::as_str), Some("newest"), "{arrivals:?}");
+    assert!(!arrivals.contains_key("category"), "{arrivals:?}");
+    assert!(html.contains("Find trading cards worth "), "the landing's headline: {html}");
+    assert!(html.contains(">Featured categories</h2>"), "{html}");
+    assert!(html.contains(">Raw and graded single cards.</p>") && html.contains(">12 items</p>"), "{html}");
+    assert!(html.contains(r#"href="/categories/singles-x1">Browse Singles</a>"#), "{html}");
+    assert!(html.contains(">New arrivals</h2>"), "{html}");
+    assert!(html.contains(r#"href="/search?sort=newest">Browse all new arrivals</a>"#), "{html}");
+    assert_eq!(html.matches(">View item</a>").count(), 3, "{html}");
+    assert!(html.contains(r#"href="/items/card-1">View item</a>"#), "{html}");
+    // The shelf is in place of the results, and the address it stands for is the search's.
+    assert!(!html.contains(r#"<li id="result-"#), "{html}");
+    assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/search" "#), "{html}");
+    assert!(html.contains(r#"action="/""#), "the filters stay at the home page: {html}");
+
+    // Asked something, it is the search: the results, and no arrivals' read.
+    let (status, _, html) = pilot.send(get("/?q=pika", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(search_reads(&pilot).len(), 3);
+    assert!(!html.contains("Featured categories"), "{html}");
+    assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
+    assert!(html.contains(r#"href="/?q=pika&amp;more=24#result-25""#), "Load more stays at the home page: {html}");
 }
 
 #[tokio::test]

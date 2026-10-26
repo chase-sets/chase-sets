@@ -21,7 +21,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
 | `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration The mobile action dock below 80rem: the price, then Buy, Sell and Watch as links to the rail on that side, or Select options. The gallery: more than one picture shows one at a time, picked by its thumbnail. More like this: the similar items' cards under the market book, each to its page here. The market book's Sales tab: the chosen product's spread, last sale and medians, and its sale prices over a range as a chart drawn on the server, the range links. Live: on each change to the item, the market summary, the market book (with the Sales tab's history) and the dock are drawn again (`<corten-live>`) Details' references: each record's dialog, opened by its value with no script. Add to List: an account's recent Saved Lists or a new one in a dialog the page draws, with the tracked quantity, or for a guest an intent claimed after marketplace's registration (not ported yet: a graded product's listing; the rail and the options redrawn live) |
-| `marketplace/` | Search, `/search` and `/categories/{slug}` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a link to the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: the home page's merchandising on `/`, Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
+| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a link to the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories, and on `/` the home page's shelf in place of the results: the four featured categories (their description, count and a link to each) and the three newest items (the lowest price and View item), one column on a phone; words or a filter asked on `/` show the results there. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -82,6 +82,22 @@ fallback, `/fake-cdn/assets/pokemon_tcg_back.png`, a 1,451,020 B PNG for every v
 marketplace's cards load too. The landing's LCP is its headline. The pilot's `components.css`
 carries search's stylesheet on every page
 ([todd-skelton/corten#93 An area has one prefix, so a screen at two addresses (/search, /categories/{slug}) puts its stylesheet on every page](https://github.com/todd-skelton/corten/issues/93)).
+
+The home page (`/`: the landing, four featured categories and three new arrivals), the same way:
+the pilot's release build and marketplace's dev server, so the React numbers are not a comparison,
+and marketplace has no mobile number. Measured once, 7 loads each, as the collector.
+
+| Home page | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 5,219 ms | 526 ms | 747 ms |
+| Largest contentful paint | 2,928 ms | 656 ms | 1,472 ms |
+| Server time (document) | 2,665 ms | 108 ms | 144 ms |
+| JavaScript transferred | 7,692,764 B | 9,638 B | 9,638 B |
+| HTML / CSS transferred | 574,851 / 186,198 B | 5,416 / 4,277 B | 5,416 / 4,277 B |
+| Requests | 251 | 10 | 10 |
+
+The pilot reads the results and the new arrivals in parallel, so the shelf adds one read but not
+its wait.
 
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
@@ -209,7 +225,7 @@ node scripts/smoke-market-item-sell.mjs http://localhost:7793  # the rail's sell
 node scripts/smoke-market-item-watch.mjs http://localhost:7793  # the Watch tab: a guest's intent and marketplace's registration, the collector's alert with the catalog's words and the saved notice, a threshold past the field's step, 390 px (writes an alert and deletes it; a guest intent expires on its own)
 node scripts/smoke-market-item-save.mjs http://localhost:7793  # Add to List: a guest's intent and marketplace's registration, the collector's dialog with no script and Add Product to a recent or new list with the page saying where it went, a refusal reopened as a modal, the sheet at 390 px (adds to the collector's list "Corten pilot smoke"; a guest intent expires on its own)
 node scripts/smoke-market-item-list.mjs http://localhost:7793  # List this product as the seed seller: the post, the page while Discovery catches up and after, the same form again, the API's waits with the receipt, 390 px (lists below 250.00 and withdraws each listing)
-node scripts/smoke-market-search.mjs http://localhost:7793  # search as a visitor: the words' filters applied, Show results and a chip without a script, a filter applied on change with focus and scroll kept, the sort, a category's path, the filters dialog at 390 px (reads only)
+node scripts/smoke-market-search.mjs http://localhost:7793  # search as a visitor: the words' filters applied, Show results and a chip without a script, a filter applied on change with focus and scroll kept, the sort, a category's path, the filters dialog at 390 px, the home page's shelf and its columns at 1280 and 390 px (reads only)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -225,6 +241,7 @@ node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pi
 node scripts/measure.mjs screen=cart marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=item marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=search marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=home marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
@@ -297,9 +314,11 @@ postage, storage locations, cart, item and Add to List. What changed:
 4. Both error pages name every `Failure` case. Two gaps were filed:
    [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)
    and [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89).
-5. Marketplace search was ported on this branch after that, so it is not on `pilot/corten` yet. With
-   it `corten check` passes (admin 61, marketplace 97, platform 6) and `smoke-market-search.mjs`
-   passes against its release build on the sandbox. Its four Corten gaps are under [Corten gaps](#corten-gaps).
+5. Marketplace search and the home page were ported on this branch after that, so they are not on
+   `pilot/corten` yet. With them `corten check` passes (admin 61, marketplace 98, platform 6) and
+   `smoke-market-search.mjs` passes against its release build on the sandbox. The home page is a
+   routes module with no area (`url::home`, the router `App::new` takes): an area's prefix starts
+   each of its paths, and `/` starts every path. Its four Corten gaps are under [Corten gaps](#corten-gaps).
 
 ## What lives where
 

@@ -1298,6 +1298,12 @@ pub struct SearchCategory {
     pub slug: String,
     pub name: String,
     pub key: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub item_count: u64,
+    /// The home page features the first four by this order.
+    #[serde(default)]
+    pub display_order: i64,
 }
 
 #[derive(Deserialize)]
