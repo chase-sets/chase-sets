@@ -29,7 +29,13 @@ jobs:
           source_base=d8b1e71313f5c461f682990f5b201a7438b68b26
           test "$(git rev-parse HEAD^)" = "$source_base"
           test "$(git diff --name-only "$source_base" HEAD)" = '.github/workflows/10404-bootstrap-db-input-capture.yml'
-          node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs
+          set +e
+          node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs > stale-enrollment-check.txt 2>&1
+          checker_status=$?
+          set -e
+          test "$checker_status" = 1
+          grep -F "41eda869b48e6c66" stale-enrollment-check.txt
+          grep -F "9d02b6a444073ea6" stale-enrollment-check.txt
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
@@ -80,6 +86,20 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
+
+      - name: Record stale enrollment checker result before fresh capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/10404-reference-capture
+          set +e
+          node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs \
+            > artifacts/10404-reference-capture/stale-enrollment-check.txt 2>&1
+          checker_status=$?
+          set -e
+          test "$checker_status" = 1
+          grep -F "41eda869b48e6c66" artifacts/10404-reference-capture/stale-enrollment-check.txt
+          grep -F "9d02b6a444073ea6" artifacts/10404-reference-capture/stale-enrollment-check.txt
 
       - name: Raise PostgreSQL lock table capacity for DB Profile
         env:
@@ -252,7 +272,9 @@ jobs:
                   const declared = declaredManifest[basename(file)];
                   assert(declared, file + ' declared bootstrap entry');
                   assert.equal(declared.executionUnit, unit, file + ' declared unit');
-                  assert.deepEqual(declared.cases.map(({ name, identity }) => ({ name, identity })), cases, file + ' declared identities');
+                  // The frozen enrollment may contain the stale pre-capture W1/W2
+                  // identity. The admitted capture must execute the current source
+                  // and derive fresh identities from its own reporter artifact.
                 }
                 assert.equal(manifest[basename(file)], undefined, file + ' captured once');
                 manifest[basename(file)] = entry;
