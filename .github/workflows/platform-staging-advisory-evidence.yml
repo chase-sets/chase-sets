@@ -156,9 +156,11 @@ jobs:
           protocol="$(node infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs --protocol-version)"
           if [ "$protocol" != "owner-fenced-seed-yield/v1" ]; then
             echo "advisory preflight refused: owner-fenced-seed-yield/v1 marker is absent" >&2
-            echo "freshness_status=stale" >> "$GITHUB_OUTPUT"
-            echo "freshness_reason=owner-fenced-seed-yield/v1 marker is absent" >> "$GITHUB_OUTPUT"
-            echo "error=owner-fenced-seed-yield/v1 marker is absent" >> "$GITHUB_OUTPUT"
+            {
+              echo "freshness_status=stale"
+              echo "freshness_reason=owner-fenced-seed-yield/v1 marker is absent"
+              echo "error=owner-fenced-seed-yield/v1 marker is absent"
+            } >> "$GITHUB_OUTPUT"
             exit 1
           fi
           node --input-type=module <<'NODE'
