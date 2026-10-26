@@ -344,3 +344,35 @@
 .chart-band { fill: var(--color-primary-soft); stroke: none; }
 .chart-mark { fill: var(--color-primary); stroke: var(--color-background); stroke-width: 1.5; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* ReferenceInfoTrigger and ReferenceInfoDialog: the value as a button that opens its record's
+   dialog, which fits a phone's width and scrolls when it is taller than the screen. */
+.ref-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+.ref-dialog {
+  width: min(100% - 2rem, 32rem);
+  max-height: min(100dvh - 2rem, 40rem);
+  padding: var(--space-5);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.ref-dialog::backdrop { background: var(--color-overlay); }
+.ref-dialog[open] { display: grid; gap: var(--space-3); }
+.ref-head { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; align-items: start; }
+.ref-head p { margin: var(--space-1) 0 0; }
+.ref-close { flex: none; }

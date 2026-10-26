@@ -1729,8 +1729,9 @@ fn item() -> Value {
         "field_values": [
             { "fieldId": "fld_number", "fieldName": "Card Number", "value": "4", "reference": null },
             { "fieldId": "fld_set", "fieldName": "Expansion", "value": { "referenceId": "ref_base" }, "reference": {
-                "referenceId": "ref_base", "name": "Base Set", "typeKey": "expansion",
-                "relationships": [{ "relationshipType": "part-of", "reference": { "referenceId": "ref_series", "name": "Base", "typeKey": "series", "relationships": [] } }],
+                "referenceId": "ref_base", "name": "Base Set", "typeKey": "expansion", "key": "base-set", "status": "active",
+                "attributes": { "card-count": 102, "abbreviation": "BS", "language-editions": ["en"] },
+                "relationships": [{ "relationshipType": "part-of", "referenceId": "ref_series", "reference": { "referenceId": "ref_series", "name": "Base", "typeKey": "series", "relationships": [] } }],
             } },
         ],
         "categories": [{ "categoryId": "ctg_tcg", "slug": "pokemon-tcg", "name": "Pokemon TCG" }],
@@ -2015,6 +2016,55 @@ async fn the_details_tab_lists_the_fields_and_the_records_they_relate_to() {
         ),
         "{page}"
     );
+}
+
+#[tokio::test]
+async fn a_reference_in_the_details_opens_its_records_dialog_with_no_script() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?book=details", None)).await;
+    // Each referenced value is a button for its record's dialog: the field's and the one it relates to.
+    assert!(
+        html.contains(concat!(
+            r#"<button type="button" class="item-detail__ref-trigger" command="show-modal" commandfor="reference-ref_base" "#,
+            r#"aria-haspopup="dialog" aria-label="View Expansion reference details for Base Set">Base Set</button>"#,
+        )),
+        "{html}"
+    );
+    assert!(html.contains(r#"commandfor="reference-ref_series""#), "{html}");
+    let at = html.find(r#"<dialog class="item-detail__ref-dialog" id="reference-ref_base""#).expect("the dialog");
+    let dialog = text(&html[at..at + html[at..].find("</dialog>").unwrap()]);
+    assert_eq!(
+        dialog,
+        concat!(
+            "Base Set Expansion Close reference detail Reference type Expansion Status active Reference key base-set ",
+            // The stand-in's JSON sorts its keys; `attributes_keep_the_apis_order` covers the order.
+            r#"Attributes abbreviation BS card-count 102 language-editions [&quot;en&quot;] Relationships Part Of Base"#,
+        ),
+    );
+    // A record with nothing: says so.
+    let at = html.find(r#"id="reference-ref_series""#).expect("the related record's dialog");
+    let dialog = text(&html[at..at + html[at..].find("</dialog>").unwrap()]);
+    assert!(dialog.ends_with("Attributes No attributes Relationships No relationships"), "{dialog}");
+    assert_eq!(html.matches("<dialog").count(), 2, "one dialog for each record");
+    // A change to the item draws the book again with its triggers, but not the dialogs, so an
+    // open one stays open (todd-skelton/corten#84).
+    let events = pilot.events(get("/items/cat_charizard/live?book=details", None), 1).await;
+    let data = &events[0].2;
+    assert!(data.contains(r#"commandfor="reference-ref_base""#) && !data.contains("<dialog"), "{data}");
+}
+
+#[test]
+fn attributes_keep_the_apis_order() {
+    let reference: crate::api::Reference = serde_json::from_str(
+        r#"{"referenceId":"r","name":"n","typeKey":"t","attributes":{"card-count":102,"abbreviation":"BS","release-date":"1999-01-09"}}"#,
+    )
+    .unwrap();
+    let keys: Vec<&str> = reference.attributes.0.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys, ["card-count", "abbreviation", "release-date"]);
+    // Anything but an object is no attributes.
+    let reference: crate::api::Reference =
+        serde_json::from_str(r#"{"referenceId":"r","name":"n","typeKey":"t","attributes":null}"#).unwrap();
+    assert!(reference.attributes.0.is_empty());
 }
 
 #[tokio::test]

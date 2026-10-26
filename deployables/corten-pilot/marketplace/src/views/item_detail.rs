@@ -238,8 +238,11 @@ fn type_label(key: &str) -> String {
 
 /// The details list's rows (`buildReferenceDetailRows`): each field, then each record its
 /// references relate to (an expansion's series), four deep at most, each record once.
-fn detail_rows(fields: &[FieldValue]) -> Vec<(String, String)> {
-    let mut rows: Vec<(String, String)> = fields
+/// A details row: its label, its value, and the reference record it names, if any.
+type DetailRow<'a> = (String, String, Option<&'a Reference>);
+
+fn detail_rows(fields: &[FieldValue]) -> Vec<DetailRow<'_>> {
+    let mut rows: Vec<DetailRow<'_>> = fields
         .iter()
         .map(|f| {
             let label = if f.field_name.starts_with("fld_") || f.field_name.starts_with("fld-") {
@@ -254,7 +257,8 @@ fn detail_rows(fields: &[FieldValue]) -> Vec<(String, String)> {
             } else {
                 f.field_name.clone()
             };
-            (label, f.reference.as_ref().map_or_else(|| field_text(&f.value), |r| r.name.clone()))
+            let value = f.reference.as_ref().map_or_else(|| field_text(&f.value), |r| r.name.clone());
+            (label, value, f.reference.as_ref())
         })
         .collect();
     let direct: std::collections::BTreeSet<&str> =
@@ -267,7 +271,7 @@ fn detail_rows(fields: &[FieldValue]) -> Vec<(String, String)> {
         direct: &std::collections::BTreeSet<&str>,
         inherited: &mut std::collections::BTreeSet<&'a str>,
         counts: &mut std::collections::BTreeMap<String, usize>,
-        rows: &mut Vec<(String, String)>,
+        rows: &mut Vec<DetailRow<'a>>,
     ) {
         if path.len() > 4 {
             return;
@@ -282,7 +286,7 @@ fn detail_rows(fields: &[FieldValue]) -> Vec<(String, String)> {
                 let count = counts.entry(base.clone()).or_default();
                 let label = if *count == 0 { base } else { format!("{base} ({})", type_label(&relationship.relationship_type)) };
                 *count += 1;
-                rows.push((label, related.name.clone()));
+                rows.push((label, related.name.clone(), Some(related)));
             }
             path.push(&related.reference_id);
             walk(related, path, direct, inherited, counts, rows);
@@ -398,6 +402,9 @@ pub fn ItemDetail<'a>(
             </div>
         </div>
         <Dock t={t} screen={screen} address={address} slug={slug} />
+        if address.book() == Book::Details {
+            <RefDialogs t={t} item={item} />
+        }
         // The market parts again on each change to the item (`items::live`).
         <corten-live src={&url::ItemLive { id: &item.catalog_item_id, state: address.clone() }.href()}></corten-live>
     }
@@ -2124,10 +2131,26 @@ fn Details<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
                 <p>{description}</p>
             }
             <dl class={Pairs}>
-                for (label, value) in &rows {
+                for (label, value, reference) in &rows {
                     <div>
                         <dt>{label}</dt>
-                        <dd>{value}</dd>
+                        match reference {
+                            Some(r) => {
+                                <dd>
+                                    <button
+                                        type="button"
+                                        class={RefTrigger}
+                                        command="show-modal"
+                                        commandfor={&reference_dialog_id(r)}
+                                        aria-haspopup="dialog"
+                                        aria-label={&t.page_reference_value_aria(label, value).to_string()}
+                                    >
+                                        {value}
+                                    </button>
+                                </dd>
+                            }
+                            None => { <dd>{value}</dd> }
+                        }
                     </div>
                 }
                 <div>
@@ -2153,6 +2176,107 @@ fn Details<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
             </dl>
         </div>
     }
+}
+
+/// The Details tab's reference dialogs, one for each record its rows name. Drawn outside the
+/// market book, which a change to the item draws again, since a redraw closes a dialog the
+/// buyer opened (todd-skelton/corten#84); their triggers stay in the book. Their content does
+/// not change with the market.
+#[component(css = ItemDetail)]
+fn RefDialogs<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
+    let rows = detail_rows(&item.field_values);
+    // Each record's dialog once, in the order its rows name it.
+    let references: Vec<&Reference> = {
+        let mut seen = std::collections::BTreeSet::new();
+        rows.iter().filter_map(|(_, _, r)| *r).filter(|r| seen.insert(r.reference_id.as_str())).collect()
+    };
+    html! {
+        for reference in &references {
+            <RefDialog t={t} reference={*reference} />
+        }
+    }
+}
+
+/// A reference record's dialog's id: one for each record, however many rows name it.
+fn reference_dialog_id(reference: &Reference) -> String {
+    format!("reference-{}", reference.reference_id)
+}
+
+/// Marketplace's `ReferenceDetailDialog`: the record's type, status and key, its attributes and
+/// what it relates to. A native `<dialog>` the row's button opens (`command="show-modal"`), so
+/// it needs no script; Escape and its close button close it.
+#[component(css = ItemDetail)]
+fn RefDialog<'a>(t: ItemMsg, reference: &'a Reference) -> impl Render {
+    let id = reference_dialog_id(reference);
+    let title = format!("{id}-title");
+    let kind = type_label(&reference.type_key);
+    let attributes: Vec<(&str, String)> = reference.attributes.0.iter().map(|(k, v)| (k.as_str(), field_text(v))).collect();
+    let relationships: Vec<(String, &str)> = reference
+        .relationships
+        .iter()
+        .map(|r| {
+            let name = r.reference.as_ref().map_or(r.reference_id.as_str(), |related| related.name.as_str());
+            (relationship_label(&r.relationship_type), name)
+        })
+        .collect();
+    html! {
+        <dialog class={RefDialog} id={&id} aria-labelledby={&title}>
+            <div class={RefHead}>
+                <div>
+                    <h2 class={CardTitle} id={&title}>{&reference.name}</h2>
+                    <p class={Muted}>{&kind}</p>
+                </div>
+                <button type="button" class={(Button, RefClose)} command="close" commandfor={&id}>
+                    {t.page_close_reference_detail()}
+                </button>
+            </div>
+            <dl class={Pairs}>
+                <div>
+                    <dt>{t.page_reference_type()}</dt>
+                    <dd>{&kind}</dd>
+                </div>
+                <div>
+                    <dt>{t.page_reference_status()}</dt>
+                    <dd>{&reference.status}</dd>
+                </div>
+                <div>
+                    <dt>{t.page_reference_key()}</dt>
+                    <dd>{&reference.key}</dd>
+                </div>
+            </dl>
+            <h3 class={Label}>{t.page_reference_attributes()}</h3>
+            if attributes.is_empty() {
+                <p class={Muted}>{t.page_reference_no_attributes()}</p>
+            } else {
+                <dl class={Pairs}>
+                    for (key, value) in &attributes {
+                        <div>
+                            <dt>{*key}</dt>
+                            <dd>{value}</dd>
+                        </div>
+                    }
+                </dl>
+            }
+            <h3 class={Label}>{t.page_reference_relationships()}</h3>
+            if relationships.is_empty() {
+                <p class={Muted}>{t.page_reference_no_relationships()}</p>
+            } else {
+                <dl class={Pairs}>
+                    for (kind, name) in &relationships {
+                        <div>
+                            <dt>{kind}</dt>
+                            <dd>{*name}</dd>
+                        </div>
+                    }
+                </dl>
+            }
+        </dialog>
+    }
+}
+
+/// A relationship's type as words (`formatRelationshipType`): `part-of` is "Part Of".
+fn relationship_label(kind: &str) -> String {
+    kind.split(['-', '_']).filter(|p| !p.is_empty()).map(capitalize).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

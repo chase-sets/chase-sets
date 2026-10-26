@@ -713,13 +713,80 @@ pub struct Reference {
     pub name: String,
     pub type_key: String,
     #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub status: String,
+    /// Its attributes by name, each a value of any kind.
+    #[serde(default)]
+    pub attributes: Attributes,
+    #[serde(default)]
     pub relationships: Vec<Relationship>,
+}
+
+/// A record's attributes in the order the API sends them, as marketplace lists them
+/// (`Object.entries`); serde_json's own map would sort them. Anything but an object is none.
+#[derive(Clone, Debug, Default)]
+pub struct Attributes(pub Vec<(String, serde_json::Value)>);
+
+impl<'de> Deserialize<'de> for Attributes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Attributes;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an object of attributes")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Attributes, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(Attributes(entries))
+            }
+            fn visit_unit<E>(self) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Attributes, A::Error> {
+                while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+                Ok(Attributes::default())
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<Attributes, E> {
+                Ok(Attributes::default())
+            }
+        }
+        deserializer.deserialize_any(Visit)
+    }
+}
+
+impl Serialize for Attributes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (key, value) in &self.0 {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Relationship {
     pub relationship_type: String,
+    #[serde(default)]
+    pub reference_id: String,
     pub reference: Option<Reference>,
 }
 
