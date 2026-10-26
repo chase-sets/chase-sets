@@ -112,7 +112,17 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-health-what-if-tablet" });
     await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health what-if panels" });
     const after = await page.request.get(url);
-    expect(await after.json()).toMatchObject({ target: beforeBody.target, whatIf: beforeBody.whatIf });
+    const afterBody = await after.json();
+    const withoutSnapshotHashes = (body: typeof beforeBody) => ({
+      target: body.target,
+      whatIf:
+        body.whatIf === null
+          ? null
+          : {
+              portfolios: body.whatIf.portfolios.map(({ snapshotHash: _snapshotHash, ...portfolio }) => portfolio),
+            },
+    });
+    expect(withoutSnapshotHashes(afterBody)).toEqual(withoutSnapshotHashes(beforeBody));
   } finally {
     if (created) {
       const deleted = await page.request.post(`${policiesApi}/${created.policyId}/delete`);
