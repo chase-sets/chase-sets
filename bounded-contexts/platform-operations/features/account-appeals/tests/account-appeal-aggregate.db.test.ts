@@ -676,12 +676,14 @@ describeDb("account appeal aggregate DB proof", () => {
         });
       }
       expect(
-        (await pool.query(
-          `SELECT status, outcome, rationale, stream_version
+        (
+          await pool.query(
+            `SELECT status, outcome, rationale, stream_version
              FROM platform_operations_account_appeal_seller_history
             WHERE appeal_id = (SELECT payload->>'appealId' FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version LIMIT 1)`,
-          [`platform-operations.account-appeal-${enforcementActionId}`],
-        )).rows,
+            [`platform-operations.account-appeal-${enforcementActionId}`],
+          )
+        ).rows,
       ).toMatchObject([{ status: "reversed", outcome: "reversed", rationale: "Evidence changed", stream_version: 3 }]);
     });
 
