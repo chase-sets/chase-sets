@@ -89,7 +89,7 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
     expect(before.ok()).toBe(true);
     const beforeBody = await before.json();
     expect(beforeBody.target?.policyId).toBe(created.policyId);
-    await page.goto(`/account/desk/pricing-health?policyId=${encodeURIComponent(created.policyId)}`);
+    await page.goto("/account/desk/pricing-health");
     await expect(page.getByTestId("pricing-health-page")).toBeVisible();
     await expect(page.getByTestId("pricing-health-what-if")).toBeVisible();
     await expect(page.getByText("Horizon value curve", { exact: true }).first()).toBeVisible();
