@@ -53,6 +53,46 @@ pub struct Image {
     pub height: Option<u32>,
 }
 
+/// One of the gallery's pictures: the picture, its thumbnail and its words.
+pub struct Shot {
+    pub image: Image,
+    pub thumb: String,
+    pub alt: String,
+}
+
+/// The gallery's pictures (`buildItemDetailImages`, then `ImageGallery`'s): the catalog-detail
+/// rendition, else every image URL, then the fallback when it stays (`permanent`), which
+/// marketplace shows as one more picture.
+pub fn item_shots(t: ItemMsg, item: &Item) -> Vec<Shot> {
+    let mut shots = Vec::new();
+    let detail = item_image(item)
+        .filter(|_| item.product_asset_sets.iter().any(|s| s.variants.iter().any(|v| v.role == "catalog-detail")));
+    if let Some(image) = detail {
+        let thumb = item
+            .product_asset_sets
+            .iter()
+            .flat_map(|s| &s.variants)
+            .filter(|v| v.role == "thumbnail")
+            .min_by_key(|v| (v.density != 1, v.width))
+            .map_or_else(|| image.src.clone(), |v| on_marketplace(&v.public_url));
+        shots.push(Shot { image, thumb, alt: t.page_image_alt(&item.title, 1).to_string() });
+    } else {
+        for (i, url) in item.image_urls.iter().enumerate() {
+            let src = on_marketplace(url);
+            let image = Image { src: src.clone(), srcset: None, width: None, height: None };
+            shots.push(Shot { image, thumb: src, alt: t.page_image_alt(&item.title, i + 1).to_string() });
+        }
+    }
+    if let Some(fallback) = item.image_fallback.as_ref().filter(|f| f.usage == "permanent") {
+        let src = on_marketplace(&fallback.url);
+        let thumb =
+            fallback.variants.get("thumbnail").and_then(|v| v.one_x.as_deref()).map_or_else(|| src.clone(), on_marketplace);
+        let image = Image { src, srcset: None, width: None, height: None };
+        shots.push(Shot { image, thumb, alt: fallback.alt.clone() });
+    }
+    shots
+}
+
 /// The item's main picture (`selectItemImage`): its catalog-detail rendition, else its first
 /// image, else the fallback when it stays (`permanent`).
 pub fn item_image(item: &Item) -> Option<Image> {
@@ -283,6 +323,7 @@ pub fn ItemDetail<'a>(
     let item = &screen.item;
     let category = item.categories.first();
     let image = item_image(item);
+    let shots = item_shots(t, item);
     let fallback_alt = item.image_fallback.as_ref().map_or(t.page_default_product_image(), |f| f.alt.as_str());
     let alt = if item.image_fallback.is_some() && item.product_asset_sets.is_empty() && item.image_urls.is_empty() {
         fallback_alt.to_owned()
@@ -311,23 +352,27 @@ pub fn ItemDetail<'a>(
                 }
             </div>
             <div class={Media}>
-                match &image {
-                    Some(image) => {
-                        <img
-                            src={&image.src}
-                            srcset={image.srcset.as_deref()}
-                            sizes={image.srcset.as_ref().map(|_| "(min-width: 768px) 308px, min(100vw, 276px)")}
-                            width={image.width}
-                            height={image.height}
-                            fetchpriority="high"
-                            alt={&alt}
-                        >
-                    }
-                    None => {
-                        <div class={NoImage}>
-                            <p class={Strong}>{t.page_image_coming_soon()}</p>
-                            <p class={Muted}>{t.page_catalog_imagery_has_not_been_added()}</p>
-                        </div>
+                if shots.len() > 1 {
+                    <Gallery shots={&shots} />
+                } else {
+                    match &image {
+                        Some(image) => {
+                            <img
+                                src={&image.src}
+                                srcset={image.srcset.as_deref()}
+                                sizes={image.srcset.as_ref().map(|_| "(min-width: 768px) 308px, min(100vw, 276px)")}
+                                width={image.width}
+                                height={image.height}
+                                fetchpriority="high"
+                                alt={&alt}
+                            >
+                        }
+                        None => {
+                            <div class={NoImage}>
+                                <p class={Strong}>{t.page_image_coming_soon()}</p>
+                                <p class={Muted}>{t.page_catalog_imagery_has_not_been_added()}</p>
+                            </div>
+                        }
                     }
                 }
             </div>
@@ -385,6 +430,36 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
                     <a class={(Button, Primary, Wide)} href="#select-options">{t.page_select_options()}</a>
                 }
             </nav>
+        </div>
+    }
+}
+
+/// Marketplace's `ImageGallery` with its thumbnails on the left: one picture at a time, picked by
+/// its thumbnail. Each thumbnail is a radio button (no form: it posts nothing) drawn before its
+/// picture, and the stylesheet shows the picture after the checked one, so it needs no script, and
+/// arrow keys move through them. A picture not shown is `loading="lazy"`, so the browser does not
+/// fetch it until it is picked.
+#[component(css = ItemDetail)]
+fn Gallery<'a>(shots: &'a [Shot]) -> impl Render {
+    html! {
+        <div class={Gallery}>
+            for (i, shot) in shots.iter().enumerate() {
+                <label class={Pick}>
+                    <input type="radio" name="item-gallery" checked={i == 0} aria-label={&shot.alt}>
+                    <img src={&shot.thumb} alt="" width="64" height="64" loading="lazy" decoding="async">
+                </label>
+                <img
+                    class={Shot}
+                    src={&shot.image.src}
+                    srcset={shot.image.srcset.as_deref()}
+                    sizes={shot.image.srcset.as_ref().map(|_| "(min-width: 768px) 308px, min(100vw, 276px)")}
+                    width={shot.image.width}
+                    height={shot.image.height}
+                    loading={if i == 0 { "eager" } else { "lazy" }}
+                    fetchpriority={(i == 0).then_some("high")}
+                    alt={&shot.alt}
+                >
+            }
         </div>
     }
 }

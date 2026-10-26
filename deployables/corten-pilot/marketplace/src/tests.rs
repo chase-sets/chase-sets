@@ -1738,6 +1738,12 @@ fn item() -> Value {
 /// else is unknown.
 fn discovery_item(stand: &Stand, id: &str) -> Response {
     match id {
+        "pictured" => {
+            let mut item = item();
+            item["slug"] = json!("pictured");
+            item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
+            Json(item).into_response()
+        }
         "unlisted" => {
             let mut item = item();
             item["slug"] = json!("unlisted");
@@ -2746,6 +2752,34 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_item_with_more_than_one_picture_shows_one_at_a_time_picked_by_its_thumbnail() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/items/pictured", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let at = html.find(r#"<div class="item-detail__gallery">"#).expect("the gallery");
+    let gallery = &html[at..at + html[at..].find("</div>").unwrap()];
+    // The two pictures, then the card back that stays, each after its thumbnail; the first checked.
+    assert_eq!(gallery.matches(r#"type="radio" name="item-gallery""#).count(), 3, "{gallery}");
+    assert_eq!(gallery.matches(" checked").count(), 1, "{gallery}");
+    let shots: Vec<&str> =
+        gallery.split(r#"class="item-detail__shot" src=""#).skip(1).map(|s| s.split('"').next().unwrap()).collect();
+    assert_eq!(
+        shots,
+        [
+            "http://localhost:7753/fake-cdn/front.png",
+            "http://localhost:7753/fake-cdn/back.png",
+            "http://localhost:7753/fake-cdn/assets/back.png"
+        ]
+    );
+    assert!(gallery.contains(r#"loading="eager" fetchpriority="high" alt="Charizard image 1""#), "{gallery}");
+    assert_eq!(gallery.matches(r#"loading="lazy" alt="Charizard image"#).count(), 1, "only the second picture waits: {gallery}");
+    assert!(gallery.contains(r#"aria-label="Card back""#), "{gallery}");
+    // One picture: just the picture.
+    let (_, _, html) = pilot.send(get("/items/charizard", None)).await;
+    assert!(!html.contains("item-detail__gallery") && html.contains(r#"fetchpriority="high""#), "{html}");
 }
 
 #[tokio::test]
