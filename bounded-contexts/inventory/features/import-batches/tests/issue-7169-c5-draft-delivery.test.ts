@@ -39,7 +39,7 @@ const message: InventoryDraftListingDeliveryMessage = {
   },
 };
 
-function dbForDelivery() {
+function dbForDelivery(attempts = 1) {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   let persistedMessage: InventoryDraftListingDeliveryMessage | null = null;
   const db: PgQueryable = {
@@ -59,7 +59,7 @@ function dbForDelivery() {
               account_id: message.authority.accountId,
               performed_by_user_id: message.authority.performedByUserId,
               message: persistedMessage ?? message,
-              attempts: 1,
+              attempts,
             },
           ],
           rowCount: 1,
@@ -116,7 +116,7 @@ describe("issue-7169 C5 draft handoff", () => {
     expect(update?.values[2]).toBe(JSON.stringify(receipt));
   });
 
-  it("requeues a failed handoff and fails closed after the bounded retry count", async () => {
+  it("requeues a transient handoff with bounded backoff", async () => {
     const { db, calls } = dbForDelivery();
     const delivery = {
       accept: vi.fn(async () => {
@@ -130,5 +130,29 @@ describe("issue-7169 C5 draft handoff", () => {
     });
     const update = calls.find((call) => call.sql.includes("SET state = CASE"));
     expect(update?.values[3]).toBe("inventory-draft-unavailable:consumer-unbound");
+  });
+
+  it("fails closed at the eighth transient attempt", async () => {
+    const seven = dbForDelivery(7);
+    const transient = {
+      accept: vi.fn(async () => {
+        throw { code: "inventory-draft-unavailable", diagnostic: "consumer-unbound" };
+      }),
+    };
+    expect(await processNextInventoryDraftListingDelivery(seven.db, transient)).toMatchObject({
+      outcome: "requeued",
+      attempts: 7,
+    });
+    const sevenUpdate = seven.calls.find((call) => call.sql.includes("SET state = CASE"));
+    expect(sevenUpdate?.values[2]).toBe(false);
+
+    const eight = dbForDelivery(8);
+    expect(await processNextInventoryDraftListingDelivery(eight.db, transient)).toMatchObject({
+      outcome: "failed",
+      attempts: 8,
+      code: "inventory-draft-unavailable:consumer-unbound",
+    });
+    const eightUpdate = eight.calls.find((call) => call.sql.includes("SET state = CASE"));
+    expect(eightUpdate?.values[2]).toBe(true);
   });
 });

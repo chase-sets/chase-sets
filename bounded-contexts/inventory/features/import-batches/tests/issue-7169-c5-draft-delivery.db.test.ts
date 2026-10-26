@@ -91,7 +91,7 @@ describeDb("issue-7169 C5 draft listing delivery durable DB proof", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
-  it("reclaims an expired lease and fences a late acknowledgement", async () => {
+  it("reclaims an expired lease and fences a late acknowledgement while replacement holds the lease", async () => {
     const pending = message("imr_delivery_reclaim");
     await enqueueInventoryDraftListingMessage(pools.inventory, pending);
     let started!: () => void;
@@ -114,22 +114,86 @@ describeDb("issue-7169 C5 draft listing delivery durable DB proof", () => {
       [pending.messageId],
     );
 
-    const secondAccept = vi.fn(async () => receipt(pending.messageId));
-    const second = await processNextInventoryDraftListingDelivery(pools.inventory, { accept: secondAccept });
-    expect(second).toMatchObject({ outcome: "accepted", messageId: pending.messageId, attempts: 2 });
+    let replacementStarted!: () => void;
+    const replacementClaimed = new Promise<void>((resolve) => {
+      replacementStarted = resolve;
+    });
+    let releaseReplacement!: (value: InventoryDraftListingReceipt) => void;
+    const replacementAccept = new Promise<InventoryDraftListingReceipt>((resolve) => {
+      releaseReplacement = resolve;
+    });
+    const secondAccept = vi.fn(async () => {
+      replacementStarted();
+      return replacementAccept;
+    });
+    const second = processNextInventoryDraftListingDelivery(pools.inventory, { accept: secondAccept });
+    await replacementClaimed;
     release(receipt(pending.messageId));
     await expect(first).resolves.toMatchObject({ outcome: "lost", messageId: pending.messageId, attempts: 1 });
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT state, attempts, claim_token IS NOT NULL AS has_claim_token FROM inventory_import_draft_listing_outbox",
+        )
+      ).rows,
+    ).toEqual([{ state: "sending", attempts: 2, has_claim_token: true }]);
+    releaseReplacement(receipt(pending.messageId));
+    await expect(second).resolves.toMatchObject({ outcome: "accepted", messageId: pending.messageId, attempts: 2 });
     expect(secondAccept).toHaveBeenCalledExactlyOnceWith(pending, expect.anything());
-
-    const lateAck = await pools.inventory.query(
-      `UPDATE inventory_import_draft_listing_outbox SET state = 'accepted'
-       WHERE message_id = $1 AND claim_token = $2`,
-      [pending.messageId, "stale-claim-token"],
-    );
-    expect(lateAck.rowCount).toBe(0);
     expect(
       (await pools.inventory.query("SELECT state, attempts FROM inventory_import_draft_listing_outbox")).rows,
     ).toEqual([{ state: "accepted", attempts: 2 }]);
+  });
+
+  it("fences a stale conflict while a reclaimed lease is still sending", async () => {
+    const pending = message("imr_delivery_reclaim_conflict");
+    await enqueueInventoryDraftListingMessage(pools.inventory, pending);
+    let started!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let rejectFirst!: (reason: unknown) => void;
+    const firstAccept = new Promise<InventoryDraftListingReceipt>((_, reject) => {
+      rejectFirst = reject;
+    });
+    const first = processNextInventoryDraftListingDelivery(pools.inventory, {
+      accept: async () => {
+        started();
+        return firstAccept;
+      },
+    });
+    await claimed;
+    await pools.inventory.query(
+      "UPDATE inventory_import_draft_listing_outbox SET claimed_until = now() - interval '1 second' WHERE message_id = $1",
+      [pending.messageId],
+    );
+
+    let replacementStarted!: () => void;
+    const replacementClaimed = new Promise<void>((resolve) => {
+      replacementStarted = resolve;
+    });
+    let releaseReplacement!: (value: InventoryDraftListingReceipt) => void;
+    const replacementAccept = new Promise<InventoryDraftListingReceipt>((resolve) => {
+      releaseReplacement = resolve;
+    });
+    const second = processNextInventoryDraftListingDelivery(pools.inventory, {
+      accept: async () => {
+        replacementStarted();
+        return replacementAccept;
+      },
+    });
+    await replacementClaimed;
+    rejectFirst({ code: "inventory-draft-conflict" });
+    await expect(first).resolves.toMatchObject({ outcome: "lost", messageId: pending.messageId, attempts: 1 });
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT state, attempts, claim_token IS NOT NULL AS has_claim_token FROM inventory_import_draft_listing_outbox",
+        )
+      ).rows,
+    ).toEqual([{ state: "sending", attempts: 2, has_claim_token: true }]);
+    releaseReplacement(receipt(pending.messageId));
+    await expect(second).resolves.toMatchObject({ outcome: "accepted", messageId: pending.messageId, attempts: 2 });
   });
 
   it("keeps the first snapshot when a message is enqueued twice", async () => {
