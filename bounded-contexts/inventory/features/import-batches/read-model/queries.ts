@@ -204,8 +204,8 @@ export async function getImportBatch(
        CASE WHEN outbox.state IN ('pending', 'sending', 'accepted')
             THEN import_row.committed_listing_id ELSE NULL END AS committed_listing_id,
        committed_at,
-       created_at,
-       updated_at
+       import_row.created_at,
+       import_row.updated_at
      FROM inventory_import_batch_rows AS import_row
      LEFT JOIN inventory_import_draft_listing_outbox AS outbox
        ON outbox.message_id = import_row.row_id
