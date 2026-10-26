@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { OperatorAuthorityDecision } from "@chase-sets/auth-context";
 import { createOperatorSessionGrants } from "../api/grants";
 
 const bearer = "A".repeat(43);
@@ -56,24 +57,26 @@ it("renews a grant when the live creator authority is granted", async () => {
 });
 
 it.each([
-  ["a non-admin role", { roleKey: "owner" as const, rolePermissions: ["catalog.manage"] as const }],
-  ["missing catalog.manage", { roleKey: "platform-admin" as const, rolePermissions: [] as const }],
-] as const)("revokes when the granted decision has %s", async (_label, decision) => {
-  const fake = pool(true);
-  const forGrantCreator = vi.fn(async () => ({
-    kind: "granted" as const,
-    membershipId: "mbr_creator",
-    ...decision,
-  }));
-  const services = createOperatorSessionGrants(fake.value, { forActor: vi.fn(), forGrantCreator });
+  ["a denied non-admin authority", { kind: "denied", reason: "not-platform-admin" }],
+  [
+    "missing catalog.manage",
+    { kind: "granted", membershipId: "mbr_creator", roleKey: "platform-admin", rolePermissions: [] },
+  ],
+] as const satisfies readonly [string, OperatorAuthorityDecision][])(
+  "revokes when the authority decision has %s",
+  async (_label, decision) => {
+    const fake = pool(true);
+    const forGrantCreator = vi.fn(async (): Promise<OperatorAuthorityDecision> => decision);
+    const services = createOperatorSessionGrants(fake.value, { forActor: vi.fn(), forGrantCreator });
 
-  await expect(services.authorizeObservationGrant(request())).rejects.toMatchObject({
-    code: "authority-lost",
-    status: 403,
-  });
-  expect(fake.state.authorityRevocations).toBe(1);
-  expect(fake.state.renewals).toBe(0);
-});
+    await expect(services.authorizeObservationGrant(request())).rejects.toMatchObject({
+      code: "authority-lost",
+      status: 403,
+    });
+    expect(fake.state.authorityRevocations).toBe(1);
+    expect(fake.state.renewals).toBe(0);
+  },
+);
 
 it("revokes the grant in a committed transaction when the creator authority is denied", async () => {
   const fake = pool(true);
