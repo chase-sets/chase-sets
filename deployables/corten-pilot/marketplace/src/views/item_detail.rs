@@ -1955,8 +1955,8 @@ fn SaveToList<'a>(
 /// Add to List's dialog (marketplace's sheet): the product, a recent list or a new one (its title
 /// shown only while it is chosen, by CSS), and the tracked quantity, with the ids the addition is
 /// made with. Drawn `open` when its form came back refused, so it is in front of the buyer
-/// without JavaScript; its script reopens it as a modal.
-#[component(css = ItemDetail, js)]
+/// without JavaScript; `corten_ui::dialog::modal` makes it modal when it joins the page.
+#[component(css = ItemDetail)]
 pub fn SaveDialog<'a>(
     t: ItemMsg,
     save: &'a SaveState,
@@ -1983,7 +1983,7 @@ pub fn SaveDialog<'a>(
             id={SAVE_DIALOG}
             aria-labelledby={&title_id}
             open={refused.is_some()}
-            on:connect={js::modal(target)}
+            on:connect={corten_ui::dialog::modal(target)}
         >
             <div class={RefHead}>
                 <div>

@@ -59,6 +59,7 @@ pub const COMPONENTS: &[Component] = &[
     ItemForm,
     ItemPage,
     corten_ui::Toaster,
+    corten_ui::dialog::COMPONENT,
 ];
 
 /// The text of element id `id` followed by `suffix`: the id of a part of that element (a

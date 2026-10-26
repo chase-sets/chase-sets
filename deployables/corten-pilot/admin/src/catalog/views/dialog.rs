@@ -14,8 +14,8 @@ use crate::{
 /// A dialog around a form, opened by its [`Trigger`] (`command="show-modal"`, no script). It is
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
-/// either way; its script reopens a dialog drawn open as a modal.
-#[component(css, js)]
+/// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
+#[component(css)]
 pub fn Dialog<'a, I: Id + AttrValue + Copy, C: Render>(
     id: I,
     title: &'a str,
@@ -26,7 +26,7 @@ pub fn Dialog<'a, I: Id + AttrValue + Copy, C: Render>(
 ) -> impl Patch {
     let heading = super::id_with(&id, "-title");
     html! {
-        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={js::modal(target)}>
+        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={corten_ui::dialog::modal(target)}>
             <header class={Head}>
                 <h2 class={Title} id={&heading}>{title}</h2>
                 <button type="button" class={(Small, Secondary)} command="close" commandfor={id}>{close}</button>

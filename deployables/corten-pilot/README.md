@@ -248,6 +248,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `052b327` | Corten `main` with [todd-skelton/corten#79 A patch is checked when it compiles, and a component parameter can be impl Render](https://github.com/todd-skelton/corten/pull/79). Breaking: `req.patch`, `req.patch_with_status` and `req.invalid` take an `impl Patch`, which the compiler checks. About 35 components a patch sends now say `-> impl Patch`: every write form, dialog and refusal, marketplace's `Recovery` and `WriteForm`, and admin's `Dialog`, `LiveStatus` and the list rows. An id at a patch's top level must be a `#[derive(Id)]` type, so admin's dialog, lifecycle, rows, live and changes ids became types named to render the same strings (`CatalogCreateDialogId` is `catalog-create-dialog`), and `Dialog`, `Trigger`, `LiveStatus`, `LifecycleForm`, `OptionLifecycleForm` and `WriteForm` take a typed id. Three kinds of id changed form. An item page row's form and a reference's dialog are `ItemId(key)`, which renders `item-{key}` as before. An option's edit dialog and lifecycle form are now `option-dialog-{id}` and `option-lifecycle-{id}` (they were `option-{id}-dialog` and `option-{id}-lifecycle`; nothing else names them). The two reference dialogs share one type, `ItemId("product-ref-dialog")`, since the page picks either. One gap found and filed ([todd-skelton/corten#82 A view that is lets then one patch component is not a patch (One<F> never implements Patch)](https://github.com/todd-skelton/corten/issues/82); see [Corten gaps](#corten-gaps)). The debug-only patch scan is gone, so the router tests now rely on the compiler |
 | `91af573` | Corten `main` with [todd-skelton/corten#76 A page cannot write JSON-LD in its head since Meta was removed (an expression in <script> is escaped as HTML)](https://github.com/todd-skelton/corten/issues/76), [todd-skelton/corten#77 A view that is one component cannot pass a reference to its own locals (E0515 since the document change)](https://github.com/todd-skelton/corten/issues/77) and [todd-skelton/corten#78 An area's routes cannot name their handlers (#[corten::routes] covers only App::new)](https://github.com/todd-skelton/corten/issues/78) closed ([todd-skelton/corten#80 JsonLd, views that own their lets, and routes modules for areas](https://github.com/todd-skelton/corten/pull/80)), each adopted (see Corten gaps). No breaking change for the pilot: `<script>` and `<style>` now refuse an expression at compile time, and the pilot wrote none after its `JsonLd` was removed. Only the item area moved to an area routes module; the cart, inventory, postage and catalog areas keep `.route::<R>()` calls, which Corten still accepts; moving them is mechanical and checks nothing new |
 | `c919779` | Corten `main` with [todd-skelton/corten#84 A patch or live fragment closes a <dialog> the user opened and folds a <details> they unfolded](https://github.com/todd-skelton/corten/issues/84) closed ([todd-skelton/corten#85 A patch keeps what the user opened: dialogs, details and popovers](https://github.com/todd-skelton/corten/pull/85)) and adopted: the item page's reference dialogs are back in the Details tab, beside their triggers, inside the market book a change to the item redraws. No breaking change for the pilot (Corten's runtime grows 268 B gzipped, its measurement) |
+| `c7fc490` | Corten `main` with [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86) closed ([todd-skelton/corten#87 A dialog the server draws open is modal: corten_ui::dialog::modal](https://github.com/todd-skelton/corten/pull/87)) and adopted: both apps' `modal` handlers are gone. No breaking change for the pilot |
 | `de6f039` | Corten `main` with [todd-skelton/corten#82 A view that is lets then one patch component is not a patch (One<F> never implements Patch)](https://github.com/todd-skelton/corten/issues/82) closed ([todd-skelton/corten#83 A view that is lets then one patch component is a patch](https://github.com/todd-skelton/corten/pull/83)) and adopted: the four `match () { () => { .. } }` blocks are gone. No breaking change for the pilot |
 
 ## What lives where
@@ -332,7 +333,8 @@ forward only on purpose, when a fix the pilot needs lands.
     added or removed) is drawn `open`. Add Label and Remove are submit buttons that post the form
     back to be drawn with a row more or less, and nothing is written
     ([`OptionInput::relabeled`](admin/src/catalog/form.rs)); a hidden first submit button keeps
-    Enter from removing the first row.
+    Enter from removing the first row. A dialog drawn `open` becomes modal when it joins the page
+    (`corten_ui::dialog::modal`), with focus on the first field marked invalid.
 12. **Success toasts are the redirect's `done`** (`?done=option_added`): the page the write sends
     the browser to puts admin-web's message in corten-ui's `Toaster`, with and without JavaScript.
 13. **New records keep the id they were drawn with.** The create forms carry a `dim_`, `fld_` or
@@ -796,8 +798,7 @@ forward only on purpose, when a fix the pilot needs lands.
     314 ms (three runs), and the page after a new list in 1.8 s (one run).
     A refused form (the pilot's checks or the API's) comes back 422 with the dialog drawn
     `open`, what was chosen and typed, and the same ids, so trying again is the same addition;
-    its script reopens it as a modal
-    ([todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86)).
+    `corten_ui::dialog::modal` makes it modal when it joins the page.
     An account without `accounts.view` (a guest checkout's session) gets the dialog with
     "This account cannot manage Saved Lists." and no read. A guest's button posts the product:
     an anonymous intent (its owner in marketplace's `chase_sets_anonymous_saved_lists`
@@ -831,9 +832,7 @@ forward only on purpose, when a fix the pilot needs lands.
 
 ## Corten gaps
 
-Open, filed in Corten (one gap each), at the `c919779` pin:
-
-1. [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86). `open` is the non-modal state and the platform has no declarative modal open, so a refused form's dialog does not hold focus or make the page inert. Workaround: the same six-line `modal` handler in `admin/src/catalog/views/dialog.js` and `marketplace/src/views/save_dialog.js`, each naming the issue. Both go once it lands.
+Open, filed in Corten: none at the `c7fc490` pin.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -862,6 +861,10 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `c7fc490` pin, workarounds removed:
+
+1. [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86): the pilot's two `modal` handlers (`admin/src/catalog/views/dialog.js`, `marketplace/src/views/save_dialog.js`) are gone. The catalog's `Dialog` and Add to List's `SaveDialog` use `corten_ui::dialog::modal`, listed as `corten_ui::dialog::COMPONENT` in the catalog area and the item area (marketplace now depends on corten-ui for it alone). `smoke-bulk.mjs` (the preview drawn open, with and without JavaScript) and `smoke-market-item-save.mjs` (a refused new list comes back modal) pass against the release builds.
 
 Fixed at the `c919779` pin, workarounds removed:
 
