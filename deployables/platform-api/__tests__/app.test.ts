@@ -133,6 +133,7 @@ function createEmptyRuntime(
 
 async function withUninstrumentedPlatformApiRuntime(
   action: (runtime: ReturnType<typeof createPlatformApiHost>) => void | Promise<void>,
+  hostOptions: Pick<Parameters<typeof createPlatformApiHost>[0], "controlPlane" | "workSignalStore"> = {},
 ) {
   const pools = createPlatformApiPools({
     runtimeProfile: "public",
@@ -145,6 +146,7 @@ async function withUninstrumentedPlatformApiRuntime(
       createPlatformApiHost({
         runtimeProfile: "public",
         pools,
+        ...hostOptions,
         hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
       }),
     );
@@ -707,6 +709,73 @@ describe("platform api app wiring", () => {
       projectionGroups: [],
       projectionStatusSource: "runtime-memory",
     });
+  });
+
+  it("wires operations attention reads into the platform API without self-fetching", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T00:00:00.000Z"));
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const controlPlane = {
+      listProjectionStatusSnapshots: vi.fn(async () => []),
+    } as unknown as PlatformControlPlane;
+    const workSignalStore = {
+      summarizeProjectionWakeIntents: vi.fn(async () => {
+        vi.setSystemTime(new Date("2026-07-22T00:00:01.000Z"));
+        return {
+          queuedCount: 0,
+          claimedCount: 0,
+          failedCount: 1,
+          expiredCount: 0,
+          staleClaimCount: 0,
+          oldestQueuedAt: null,
+          oldestClaimedAt: null,
+        };
+      }),
+      summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+      summarizeCheckpointSignals: vi.fn(async () => ({
+        readinessCount: 0,
+        expiredReadinessCount: 0,
+        latestReadyRecordedAt: null,
+        pendingWaiterCount: 0,
+        expiredPendingWaiterCount: 0,
+        satisfiedWaiterCount: 0,
+        oldestPendingWaiterAt: null,
+        pendingWaiterOrigins: [],
+      })),
+    };
+
+    try {
+      await withUninstrumentedPlatformApiRuntime(
+        async (runtime) => {
+          const app = buildPlatformApiApp(runtime, {
+            resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+            controlPlane,
+            workSignalStore,
+          });
+          fetch.mockClear();
+          const response = await app.request("/api/platform/operations-attention");
+
+          expect(response.status).toBe(200);
+          const body = await response.json();
+          expect(body.sources).toEqual([
+            expect.objectContaining({ id: "projection-poison-event", status: "available" }),
+            expect.objectContaining({ id: "projection-blocked-stream", status: "available" }),
+            expect.objectContaining({ id: "wake-stalled-job", status: "available" }),
+          ]);
+          expect(body.items).toEqual([
+            expect.objectContaining({ source: "wake-stalled-job", observedAt: "2026-07-22T00:00:01.000Z" }),
+          ]);
+          expect(workSignalStore.summarizeProjectionWakeIntents).toHaveBeenCalledTimes(1);
+        },
+        { controlPlane, workSignalStore },
+      );
+      expect(
+        fetch.mock.calls.filter(([input]) => String(input).includes("/api/platform/operations-attention")),
+      ).toHaveLength(0);
+    } finally {
+      fetch.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it.each([
