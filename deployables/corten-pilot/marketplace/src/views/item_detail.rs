@@ -406,9 +406,6 @@ pub fn ItemDetail<'a>(
             </div>
         </div>
         <Dock t={t} screen={screen} address={address} slug={slug} />
-        if address.book() == Book::Details {
-            <RefDialogs t={t} item={item} />
-        }
         // The market parts again on each change to the item (`items::live`).
         <corten-live src={&url::ItemLive { id: &item.catalog_item_id, state: address.clone() }.href()}></corten-live>
     }
@@ -2397,14 +2394,14 @@ fn Details<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
                     <dd>{&updated}</dd>
                 </div>
             </dl>
+            <RefDialogs t={t} item={item} />
         </div>
     }
 }
 
-/// The Details tab's reference dialogs, one for each record its rows name. Drawn outside the
-/// market book, which a change to the item draws again, since a redraw closes a dialog the
-/// buyer opened (todd-skelton/corten#84); their triggers stay in the book. Their content does
-/// not change with the market.
+/// The Details tab's reference dialogs, one for each record its rows name, beside their
+/// triggers in the market book. A change to the item draws the book again, and Corten keeps a
+/// dialog the buyer opened open, and modal, through it.
 #[component(css = ItemDetail)]
 fn RefDialogs<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
     let rows = detail_rows(&item.field_values);

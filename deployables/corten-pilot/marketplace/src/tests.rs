@@ -2112,11 +2112,11 @@ async fn a_reference_in_the_details_opens_its_records_dialog_with_no_script() {
     let dialog = text(&html[at..at + html[at..].find("</dialog>").unwrap()]);
     assert!(dialog.ends_with("Attributes No attributes Relationships No relationships"), "{dialog}");
     assert_eq!(html.matches("<dialog").count(), 2, "one dialog for each record");
-    // A change to the item draws the book again with its triggers, but not the dialogs, so an
-    // open one stays open (todd-skelton/corten#84).
+    // A change to the item draws the book again with its triggers and its dialogs; the runtime
+    // keeps one the buyer opened open (todd-skelton/corten#84).
     let events = pilot.events(get("/items/cat_charizard/live?book=details", None), 1).await;
     let data = &events[0].2;
-    assert!(data.contains(r#"commandfor="reference-ref_base""#) && !data.contains("<dialog"), "{data}");
+    assert!(data.contains(r#"commandfor="reference-ref_base""#) && data.matches("<dialog").count() == 2, "{data}");
 }
 
 #[test]
