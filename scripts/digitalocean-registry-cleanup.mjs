@@ -2,10 +2,7 @@ import { execFile } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import {
-  parseStartedGarbageCollection,
-  waitForRegistryGarbageCollection,
-} from "./digitalocean-registry-gc-gate.mjs";
+import { parseStartedGarbageCollection, waitForRegistryGarbageCollection } from "./digitalocean-registry-gc-gate.mjs";
 
 export const DIGITALOCEAN_REGISTRY_CLEANUP_VERSION = "digitalocean-registry-cleanup/v1";
 const DEFAULT_RETAIN_RECENT_SHA_TREE_TAGS = 25;
@@ -255,7 +252,14 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
   }
 
   try {
-    const startedOutput = await output("doctl", ["registry", "garbage-collection", "start", "--force", "--output", "json"]);
+    const startedOutput = await output("doctl", [
+      "registry",
+      "garbage-collection",
+      "start",
+      "--force",
+      "--output",
+      "json",
+    ]);
     const garbageCollectionUuid = parseStartedGarbageCollection(startedOutput);
     record.garbageCollection = {
       status: "started",
@@ -433,7 +437,11 @@ export function validateDigitalOceanRegistryCleanupRecord(record) {
   ) {
     errors.push("garbageCollection must be an object");
   } else {
-    if (!["failed", "skipped", "started", "succeeded", "cancelled", "wait-timeout"].includes(record.garbageCollection.status)) {
+    if (
+      !["failed", "skipped", "started", "succeeded", "cancelled", "wait-timeout"].includes(
+        record.garbageCollection.status,
+      )
+    ) {
       errors.push("garbageCollection.status is invalid");
     }
     if (!isNonEmptyString(record.garbageCollection.reason)) errors.push("garbageCollection.reason is required");

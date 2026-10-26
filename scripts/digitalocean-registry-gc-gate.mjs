@@ -152,14 +152,18 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
     records.push(active);
     if (active.kind === "none") {
       if (!uuid) {
-        return { ...refusal(repository, "missing-garbage-collection-identity", "start did not return a UUID"), records };
+        return {
+          ...refusal(repository, "missing-garbage-collection-identity", "start did not return a UUID"),
+          records,
+        };
       }
       const listed = await listGarbageCollections(repository, dependencies);
       if (listed.kind !== "list") {
         return { ...refusal(repository, "list-error", listed.detail), records };
       }
       const terminal = listed.records.find((entry) => entry.uuid === uuid);
-      if (!terminal) return { ...refusal(repository, "missing-garbage-collection", "started UUID was not listed"), records };
+      if (!terminal)
+        return { ...refusal(repository, "missing-garbage-collection", "started UUID was not listed"), records };
       if (terminal.status === "succeeded") {
         return {
           schemaVersion: DIGITALOCEAN_REGISTRY_GC_GATE_VERSION,
@@ -173,10 +177,23 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
           records,
         };
       }
-      return { ...refusal(repository, `terminal-${terminal.status}`, `garbage collection ended ${terminal.status}`), uuid, status: terminal.status, records };
+      return {
+        ...refusal(repository, `terminal-${terminal.status}`, `garbage collection ended ${terminal.status}`),
+        uuid,
+        status: terminal.status,
+        records,
+      };
     }
     if (now() - startedAt >= maxWaitMs) {
-      return { ...refusal(repository, "wait-timeout", `garbage collection did not become terminal within ${maxWaitMs / 60_000} minutes`), uuid, records };
+      return {
+        ...refusal(
+          repository,
+          "wait-timeout",
+          `garbage collection did not become terminal within ${maxWaitMs / 60_000} minutes`,
+        ),
+        uuid,
+        records,
+      };
     }
     await sleep(Math.min(pollIntervalMs, Math.max(0, maxWaitMs - (now() - startedAt))));
   }
@@ -193,7 +210,8 @@ async function writeRecord(path, record) {
 
 async function main(argv) {
   const [command, ...args] = argv;
-  const repository = args.find((arg) => arg.startsWith("--repository="))?.slice("--repository=".length) || "chase-sets-platform";
+  const repository =
+    args.find((arg) => arg.startsWith("--repository="))?.slice("--repository=".length) || "chase-sets-platform";
   const out = args.find((arg) => arg.startsWith("--out="))?.slice("--out=".length);
   if (command === "assert-writable") {
     const record = await assertRegistryWritable(repository);
@@ -208,12 +226,18 @@ async function main(argv) {
     console.log(JSON.stringify(record));
     return record.result === "succeeded" ? 0 : 1;
   }
-  throw new Error("Usage: digitalocean-registry-gc-gate.mjs assert-writable|wait --repository=<name> [--uuid=<uuid>] [--out=<path>]");
+  throw new Error(
+    "Usage: digitalocean-registry-gc-gate.mjs assert-writable|wait --repository=<name> [--uuid=<uuid>] [--out=<path>]",
+  );
 }
 
 if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
+  main(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
 }

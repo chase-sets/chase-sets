@@ -38,7 +38,11 @@ const providerFailure = (status, message, { code = 1 } = {}) => {
 describe("digitalocean-registry-cleanup", () => {
   it("fails closed for active, malformed, unknown, timeout, and cancellation observations", async () => {
     const uuid = "c5cf2bde-b606-4663-b6ec-7320b0f8b262";
-    const active = JSON.stringify({ UUID: uuid, RegistryName: "chase-sets-platform", Status: "scanning for unreferenced blobs" });
+    const active = JSON.stringify({
+      UUID: uuid,
+      RegistryName: "chase-sets-platform",
+      Status: "scanning for unreferenced blobs",
+    });
     let calls = 0;
     await expect(
       waitForRegistryGarbageCollection(
@@ -367,7 +371,13 @@ describe("digitalocean-registry-cleanup", () => {
             throw error;
           }
           if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "list") {
-            return JSON.stringify([{ UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", RegistryName: "chase-sets-platform", Status: "succeeded" }]);
+            return JSON.stringify([
+              {
+                UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+                RegistryName: "chase-sets-platform",
+                Status: "succeeded",
+              },
+            ]);
           }
           throw new Error(`Unexpected command: ${args.join(" ")}`);
         },
@@ -378,7 +388,11 @@ describe("digitalocean-registry-cleanup", () => {
     expect(result.record.deletedTags).toEqual([
       { name: "old-main", digest: null, updatedAt: "2026-03-01T00:00:00.000Z" },
     ]);
-    expect(result.record.garbageCollection).toMatchObject({ status: "succeeded", reason: "terminal-succeeded", uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262" });
+    expect(result.record.garbageCollection).toMatchObject({
+      status: "succeeded",
+      reason: "terminal-succeeded",
+      uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+    });
     expect(calls).toContainEqual([
       "registry",
       "repository",

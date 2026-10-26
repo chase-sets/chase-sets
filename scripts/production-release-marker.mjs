@@ -236,7 +236,10 @@ export async function publishReleaseMarker(identity, io) {
         try {
           await io.publishRegistry();
         } catch (error) {
-          if (error?.code === "registry-gc-read-only" || error?.registryGcGate?.rootCauseCode === "registry-gc-read-only") {
+          if (
+            error?.code === "registry-gc-read-only" ||
+            error?.registryGcGate?.rootCauseCode === "registry-gc-read-only"
+          ) {
             throw error;
           }
           /* The authoritative read, not the response, decides. */
@@ -807,7 +810,12 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
   if (env.DIGITALOCEAN_ACCESS_TOKEN) {
     io.assertRegistryWritable = async () => {
       const result = await assertDigitalOceanRegistryWritable(identity.image.split("/")[1], {
-        commandOutput: async (program, args) => (await runCommand(program, args, { env: { ...env, DIGITALOCEAN_ACCESS_TOKEN: env.DIGITALOCEAN_ACCESS_TOKEN } })).stdout,
+        commandOutput: async (program, args) =>
+          (
+            await runCommand(program, args, {
+              env: { ...env, DIGITALOCEAN_ACCESS_TOKEN: env.DIGITALOCEAN_ACCESS_TOKEN },
+            })
+          ).stdout,
       });
       if (env.REGISTRY_GC_GATE_OUT) {
         await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
