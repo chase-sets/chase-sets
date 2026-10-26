@@ -187,7 +187,7 @@ describe("marketplace search route", () => {
     expect(html).toContain("Search Charizard, Black Lotus, Dark Magician, Luffy...");
   });
 
-  it("debounces search URL updates and commits the latest value", () => {
+  it("debounces search URL updates and commits the latest value", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseLoaderData.mockReturnValue(searchData());
@@ -202,10 +202,10 @@ describe("marketplace search route", () => {
     fireEvent.change(input, { target: { value: "ch" } });
     fireEvent.change(input, { target: { value: "charizard" } });
 
-    act(() => vi.advanceTimersByTime(299));
+    await act(() => vi.advanceTimersByTime(299));
     expect(setSearchParams).not.toHaveBeenCalled();
 
-    act(() => vi.advanceTimersByTime(1));
+    await act(() => vi.advanceTimersByTime(1));
 
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [updater, options] = setSearchParams.mock.calls[0];
@@ -216,7 +216,7 @@ describe("marketplace search route", () => {
     expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
 
-  it("commits rapid price edits once with the settled values", () => {
+  it("commits rapid price edits once with the settled values", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseLoaderData.mockReturnValue(searchData());
@@ -231,10 +231,10 @@ describe("marketplace search route", () => {
     fireEvent.change(minimumPrice, { target: { value: "15" } });
     fireEvent.change(minimumPrice, { target: { value: "150" } });
 
-    act(() => vi.advanceTimersByTime(PRICE_FILTER_DEBOUNCE_MS - 1));
+    await act(() => vi.advanceTimersByTime(PRICE_FILTER_DEBOUNCE_MS - 1));
     expect(setSearchParams).not.toHaveBeenCalled();
 
-    act(() => vi.advanceTimersByTime(1));
+    await act(() => vi.advanceTimersByTime(1));
 
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [updater, options] = setSearchParams.mock.calls[0];
@@ -264,7 +264,7 @@ describe("marketplace search route", () => {
     expect(updater(new URLSearchParams("page=2")).get("priceMin")).toBe("150.00");
   });
 
-  it("flushes the pending search immediately when Enter submits", () => {
+  it("flushes the pending search immediately when Enter submits", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseLoaderData.mockReturnValue(searchData());
@@ -278,7 +278,7 @@ describe("marketplace search route", () => {
     fireEvent.submit(screen.getByRole("search"));
 
     expect(setSearchParams).toHaveBeenCalledTimes(1);
-    act(() => vi.advanceTimersByTime(300));
+    await act(() => vi.advanceTimersByTime(300));
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [updater, options] = setSearchParams.mock.calls[0];
     const next = updater(new URLSearchParams("page=2"));
@@ -305,7 +305,7 @@ describe("marketplace search route", () => {
     expect(input.value).toBe("charizard");
   });
 
-  it("keeps search focused when the hero changes to the results toolbar", () => {
+  it("keeps search focused when the hero changes to the results toolbar", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     let loaderData = searchData();
@@ -319,7 +319,7 @@ describe("marketplace search route", () => {
     heroInput.focus();
     fireEvent.change(heroInput, { target: { value: "c" } });
 
-    act(() => vi.advanceTimersByTime(300));
+    await act(() => vi.advanceTimersByTime(300));
     loaderData = searchData("c");
     rerender(<SearchRoute />);
 
@@ -328,7 +328,7 @@ describe("marketplace search route", () => {
     expect(document.activeElement).toBe(toolbarInput);
   });
 
-  it("clearing search removes search and page params", () => {
+  it("clearing search removes search and page params", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseLoaderData.mockReturnValue(searchData("pikachu"));
@@ -338,7 +338,7 @@ describe("marketplace search route", () => {
 
     render(<SearchRoute />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
-    act(() => vi.advanceTimersByTime(300));
+    await act(() => vi.advanceTimersByTime(300));
 
     const [updater] = setSearchParams.mock.calls[0];
     const next = updater(new URLSearchParams("q=pikachu&page=3"));

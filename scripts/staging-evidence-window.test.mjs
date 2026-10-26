@@ -13,11 +13,13 @@ import {
   JOB_TIMEOUT_MINUTES,
   PAYMENTS_WEBHOOK_URL,
   RETENTION_SECONDS,
+  WINDOW_JOB_NAME,
   assertEndpointUnchanged,
   attestFixtures,
   attestWebhookDelivery,
   buildReceipt,
   classifyClose,
+  classifyUnstartedJob,
   cleanupGroup,
   cleanupRecord,
   cleanupVerdict,
@@ -55,6 +57,65 @@ const plantedSecret = generateAdmissionSecret(() => Buffer.alloc(32, 0xab));
 const t0 = Date.parse("2026-10-20T12:00:00.000Z");
 const iso = (ms) => new Date(ms).toISOString();
 const temporary = [];
+
+// The displaced incident run's attempt 1 job listing (GET .../runs/39493081143/attempts/1/jobs,
+// re-read 2026-10-21), reduced to the fields the observer reads; values are never edited.
+const incidentRun = { runId: "39493081143", attempt: 1 };
+const incidentJobs = Object.freeze([
+  {
+    id: 118871022858,
+    run_id: 39493081143,
+    run_attempt: 1,
+    name: "Refuse Unconfirmed Evidence Window",
+    status: "completed",
+    conclusion: "skipped",
+    created_at: "2026-10-20T20:34:08Z",
+    started_at: "2026-10-20T20:34:08Z",
+    completed_at: "2026-10-20T20:34:08Z",
+    runner_id: null,
+    runner_name: null,
+    steps: [],
+  },
+  {
+    id: 118871022912,
+    run_id: 39493081143,
+    run_attempt: 1,
+    name: "Staging Evidence Window",
+    status: "completed",
+    conclusion: "cancelled",
+    created_at: "2026-10-20T20:34:08Z",
+    started_at: "2026-10-20T20:34:08Z",
+    completed_at: "2026-10-20T20:39:57Z",
+    runner_id: 0,
+    runner_name: "",
+    steps: [],
+  },
+]);
+
+// Synthetic jobs for fake runs, shaped like the retained listings: a started job has a runner and steps.
+function syntheticJob({ id, runId = "7001", attempt = 1, name, conclusion, started }) {
+  return {
+    id,
+    run_id: Number(runId),
+    run_attempt: attempt,
+    name,
+    status: "completed",
+    conclusion,
+    created_at: "2026-10-20T12:00:00Z",
+    started_at: "2026-10-20T12:00:00Z",
+    completed_at: "2026-10-20T12:30:00Z",
+    runner_id: started ? 1_000_000_000 + id : null,
+    runner_name: started ? `GitHub Actions ${1_000_000_000 + id}` : null,
+    steps: started ? [{ name: "Set up job", status: "completed", conclusion: "success", number: 1 }] : [],
+  };
+}
+
+// A confirmed window run: the refusal sibling is skipped and never reaches a runner.
+const runJobs = (runId, attempt) => [
+  syntheticJob({ id: 2, runId, attempt, name: "Refuse Unconfirmed Evidence Window", conclusion: "skipped" }),
+  syntheticJob({ id: 1, runId, attempt, name: "Staging Evidence Window", conclusion: "success", started: true }),
+];
+
 afterEach(() => {
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -83,6 +144,7 @@ function fakeStaging(options = {}) {
     runs: new Map(options.runs ?? []),
     calls: [],
     logs: [],
+    logReads: [],
     applies: [],
   };
   const clock = () => state.now;
@@ -290,8 +352,17 @@ function fakeStaging(options = {}) {
       status: state.runs.get(`${runId}/${attempt}`) ?? (runId === "900" ? "in_progress" : "completed"),
       updated_at: iso(state.now),
     }),
-    attemptJobs: async () => ({ total_count: 1, jobs: [{ id: 1 }] }),
-    jobLog: async () => options.jobLog ?? "2026-10-20T12:00:00Z ***\n",
+    attemptJobs: async (runId, attempt) => {
+      const jobs = options.jobs ?? runJobs(runId, attempt);
+      return options.listing?.(jobs) ?? { total_count: jobs.length, jobs };
+    },
+    // GitHub serves no log for a job that never reached a runner (404), as the retained listings show.
+    jobLog: async (jobId) => {
+      state.logReads.push(jobId);
+      const job = (options.jobs ?? runJobs("7001", 1)).find((candidate) => candidate.id === jobId);
+      if (!job?.runner_id || options.missingLog?.(jobId)) throw new EvidenceWindowStop("github-log-unreadable");
+      return options.jobLog ?? "2026-10-20T12:00:00Z ***\n";
+    },
     dispatchObserver: async (ref, inputs) => {
       state.calls.push("dispatch");
       state.dispatched = { ref, inputs };
@@ -1445,6 +1516,139 @@ describe("cleanup observer and next-preflight takeover", () => {
     expect(observerReceipt(env).observer.logScan).toBe("marker-found");
   });
 
+  it("keeps a confirmed run clean when its only unstarted job is the skipped refusal sibling", async () => {
+    const staging = fakeStaging();
+    const env = runEnv();
+    await runSteps(env, staging.deps, lifecycle);
+    expect(await main(["observe"], observerEnv(env), staging.deps)).toBe(0);
+    expect(observerReceipt(env).observer).toMatchObject({
+      logScan: "clean",
+      jobs: [
+        { id: "2", name: "Refuse Unconfirmed Evidence Window", logScan: "not-started" },
+        { id: "1", name: "Staging Evidence Window", logScan: "clean" },
+      ],
+    });
+    expect(staging.state.logReads).toEqual([1]);
+  });
+
+  describe("a window displaced before it reached a runner", () => {
+    const incidentEnv = (env) => ({
+      ...env,
+      TARGET_RUN_ID: incidentRun.runId,
+      TARGET_RUN_ATTEMPT: String(incidentRun.attempt),
+    });
+    const displacedObserve = async () => {
+      const staging = fakeStaging({ jobs: incidentJobs });
+      const env = runEnv();
+      const code = await main(["observe"], incidentEnv(env), staging.deps);
+      return { staging, env, code, receipt: observerReceipt(env) };
+    };
+
+    it("is evidence-window-displaced, fail-closed, never log-scan-unreadable or success", async () => {
+      const { staging, code, receipt } = await displacedObserve();
+      expect(code).toBe(1);
+      expect(staging.state.logs).toContain("::error::staging-evidence-window evidence-window-displaced");
+      expect(staging.state.logs.join("\n")).not.toMatch(/log-scan-/);
+      expect(receipt).toMatchObject({
+        stops: [],
+        window: null,
+        outcome: "not-opened",
+        providerEvidence: "none",
+        observer: {
+          logScan: "evidence-window-displaced",
+          jobs: [
+            { id: "118871022858", name: "Refuse Unconfirmed Evidence Window", logScan: "not-started" },
+            { id: "118871022912", name: "Staging Evidence Window", logScan: "evidence-window-displaced" },
+          ],
+        },
+      });
+    });
+
+    it("reads no log, creates no credential and claims only cleanup it proved", async () => {
+      const { staging, receipt } = await displacedObserve();
+      expect(staging.state.logReads).toEqual([]);
+      expect(staging.state.calls).toEqual([]);
+      expect(staging.state.data).not.toHaveProperty(ADMISSION_SECRET_KEY);
+      expect(staging.state.principals.size).toBe(0);
+      expect(receipt.close).toBeNull();
+      expect(receipt.cleanup).toMatchObject({ by: "observer", verdict: "proven" });
+      for (const value of Object.values(receipt.cleanup.parts)) expect(["proven", "not-needed"]).toContain(value);
+    });
+
+    it("writes one receipt per owning run attempt, identical when the observer is re-driven", async () => {
+      const first = await displacedObserve();
+      const again = fakeStaging({ jobs: incidentJobs });
+      expect(await main(["observe"], incidentEnv(first.env), again.deps)).toBe(1);
+      const artifact = join(first.env.RUNNER_TEMP, "staging-evidence-window", "artifact");
+      expect(readdirSync(artifact)).toEqual(["observer-receipt.json"]);
+      const second = observerReceipt(first.env);
+      expect(second.identity).toEqual(windowIdentity({ repository, ...incidentRun }));
+      for (const field of ["identity", "outcome", "stops"]) expect(second[field]).toEqual(first.receipt[field]);
+      expect(second.observer.jobs).toEqual(first.receipt.observer.jobs);
+      expect(second.observer.logScan).toBe(first.receipt.observer.logScan);
+    });
+
+    it("still fails a cleanup it cannot prove ahead of the displacement", async () => {
+      const staging = fakeStaging({
+        jobs: incidentJobs,
+        principals: ["evidence_window_journal_39493081143_1"],
+        dropFails: () => true,
+      });
+      const env = runEnv();
+      expect(await main(["observe"], incidentEnv(env), staging.deps)).toBe(1);
+      expect(staging.state.logs).toContain("::error::staging-evidence-window cleanup-failed");
+      expect(observerReceipt(env)).toMatchObject({
+        cleanup: { verdict: "failed" },
+        observer: { logScan: "evidence-window-displaced" },
+      });
+    });
+  });
+
+  it.each([
+    ["a started job whose log is missing", { missingLog: (id) => id === 1 }, "unreadable", [1]],
+    [
+      "a listing whose total_count exceeds its listed jobs",
+      { listing: (jobs) => ({ total_count: 3, jobs }) },
+      "incomplete",
+      [],
+    ],
+    ["an empty listing", { listing: () => ({ total_count: 0, jobs: [] }) }, "incomplete", []],
+    ["a listing without jobs", { listing: () => ({ total_count: 2 }) }, "incomplete", []],
+    [
+      "a job without steps",
+      { listing: (jobs) => ({ total_count: 2, jobs: jobs.map(({ steps: _steps, ...job }) => job) }) },
+      "incomplete",
+      [],
+    ],
+    [
+      "a job from another run",
+      { listing: (jobs) => ({ total_count: 2, jobs: [jobs[0], { ...jobs[1], run_id: 7002 }] }) },
+      "incomplete",
+      [],
+    ],
+    [
+      "a job from another attempt",
+      { listing: (jobs) => ({ total_count: 2, jobs: [jobs[0], { ...jobs[1], run_attempt: 2 }] }) },
+      "incomplete",
+      [],
+    ],
+    [
+      "a listing without the window job",
+      { listing: (jobs) => ({ total_count: 1, jobs: [jobs[0]] }) },
+      "incomplete",
+      [],
+    ],
+    ["a total_count below its listed jobs", { listing: (jobs) => ({ total_count: 1, jobs }) }, "incomplete", []],
+  ])("fails the scan on %s", async (_label, options, logScan, logReads) => {
+    const staging = fakeStaging(options);
+    const env = runEnv();
+    await runSteps(env, staging.deps, lifecycle);
+    expect(await main(["observe"], observerEnv(env), staging.deps)).toBe(1);
+    expect(staging.state.logs).toContain(`::error::staging-evidence-window log-scan-${logScan}`);
+    expect(observerReceipt(env).observer.logScan).toBe(logScan);
+    expect(staging.state.logReads).toEqual(logReads);
+  });
+
   it("recovers an expired, still-open window in the next run's preflight and only then admits", async () => {
     const prior = fakeStaging();
     const priorEnv = runEnv({ GITHUB_RUN_ID: "6900" });
@@ -1478,6 +1682,77 @@ describe("cleanup observer and next-preflight takeover", () => {
       identity: null,
       stops: ["observer-target-invalid"],
       outcome: "refused",
+    });
+  });
+
+  // Synthetic: this workflow never starts its sibling beside a pending window; these pin precedence only.
+  it.each([
+    ["a found marker over a displaced window", { jobLog: `leaked ${CREDENTIAL_MARKERS[1]}feed` }, "marker-found"],
+    ["a displaced window over an unreadable log", { missingLog: (id) => id === 2 }, "evidence-window-displaced"],
+  ])("ranks %s", async (_label, options, logScan) => {
+    const displacedWindow = {
+      ...syntheticJob({ id: 1, name: "Staging Evidence Window", conclusion: "cancelled" }),
+      runner_id: 0,
+      runner_name: "",
+    };
+    const startedSibling = syntheticJob({
+      id: 2,
+      name: "Refuse Unconfirmed Evidence Window",
+      conclusion: "failure",
+      started: true,
+    });
+    const staging = fakeStaging({ ...options, jobs: [startedSibling, displacedWindow] });
+    const env = runEnv();
+    expect(await main(["observe"], observerEnv(env), staging.deps)).toBe(1);
+    expect(observerReceipt(env).observer.logScan).toBe(logScan);
+    expect(staging.state.logReads).toEqual([2]);
+  });
+
+  describe("never-started jobs, one producer per state", () => {
+    const [sibling, window] = incidentJobs;
+    const started = { runner_id: 1000193063, runner_name: "GitHub Actions 1000193063", steps: [{ number: 1 }] };
+
+    it("classifies the incident jobs from the listing alone", () => {
+      expect(classifyUnstartedJob(sibling)).toBe("not-started");
+      expect(classifyUnstartedJob(window)).toBe("evidence-window-displaced");
+    });
+
+    it("treats a null or empty runner name, and a null or zero runner id, as no runner", () => {
+      for (const runner of [
+        { runner_id: null, runner_name: null },
+        { runner_id: null, runner_name: "" },
+        { runner_id: 0, runner_name: null },
+        { runner_id: 0, runner_name: "" },
+      ]) {
+        expect(classifyUnstartedJob({ ...sibling, ...runner })).toBe("not-started");
+        expect(classifyUnstartedJob({ ...window, ...runner })).toBe("evidence-window-displaced");
+      }
+    });
+
+    it.each([
+      ["a runner", { runner_id: 1000193063 }],
+      ["a runner name", { runner_name: "GitHub Actions 1000193063" }],
+      ["a step", { steps: [{ number: 1 }] }],
+      ["an unfinished status", { status: "in_progress" }],
+    ])("leaves a job with %s to its log", (_label, change) => {
+      expect(classifyUnstartedJob({ ...sibling, ...change })).toBeNull();
+      expect(classifyUnstartedJob({ ...window, ...change })).toBeNull();
+    });
+
+    it("gives not-started only to a skipped sibling and displacement only to a cancelled window", () => {
+      expect(classifyUnstartedJob({ ...sibling, conclusion: "cancelled" })).toBeNull();
+      expect(classifyUnstartedJob({ ...window, conclusion: "skipped" })).toBeNull();
+      expect(classifyUnstartedJob({ ...window, conclusion: "success" })).toBeNull();
+    });
+
+    it("never reads started_at", () => {
+      const { started_at: _siblingStart, ...siblingWithout } = sibling;
+      const { started_at: _windowStart, ...windowWithout } = window;
+      expect(classifyUnstartedJob(siblingWithout)).toBe("not-started");
+      expect(classifyUnstartedJob({ ...window, started_at: "2026-10-20T20:35:00Z" })).toBe("evidence-window-displaced");
+      expect(classifyUnstartedJob(windowWithout)).toBe("evidence-window-displaced");
+      // started_at equal to created_at does not make a job that ran unstarted.
+      expect(classifyUnstartedJob({ ...window, ...started })).toBeNull();
     });
   });
 
@@ -1519,6 +1794,57 @@ describe("workflows", () => {
     for (const job of Object.values(windowWorkflow.jobs)) {
       for (const step of job.steps ?? []) expect(step.run ?? "").not.toMatch(/\$\{\{\s*inputs\./);
     }
+  });
+
+  it("names the window job the observer classifies", () => {
+    expect(windowJob.name).toBe(WINDOW_JOB_NAME);
+    expect(WINDOW_JOB_NAME).toBe(incidentJobs[1].name);
+    expect(windowWorkflow.jobs["refuse-unconfirmed"].name).toBe(incidentJobs[0].name);
+  });
+
+  it("keeps every staging deploy lock serialized, without claiming a pending window survives", () => {
+    const directory = new URL("../.github/workflows/", import.meta.url);
+    const declarations = [];
+    for (const file of readdirSync(directory)
+      .filter((name) => /^platform-.*\.ya?ml$/.test(name))
+      .sort()) {
+      const workflow = read(file);
+      const scopes = [
+        ["workflow", workflow.concurrency],
+        ...Object.entries(workflow.jobs ?? {}).map(([id, job]) => [id, job.concurrency]),
+      ];
+      for (const [scope, concurrency] of scopes) {
+        if (concurrency?.group !== "platform-deploy-staging") continue;
+        declarations.push(`${file}#${scope}`);
+        expect(concurrency["cancel-in-progress"], `${file}#${scope}`).toBe(false);
+      }
+    }
+    expect(declarations).toEqual([
+      "platform-preview-wildcard-tls.yml#workflow",
+      "platform-production.yml#reconcile-managed-postgres-ca-staging",
+      "platform-production.yml#deploy-staging",
+      "platform-staging-admin-qa-actor-fixtures.yml#provision-admin-qa-actor-fixtures",
+      "platform-staging-advisory-evidence.yml#staging-advisory-evidence",
+      "platform-staging-bootstrap-hook-drill.yml#workflow",
+      "platform-staging-cluster-addons.yml#apply-staging-cluster-addons",
+      "platform-staging-evidence-window.yml#staging-evidence-window",
+      "platform-staging-helm-recovery.yml#workflow",
+      "platform-staging-representative-commerce-state.yml#refresh-representative-commerce-state",
+      "platform-staging-reset.yml#reset-staging",
+      "platform-staging-rollback-drill.yml#workflow",
+    ]);
+    expect(new Set(declarations.map((entry) => entry.split("#")[0])).size).toBe(11);
+  });
+
+  it("adds no admission or queue state the observer cannot produce", () => {
+    const script = readFileSync(new URL("./staging-evidence-window.mjs", import.meta.url), "utf8");
+    expect(script).not.toMatch(/queue-unavailable|admission-refus/);
+    expect(JSON.stringify(observerJob.concurrency)).toBe(
+      JSON.stringify({
+        group: "evidence-window-cleanup-${{ inputs.run_id || github.event.workflow_run.id }}",
+        "cancel-in-progress": false,
+      }),
+    );
   });
 
   it("runs every lifecycle command in order and every cleanup step even after failure", () => {

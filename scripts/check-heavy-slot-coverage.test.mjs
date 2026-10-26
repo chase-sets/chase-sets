@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -79,6 +80,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/browser-e2e-probe.mjs",
     // The handoff command performs two connector builds and therefore uses build admission.
     "scripts/build-connector-extension-handoff.mjs",
+    "scripts/bundle-node-service.mjs",
     "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
@@ -93,7 +95,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 86);
+  assert.equal(result.entrypoints.length, 88);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -160,6 +162,41 @@ test("derives only the proof entrypoint delta and rejects omission of its actual
     JSON.stringify({ scripts: { "check:structure": "node ./scripts/check-structure.mjs" } }),
   );
   assert.deepEqual(checkHeavySlotCoverage(root), { entrypoints: [], unresolved: [], violations: [] });
+});
+
+test("admits only a production start of the generated service bundle without a tracked hook", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-service-bundle-fixture-"));
+  temporaryRoots.push(root);
+  const bundler = "scripts/bundle-node-service.mjs";
+  const bundlerSource = 'import { acquireHeavySlot } from "./lib/heavy-slot.mjs";\nacquireHeavySlot("build");\n';
+  const manifest = (scripts) => JSON.stringify({ scripts });
+  initializeTrackedFixture(root, {
+    "deployables/service/package.json": manifest({
+      build: `node ../../${bundler} service`,
+      "start:production": "node --enable-source-maps dist/main.js",
+    }),
+    [bundler]: bundlerSource,
+    "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
+  });
+  assert.deepEqual(checkHeavySlotCoverage(root), { entrypoints: [bundler], unresolved: [], violations: [] });
+
+  writeFileSync(
+    path.join(root, "deployables/service/package.json"),
+    manifest({ start: "node dist/main.js", "start:production": "node --enable-source-maps dist/other.js" }),
+  );
+  assert.deepEqual(checkHeavySlotCoverage(root).unresolved, [
+    "deployables/service: node --enable-source-maps dist/other.js",
+    "deployables/service: node dist/main.js",
+  ]);
+
+  writeFileSync(
+    path.join(root, "deployables/service/package.json"),
+    manifest({ build: `node ../../${bundler} service` }),
+  );
+  writeFileSync(path.join(root, bundler), "export {};\n");
+  assert.deepEqual(checkHeavySlotCoverage(root).violations, [
+    `${bundler} does not activate scripts/lib/heavy-slot.mjs`,
+  ]);
 });
 
 test("names the lockfile-bound regenerator when its script-battery admission is removed", () => {
@@ -446,6 +483,7 @@ test("a listed inherited-owner test keeps setup admission alongside unlisted fil
 
 const inheritedOwnerWaivers = Object.freeze({
   "scripts/browser-e2e-probe.test.mjs": "browser probe is not an inherited-owner dependent",
+  "scripts/bundle-node-service.test.mjs": "bundle tests invoke the exported builder, not the guarded CLI",
   "scripts/change-scope.test.mjs": "change-scope fixtures do not spawn a guarded child",
   "scripts/check-structure/authoritative-stream-read-classification.test.mjs":
     "static classification does not spawn the guard",
@@ -460,6 +498,8 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/identity-creation-position-guard.test.mjs": "position fixture does not spawn the guard",
   "scripts/ordering-test-profile.test.mjs": "workspace fixture does not spawn the guard",
   "scripts/process.test.mjs": "process helper does not spawn a guarded child",
+  "scripts/provider-browser-install-timeout.test.mjs":
+    "installer fixtures inject spawn and signals; hosted-controls is inspected, never executed",
   "scripts/provider-object-disposition/browser-boundary/install-ci.test.mjs":
     "browser fixture does not spawn the guard",
   "scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs":
@@ -479,7 +519,10 @@ const inheritedOwnerWaivers = Object.freeze({
 });
 
 function deriveInheritedOwnerCandidates(root = repositoryRoot) {
-  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map((file) => file.replaceAll("\\", "/"));
@@ -522,7 +565,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 29);
+  assert.equal(candidates.length, 31);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

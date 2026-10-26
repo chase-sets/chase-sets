@@ -42,6 +42,14 @@ import {
   getSupportRequestByDisplayReference,
   getSupportRequestById,
 } from "../../features/support-requests/read-model/queries";
+import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../features/account-appeals/api/runtime";
+import type { ProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
+import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
+
+export type OperationsAttentionRuntimeReads = Readonly<{
+  loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
+  loadWakeStatus: () => Promise<{ generatedAt: string; wakeStore: WakeStoreStatus } | null>;
+}>;
 
 export type PlatformOperationsHostPorts = Readonly<{
   providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
@@ -85,6 +93,8 @@ export type PlatformOperationsHostPorts = Readonly<{
    * contexts' own exported functions bound to their own pools.
    */
   offerEconomicsCrossContext?: OfferEconomicsCrossContextPort;
+  /** Host-runtime projection and wake reads for the operations attention API. */
+  operationsAttentionRuntimeReads?: OperationsAttentionRuntimeReads;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
@@ -107,6 +117,8 @@ export type PlatformOperationsServices = Readonly<{
   /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
+  accountAppeals: AccountAppealRuntime;
+  operationsAttentionRuntimeReads?: OperationsAttentionRuntimeReads;
 }>;
 
 export function createPlatformOperationsServices(
@@ -121,6 +133,7 @@ export function createPlatformOperationsServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const accountAppeals = createAccountAppealRuntime(db, eventStore);
   const platformFeedback = createPlatformFeedbackRuntime({
     eventStore,
     checkpointStore,
@@ -231,5 +244,7 @@ export function createPlatformOperationsServices(
       ...supportRequests.projectors,
       ...policies.projectors,
     ],
+    accountAppeals,
+    operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,
   };
 }

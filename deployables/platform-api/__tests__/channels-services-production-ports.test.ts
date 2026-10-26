@@ -75,8 +75,6 @@ describe("channels-services-production-ports", () => {
                 postageLabelProvider: createSandboxPostageLabelProvider(),
                 inventoryCleanupAuthority: { kind: "not-mounted" },
                 commercialTermsResolver: createNoopCommercialTermsResolver(),
-                tcgplayerMarketTransport: { kind: "not-mounted" },
-                tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
                 channelConnectionIdentityReader: { resolve: async () => null },
                 channelSaleRecorder: createPlatformChannelSaleRecorder(pool),
                 storageLocationAuthority: {

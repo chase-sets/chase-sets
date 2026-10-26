@@ -307,12 +307,12 @@ export function CheckoutPurchaseIntentSection({
     formData.set("intent", "add-to-cart");
     formData.set("attemptId", mintCartAttemptId());
     lastAddSubmissionRef.current = formData;
-    addToCartFetcher.submit(formData, { method: "post" });
+    void addToCartFetcher.submit(formData, { method: "post" });
   }
 
   function resendAddToCart() {
     if (lastAddSubmissionRef.current && isAddToCartAmbiguousActionData(addToCartFetcher.data)) {
-      addToCartFetcher.submit(lastAddSubmissionRef.current, { method: "post" });
+      void addToCartFetcher.submit(lastAddSubmissionRef.current, { method: "post" });
     }
   }
 

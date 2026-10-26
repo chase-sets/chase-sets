@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
@@ -518,6 +519,246 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
     expect(tokens).toBe(5);
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
+  });
+
+  test("shipping field errors focus the submitted form @marketplace-account", async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const events: { id: string; summary: boolean; popup: boolean }[] = [];
+      (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
+      document.addEventListener("focusin", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement)
+          events.push({
+            id: target.id || target.tagName.toLowerCase(),
+            summary: target.matches('section[role="alert"]'),
+            popup: target.getAttribute("role") === "dialog",
+          });
+      });
+    });
+    await page.goto("/account/shipping-addresses");
+    let posts = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/account/shipping-addresses.data")
+        posts++;
+    });
+    const transcript: { viewport: string; phase: string; posts: number; focusins: number }[] = [];
+    const summaries = page.locator('section[role="alert"]');
+    const create = page.locator('form:has(input[name="intent"][value="create"])');
+    async function fillCreate(label: string, city = "Chicago") {
+      for (const [name, value] of Object.entries({
+        label,
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city,
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+    }
+    async function resetFocus() {
+      await page.evaluate(() => {
+        (window as unknown as { __shippingFocusins: unknown[] }).__shippingFocusins.length = 0;
+      });
+    }
+    async function focusEvents() {
+      return page.evaluate(
+        () =>
+          (window as unknown as { __shippingFocusins: { id: string; summary: boolean; popup: boolean }[] })
+            .__shippingFocusins,
+      );
+    }
+    async function revalidate() {
+      await resetFocus();
+      await page.evaluate(async () => {
+        const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
+          .__reactRouterDataRouter;
+        await router.revalidate();
+      });
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+    }
+    async function dropSummaryLinkFragment() {
+      // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
+      await page.evaluate(() => history.replaceState(history.state, "", location.pathname));
+    }
+    async function captureCreate360() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
+    }
+    async function captureUpdate390() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
+    }
+    async function captureRemovedRow1024() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
+    }
+    async function visibleBox(locator: Locator) {
+      await expect(locator).toBeVisible();
+      expect(
+        await locator.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.left < innerWidth &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.bottom > 0
+          );
+        }),
+      ).toBe(true);
+    }
+    async function submitOnce(form: Locator) {
+      const button = form.getByRole("button", { name: /^(Save|Update) address$/ });
+      await expect(button).toBeEnabled();
+      await button.focus();
+      await resetFocus();
+      const before = posts;
+      await button.click();
+      return before;
+    }
+    async function checkSummary(before: number, viewport: string, phase: string, dialog?: Locator) {
+      await expect(summaries).toHaveCount(1);
+      await expect(summaries).toBeFocused();
+      // Two frames cross Base UI's focus/positioning work, not an arbitrary delay.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      await expect(summaries).toBeFocused();
+      await visibleBox(summaries);
+      const events = await focusEvents();
+      // While the submitting form's controls remount, Base UI restores focus to the open dialog's popup;
+      // the page itself focuses only the summary, once, last. Outside a dialog nothing else may take focus.
+      expect(events.filter((event) => !event.summary && !(dialog && event.popup))).toHaveLength(0);
+      expect(events.filter((event) => event.summary)).toHaveLength(1);
+      expect(events[events.length - 1].summary).toBe(true);
+      expect(posts - before).toBe(1);
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(0);
+      if (dialog) {
+        await expect(page.getByRole("dialog")).toHaveCount(1);
+        await expect(dialog.locator('section[role="alert"]')).toHaveCount(1);
+        const outer = await dialog.boundingBox();
+        const inner = await summaries.boundingBox();
+        expect(outer).not.toBeNull();
+        expect(inner).not.toBeNull();
+        expect(inner!.x).toBeGreaterThanOrEqual(outer!.x);
+        expect(inner!.y).toBeGreaterThanOrEqual(outer!.y);
+        expect(inner!.x + inner!.width).toBeLessThanOrEqual(outer!.x + outer!.width);
+        expect(inner!.y + inner!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
+      }
+      transcript.push({ viewport, phase, posts: posts - before, focusins: events.length });
+      for (const link of await summaries.getByRole("link").all()) {
+        const id = (await link.getAttribute("href"))!.slice(1);
+        const input = page.locator(`[id="${id}"]`);
+        await expect(input).toHaveCount(1);
+        expect(await input.evaluate((node) => node instanceof HTMLInputElement)).toBe(true);
+        if (dialog) expect(await dialog.locator(`[id="${id}"]`).count()).toBe(1);
+        await link.click();
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+        await link.press("Enter");
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+      }
+      await revalidate();
+      expect(posts - before).toBe(1);
+      await expect(page.getByRole("dialog")).toHaveCount(dialog ? 1 : 0);
+    }
+    for (const viewport of [
+      { width: 360, height: 800 },
+      { width: 390, height: 844 },
+      { width: 1024, height: 768 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.reload();
+      const size = `${viewport.width}x${viewport.height}`;
+      await fillCreate(`Synthetic ${size} first`, " ");
+      await checkSummary(await submitOnce(create), size, "create");
+      if (size === "360x800") {
+        await captureCreate360();
+      }
+      for (const suffix of ["first", "second"]) {
+        const label = `Synthetic ${size} ${suffix}`;
+        await fillCreate(label);
+        const before = await submitOnce(create);
+        await expect(page.getByText(label, { exact: true })).toBeVisible();
+        expect(posts - before).toBe(1);
+      }
+      const label = `Synthetic ${size} second`;
+      const row = page.getByText(label, { exact: true }).locator("..").locator("..");
+      await row.getByRole("button", { name: "Update address", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      const update = dialog.locator('form:has(input[name="intent"][value="update"])');
+      const target = await update.locator('input[name="shippingAddressId"]').inputValue();
+      await update.locator('input[name="city"]').fill(" ");
+      await checkSummary(await submitOnce(update), size, "update", dialog);
+      if (size === "390x844") {
+        await captureUpdate390();
+      }
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(summaries).toHaveCount(0);
+
+      // Required race: keep the actual rejection response, remove its row through
+      // another authenticated page, revalidate the submitting router, then release.
+      await row.getByRole("button", { name: "Update address", exact: true }).click();
+      let release!: () => void;
+      let observed!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const received = new Promise<void>((resolve) => {
+        observed = resolve;
+      });
+      const hold = async (route: import("@playwright/test").Route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        const response = await route.fetch();
+        observed();
+        await held;
+        await route.fulfill({ response });
+      };
+      await page.route("**/account/shipping-addresses.data", hold);
+      await update.locator('input[name="city"]').fill(" ");
+      const before = await submitOnce(update);
+      await received;
+      const other = await page.context().newPage();
+      try {
+        await other.goto("/account/shipping-addresses");
+        const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
+        await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
+        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+        await expect(other.getByText(label, { exact: true })).toHaveCount(0);
+        await revalidate();
+        await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
+        release();
+        await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
+        await expect(summaries).toHaveCount(0);
+        await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(posts - before).toBe(1);
+        expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+        await revalidate();
+        expect(posts - before).toBe(1);
+        transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
+        if (size === "1024x768") {
+          await captureRemovedRow1024();
+        }
+        const firstLabel = `Synthetic ${size} first`;
+        const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
+        await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
+        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+        await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
+        await revalidate();
+      } finally {
+        release();
+        await other.close();
+        await page.unroute("**/account/shipping-addresses.data", hold);
+      }
+    }
+    await testInfo.attach("shipping-field-errors-focus-request-transcript", {
+      body: JSON.stringify(transcript),
+      contentType: "application/json",
+    });
   });
 
   test("injected actor props in the real profile form are refused before mutation work", async ({ page }) => {

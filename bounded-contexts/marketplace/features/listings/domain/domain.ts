@@ -2,6 +2,7 @@ import { MarketplaceListingDomainError } from "./listing-error";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingCreatedPayload,
   parseMarketplaceListingEnforcementData,
   parseMarketplaceListingOperatorUnlistedPayload,
   type AggregateDecider,
@@ -337,6 +338,9 @@ const gradeLabelAliases = new Map(
 );
 
 export type MarketplaceListingState = Readonly<{
+  publicationScope: "native" | "channel-only";
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
@@ -380,6 +384,9 @@ export type AppliedListingEnforcement = Readonly<{
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
+  publicationScope: "native",
+  nativeVisibility: "enabled",
+  nativeFeeState: "not-enrolled",
   listingId: null,
   accountId: null,
   inventoryItemId: null,
@@ -421,6 +428,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
 
 export type CreateListingCommand = Readonly<{
   type: "CreateListing";
+  publicationScope?: "native" | "channel-only";
   listingId: ListingId;
   accountId: AccountId;
   inventoryItemId: string;
@@ -438,10 +446,10 @@ export type CreateListingCommand = Readonly<{
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
   priceCurrencyCode: string;
-  feeLock: MarketplaceListingFeeLock;
+  feeLock: MarketplaceListingFeeLock | null;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
@@ -550,9 +558,35 @@ export type MarketplaceListingCommand =
   | OperatorUnlistListingCommand
   | WithdrawListingCommand;
 
+export const marketplaceListingCommandTypes = Object.keys({
+  CreateListing: true,
+  UpdateListingPrice: true,
+  UpdateListingQuantityCap: true,
+  UpdateListingPurchaseLimits: true,
+  AddListingPhotos: true,
+  ClassifyListingPhoto: true,
+  ReplaceListingPhoto: true,
+  RemoveListingPhoto: true,
+  ReorderListingPhotos: true,
+  RefreshListingEvidenceRequirements: true,
+  PublishListing: true,
+  PauseListing: true,
+  AutoUnlistListing: true,
+  OperatorUnlistListing: true,
+  WithdrawListing: true,
+} satisfies Record<MarketplaceListingCommand["type"], true>) as MarketplaceListingCommand["type"][];
+
+export function assertNativeListingCommand(state: MarketplaceListingState): void {
+  assert(state.publicationScope !== "channel-only", "Native commands are not allowed for a channel-only Listing.");
+}
+
 export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
+    schemaVersion?: 2;
+    publicationScope?: "native" | "channel-only";
+    nativeVisibility?: "enabled" | "disabled";
+    nativeFeeState?: "enrolled" | "not-enrolled";
     listingId: ListingId;
     accountId: AccountId;
     inventoryItemId: string;
@@ -571,18 +605,18 @@ export type ListingCreatedEvent = DomainEvent<
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
     changeSource?: "repricing-engine";
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
     evidence: MarketplaceListingPhoto[];
   }>
 >;
@@ -714,6 +748,14 @@ export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingCommand,
   MarketplaceListingEvent
 > = (state, command) => {
+  if (
+    state.publicationScope === "channel-only" &&
+    ["PublishListing", "UpdateListingPrice", "UpdateListingQuantityCap", "UpdateListingPurchaseLimits"].includes(
+      command.type,
+    )
+  ) {
+    assertNativeListingCommand(state);
+  }
   switch (command.type) {
     case "CreateListing": {
       assert(state.listingId === null, "Listing has already been created.");
@@ -721,40 +763,77 @@ export const decideMarketplaceListing: AggregateDecider<
         command.quantityCap,
         "Listing quantity cap must be a positive whole number.",
       );
-      const feeLock = normalizeMarketplaceListingFeeLock(command.feeLock);
-      assert(feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
-      return [
-        {
-          type: "marketplace.listing.created",
-          data: {
-            listingId: command.listingId,
-            accountId: command.accountId,
-            inventoryItemId: command.inventoryItemId.trim(),
-            catalogItemId: command.catalogItemId.trim() as CatalogItemId,
-            productId: command.productId,
-            itemLanguageCode: command.itemLanguageCode?.trim() || null,
-            itemTitle: command.itemTitle?.trim() ?? null,
-            itemSubtitle: command.itemSubtitle?.trim() ?? null,
-            selectedOptions: command.selectedOptions.map((selection) => ({
-              dimensionId: selection.dimensionId.trim(),
-              optionId: selection.optionId.trim(),
-            })),
-            productSummary: command.productSummary?.trim() ?? null,
-            productMeasureSnapshot: command.productMeasureSnapshot ?? null,
-            gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
-            storageLocationName: command.storageLocationName?.trim() ?? null,
-            shipFromCode: command.shipFromCode?.trim() ?? null,
-            shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
-            priceAmount: normalizeMoneyAmount(command.priceAmount),
-            priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
-            ...feeLockProjectionFields([feeLock]),
-            quantityCap,
-            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
-            evidenceRequirements: command.evidenceRequirements,
-            evidence: assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.evidence ?? [])),
-          },
+      const publicationScope = command.publicationScope ?? "native";
+      assert(
+        publicationScope === "native" || publicationScope === "channel-only",
+        "Listing publication scope is invalid.",
+      );
+      const feeLock = command.feeLock === null ? null : normalizeMarketplaceListingFeeLock(command.feeLock);
+      if (publicationScope === "native") {
+        assert(feeLock && feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+        assert(command.evidenceRequirements, "Native listing evidence requirements are unavailable.");
+      } else {
+        assert(feeLock === null, "Channel-only listings cannot enroll native fee terms.");
+        assert(
+          Intl.supportedValuesOf("currency").includes(normalizeListingPriceCurrencyCode(command.priceCurrencyCode)),
+          "Channel-only reference currency must be an ISO-4217 currency.",
+        );
+        assert(
+          command.evidenceRequirements === null,
+          "Channel-only listings cannot carry native evidence requirements.",
+        );
+      }
+      const event: ListingCreatedEvent = {
+        type: "marketplace.listing.created",
+        data: {
+          ...(publicationScope === "channel-only"
+            ? {
+                schemaVersion: 2 as const,
+                publicationScope,
+                nativeVisibility: "disabled" as const,
+                nativeFeeState: "not-enrolled" as const,
+              }
+            : {}),
+          listingId: command.listingId,
+          accountId: command.accountId,
+          inventoryItemId: command.inventoryItemId.trim(),
+          catalogItemId: command.catalogItemId.trim() as CatalogItemId,
+          productId: command.productId,
+          itemLanguageCode: command.itemLanguageCode?.trim() || null,
+          itemTitle: command.itemTitle?.trim() ?? null,
+          itemSubtitle: command.itemSubtitle?.trim() ?? null,
+          selectedOptions: command.selectedOptions.map((selection) => ({
+            dimensionId: selection.dimensionId.trim(),
+            optionId: selection.optionId.trim(),
+          })),
+          productSummary: command.productSummary?.trim() ?? null,
+          productMeasureSnapshot: command.productMeasureSnapshot ?? null,
+          gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
+          storageLocationName: command.storageLocationName?.trim() ?? null,
+          shipFromCode: command.shipFromCode?.trim() ?? null,
+          shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
+          priceAmount: normalizeMoneyAmount(command.priceAmount),
+          priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
+          ...(feeLock
+            ? feeLockProjectionFields([feeLock])
+            : {
+                marketplaceSalesFeeUnitAmount: null,
+                sellerNetUnitAmount: null,
+                shippingAllowancePercentageBps: 0,
+                termsScheduleId: null,
+                termsAgreementId: null,
+                termsResolvedAt: null,
+                feeQuoteFingerprint: null,
+                feeLocks: [],
+              }),
+          quantityCap,
+          purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
+          evidenceRequirements: command.evidenceRequirements,
+          evidence: assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.evidence ?? [])),
         },
-      ];
+      };
+      parseMarketplaceListingCreatedPayload(event.data);
+      return [event];
     }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
@@ -1004,7 +1083,11 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
 ) => {
   switch (event.type) {
     case "marketplace.listing.created":
+      parseMarketplaceListingCreatedPayload(event.data);
       return {
+        publicationScope: event.data.publicationScope ?? "native",
+        nativeVisibility: event.data.nativeVisibility ?? "enabled",
+        nativeFeeState: event.data.nativeFeeState ?? "enrolled",
         listingId: event.data.listingId,
         accountId: event.data.accountId,
         inventoryItemId: event.data.inventoryItemId,

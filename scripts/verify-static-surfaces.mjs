@@ -167,6 +167,11 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
       ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
     ],
   },
+  "scripts/check-structure/tcgplayer-host-credential-guard.test.mjs": {
+    rule: "tracked platform source inventory for TCGplayer hosts and custody tokens",
+    evidence: ["scripts/check-structure/tcgplayer-host-credential-guard.mjs:1-114"],
+    include: [{ kind: "any" }],
+  },
   "scripts/check-structure/sql-execution-surface.test.mjs": {
     rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
     evidence: [
@@ -421,6 +426,12 @@ export const VERIFY_STATIC_SURFACES = {
       "deployables/platform-worker/.env.example",
     ),
   },
+  "check:node-types-runtime": {
+    classification: MAY_NARROW,
+    rule: "any package.json the workspace definition can discover, or the guard itself; root workspace files fan out",
+    evidence: ["scripts/check-node-types-runtime.mjs:24-102"],
+    include: [...exact("scripts/check-node-types-runtime.mjs"), ...regex("(?:^|/)package\\.json$")],
+  },
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
@@ -475,6 +486,11 @@ export const VERIFY_STATIC_SURFACES = {
         "^contracts/localization/locales/.+/catalog\\.ts$",
       ),
     ],
+  },
+  "lint:async": {
+    classification: ALWAYS_RUN,
+    rule: "type-aware promise rules resolve types through imported files outside the changed set",
+    evidence: ["package.json:69", ".oxlintrc.json:13-20"],
   },
   "test:scripts": {
     classification: ALWAYS_RUN,

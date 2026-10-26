@@ -514,19 +514,7 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
     const { capture } = generateSyntheticProviderObservationFixture();
     const fixtureItem = capture.header.catalogItemId;
     const nearMintKey = `${fixtureItem}::near-mint-normal-english`;
-    await commitProviderObservationCapture(
-      pool,
-      "tcgplayer",
-      {
-        productExternalKey: "product:700000001",
-        productId: 700000001,
-        catalogItemId: fixtureItem,
-        skus: [],
-        expectedCursor: { afterExternalKey: "", generation: 0 },
-        nextCursor: { afterExternalKey: "", generation: 1 },
-      },
-      capture,
-    );
+    await commitProviderObservationCapture(pool, capture);
     for (const [condition, index] of [
       ["Near Mint", 1],
       ["Lightly Played", 2],

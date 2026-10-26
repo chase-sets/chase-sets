@@ -68,7 +68,7 @@ export function useCatalogRealtimeRevalidation(
     }
 
     reset();
-    revalidateRef.current();
+    void revalidateRef.current();
   }, [reset]);
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export function useCatalogRealtimeRevalidation(
 
       timeoutRef.current = setTimeout(() => {
         timeoutRef.current = null;
-        revalidateRef.current();
+        void revalidateRef.current();
       }, debounceMs);
     }
 

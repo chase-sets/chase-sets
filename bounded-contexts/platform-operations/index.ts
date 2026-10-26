@@ -18,6 +18,7 @@ import {
 } from "./features/public-doc-reviews/read-model/projection";
 import { buildCommercialTermsEffectiveDateAttentionProjectionHandlers } from "./features/commercial-terms-attention/read-model/projection";
 import {
+  buildIdentityReportedContentProjectionHandlers,
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
 } from "./features/reported-content/read-model/projection";
@@ -44,6 +45,8 @@ import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
+import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
+import { buildAccountAppealInterestProjectionHandlers } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
@@ -66,6 +69,7 @@ export const module = defineBoundedContextModule<
     ...riskAlertsSchemaMigrations,
     ...supportRequestSchemaMigrations,
     ...sellerComplianceSalesSchemaMigrations,
+    ...accountAppealSchemaMigrations,
   ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
@@ -114,6 +118,7 @@ export const module = defineBoundedContextModule<
           buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
         "fulfillment.support-return-label-source-projection": () =>
           buildSupportReturnLabelSourceProjectionHandlers(services.db),
+        "identity.reported-content-queue-projection": () => buildIdentityReportedContentProjectionHandlers(services.db),
         "marketplace.reported-content-queue-projection": () =>
           buildMarketplaceReportedContentProjectionHandlers(services.db),
         "platform-operations.reported-content-queue-projection": () =>
@@ -139,6 +144,10 @@ export const module = defineBoundedContextModule<
           buildOrderingSellerComplianceSalesProjectionHandlers(services.db),
         "payments.seller-compliance-sales-projection": () =>
           buildPaymentsSellerComplianceSalesProjectionHandlers(services.db),
+        "identity.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, "identity"),
+        "marketplace.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, "marketplace"),
       },
     }),
     ...buildEventReactionsFromManifest({

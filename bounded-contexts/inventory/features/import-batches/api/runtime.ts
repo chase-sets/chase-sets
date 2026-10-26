@@ -72,11 +72,7 @@ import {
   loadInventoryImportSnapshotPage,
   type InventoryImportSnapshotHeader,
 } from "./safe-snapshot";
-import {
-  contractInventoryImportSources,
-  isImportMigrationPool,
-  migrateInventoryImportSource,
-} from "./source-migration";
+import { isImportMigrationPool, migrateInventoryImportSource } from "./source-migration";
 import {
   initializeProductResolutionProgress,
   normalizeProductResolutionPage,
@@ -986,15 +982,6 @@ export function createInventoryImportRowValidator(deps: Pick<InventoryImportBatc
 }
 
 export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
-  let sourceCutover: Promise<void> | undefined;
-  function ensureSourceCutover() {
-    if (!isImportMigrationPool(deps.db)) return;
-    sourceCutover ??= contractInventoryImportSources(deps.db).catch((error: unknown) => {
-      sourceCutover = undefined;
-      throw error;
-    });
-    return sourceCutover;
-  }
   const validateRow = createInventoryImportRowValidator(deps);
   const jobStore = createPostgresDurableJobStore<
     InventoryImportBatchJobPayload,
@@ -2076,7 +2063,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     },
     processNextImportBatchJob: async (input) => {
       if (input.signal?.aborted) return 0;
-      await ensureSourceCutover();
       const createUnitResult = await processNextCreateBatchWorkUnit(input);
       if (createUnitResult.processed > 0 || createUnitResult.handedOff) {
         return createUnitResult.processed;

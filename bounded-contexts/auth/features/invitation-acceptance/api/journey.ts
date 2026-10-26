@@ -9,7 +9,7 @@ import {
   upsertPasskeyCredential,
 } from "../../../support/auth-support/store";
 import { verifyPasskeyRegistration } from "../../../support/auth-support/webauthn";
-import { AUTH_ROLE_PERMISSIONS } from "../../../support/auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { startInteractiveAuth, type AuthServices } from "../../../support/runtime-support/services";
 import {
   resolveUnaffirmedRegistrationConsent,
@@ -398,10 +398,9 @@ export async function acceptInvitationAttempt(
                 accountId: binding.accountId,
                 roleKey: binding.roleKey,
                 status: "active",
-                rolePermissions: AUTH_ROLE_PERMISSIONS[binding.roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [],
+                rolePermissions: ROLE_PERMISSIONS[binding.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [],
               },
             ],
-            publishAuthenticationOutcome: true,
           });
           await advance(next);
           return {

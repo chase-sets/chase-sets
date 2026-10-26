@@ -6,11 +6,13 @@ import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp"
 import {
   createCheckoutUcpHandlers,
   checkoutUcpState,
+  checkoutUcpResource,
   resolveCheckoutUcpQuote,
   type CheckoutUcpListing,
   type CheckoutUcpOrderFact,
   type CheckoutUcpQuote,
 } from "../support/ucp-support/checkout";
+import { expectUcpCapture, ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/fulfillment-preview";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
@@ -95,7 +97,7 @@ function preview(ready = true) {
     unavailableLineKeys: [],
     unavailableLines: [],
     materialChangeReasons: [],
-    sellerGroups: [],
+    sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
     totals: {
       itemSubtotalAmount: "20.00",
       shippingAmount: "0.00",
@@ -137,6 +139,21 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   };
   const sessions = {
     ...writes,
+    getLastRecordedQuote: vi.fn(async () => ({
+      revision: "retained_quote_revision",
+      readyLineKeys: ["lst_1:0"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "0.00",
+        salesTaxAmount: "0.00",
+        totalAmount: "20.00",
+        packageCount: 1,
+      },
+    })),
     getSession: vi.fn(async (_id: string, account: string) => (account === current.buyer_account_id ? current : null)),
     getPaymentSummary: vi.fn(async () => null),
   } as unknown as CheckoutSessionServices;
@@ -187,13 +204,29 @@ beforeEach(() => {
 });
 
 describe("UCP buy-now readiness AC1", () => {
+  it("uses canonical error severity for missing and malformed checkout sessions", async () => {
+    const f = fixture();
+    vi.spyOn(f.sessions, "getSession").mockResolvedValue(null);
+    const missing = await f.restHandlers.get_checkout(input({ id }, false, false));
+    expect(missing).toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "not_found", severity: "unrecoverable" }],
+    });
+    const malformed = await f.restHandlers.get_checkout(input({}, false, false, "bad"));
+    expectUcpCapture(malformed, { operation: "get_checkout", kind: "error" });
+    expect(malformed).toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "invalid_request", severity: "recoverable" }],
+    });
+  });
+
   // Brief create DTO replaces the retired source buy-now input; line id is not the listing id.
   it.each([false, true])("creates from item.id with the server revision on MCP=%s", async (mcp) => {
     const f = fixture();
     const request = input(mcp ? { checkout: dto() } : dto(), mcp);
     request.request.headers.set("Idempotency-Key", "retry_synthetic");
     const result = await f.restHandlers.create_checkout(request);
-    expect(result.ucp.status).toBe("ok");
+    expect(result.ucp.status).toBe("success");
     expect(f.getPublicListingById).toHaveBeenCalledExactlyOnceWith("lst_1");
     expect(f.writes.createBuyNow).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
@@ -234,7 +267,7 @@ describe("UCP buy-now readiness AC1", () => {
   it("accepts C62 but refuses a top-level MCP resource", async () => {
     const f = fixture();
     const body = { line_items: [{ item: { id: "lst_1" }, quantity: 1, quantity_unit: { unit: "C62", scale: 0 } }] };
-    expect((await f.mcpToolHandlers.create_checkout(input({ checkout: body }, true))).ucp.status).toBe("ok");
+    expect((await f.mcpToolHandlers.create_checkout(input({ checkout: body }, true))).ucp.status).toBe("success");
     f.writes.createBuyNow.mockClear();
     expect((await f.mcpToolHandlers.create_checkout(input(body, true))).messages).toEqual([
       expect.objectContaining({ code: "invalid_request" }),
@@ -245,7 +278,7 @@ describe("UCP buy-now readiness AC1", () => {
   it.each([false, true])("identical update is a no-op, changed quantity is unsupported MCP=%s", async (mcp) => {
     const f = fixture();
     const args = (quantity: number) => (mcp ? { id, checkout: dto(quantity) } : dto(quantity));
-    expect((await f.restHandlers.update_checkout(input(args(1), mcp))).ucp.status).toBe("ok");
+    expect((await f.restHandlers.update_checkout(input(args(1), mcp))).ucp.status).toBe("success");
     expect((await f.restHandlers.update_checkout(input(args(2), mcp))).messages).toEqual([
       expect.objectContaining({ code: "line_items_update_unsupported" }),
     ]);
@@ -271,17 +304,60 @@ describe("UCP buy-now readiness AC1", () => {
   });
 });
 
+describe("UCP 2026-08-25 Checkout resource", () => {
+  it("validates the resource shape and applies expiry, links, messages and order confirmation", () => {
+    const request = new Request("https://marketplace.example/ucp/v1/checkout-sessions");
+    const resource = checkoutUcpResource({
+      session: session({ order_ids: ["ord_1", "ord_2"], handoff_expires_at: "2026-10-16T06:00:00.000Z" }),
+      state: checkoutUcpState(session({ order_ids: ["ord_1", "ord_2"] }), [
+        { id: "ord_1", readyForFulfillmentAt: "2026-10-16T07:00:00Z" },
+        { id: "ord_2", readyForFulfillmentAt: "2026-10-16T07:01:00Z" },
+      ]),
+      quote: {
+        subtotal: "20.00",
+        fulfillment: "5.00",
+        tax: "2.00",
+        total: "27.00",
+        linePrice: () => "20.00",
+      },
+      payment: { currency_code: "USD" },
+      request,
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/checkout.json");
+    expect(validate({ ...resource, ucp: { version: "2026-08-25", status: "success", payment_handlers: {} } })).toBe(
+      true,
+    );
+    expect(resource).toMatchObject({
+      status: "completed",
+      currency: "USD",
+      totals: [
+        { type: "subtotal", amount: 2000 },
+        { type: "fulfillment", amount: 500 },
+        { type: "tax", amount: 200 },
+        { type: "total", amount: 2700 },
+      ],
+      order: { id: "ord_1", permalink_url: "https://marketplace.example/account/purchases" },
+    });
+    expect(resource).not.toHaveProperty("expires_at");
+    expect(resource.links).toEqual([
+      { type: "terms_of_service", url: "https://marketplace.example/terms" },
+      { type: "privacy_policy", url: "https://marketplace.example/privacy" },
+    ]);
+  });
+});
+
 describe("UCP state lifecycle AC2 and expiry AC6", () => {
   it("uses fresh availability after create, but never previews committed orders", async () => {
     const f = fixture();
     await f.restHandlers.create_checkout(input(dto()));
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValueOnce(preview(false));
     const result = await f.restHandlers.get_checkout(input());
-    expect(result.checkout).toMatchObject({
+    expect(result).toMatchObject({
       status: "incomplete",
-      messages: [{ code: "item_unavailable", recoverability: "unrecoverable", target: "$.line_items[0]" }],
+      messages: [{ code: "item_unavailable", path: "$.line_items[0]" }],
     });
-    expect(result.checkout).not.toHaveProperty("continue_url");
+    expect(result).not.toHaveProperty("continue_url");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     f.setSession(session({ order_ids: ["ord_1"], payment_id: "pay_1" }));
     await f.restHandlers.get_checkout(input());
@@ -294,28 +370,28 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     for (const date of ["2026-10-16T00:01:00Z", "2026-10-17T00:01:00Z"]) {
       f.setTime(date);
       const result = await f.restHandlers.get_checkout(input());
-      expect(result.checkout).toMatchObject({
+      expect(result).toMatchObject({
         status: "requires_escalation",
         continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-        messages: [{ code: "payment_confirmation_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_confirmation_required" }],
       });
     }
     vi.mocked(f.sessions.getPaymentSummary).mockResolvedValue({ status: "captured" } as never);
     const captured = await f.restHandlers.get_checkout(input());
-    expect(captured.checkout).toMatchObject({ status: "complete_in_progress" });
-    expect(captured.checkout).not.toHaveProperty("messages");
-    expect(captured.checkout).not.toHaveProperty("continue_url");
+    expect(captured).toMatchObject({ status: "complete_in_progress" });
+    expect(captured).not.toHaveProperty("messages");
+    expect(captured).not.toHaveProperty("continue_url");
     f.getOrderFacts.mockResolvedValue([{ id: "ord_1", readyForFulfillmentAt: "2026-10-16T00:02:00Z" }]);
     f.setTime("2026-10-19T00:00:00Z");
     const completed = await f.restHandlers.complete_checkout(input());
-    expect(completed.checkout).toMatchObject({ status: "completed", order: [{ id: "ord_1" }] });
+    expect(completed).toMatchObject({ status: "completed", order: { id: "ord_1" } });
     expect(completed.messages).toBeUndefined();
-    expect(completed.checkout).not.toHaveProperty("continue_url");
+    expect(completed).not.toHaveProperty("continue_url");
     f.setSession(session({ cancelled_at: "2026-10-16T01:00:00Z" }));
     const canceled = await f.restHandlers.complete_checkout(input());
-    expect(canceled.checkout).toMatchObject({ status: "canceled" });
+    expect(canceled).toMatchObject({ status: "canceled" });
     expect(canceled.messages).toBeUndefined();
-    expect(canceled.checkout).not.toHaveProperty("continue_url");
+    expect(canceled).not.toHaveProperty("continue_url");
     noWrites(f);
   });
   it.each(["failed", "cancelled", null])(
@@ -325,7 +401,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       expect(result).toMatchObject({
         status: "requires_escalation",
         continue: true,
-        messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_required", severity: "warning" }],
       });
     },
   );
@@ -339,19 +415,25 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
   it("expires at +6h before effects, with orders and web sessions ignoring the timer", async () => {
     const f = fixture();
     f.setTime("2026-10-16T05:59:00Z");
-    expect((await f.restHandlers.get_checkout(input())).checkout).toMatchObject({
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({
       status: "requires_escalation",
       expires_at: "2026-10-16T06:00:00.000Z",
-      messages: [{ recoverability: "requires_buyer_input" }],
+      messages: [
+        {
+          type: "warning",
+          code: "payment_required",
+          content: "Payment is required to continue checkout.",
+        },
+      ],
     });
     f.setTime("2026-10-16T06:00:00Z");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     const expired = await f.restHandlers.get_checkout(input());
-    expect(expired.checkout).toMatchObject({
+    expect(expired).toMatchObject({
       status: "canceled",
-      messages: [{ code: "checkout_expired", recoverability: "unrecoverable" }],
+      messages: [{ code: "checkout_expired" }],
     });
-    expect(expired.checkout).not.toHaveProperty("continue_url");
+    expect(expired).not.toHaveProperty("continue_url");
     for (const op of ["update_checkout", "complete_checkout"])
       for (const signed of [false, true]) {
         expect((await f.restHandlers[op](input(dto(), false, signed))).messages).toEqual([
@@ -365,9 +447,9 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     noWrites(f);
     f.setTime("2026-10-16T07:00:00Z");
     f.setSession(session({ order_ids: ["ord_1"] }));
-    expect((await f.restHandlers.complete_checkout(input())).checkout).toMatchObject({ status: "requires_escalation" });
+    expect(await f.restHandlers.complete_checkout(input())).toMatchObject({ status: "requires_escalation" });
     f.setSession(session({ handoff_expires_at: null }));
-    expect((await f.restHandlers.complete_checkout(input())).checkout).toMatchObject({ status: "requires_escalation" });
+    expect(await f.restHandlers.complete_checkout(input())).toMatchObject({ status: "requires_escalation" });
   });
   // Brief complete row replaces stored-PM/3DS/spend/cleanup behavior: complete is always read-only.
   it.each<[string, Record<string, unknown>, Partial<CheckoutSessionRow>]>([
@@ -391,10 +473,10 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     const result = await f.restHandlers.complete_checkout(
       input({ ...body, presented_anonymous_cart_id: "anon_raw_marker" }),
     );
-    expect(result.checkout).toMatchObject({
+    expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+      messages: [{ code: "payment_required" }],
     });
     expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
     noWrites(f);
@@ -405,8 +487,16 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     await f.restHandlers.cancel_checkout(input());
     noWrites(f);
     const result = await f.restHandlers.cancel_checkout(input({}, false, true));
-    expect(result.checkout).toMatchObject({ status: "canceled" });
+    expect(result).toMatchObject({ status: "canceled" });
     expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
+  });
+  it("cancel of a cancelled checkout is idempotent and does not release or write again", async () => {
+    const f = fixture({ cancelled_at: "2026-10-16T01:00:00.000Z" });
+    const result = await f.restHandlers.cancel_checkout(input({}, false, true));
+    expect(result).toMatchObject({ status: "canceled" });
+    noWrites(f);
+    expect(f.writes.cancelSession).not.toHaveBeenCalled();
+    expect(ports.releaseCheckoutInventoryReservations).not.toHaveBeenCalled();
   });
   it("preserves authentication, authorization and closed-rail refusals", async () => {
     const f = fixture();
@@ -625,6 +715,207 @@ describe("UCP quote source follows decision D1 cells C1-C10", () => {
     expect(view(quote)).toEqual(priced(snapshotTotals, "15.00", "12.00"));
     expect(quote?.linePrice("lst_unquoted")).toBeNull();
     expect(input.loadRetainedQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("UCP 2026-08-25 Checkout state resources", () => {
+  it("UCP 2026-08-25 Checkout resource validates for every state row", async () => {
+    const request = new Request("https://marketplace.example/ucp/v1/checkout-sessions");
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/checkout.json");
+    const completed1 = {
+      ...purchase1,
+      label: "Purchase CS-0001",
+      permalinkUrl: "/account/purchases/confirmed-1",
+      readyForFulfillmentAt: "2026-10-16T07:00:00Z",
+    };
+    const completed2 = { ...purchase2, label: "Purchase CS-0002", readyForFulfillmentAt: "2026-10-16T07:01:00Z" };
+    const rows: readonly Readonly<{
+      name: string;
+      cell: QuoteCell;
+      time: string;
+      status: string;
+      payment?: { status: string };
+      available?: boolean;
+      expires?: string;
+      code?: "payment_required" | "payment_confirmation_required" | "item_unavailable" | "checkout_expired";
+      order?: { id: string; label: string; permalink_url: string };
+    }>[] = [
+      {
+        name: "payment orderless C1",
+        cell: quoteCells[0]![1],
+        time: "01:00",
+        status: "requires_escalation",
+        expires: "06:00",
+        code: "payment_required",
+      },
+      {
+        name: "confirmation with orders C9",
+        cell: quoteCells[9]![1],
+        time: "07:00",
+        status: "requires_escalation",
+        payment: { status: "pending-confirmation" },
+        expires: "13:00",
+        code: "payment_confirmation_required",
+      },
+      {
+        name: "incomplete C3",
+        cell: quoteCells[2]![1],
+        time: "01:00",
+        status: "incomplete",
+        available: false,
+        expires: "06:00",
+        code: "item_unavailable",
+      },
+      { name: "cancelled C4", cell: quoteCells[4]![1], time: "01:00", status: "canceled" },
+      { name: "expired C6", cell: quoteCells[6]![1], time: "06:00", status: "canceled", code: "checkout_expired" },
+      {
+        name: "capture in progress C8",
+        cell: quoteCells[8]![1],
+        time: "07:00",
+        status: "complete_in_progress",
+        payment: { status: "captured" },
+        expires: "13:00",
+      },
+      {
+        name: "completed one order C8",
+        cell: { ...quoteCells[8]![1], session: { order_ids: ["ord_1"], lines: [quoteLines[0]!] }, facts: [completed1] },
+        time: "07:00",
+        status: "completed",
+        order: {
+          id: "ord_1",
+          label: "Purchase CS-0001",
+          permalink_url: "https://marketplace.example/account/purchases/confirmed-1",
+        },
+      },
+      {
+        name: "completed two orders reversed C8",
+        cell: { ...quoteCells[8]![1], facts: [completed2, completed1] },
+        time: "07:00",
+        status: "completed",
+        order: {
+          id: "ord_1",
+          label: "Purchase CS-0001",
+          permalink_url: "https://marketplace.example/account/purchases",
+        },
+      },
+      {
+        name: "boundary +5:59 C1",
+        cell: quoteCells[0]![1],
+        time: "05:59",
+        status: "requires_escalation",
+        expires: "06:00",
+        code: "payment_required",
+      },
+      {
+        name: "boundary +6:00 C6",
+        cell: quoteCells[6]![1],
+        time: "06:00",
+        status: "canceled",
+        code: "checkout_expired",
+      },
+    ];
+    for (const row of rows) {
+      const input = quoteInput(row.cell);
+      const quote = await resolveCheckoutUcpQuote(input);
+      expect(quote, `${row.name}: D1 quote must be non-null`).not.toBeNull();
+      if (!quote) throw new Error(`Brief defect: ${row.name} has no D1 quote`);
+      const now = new Date(`2026-10-16T${row.time}:00.000Z`);
+      const state = checkoutUcpState(
+        input.session,
+        input.orderFacts,
+        row.payment ?? null,
+        preview(row.available !== false),
+        now,
+      );
+      const resource = checkoutUcpResource({ session: input.session, state, quote, payment: null, request, now });
+      expect(resource.status, row.name).toBe(row.status);
+      expect(
+        validate({ ...resource, ucp: { version: "2026-08-25", status: "success", payment_handlers: {} } }),
+        `${row.name}: ${JSON.stringify(validate.errors)}`,
+      ).toBe(true);
+      expect(resource.currency, row.name).toBe("USD");
+      if (row.status === "requires_escalation") {
+        expect(resource.continue_url, row.name).toBe(`https://marketplace.example/checkout/buy/session/${id}`);
+        expect(new URL(resource.continue_url!).origin, row.name).toBe("https://marketplace.example");
+      } else expect(resource, row.name).not.toHaveProperty("continue_url");
+      if (row.expires) expect(resource.expires_at, row.name).toBe(`2026-10-16T${row.expires}:00.000Z`);
+      else expect(resource, row.name).not.toHaveProperty("expires_at");
+      const content = {
+        payment_required: "Payment is required to continue checkout.",
+        payment_confirmation_required: "Buyer confirmation is required to continue payment.",
+        item_unavailable: "This item is no longer available.",
+        checkout_expired: "This checkout has expired. Start a new checkout.",
+      };
+      if (row.code)
+        expect(resource.messages, row.name).toEqual([
+          {
+            type: "warning",
+            code: row.code,
+            content: content[row.code],
+            ...(row.code === "item_unavailable" ? { path: "$.line_items[0]" } : {}),
+          },
+        ]);
+      else expect(resource, row.name).not.toHaveProperty("messages");
+      const expectedPrices = row.name.includes("completed one")
+        ? [1850]
+        : row.cell.expected!.prices.map((amount) => Number(amount!.replace(".", "")));
+      expect(
+        resource.line_items.map((item) => item.item.price),
+        row.name,
+      ).toEqual(expectedPrices);
+      for (const item of resource.line_items) {
+        expect(item.item.price, row.name).toBeGreaterThan(0);
+        expect(item.totals, row.name).toEqual([
+          { type: "subtotal", amount: item.item.price * item.quantity },
+          { type: "total", amount: item.item.price * item.quantity },
+        ]);
+      }
+      const expectedTotals = row.name.includes("completed one")
+        ? [3700, 400, 10, 4110]
+        : row.cell.expected!.totals.map((amount) => Number(amount.replace(".", "")));
+      expect(resource.totals, row.name).toEqual(
+        ["subtotal", "fulfillment", "tax", "total"].map((type, index) => ({ type, amount: expectedTotals[index] })),
+      );
+      if (row.order) expect(resource.order, row.name).toEqual(row.order);
+      else expect(resource, row.name).not.toHaveProperty("order");
+      console.info(
+        "AC1_ROW",
+        JSON.stringify({
+          row: row.name,
+          status: resource.status,
+          valid: true,
+          continue_url: resource.continue_url ?? null,
+          expires_at: resource.expires_at ?? null,
+          messages: resource.messages ?? [],
+          order: resource.order ?? null,
+        }),
+      );
+    }
+  });
+
+  it("rejects every quote amount above MONEY_AMOUNT_MAX and malformed amounts", async () => {
+    const input = quoteInput(quoteCells[0]![1]);
+    const quote = await resolveCheckoutUcpQuote(input);
+    expect(quote).not.toBeNull();
+    const build = (value: CheckoutUcpQuote) =>
+      checkoutUcpResource({
+        session: input.session,
+        state: checkoutUcpState(input.session),
+        quote: value,
+        payment: null,
+        request: new Request("https://marketplace.example/ucp"),
+        now: new Date("2026-10-16T01:00:00Z"),
+      });
+    for (const amount of ["10000000000.00", "invalid", "1.001"]) {
+      for (const field of ["subtotal", "fulfillment", "tax", "total"] as const)
+        expect(() => build({ ...quote!, [field]: amount })).toThrow(`UCP Checkout ${field} has no exact USD amount.`);
+      expect(() => build({ ...quote!, linePrice: () => amount })).toThrow(
+        "UCP Checkout line lst_1 has no exact USD amount.",
+      );
+    }
+    expect(() => build({ ...quote!, linePrice: () => null })).toThrow(
+      "UCP Checkout line lst_1 has no exact USD amount.",
+    );
   });
 });
 

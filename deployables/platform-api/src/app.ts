@@ -92,6 +92,10 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  deriveProjectionTriage,
+  deriveWakeAttentionItems,
+  normalizeProjectionOperationsSnapshot,
+  normalizeWakeStatusSnapshot,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -186,6 +190,8 @@ import {
 } from "@chase-sets/platform-runtime/mcp";
 import {
   createProjectionOperationsRoutes,
+  loadBlockedProjectionState,
+  loadWakeStatus,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
 import {
@@ -319,6 +325,8 @@ export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2] &
     Readonly<{
       runtimeProfile?: PlatformApiRuntimeProfile;
+      controlPlane?: PlatformControlPlane;
+      workSignalStore?: ProjectionWakeStatusWorkSignalStore;
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
@@ -671,8 +679,6 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
         channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
           const services = runtime?.services.channels;
@@ -694,6 +700,22 @@ export function createPlatformApiHost(
     hostPorts: {
       inventoryDraftListingConsumer,
       ...options.hostPorts,
+      operationsAttentionRuntimeReads: {
+        loadBlockedProjections: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          return normalizeProjectionOperationsSnapshot(await loadBlockedProjectionState(runtime, options.controlPlane))
+            .blockedProjections;
+        },
+        loadWakeStatus: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          const snapshot = normalizeWakeStatusSnapshot(await loadWakeStatus(options.workSignalStore));
+          return { generatedAt: snapshot.generatedAt, wakeStore: snapshot.wakeStore };
+        },
+      },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
@@ -1007,6 +1029,16 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                   readyForFulfillmentAt: fact.ready_for_fulfillment_at,
                   label: `${fact.display_reference}`,
                   permalinkUrl: `/account/purchases/${fact.order_id}`,
+                  totals: {
+                    itemSubtotal: fact.item_subtotal_amount,
+                    shipping: fact.shipping_charge_amount,
+                    tax: fact.sales_tax_amount,
+                    total: fact.total_amount,
+                  },
+                  lines: fact.lines.map((line) => ({
+                    listingId: line.listing_id,
+                    unitPrice: line.unit_price_amount,
+                  })),
                 }));
             }
           : async () => [],
@@ -1118,6 +1150,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
       workSignalStore: options.workSignalStore,
+      deriveProjectionTriage,
+      deriveWakeAttentionItems,
     }),
   );
   if (marketplacePlatformRoutesEnabled) {

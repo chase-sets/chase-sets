@@ -300,6 +300,12 @@ describe("safe Listing errors", () => {
 
   it("distinguishes real commandHandler rejection from an identical plain persistence failure through buildMarketplaceApi", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const {
+      publicationScope: _publicationScope,
+      nativeVisibility: _nativeVisibility,
+      nativeFeeState: _nativeFeeState,
+      ...historicalListingState
+    } = initialMarketplaceListingState;
     for (const plain of [false, true]) {
       const { eventStore } = createInMemoryEventStore();
       const context = {
@@ -313,7 +319,7 @@ describe("safe Listing errors", () => {
         events: [
           {
             eventType: "marketplace.listing.created",
-            payload: { ...initialMarketplaceListingState, listingId: "lst_1", accountId: "acc_seller" },
+            payload: { ...historicalListingState, listingId: "lst_1", accountId: "acc_seller" },
           },
           ...(plain ? [{ eventType: "marketplace.listing.published", payload: {} }] : []),
         ],

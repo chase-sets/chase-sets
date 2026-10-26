@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { Banner, LinkButton, Page, PageHeader, PageSection, Skeleton, Stack } from "@chase-sets/design-system";
-import type { PricingHealthData } from "../api/services";
+import type { ApplyGoalResult, PricingHealthData } from "../api/services";
 import { HealthSummary } from "./health-summary";
 import { ForecastGradePanel } from "./forecast-grade-panel";
 import { healthCopy as copy } from "./copy";
+import { GoalComparison, GoalPicker } from "./goal-comparison";
 
 export function PricingHealthPage({
   data,
@@ -11,12 +12,18 @@ export function PricingHealthPage({
   error,
   policySelector,
   computeAction,
+  compareAction,
+  applyAction,
+  applyResult,
 }: Readonly<{
   data: PricingHealthData | null;
   loading?: boolean;
   error?: string;
   policySelector?: ReactNode;
   computeAction?: ReactNode;
+  compareAction?: ReactNode;
+  applyAction?: (candidate: NonNullable<PricingHealthData["comparison"]>[number]) => ReactNode;
+  applyResult?: ApplyGoalResult | null;
 }>) {
   return (
     <Page>
@@ -43,6 +50,19 @@ export function PricingHealthPage({
             }
           />
         ) : null}
+        {applyResult ? (
+          <Banner
+            tone="success"
+            title={copy("goals.applied")}
+            description={copy("goals.applied.description", {
+              revision: applyResult.revision,
+              raised: applyResult.movement.raised,
+              lowered: applyResult.movement.lowered,
+              held: applyResult.movement.held,
+              floorBinding: applyResult.alerts.floorBinding,
+            })}
+          />
+        ) : null}
         {loading ? (
           <>
             <Banner tone="info" title={copy("loading")} />
@@ -55,7 +75,7 @@ export function PricingHealthPage({
               <Banner
                 tone="info"
                 title={copy("noPolicy")}
-                actions={<LinkButton href="/account/desk/repricing">{copy("create")}</LinkButton>}
+                actions={<LinkButton href="/account/desk/repricing?create=1">{copy("create")}</LinkButton>}
               />
             ) : (
               <>
@@ -71,6 +91,17 @@ export function PricingHealthPage({
                       ) : (
                         <Banner tone="info" title={copy("noVerdict")} description={copy("noVerdict.description")} />
                       )}
+                    </PageSection>
+                    <GoalPicker goals={data.goals ?? []} />
+                    <PageSection title={copy("goals.comparison")} actions={compareAction}>
+                      <GoalComparison
+                        branch={(data.branch ?? "comparison") as "comparison" | "advanced-editor" | "create-editor"}
+                        candidates={data.comparison ?? []}
+                        goals={data.goals ?? []}
+                        targetPolicyId={data.target.policyId}
+                        recommendation={data.recommendation ?? { kind: "compare-goals" }}
+                        applyAction={applyAction}
+                      />
                     </PageSection>
                     <PageSection title={copy("grades.title")} description={copy("grades.platform")}>
                       <ForecastGradePanel grades={data.grades} />

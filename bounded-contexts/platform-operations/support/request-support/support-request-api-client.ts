@@ -45,6 +45,7 @@ import type {
   SupportOrderLookup,
   SupportRequestCommandSnapshot,
   SupportRequestDetail,
+  SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
 } from "../../features/support-requests/ui/contracts";
@@ -54,6 +55,7 @@ export type {
   SupportOrderLookup,
   SupportRequestCommandSnapshot,
   SupportRequestDetail,
+  SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
 } from "../../features/support-requests/ui/contracts";
@@ -200,13 +202,13 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     getSupportRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetail>(
+      parseJsonResponse<SupportRequestDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}`, {
           headers: resolveHeaders(options.headers),
         }),
       ),
     getSupportOperationsRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetail>(
+      parseJsonResponse<SupportRequestDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}`, {
           headers: resolveHeaders(options.headers),
         }),

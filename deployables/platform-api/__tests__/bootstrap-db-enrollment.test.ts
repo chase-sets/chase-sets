@@ -35,6 +35,7 @@ import {
   createBootstrapDbWorkloadBaseline,
   deriveBootstrapDbWorkload,
   formatBootstrapDbWorkloadBaseline,
+  resolveApiDbWorkspaceConcurrency,
   type BootstrapDbWorkloadBaseline,
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
@@ -46,20 +47,32 @@ const repositoryRoot = join(testDirectory, "../../..");
 // Historical timing captures remain immutable. The current 68-case capture binds
 // all measured DB sources separately from this retained seed-command regression.
 const seedCommandSourceSha256 = "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356";
-// The measured one-fewer-unit floor's paired captures: 39189188404 measured the
-// shipped three-unit assignment, 39187412107 the same workload on two units.
+// Historical 39498669434 remains the immutable algorithm corpus. The current
+// 39950765563 pair is bound separately to the declared floor.
 // Each artifactDigest is the live `gh api .../actions/artifacts/<id> --jq .digest`
-// probe taken 2026-10-19T05:24:50Z.
-const measuredOneFewerUnitFloorCaptures = Object.freeze({
+// probe taken 2026-10-23T12:30:00Z.
+const historicalMeasuredFloorCaptures = Object.freeze({
   shipped: Object.freeze({
-    fileName: "bootstrap-db-capture-39189188404.json",
-    fixtureSha256: "f3ed1246c7754d1fcbb78ca12ca1e2422eff547ece48b8af5ead63ac9f6e551f",
-    artifactDigest: "sha256:289052208ebb786318edf9430325e680e7e7146683f127a3312d2d74ed328e8c",
+    fileName: "bootstrap-db-capture-39498669434.json",
+    fixtureSha256: "87693854f8eff9c560f975885c39d847cdf064b8ecaea779861276a9bf8ddc7c",
+    artifactDigest: "sha256:7d79c7ae24da85009ccb4109dc0531eac687c4677a7278abc5038d7c6492c9f7",
   }),
   paired: Object.freeze({
-    fileName: "bootstrap-db-capture-39187412107.json",
-    fixtureSha256: "3a3afe4966627e94f7cb08f30fcaf6a55237e0446c5899d1f9804ef3286e047c",
-    artifactDigest: "sha256:1e7f2e2600f819dba1e24a6c4c35c8d59d6e1d672df4980e835786eecf364037",
+    fileName: "bootstrap-db-capture-39498669434-paired.json",
+    fixtureSha256: "7d00325cf7cf6fdf0dc4f0efa947a883cd5ee5d170274219fd9b0f6ca70543ce",
+    artifactDigest: "sha256:cc67c379c46b76bfd3479b9b0305e00cc8a04d9fc6078f4e30d7358ae5aa68ca",
+  }),
+});
+const currentMeasuredFloorCaptures = Object.freeze({
+  shipped: Object.freeze({
+    fileName: "bootstrap-db-capture-39950765563.json",
+    fixtureSha256: "069b80a17b12282d4c76a8fee3b6f52b29f69d286b7a62911e2d98e370ff8687",
+    artifactDigest: "sha256:9cfcf6535f57450f32193b9aa066b9d92e8421b0bc75093ea42df956d0796895",
+  }),
+  paired: Object.freeze({
+    fileName: "bootstrap-db-capture-39950765563-paired.json",
+    fixtureSha256: "7c5e0121be006248eab23e4a02ff341e25b628ae282c9b8bf6abc420834de813",
+    artifactDigest: "sha256:2589d255052d62828b0b65e178d186f002f6aec1988247d2ed499503313a77b2",
   }),
 });
 // Generate fixture code, not an environment read by this non-DB test module.
@@ -375,12 +388,21 @@ function readMeasuredCaptures(): MeasuredCaptures {
   const read = ({ fileName }: { fileName: string }) =>
     JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as MeasuredCapture;
   return {
-    shipped: read(measuredOneFewerUnitFloorCaptures.shipped),
-    paired: read(measuredOneFewerUnitFloorCaptures.paired),
+    shipped: read(historicalMeasuredFloorCaptures.shipped),
+    paired: read(historicalMeasuredFloorCaptures.paired),
   };
 }
 
-/** Capture 39189188404's measured workload, optionally reassigned, with synthetic bodies. */
+function readCurrentMeasuredCaptures(): MeasuredCaptures {
+  const read = ({ fileName }: { fileName: string }) =>
+    JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as MeasuredCapture;
+  return {
+    shipped: read(currentMeasuredFloorCaptures.shipped),
+    paired: read(currentMeasuredFloorCaptures.paired),
+  };
+}
+
+/** Capture 39498669434's measured workload, optionally reassigned, with synthetic bodies. */
 function shippedCaptureFiles(reassigned: Readonly<Record<string, string>> = {}): FixtureFile[] {
   return readMeasuredCaptures().shipped.files.map((file) => ({
     ...bootstrapDbEnrollmentManifest[file.fileName]!,
@@ -606,14 +628,6 @@ const noFloor = "no measured one-fewer-unit floor is declared";
 const minimalityViolation =
   "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
   "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget";
-// The declared floor's verdicts: applied on the retained shipped model it binds,
-// and not applied on a synthetic model's run or on a refused model.
-const declaredFloorApplied =
-  "measured capture run 39187412107 projects test:db:2 at 460544ms, above the 420000ms per-unit ceiling, at 2 units";
-const declaredFloorUnbound =
-  "the measured one-fewer-unit floor binds shipped reference run 39189188404, not the schedule model's 65440001";
-const declaredFloorModelRefused = "the schedule model refused, so the measured one-fewer-unit floor is not applied";
-
 /**
  * The pinned historical guard predates the measured one-fewer-unit floor. When
  * the floor does not apply, the additive schedule fields follow from its result
@@ -635,7 +649,8 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 
 // The current schedule model's own minimum unit count for the current manifest.
 // Capture-derived: an enrollment refreshes it with the projected schedule pins.
-const currentMinimumUnitCount = 2;
+const currentMinimumUnitCount = 3;
+const currentProjectedMakespans = [321800, 263356, 237231];
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
   return (
@@ -660,12 +675,12 @@ type DefaultPathEnrollment = Readonly<{
 
 function defaultPathEnrollment(
   minimumUnitCount: number,
-  options: Omit<NonNullable<Parameters<typeof evaluateBootstrapDbEnrollment>[0]>, "measuredOneFewerUnitFloor"> = {},
+  options: NonNullable<Parameters<typeof evaluateBootstrapDbEnrollment>[0]> = {},
 ): DefaultPathEnrollment {
   return {
     result: checkBootstrapDbEnrollment(options),
     absent: checkBootstrapDbEnrollment({ ...options, measuredOneFewerUnitFloor: null }),
-    floor: bootstrapDbMeasuredOneFewerUnitFloor,
+    floor: options.measuredOneFewerUnitFloor ?? bootstrapDbMeasuredOneFewerUnitFloor,
     model: (options.scheduleModel ?? bootstrapDbScheduleModel) as BootstrapDbScheduleModel,
     minimumUnitCount,
   };
@@ -699,6 +714,16 @@ function expectedMeasuredFloorVerdict(
       `${model.executionUnitCeilingMs}ms per-unit ceiling, at ${floor.unitCount} units`,
   };
 }
+
+const declaredFloorUnbound = bootstrapDbMeasuredOneFewerUnitFloor
+  ? expectedMeasuredFloorVerdict(bootstrapDbMeasuredOneFewerUnitFloor, {
+      ...bootstrapDbScheduleModel,
+      referenceRunId: syntheticScheduleModelProvenance.referenceRunId,
+    }).reason
+  : noFloor;
+const declaredFloorModelRefused = bootstrapDbMeasuredOneFewerUnitFloor
+  ? "the schedule model refused, so the measured one-fewer-unit floor is not applied"
+  : noFloor;
 
 const measuredFloorLine = "  measured one-fewer-unit floor";
 
@@ -1070,7 +1095,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "540088676c5b7e47042d51d1fbc10e024491c274a10461048ec8e13fc10a7f05",
+      "007d77bcc18cfd73e94d239c325d1b2ed8d12310d2f432bb9831d4d6591790b5",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -1375,7 +1400,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("derives the complete frozen six-entry non-bootstrap census independently of suffixes", async () => {
     const fixture = await createDbCensusFixture();
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
-    expect(census.dbEntries).toHaveLength(18);
+    expect(census.dbEntries).toHaveLength(16);
     expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
@@ -1438,7 +1463,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it.each([
     ["absent-entry", 0],
-    ["operator-session", 5],
+    ["operator-session", 3],
   ] as const)("rejects filter %s resolving to %i entries (N7)", async (filter, count) => {
     const fixture = await createDbCensusFixture();
     await editScripts(fixture, (scripts) => {
@@ -2362,7 +2387,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-39189188404.json",
       fixtureSha256: "f3ed1246c7754d1fcbb78ca12ca1e2422eff547ece48b8af5ead63ac9f6e551f",
       minimumUnitCount: 2,
@@ -2385,7 +2410,129 @@ describe("Platform API bootstrap DB enrollment", () => {
         laneMode: null,
       },
     },
-  ];
+    {
+      label: "retains capture 39498669434 without changing its bytes or timing pins",
+      current: false,
+      fileName: "bootstrap-db-capture-39498669434.json",
+      fixtureSha256: "87693854f8eff9c560f975885c39d847cdf064b8ecaea779861276a9bf8ddc7c",
+      minimumUnitCount: 2,
+      unitProjections: [309413, 252646, 208357],
+      provenance: {
+        runId: "39498669434",
+        runAttempt: "1",
+        referenceJobId: 118890240598,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "6e82b0cbe416476d93682cdb2424a99e4269b051",
+        sourceBase: "56fa419c5d47cafd5455b7dbf496a4339ce61985",
+        captureParent: "56fa419c5d47cafd5455b7dbf496a4339ce61985",
+        artifactId: 12299388242,
+        artifactSha256: "7d79c7ae24da85009ccb4109dc0531eac687c4677a7278abc5038d7c6492c9f7",
+        sourceManifestSha256: "bfaf1f450635e1a0f30c816de0ca9f7b199f53aaa540d717bdab81531987cda1",
+        caseManifestSha256: "1ebac423a80b43ed7ae0cf577817173a30272dee310c3f559f5acfcd6a595853",
+        commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
+        censusSha256: "b4efba85da0dd7b5618f98a7febde80b1a1f6c9744b3c8a353d9eda5fb1d1735",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    // Superseded shipped-only capture retained as immutable history.
+    {
+      label: "binds all 68 current cases to the shipped-only measured capture",
+      current: false,
+      fileName: "bootstrap-db-capture-39870394270.json",
+      fixtureSha256: "2058f576aa05c86067c5c997d1e1c7ff163c08dc966e2c369c907281fe3abf0e",
+      minimumUnitCount: 3,
+      unitProjections: [308279, 251346, 225684],
+      provenance: {
+        runId: "39870394270",
+        runAttempt: "1",
+        referenceJobId: 120143072886,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "a3d4f1fbfc17a388baec36e868900e453ca3fb6b",
+        sourceBase: "a57dc65728e37151d9ff180f13caa3d4408e44fd",
+        captureParent: "a57dc65728e37151d9ff180f13caa3d4408e44fd",
+        artifactId: 12466407557,
+        artifactSha256: "f50cb1e723afbfe32f3897de2253aa40aaa50b92fed05d3d81d848fc07521f9c",
+        sourceManifestSha256: "91c76fe24668909087c8595b4d01a62cdb45145fde3f81ca7db06db5460b3a69",
+        caseManifestSha256: "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
+        commandsSha256: "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
+        censusSha256: "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-39950765563.json",
+      fixtureSha256: "069b80a17b12282d4c76a8fee3b6f52b29f69d286b7a62911e2d98e370ff8687",
+      minimumUnitCount: 2,
+      unitProjections: [224879, 184426, 146248],
+      provenance: {
+        runId: "39950765563",
+        runAttempt: "1",
+        referenceJobId: 120404365557,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "a8c2312af4c0d8844655bdf700658e67da71bf96",
+        sourceBase: "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888",
+        captureParent: "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888",
+        artifactId: 12501280008,
+        artifactSha256: "9cfcf6535f57450f32193b9aa066b9d92e8421b0bc75093ea42df956d0796895",
+        sourceManifestSha256: "b9e1bea7385a3015ed2274aef9e88ae3d04ed093252cfad89107aeb012c51c52",
+        caseManifestSha256: "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
+        commandsSha256: "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
+        censusSha256: "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "enrolls the shipped three-unit minimum capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-40078269313.json",
+      fixtureSha256: "97060597b7ec253ef1057a8d8a690a4035c21f594a0eabee6fca97b91817c3b6",
+      minimumUnitCount: 3,
+      unitProjections: [321800, 263356, 237231],
+      provenance: {
+        runId: "40078269313",
+        runAttempt: "1",
+        referenceJobId: 120826240548,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "a525f369c26580e2b0ab00ac2da620f789cfad02",
+        sourceBase: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
+        captureParent: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
+        artifactId: 12555015054,
+        artifactSha256: "4bd1666b47605b219f1d982d69f8d0147a899130d663263f801c48fd6df3d149",
+        sourceManifestSha256: "ba82f8648e7a8b8aa189c808172bf76f4814aefa26c3cbc7f0c4d4c5c6b0dbe7",
+        caseManifestSha256: "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
+        commandsSha256: "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
+        censusSha256: "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+  ] as const;
+
+  type MeasuredCaptureFileName = (typeof measuredCaptures)[number]["fileName"];
+  const measuredCaptureNonBootstrapFileCounts: Readonly<Record<MeasuredCaptureFileName, number>> = Object.freeze({
+    "bootstrap-db-capture-38478206964.json": 6,
+    "bootstrap-db-capture-38491485544.json": 6,
+    "bootstrap-db-capture-38500650577.json": 6,
+    "bootstrap-db-capture-38517513534.json": 6,
+    "bootstrap-db-capture-38543786543.json": 6,
+    "bootstrap-db-capture-38584224978.json": 6,
+    "bootstrap-db-capture-38608022640.json": 6,
+    "bootstrap-db-capture-38641988070.json": 6,
+    "bootstrap-db-capture-38737899795.json": 6,
+    "bootstrap-db-capture-38804356099.json": 6,
+    "bootstrap-db-capture-38958136653.json": 6,
+    "bootstrap-db-capture-38993631473.json": 6,
+    "bootstrap-db-capture-39189188404.json": 6,
+    "bootstrap-db-capture-39498669434.json": 6,
+    "bootstrap-db-capture-39870394270.json": 4,
+    "bootstrap-db-capture-39950765563.json": 4,
+    "bootstrap-db-capture-40078269313.json": 4,
+  });
 
   it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
     const { unitProjections, provenance, minimumUnitCount } = expected;
@@ -2422,7 +2569,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       });
     }
     expect(capture.files).toHaveLength(12);
-    expect(capture.nonBootstrapFiles).toHaveLength(6);
+    expect(capture.nonBootstrapFiles).toHaveLength(measuredCaptureNonBootstrapFileCounts[fileName]);
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(68);
     for (const file of capture.files) {
       if (current) {
@@ -2535,7 +2682,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   };
 
   function readCurrentCapture() {
-    const [{ fileName, fixtureSha256 }] = currentCaptures as [(typeof measuredCaptures)[number]];
+    const { fileName, fixtureSha256 } = currentCaptures[0]!;
     const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as CaptureFixture;
     const binding: BootstrapDbWorkloadCaptureBinding = { fileName, fixtureSha256, provenance: capture.provenance };
     return { capture, binding };
@@ -2647,7 +2794,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "39189188404";
+  const runId = "40078269313";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2695,7 +2842,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     it("keeps every measured capture byte-identical and binds the baseline to the sole current capture's frozen source", () => {
       const fixtures = readdirSync(join(testDirectory, "fixtures"))
         .sort()
-        .filter((name) => /^bootstrap-db-capture-\d+\.json$/.test(name));
+        .filter((name) => /^bootstrap-db-capture-\d+(?:-paired)?\.json$/.test(name));
       expect(
         Object.fromEntries(
           fixtures.map((name) => [name, sha256Of(readFileSync(join(testDirectory, "fixtures", name)))]),
@@ -2704,12 +2851,16 @@ describe("Platform API bootstrap DB enrollment", () => {
         "bootstrap-db-capture-37467774999.json": "957f5dccb19eb2bde1a906c3b27e9ded81886898ae375899f283a879eb01aff6",
         "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
         "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
+        "bootstrap-db-capture-39187412107.json": "3a3afe4966627e94f7cb08f30fcaf6a55237e0446c5899d1f9804ef3286e047c",
         ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
         ...Object.fromEntries(
-          Object.values(measuredOneFewerUnitFloorCaptures).map(({ fileName, fixtureSha256 }) => [
+          Object.values(historicalMeasuredFloorCaptures).map(({ fileName, fixtureSha256 }) => [
             fileName,
             fixtureSha256,
           ]),
+        ),
+        ...Object.fromEntries(
+          Object.values(currentMeasuredFloorCaptures).map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256]),
         ),
       });
       expect(currentCaptures).toHaveLength(1);
@@ -2725,12 +2876,11 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: capture.provenance.captureParent,
       });
       expect(baseline.source).toEqual({
-        commit: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
-        ref: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
+        commit: "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
       });
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
-      expect(Object.keys(capture.sourceBindings)).toHaveLength(43);
+      expect(Object.keys(capture.sourceBindings)).toHaveLength(7968);
 
       // Every digest the capture measured that is also a workload member
       // reproduces in the baseline, so the baseline was derived from the
@@ -2763,51 +2913,166 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
       // Lockfile and shared-config bytes stay provenance; their W5 and W4
       // values are bound and refuse independently below.
-      expect(dispositions).toEqual({
-        "bounded-contexts/catalog/features/product-measures/api/publication.ts": "provenance-only",
-        "bounded-contexts/catalog/features/product-measures/api/runtime.ts": "provenance-only",
+      expect(
+        Object.fromEntries(Object.entries(dispositions).filter(([, section]) => section !== "provenance-only")),
+      ).toEqual({
+        "bounded-contexts/auth/context.json": "W3 selection",
+        "bounded-contexts/auth/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/auth/support/seed-support/store.ts": "W3 file",
+        "bounded-contexts/authenticity/context.json": "W3 selection",
+        "bounded-contexts/catalog/context.json": "W3 selection",
+        "bounded-contexts/catalog/features/blueprints/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/catalog-items/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/categories/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/components/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/dimensions/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/display-templates/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/fields/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/product-contents/api/seed.ts": "W3 file",
         "bounded-contexts/catalog/features/product-measures/api/seed.ts": "W3 file",
-        "contracts/product-measures/publication.ts": "provenance-only",
-        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
-        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
-        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
-        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
-        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
-        "bounded-contexts/catalog/features/operator-session/api/operation.ts": "provenance-only",
-        "bounded-contexts/catalog/features/operator-session/read-model/grant-schema.ts": "provenance-only",
-        "bounded-contexts/inventory/api.ts": "provenance-only",
-        "bounded-contexts/inventory/index.ts": "provenance-only",
+        "bounded-contexts/catalog/features/reference-data/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/base2-60-scenario.json":
+          "W3 json",
+        "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json": "W3 json",
+        "bounded-contexts/catalog/features/source-observations/api/provider-integration-profile-store.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/asset-storage.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-capture.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.test.ts":
+          "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/runtime-test-harness.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed-migration.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.test.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts": "W3 file",
+        "bounded-contexts/catalog/features/source-observations/api/seeding/synthetic-display-identity-queryable.ts":
+          "W3 file",
+        "bounded-contexts/catalog/support/authoring-support/seed.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/aggregate-state.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/catalog-integration-state.ts": "W3 file",
+        "bounded-contexts/catalog/support/seed-support/context.ts": "W3 file",
+        "bounded-contexts/channels/context.json": "W3 selection",
+        "bounded-contexts/channels/features/connections/tests/browser-state-fixture.test-data.ts": "W2 file",
+        "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts": "W2 file",
+        "bounded-contexts/channels/features/manual-sync/api/seed.ts": "W3 file",
+        "bounded-contexts/channels/support/seed-support/channel-connection-browser.ts": "W3 file",
+        "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts": "W3 file",
+        "bounded-contexts/checkout/context.json": "W3 selection",
+        "bounded-contexts/checkout/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/checkout/support/seed-support/fixtures/sell-list-recovery-browser-fixture.ts": "W3 file",
+        "bounded-contexts/checkout/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/collections/context.json": "W3 selection",
+        "bounded-contexts/commercial-terms/context.json": "W3 selection",
+        "bounded-contexts/commercial-terms/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/commercial-terms/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/customer-feedback/context.json": "W3 selection",
+        "bounded-contexts/discovery/context.json": "W3 selection",
+        "bounded-contexts/fulfillment/context.json": "W3 selection",
+        "bounded-contexts/fulfillment/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/fulfillment/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/identity/context.json": "W3 selection",
+        "bounded-contexts/identity/features/account-management/tests/browser-test-support.ts": "W2 file",
+        "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts": "W3 file",
+        "bounded-contexts/identity/support/runtime-support/bootstrap-context.ts": "W3 file",
+        "bounded-contexts/identity/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/account-management-browser.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/ids.test.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/market-following-verification.test.ts": "W3 file",
+        "bounded-contexts/identity/support/seed-support/market-following-verification.ts": "W3 file",
         "bounded-contexts/inventory/context.json": "W3 selection",
-        "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/route.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/api/checkout-reservation-authority.ts": "provenance-only",
-        "bounded-contexts/inventory/features/holds/read-model/schema.ts": "provenance-only",
-        "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": "provenance-only",
-        "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": "provenance-only",
-        "bounded-contexts/checkout/features/sessions/api/inventory-reservation-authority.ts": "provenance-only",
-        "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": "provenance-only",
-        "deployables/platform-api/src/app.ts": "provenance-only",
-        "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts": "provenance-only",
-        "bounded-contexts/auth/features/invitation-acceptance/read-model/schema.ts": "provenance-only",
-        "bounded-contexts/auth/support/runtime-support/schema.ts": "provenance-only",
-        "bounded-contexts/auth/support/runtime-support/services.ts": "provenance-only",
-        "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts": "provenance-only",
-        "bounded-contexts/identity/server.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/oauth.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts": "provenance-only",
-        "bounded-contexts/auth/support/ucp-support/agent-webhooks/order-update-payload.ts": "provenance-only",
-        "bounded-contexts/identity/features/agent-grants/api/revocation.ts": "provenance-only",
+        "bounded-contexts/inventory/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/context.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/mutation-command.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/representative-services.ts": "W3 file",
+        "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts": "W3 file",
         "bounded-contexts/marketplace/context.json": "W3 selection",
-        "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts": "provenance-only",
-        "bounded-contexts/marketplace/features/offers/api/runtime.ts": "provenance-only",
-        "bounded-contexts/payments/features/payments/api/mcp.ts": "provenance-only",
-        "contracts/auth-context/index.ts": "provenance-only",
-        "infrastructure/platform-runtime/ucp-contracts.ts": "provenance-only",
+        "bounded-contexts/marketplace/features/listing-evidence-policy/integrations/seed.ts": "W3 file",
+        "bounded-contexts/marketplace/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/marketplace/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/notifications/context.json": "W3 selection",
+        "bounded-contexts/ordering/context.json": "W3 selection",
+        "bounded-contexts/ordering/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/ordering/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/payments/context.json": "W3 selection",
+        "bounded-contexts/payments/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/payments/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/platform-operations/context.json": "W3 selection",
+        "bounded-contexts/platform-operations/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/platform-operations/support/seed-support/ids.ts": "W3 file",
+        "bounded-contexts/pricing/context.json": "W3 selection",
+        "bounded-contexts/pricing/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/public-presence/context.json": "W3 selection",
+        "bounded-contexts/public-presence/features/promo-bar/api/seed.ts": "W3 file",
+        "bounded-contexts/public-presence/features/waitlist/api/seed.ts": "W3 file",
+        "bounded-contexts/settlement/context.json": "W3 selection",
+        "bounded-contexts/settlement/support/runtime-support/seed.ts": "W3 file",
+        "bounded-contexts/settlement/support/seed-support/ids.ts": "W3 file",
+        "contracts/catalog-seed/fallback-assets.ts": "W3 file",
+        "contracts/catalog-seed/ids.ts": "W3 file",
+        "contracts/catalog-seed/index.ts": "W3 file",
+        "contracts/catalog-seed/package.json": "W3 file",
+        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
+        "contracts/catalog-seed/scenario.ts": "W3 file",
+        "contracts/catalog-seed/tsconfig.json": "W3 file",
+        "contracts/catalog-seed/vitest.config.ts": "W3 file",
+        "contracts/event-core/test-support.ts": "W2 file",
+        "contracts/identity-seed/ids.ts": "W3 file",
+        "contracts/identity-seed/index.ts": "W3 file",
+        "contracts/identity-seed/package.json": "W3 file",
+        "contracts/identity-seed/tsconfig.json": "W3 file",
+        "contracts/identity-seed/vitest.config.ts": "W3 file",
+        "contracts/money-movement/test-support.ts": "W2 file",
+        "contracts/payment-processing/test-support.ts": "W2 file",
+        "contracts/postage-labels/test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/db-fixture.ts": "W2 file",
+        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/seed-command-catalog.db.test.ts": "W1 file",
+        "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts": "W1 file",
+        "deployables/platform-api/src/admin-qa-actor-fixtures.ts": "W3 file",
+        "deployables/platform-api/src/database-pools.ts": "W3 file",
+        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/src/test-support/provider-gateways.ts": "W2 file",
+        "infrastructure/bounded-context-runtime/seed-aggregate-state.ts": "W3 file",
+        "infrastructure/bounded-context-runtime/seeding.ts": "W3 file",
+        "infrastructure/bounded-context-runtime/test-support.ts": "W3 file",
         "infrastructure/platform-runtime/api.ts": "W3 file",
-        "pnpm-lock.yaml": "provenance-only",
-        "vitest.shared.mjs": "provenance-only",
+        "infrastructure/platform-runtime/context-pools.ts": "W3 file",
+        "infrastructure/platform-runtime/host-runtime-selection.ts": "W3 file",
       });
+      // The digest pins the whole map, including the provenance-only remainder.
+      expect(sha256Of(canonicalJson(dispositions))).toBe(
+        "fe99c6b57fd760fd5fb5e45d03f9672f1d19d04cfb6cfe6c6304847449ac95a8",
+      );
 
       // The baseline's hosted values are the ones the capture executed under.
       expect(String(capture.provenance.vitest)).toMatch(
@@ -2993,6 +3258,54 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
   });
 
+  describe("DB workspace concurrency derives from the API matrix cell", () => {
+    const workflowPath = join(repositoryRoot, ".github/workflows/platform-pr.yml");
+
+    it("resolves the exact b1bbb7ec workflow expression to API concurrency 2", () => {
+      const result = resolveApiDbWorkspaceConcurrency(readFileSync(workflowPath, "utf8"));
+      expect(result).toEqual({ value: "2", gaps: [] });
+    });
+
+    it.each([
+      {
+        label: "an other-only expression",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "${{ matrix.db-workspace-group == 'other' && '3' }}",
+          ),
+      },
+      {
+        label: "a literal removed without an environment declaration",
+        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\r?\n/m, ""),
+      },
+      {
+        label: "two environment declarations",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}\n      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+          ),
+      },
+      {
+        label: "a non-integer value",
+        edit: (workflow: string) => workflow.replace("&& '3' || '2'", "&& 'three' || '2'"),
+      },
+      {
+        label: "a literal and environment concurrency together",
+        edit: (workflow: string) =>
+          workflow.replace(
+            '--concurrency="$DB_WORKSPACE_CONCURRENCY"',
+            '--concurrency=2 --concurrency="$DB_WORKSPACE_CONCURRENCY"',
+          ),
+      },
+    ])("fails closed for $label", ({ edit }) => {
+      const result = resolveApiDbWorkspaceConcurrency(edit(readFileSync(workflowPath, "utf8")));
+      expect(result.value).toBeNull();
+      expect(result.gaps.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("producer reads only local Git objects", () => {
     const syntheticEnv = {
       ...process.env,
@@ -3143,7 +3456,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     // installs, so W4 refuses it as a paired reference. The lockfile control, the
     // only W5 input here, pairs with the checked-out lockfile under this
     // whole-file pin; the other controls keep the historical frozen source.
-    const checkedOutLockfileSha256 = "ccc076cbb9faa51860f33557a1d80935eb4a8da60c79ccb3081404c4ba4039ec";
+    const checkedOutLockfileSha256 = sha256Of(readFileSync(join(repositoryRoot, "pnpm-lock.yaml")));
     const controls = [
       {
         label: "an unrelated lockfile entry",
@@ -3376,8 +3689,8 @@ describe("Platform API bootstrap DB enrollment", () => {
               "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
             )(
               replaceOnce(
-                "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
-                "__tests__/operator-session/operator-extension-route-contract.db.test.ts ",
+                "__tests__/operator-session/operator-session-push.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
+                "__tests__/operator-session/operator-session-push.db.test.ts ",
               )(source),
             ),
         },
@@ -3648,7 +3961,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
       ).toEqual([
         `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
-        `baseline was derived from 75cbdf65969bbec4db9fa09efb5fa87f5a850e30, not the capture's frozen source 0000000000000000000000000000000000006545`,
+        `baseline was derived from ${currentBaseline().source.commit}, not the capture's frozen source 0000000000000000000000000000000000006545`,
       ]);
       expect(() =>
         createBootstrapDbWorkloadBaseline({
@@ -3693,13 +4006,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52381);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52570);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1671992,
+      1947829,
     );
   });
 
@@ -3707,19 +4020,16 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("projects the shipped units, aggregate, and minimum unit count under the closed model", () => {
     const { schedule } = checkBootstrapDbEnrollment();
-
-    expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 281848],
-      ["test:db:2", 222020],
-      ["test:db:3", 205908],
-    ]);
+    expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual(
+      currentProjectedMakespans.map((makespanMs, index) => [`test:db:${index + 1}`, makespanMs]),
+    );
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [18, 18],
       [29, 29],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(709776);
-    expect(schedule.aggregateWithOverheadMs).toBe(762157);
+    expect(schedule.aggregateMs).toBe(822387);
+    expect(schedule.aggregateWithOverheadMs).toBe(874957);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
@@ -3731,11 +4041,9 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
-    expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 281848],
-      ["test:db:2", 222020],
-      ["test:db:3", 205908],
-    ]);
+    expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual(
+      currentProjectedMakespans.map((makespanMs, index) => [`test:db:${index + 1}`, makespanMs]),
+    );
   });
 
   const hiddenOwnPropertyModel = createSyntheticScheduleModel();
@@ -4226,8 +4534,6 @@ describe("Platform API bootstrap DB enrollment", () => {
     // One fewer than the shipped three units is a bound declared floor's
     // measured capture, or else the model's own alternative.
     expectOneFewerUnitInfeasible(defaultPathEnrollment(currentMinimumUnitCount));
-    // The declared floor's own measured binding unit.
-    expect(Math.max(...Object.values(bootstrapDbMeasuredOneFewerUnitFloor!.unitMakespansMs))).toBe(460544);
   });
 
   it("rejects an extra execution unit that satisfies every other invariant", async () => {
@@ -4259,11 +4565,31 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
     }
     expect(result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
-    expect(result.schedule.measuredOneFewerUnitFloor.applied).toBe(false);
     expect(result.violations).toEqual([minimalityViolationFor(4, currentMinimumUnitCount)]);
     // On the retained shipped model it binds, the declared floor measures two
     // units, not one fewer than four, so it never excuses a wasteful unit.
-    expect(runFixture(await shippedCaptureFixture(extraUnitAssignment)).schedule.measuredOneFewerUnitFloor).toEqual({
+    const { shipped, paired } = readMeasuredCaptures();
+    const { floor, refusal } = deriveBootstrapDbMeasuredOneFewerUnitFloor({
+      shippedCapture: shipped,
+      pairedCapture: paired,
+    });
+    expect(refusal).toBeNull();
+    expect(result.schedule.measuredOneFewerUnitFloor).toEqual({
+      applied: false,
+      reason:
+        "the measured one-fewer-unit floor binds shipped reference run 39950765563, not the schedule model's 40078269313",
+    });
+    const extraUnitFixture = await shippedCaptureFixture(extraUnitAssignment);
+    expect(
+      checkBootstrapDbEnrollment({
+        platformApiRoot: extraUnitFixture.root,
+        manifest: extraUnitFixture.manifest,
+        executionUnitBootBearingCaseCeilings: extraUnitFixture.ceilings,
+        scheduleModel: extraUnitFixture.model,
+        nonBootstrapCensus: extraUnitFixture.nonBootstrapCensus,
+        measuredOneFewerUnitFloor: floor,
+      }).schedule.measuredOneFewerUnitFloor,
+    ).toEqual({
       applied: false,
       reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
     });
@@ -4638,7 +4964,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const expected = [
       {
         name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
-        identity: "f78d626bdd98a1c4",
+        identity: "c749fe673131aada",
       },
       {
         name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
@@ -4782,7 +5108,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(support).not.toContain("createPlatformApiBootstrapTestHarness(");
 
     // Each independent red control changes only its named variable, never the frozen identity or helper input.
-    const assertion = sources[0]!.replace(".toBe(130)", ".toBe(131)");
+    const assertion = sources[0]!.replace(".toBe(131)", ".toBe(132)");
     const profile = sources[0]!.replace(
       'enabledDataProfiles: ["scenario-seed"]',
       'enabledDataProfiles: ["integration-seed"]',
@@ -4996,17 +5322,16 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     it("T1: lets the paired over-ceiling two-unit capture set the measured three-unit topology's effective minimum", async () => {
       const floor = derivedFloor();
-      expect(floor).toEqual({
-        shippedReferenceRunId: 39189188404,
-        pairedReferenceRunId: 39187412107,
-        pairedReferenceJobId: 117852640066,
-        pairedArtifactSha256: "1e7f2e2600f819dba1e24a6c4c35c8d59d6e1d672df4980e835786eecf364037",
-        unitCount: 2,
-        assignment: Object.fromEntries(
-          readMeasuredCaptures().paired.files.map((file) => [file.fileName, file.executionUnit]),
-        ),
-        unitMakespansMs: { "test:db:1": 411071, "test:db:2": 460544 },
+      const { shipped, paired } = readMeasuredCaptures();
+      expect(floor).toMatchObject({
+        shippedReferenceRunId: Number(shipped.provenance.runId),
+        pairedReferenceRunId: Number(paired.provenance.runId),
+        pairedReferenceJobId: paired.provenance.referenceJobId,
+        pairedArtifactSha256: paired.provenance.artifactSha256,
+        unitCount: new Set(shipped.files.map((file) => file.executionUnit)).size - 1,
+        assignment: Object.fromEntries(paired.files.map((file) => [file.fileName, file.executionUnit])),
       });
+      expect(Math.max(...Object.values(floor.unitMakespansMs))).toBeGreaterThan(paired.model.executionUnitCeilingMs);
       expect([floor, floor.assignment, floor.unitMakespansMs].every((value) => Object.isFrozen(value))).toBe(true);
 
       const fixture = await shippedCaptureFixture();
@@ -5018,13 +5343,11 @@ describe("Platform API bootstrap DB enrollment", () => {
         measuredOneFewerUnitFloor: { applied: false, reason: noFloor },
       });
 
-      const applied =
-        "measured capture run 39187412107 projects test:db:2 at 460544ms, above the 420000ms per-unit ceiling, at 2 units";
+      const applied = expectedMeasuredFloorVerdict(floor, shipped.model).reason;
       const result = runWithFloor(fixture, floor);
-      // The declared export is this derived floor, so the default option applies it too.
-      expect(runFixture(fixture)).toEqual(result);
+      expect(runWithFloor(fixture, null)).toEqual(absent);
       expect(result.violations).toEqual([]);
-      expect(result.schedule.units.map((unit) => unit.makespanMs)).toEqual([281848, 222020, 205908]);
+      expect(result.schedule.units.map((unit) => unit.makespanMs)).toEqual([309413, 252646, 208357]);
       expect(result.schedule).toMatchObject({
         observedUnitCount: 3,
         minimumUnitCount: 2,
@@ -5123,11 +5446,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const fixture = await shippedCaptureFixture();
       // createShippedFixture's model carries unmistakably synthetic provenance.
       const synthetic = await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() });
-      expectNotApplied(
-        synthetic,
-        floor,
-        `the measured one-fewer-unit floor binds shipped reference run 39189188404, not the schedule model's ${synthetic.model.referenceRunId}`,
-      );
+      expectNotApplied(synthetic, floor, expectedMeasuredFloorVerdict(floor, synthetic.model).reason);
       const [dropped, ...kept] = Object.entries(floor.assignment);
       const coverage = "the measured one-fewer-unit floor assignment does not cover exactly the manifested files";
       expectNotApplied(fixture, { ...floor, assignment: Object.fromEntries(kept) }, coverage);
@@ -5146,7 +5465,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         refusalAfter(({ paired }) => {
           for (const testCase of paired.files.flatMap((file) => file.cases)) testCase.durationMs /= 2;
         }),
-      ).toBe("the paired capture's 2-unit projection peaks at 238311ms, within the 420000ms per-unit ceiling");
+      ).toBe("the paired capture's 2-unit projection peaks at 222156ms, within the 420000ms per-unit ceiling");
       const floor = derivedFloor();
       expectNotApplied(
         await shippedCaptureFixture(),
@@ -5195,7 +5514,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         "the shipped schedule exceeds the per-unit ceiling or the aggregate, so the measured one-fewer-unit floor is not applied",
       );
       expect(result.violations).toEqual([
-        "test:db:1 has a projected makespan of 433566ms, exceeding the 420000ms per-unit ceiling",
+        "test:db:1 has a projected makespan of 473418ms, exceeding the 420000ms per-unit ceiling",
         minimalityViolation,
       ]);
     });
@@ -5203,10 +5522,10 @@ describe("Platform API bootstrap DB enrollment", () => {
     it.each<[string, Partial<BootstrapDbScheduleModel>, string, string]>([
       [
         "an aggregate violation",
-        { aggregateCeilingMs: 762_156 },
+        { aggregateCeilingMs: 832_873 },
         "the shipped schedule exceeds the per-unit ceiling or the aggregate, so the measured one-fewer-unit floor is not applied",
-        "the projected aggregate of 709776ms across 3 execution units plus the 52381ms job overhead is 762157ms, " +
-          "exceeding the 762156ms aggregate ceiling",
+        "the projected aggregate of 770416ms across 3 execution units plus the 62458ms job overhead is 832874ms, " +
+          "exceeding the 832873ms aggregate ceiling",
       ],
       [
         "a schedule-model refusal",
@@ -5234,20 +5553,29 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(expectNotApplied(fixture, syntheticFloor, reason).violations).toContain(violation);
     });
 
-    it("T6: declares exactly the floor derived from the paired captures and gives it its default-path role", () => {
-      expect(bootstrapDbMeasuredOneFewerUnitFloor).toEqual(derivedFloor());
-      const declared = bootstrapDbMeasuredOneFewerUnitFloor!;
-      expect([declared, declared.assignment, declared.unitMakespansMs].every((value) => Object.isFrozen(value))).toBe(
-        true,
-      );
-
+    it("T6: binds the declared floor to its measured pair and applies it exactly when it binds the current model", () => {
+      const { shipped, paired } = readCurrentMeasuredCaptures();
+      const derived = deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: shipped, pairedCapture: paired });
+      expect(derived.refusal).toBeNull();
+      expect(bootstrapDbMeasuredOneFewerUnitFloor).toEqual(derived.floor);
+      expect(bootstrapDbMeasuredOneFewerUnitFloor).not.toBeNull();
       const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
-      expect(enrollment.result.schedule.observedUnitCount).toBe(3);
+      expect(enrollment.result.schedule).toMatchObject({
+        measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model),
+        minimumUnitCount: currentMinimumUnitCount,
+        effectiveMinimumUnitCount: 3,
+        observedUnitCount: 3,
+      });
+      expect(enrollment.result.violations).toEqual([]);
       expectDefaultPathFloorRole(enrollment);
+      expectOneFewerUnitInfeasible(enrollment);
     });
 
     it("T7: pins both paired capture fixtures to their bytes and their live artifact digests", () => {
-      for (const { fileName, fixtureSha256, artifactDigest } of Object.values(measuredOneFewerUnitFloorCaptures)) {
+      for (const { fileName, fixtureSha256, artifactDigest } of [
+        ...Object.values(historicalMeasuredFloorCaptures),
+        ...Object.values(currentMeasuredFloorCaptures),
+      ]) {
         const bytes = readFileSync(join(testDirectory, "fixtures", fileName));
         expect(sha256Of(bytes), fileName).toBe(fixtureSha256);
         const { provenance } = JSON.parse(bytes.toString("utf8")) as { provenance: { artifactSha256: string } };
@@ -5258,7 +5586,27 @@ describe("Platform API bootstrap DB enrollment", () => {
     let retainedEnrollment: Promise<DefaultPathEnrollment> | undefined;
     let naturallyMinimalEnrollment: DefaultPathEnrollment | undefined;
 
-    /** Capture 39189188404's workload under its own model, which the declared floor binds; its minimum is 2. */
+    function deriveNaturallyMinimalExecutionUnitFixedCost() {
+      const model = {
+        ...bootstrapDbScheduleModel,
+        ...syntheticScheduleModelProvenance,
+        executionUnitFixedCostMs: 0,
+      };
+      const probe = exactScheduleProbes().candidate;
+      const files = checkBootstrapDbEnrollment({ scheduleModel: model }).schedule.files.map(
+        ({ fileName, durationMs }) => ({
+          fileName,
+          durationMs,
+        }),
+      );
+      const twoUnitProjection = probe.bestAssignmentAt(files, 2, model) as {
+        worstMakespanMs: number;
+      } | null;
+      if (!twoUnitProjection) throw new Error("accepted model did not project a two-unit assignment");
+      return Math.max(0, model.executionUnitCeilingMs - twoUnitProjection.worstMakespanMs + 1);
+    }
+
+    /** Historical workload with its derived floor passed explicitly; its model minimum is 2. */
     function retainedDefaultPathEnrollment() {
       retainedEnrollment ??= shippedCaptureFixture().then((fixture) =>
         defaultPathEnrollment(2, {
@@ -5267,6 +5615,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           executionUnitBootBearingCaseCeilings: fixture.ceilings,
           scheduleModel: fixture.model,
           nonBootstrapCensus: fixture.nonBootstrapCensus,
+          measuredOneFewerUnitFloor: derivedFloor(),
         }),
       );
       return retainedEnrollment;
@@ -5282,7 +5631,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const scheduleModel = {
         ...bootstrapDbScheduleModel,
         ...syntheticScheduleModelProvenance,
-        executionUnitFixedCostMs: 70_000,
+        executionUnitFixedCostMs: deriveNaturallyMinimalExecutionUnitFixedCost(),
       };
       naturallyMinimalEnrollment ??= defaultPathEnrollment(3, {
         scheduleModel,
@@ -5313,6 +5662,16 @@ describe("Platform API bootstrap DB enrollment", () => {
         applied: false,
         reason: declaredFloorUnbound,
       });
+      expect(enrollment.result.schedule.minimumUnitCount).toBe(3);
+      expect(
+        enrollment.result.schedule.units.every((unit) => unit.makespanMs <= enrollment.model.executionUnitCeilingMs),
+      ).toBe(true);
+      expect(enrollment.result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(
+        enrollment.model.aggregateCeilingMs,
+      );
+      expect(
+        Math.max(...(enrollment.result.schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs)),
+      ).toBeGreaterThan(enrollment.model.executionUnitCeilingMs);
       expectDefaultPathFloorRole(enrollment);
       expectOneFewerUnitInfeasible(enrollment);
     });
@@ -5321,7 +5680,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const enrollment = await retainedDefaultPathEnrollment();
       expect(enrollment.result.schedule.measuredOneFewerUnitFloor).toEqual({
         applied: true,
-        reason: declaredFloorApplied,
+        reason: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model).reason,
       });
       expect(enrollment.absent.violations).toEqual([minimalityViolation]);
       expectDefaultPathFloorRole(enrollment);
@@ -5378,9 +5737,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         "bound floor verdict",
       ],
       [
-        "an unbound floor verdict whose reason says no floor is declared",
+        "an unbound floor verdict whose reason differs from the null declaration",
         naturallyMinimalDefaultPathEnrollment,
-        (enrollment) => withFloorVerdict(enrollment, { applied: false, reason: noFloor }),
+        (enrollment) => withFloorVerdict(enrollment, { applied: false, reason: `${noFloor}.` }),
         "unbound floor verdict",
       ],
       [

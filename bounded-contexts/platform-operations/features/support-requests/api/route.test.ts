@@ -13,7 +13,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { File as NodeFile } from "node:buffer";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
 import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
 import {
@@ -35,6 +34,7 @@ import {
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -362,14 +362,15 @@ function buildApp(
     "support.remedies.waive",
     "support.remedies.correct",
   ],
+  accountId = "acc_operator",
 ) {
   const app = new Hono<SupportApiEnv>();
 
   app.use("*", async (c, next) => {
-    c.set("actor", evidenceActor("platform-admin", permissions, false, "acc_operator"));
+    c.set("actor", evidenceActor("platform-admin", permissions, false, accountId));
     c.set("context", {
       tenantId: "tnt_identity",
-      audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
+      audit: { performedByUserId: "usr_operator", forAccountId: accountId },
     } as never);
     await next();
   });
@@ -387,7 +388,7 @@ describe("support attachment capability x role x participation", () => {
     form.append('note; filename="not-a-file"', "ordinary text");
     const photo = readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg");
     for (let index = 0; index < 5; index++)
-      form.append("attachments", new NodeFile([photo], `${index}.jpg`, { type: "image/jpeg" }) as File);
+      form.append("attachments", new File([photo], `${index}.jpg`, { type: "image/jpeg" }));
     const request = await multipartRequest("http://localhost/support-requests/sup_case/attachments", form, {
       "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     });
@@ -557,11 +558,11 @@ describe("support attachment capability x role x participation", () => {
               const form = await nativeFormData();
               form.append(
                 "attachments",
-                new NodeFile(
+                new File(
                   [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
                   "photo.jpg",
                   { type: "image/jpeg" },
-                ) as File,
+                ),
               );
               const intakeRequest =
                 action === "upload"
@@ -1083,6 +1084,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(async () => []),
+    resolveSupportFlowDefinition: vi.fn(async (flowType) => getSupportFlowDefinition(flowType)),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
     uploadAttachments: vi.fn(),
@@ -1115,6 +1117,36 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
+  it.each([
+    [
+      "support",
+      "acc_operator",
+      null,
+      getSupportFlowDefinition("product-not-received").allowedResponses,
+      getSupportFlowDefinition("product-not-received").allowedResolutions,
+    ],
+    ["seller", "acc_seller", null, getSupportFlowDefinition("product-not-received").allowedResponses, []],
+    ["escalated seller", "acc_seller", "2026-06-01T01:00:00.000Z", [], []],
+    ["buyer", "acc_buyer", null, [], []],
+  ] as const)(
+    "projects detail flow action arrays for %s from server role and state",
+    async (_label, accountId, escalatedAt, allowedResponses, allowedResolutions) => {
+      const detail = { ...supportRequestDetail(), escalated_at: escalatedAt };
+      const services = createServices({
+        getSupportOperationsRequest: vi.fn(async () => detail as never),
+        getAccountSupportRequest: vi.fn(async () => detail as never),
+      });
+      const permissions = accountId === "acc_operator" ? ["support.manage"] : ["support.view"];
+      const response = await buildApp(services, permissions, accountId).request(
+        accountId === "acc_operator" ? "/support-requests/ops/sup_1" : "/support-requests/sup_1",
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" },
+      });
+    },
+  );
+
   it("proposes and records remedy execution through purpose-authorized command endpoints", async () => {
     const proposeRemedy = vi.fn(async () => ({
       supportRequestId: "sup_1",

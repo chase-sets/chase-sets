@@ -41,8 +41,6 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
           resolveWebhookTargets: async () => [],
         },
         channelSaleRecorder: createPlatformChannelSaleRecorder({ query, connect: query }),
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: createNoopCommercialTermsResolver(),
         channelConnectionIdentityReader: { resolve: async () => null },
       },
@@ -82,7 +80,10 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
       tenantId: "tnt_c4",
       audit: { performedByUserId: "usr_c4", forAccountId: "acc_c4" },
     } as EventStoreContext;
-    await expect(port.accept({}, context)).rejects.toMatchObject({ code: "inventory-draft-unavailable" });
+    await expect(port.accept({}, context)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "consumer-unbound",
+    });
   });
 
   it("keeps the real composition root bound before any Inventory producer is enabled (unbound-consumer-port control)", () => {
