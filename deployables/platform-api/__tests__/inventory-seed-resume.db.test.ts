@@ -67,6 +67,13 @@ function createScopedHost() {
     },
   });
   const included = (contextName: string) => (activeContextNames as readonly string[]).includes(contextName);
+  const projectionGroups = runtime.projectionGroups.filter(
+    (group) =>
+      included(group.targetContextName) && group.sourceContextNames.every((sourceName) => included(sourceName)),
+  );
+  const groupedRunnerKeys = new Set(
+    projectionGroups.flatMap((group) => group.subscriptionRunners.map((runner) => runner.checkpointKey)),
+  );
 
   return {
     ...runtime,
@@ -74,12 +81,12 @@ function createScopedHost() {
     mountedModules: runtime.mountedModules.filter((entry) => included(entry.module.contextName)),
     // Groups fed by a context outside this partition would read an event-store
     // head from a database the scoped harness never provisioned.
-    projectionGroups: runtime.projectionGroups.filter(
-      (group) =>
-        included(group.targetContextName) && group.sourceContextNames.every((sourceName) => included(sourceName)),
-    ),
+    projectionGroups,
     subscriptionRunners: runtime.subscriptionRunners.filter(
-      (runner) => included(runner.targetContextName) && included(runner.sourceContextName),
+      (runner) =>
+        included(runner.targetContextName) &&
+        included(runner.sourceContextName) &&
+        groupedRunnerKeys.has(runner.checkpointKey),
     ),
   };
 }

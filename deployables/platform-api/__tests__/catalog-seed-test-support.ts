@@ -34,6 +34,11 @@ export type InterruptionSite =
 
 export const catalogApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "catalog");
 
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
 export const profileShapes = [
   {
     name: "scenario-seed full-drain",
@@ -90,6 +95,7 @@ export function bootstrapOptions(profile: (typeof profileShapes)[number]): ApiHo
   return {
     enabledDataProfiles: profile.profiles,
     environmentName: profile.environmentName,
+    projectionGroupLeasePort: testProjectionGroupLeasePort,
   };
 }
 
