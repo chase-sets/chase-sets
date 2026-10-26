@@ -41,9 +41,6 @@ jobs:
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       PLATFORM_IMAGE_REF: ${{ inputs.platform_image }}@${{ inputs.platform_image_digest }}
     steps:
-      - name: Capture advisory job start
-        run: echo "ADVISORY_JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -55,6 +52,7 @@ jobs:
           PLATFORM_IMAGE: ${{ inputs.platform_image }}
           PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
         run: |
+          echo "ADVISORY_JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
           set -euo pipefail
           [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
             echo "Advisory evidence requires a full release commit SHA." >&2
