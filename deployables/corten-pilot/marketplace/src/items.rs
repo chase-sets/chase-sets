@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
-        SellerOverlay, SimilarItem, StandardTerms,
+        ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, MarketHistory as _, MarketStats,
+        Marketplace as _, Money, Offer, RollupPoint, Schema, Selected, SellerOverlay, SeriesWindow, SimilarItem, StandardTerms,
     },
     app::{Shared, marketplace_origin, url},
     auth::Session,
@@ -116,12 +116,14 @@ impl Market {
     }
 }
 
-/// The market book's tab (`MarketBookTab`, without Sales: the market history is not ported).
+/// The market book's tab (`MarketBookTab`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Book {
     Listings,
     Offers,
+    /// The chosen product's market history (`ItemDetailMarketPanel`).
+    Sales,
     Details,
 }
 
@@ -130,6 +132,7 @@ impl Book {
         match value {
             Some("listings") => Some(Book::Listings),
             Some("offers") => Some(Book::Offers),
+            Some("sales") => Some(Book::Sales),
             Some("details") => Some(Book::Details),
             _ => None,
         }
@@ -139,8 +142,54 @@ impl Book {
         match self {
             Book::Listings => "listings",
             Book::Offers => "offers",
+            Book::Sales => "sales",
             Book::Details => "details",
         }
+    }
+}
+
+/// The Sales tab's time range (`MarketHistoryRangeKey`), 90 days unless the address says
+/// otherwise. Each is a lookback and a point a day, a week or a month: a year of days would be a
+/// lot of chart for little more to read, and "all" stops at five years.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub enum Range {
+    #[serde(rename = "30d")]
+    Days30,
+    #[default]
+    #[serde(rename = "90d")]
+    Days90,
+    #[serde(rename = "1y")]
+    Year,
+    #[serde(rename = "all")]
+    All,
+}
+
+impl Range {
+    pub const EVERY: [Range; 4] = [Range::Days30, Range::Days90, Range::Year, Range::All];
+
+    fn read(value: Option<&str>) -> Self {
+        Range::EVERY.into_iter().find(|r| Some(r.as_str()) == value).unwrap_or_default()
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Range::Days30 => "30d",
+            Range::Days90 => "90d",
+            Range::Year => "1y",
+            Range::All => "all",
+        }
+    }
+
+    /// The days from `today` back that the range covers, and its points' granularity
+    /// (`resolveMarketHistoryRangeWindow`).
+    pub fn window(self, today: time::Date) -> SeriesWindow {
+        let (days, granularity) = match self {
+            Range::Days30 => (30, "daily"),
+            Range::Days90 => (90, "daily"),
+            Range::Year => (365, "weekly"),
+            Range::All => (1825, "monthly"),
+        };
+        SeriesWindow { from: (today - time::Duration::days(days)).to_string(), to: today.to_string(), granularity }
     }
 }
 
@@ -177,6 +226,8 @@ pub struct Address {
     pub listing: Option<String>,
     pub offer: Option<String>,
     pub book: Option<Book>,
+    /// The Sales tab's range (`range=30d|90d|1y|all`); marketplace keeps it in React state.
+    pub range: Range,
     /// `dimension.<id>=<option>`, each dimension given exactly one option, in key order.
     pub options: Vec<(String, String)>,
     /// A `dimension.*` parameter had a value (`hasInitialSelectedOptionFilters`).
@@ -209,6 +260,7 @@ impl Address {
             listing: one("listing"),
             offer: one("offer"),
             book: Book::read(first("book")),
+            range: Range::read(first("range")),
             options,
             filtered,
         }
@@ -231,6 +283,10 @@ impl Address {
 
     pub fn with_book(&self, book: Book) -> Self {
         Address { book: Some(book), ..self.clone() }
+    }
+
+    pub fn with_range(&self, range: Range) -> Self {
+        Address { range, ..self.clone() }
     }
 
     /// The product options `picks`, with no listing or offer chosen (`handleProductSelectionChange`
@@ -268,6 +324,7 @@ struct AddressQuery<'a> {
     listing: Option<&'a str>,
     offer: Option<&'a str>,
     book: Option<&'a str>,
+    range: Option<&'a str>,
     #[route(prefix = "dimension.")]
     dimensions: &'a [(String, String)],
 }
@@ -279,6 +336,7 @@ impl Params for Address {
             listing: self.listing.as_deref(),
             offer: self.offer.as_deref(),
             book: self.book.filter(|b| *b != self.side_book()).map(Book::as_str),
+            range: (self.range != Range::default()).then(|| self.range.as_str()),
             dimensions: &self.options,
         }
         .write_params(first, html, out)
@@ -301,6 +359,9 @@ impl Address {
         }
         if let Some(book) = self.book.filter(|b| *b != self.side_book()) {
             pairs.push(("book".to_owned(), book.as_str().to_owned()));
+        }
+        if self.range != Range::default() {
+            pairs.push(("range".to_owned(), self.range.as_str().to_owned()));
         }
         for (dimension, option) in &self.options {
             pairs.push((format!("dimension.{dimension}"), option.clone()));
@@ -516,6 +577,8 @@ pub struct ItemScreen {
     pub listing_setup: ListingSetup,
     /// Items like this one, under the market book; none when the read failed.
     pub similar: Vec<SimilarItem>,
+    /// The Sales tab's market history, read only when it is the tab shown.
+    pub history: Option<History>,
 }
 
 impl ItemScreen {
@@ -638,6 +701,7 @@ impl ItemScreen {
             listing_pending: None,
             listing_setup: ListingSetup::NotApplicable,
             similar: Vec::new(),
+            history: None,
             picks,
             item,
         }
@@ -793,13 +857,60 @@ async fn page(
     let notice = first(ADDED)
         .map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)))
         .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))));
-    let terms = offer_terms(&req, &caller, &item, &address).await;
+    let (terms, history) = tokio::join!(offer_terms(&req, &caller, &item, &address), market_history(&unwaited, &item, &address));
     let setup = listing_setup(&req, overlay, receipt.is_some());
     // The listing the address names was just published and the item's read is behind it.
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
     let behind = behind || setup == ListingSetup::Recovering;
-    let reads = PageReads { terms, behind, setup, listing_pending, similar };
+    let reads = PageReads { terms, behind, setup, listing_pending, similar, history };
     render(&req, item, &address, notice.as_ref(), StatusCode::OK, reads)
+}
+
+/// The Sales tab's market history (`market-history-loader.ts`), when it is the tab shown: the
+/// product's market stats, then for each currency it has sold in, its sale prices over the
+/// address's range. Marketplace's panel fetches it after the page loads; the pilot reads it with
+/// the page, so the tab works without a script. Any read failing is the tab's error.
+async fn market_history(caller: &Caller<'_>, item: &Item, address: &Address) -> Option<History> {
+    if address.book() != Book::Sales {
+        return None;
+    }
+    let Some(product) = ItemScreen::of(item.clone(), address, None).product_id else {
+        return Some(History::NoProduct);
+    };
+    let id = &item.catalog_item_id;
+    let stats = match caller.market_stats(id, &product).await {
+        Ok(stats) => stats,
+        Err(error) => {
+            tracing::warn!("the market stats' read failed: {error}");
+            return Some(History::Failed);
+        }
+    };
+    let window = address.range.window(time::OffsetDateTime::now_utc().date());
+    let mut series = Vec::with_capacity(stats.aggregates.len());
+    for aggregate in &stats.aggregates {
+        match caller.rollup_series(id, &product, &aggregate.currency_code, &window).await {
+            Ok(points) => series.push((aggregate.currency_code.clone(), points)),
+            Err(error) => {
+                tracing::warn!("the market series' read failed: {error}");
+                return Some(History::Failed);
+            }
+        }
+    }
+    Some(History::Read { stats, series })
+}
+
+/// What the Sales tab shows.
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum History {
+    /// The options name no product: the tab asks for one.
+    NoProduct,
+    Failed,
+    /// The stats, and each currency's sale prices.
+    Read {
+        stats: MarketStats,
+        series: Vec<(String, Vec<RollupPoint>)>,
+    },
 }
 
 /// Items like item `id` (a slug or an id). Marketplace's loader reads a failure as none, and so
@@ -826,6 +937,7 @@ pub struct PageReads {
     /// the page says so instead of offering to list again. Its id.
     pub listing_pending: Option<String>,
     pub similar: Vec<SimilarItem>,
+    pub history: Option<History>,
 }
 
 /// Whether a seller who may list can list now (marketplace's `ListingSetupLoadState`): their
@@ -851,7 +963,14 @@ pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &A
     let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
     let (terms, overlay) = tokio::join!(offer_terms(req, caller, item, address), read_overlay(req, caller, id, address));
     let setup = listing_setup(req, overlay, after_write);
-    PageReads { terms, behind: setup == ListingSetup::Recovering, setup, listing_pending: None, similar: Vec::new() }
+    PageReads {
+        terms,
+        behind: setup == ListingSetup::Recovering,
+        setup,
+        listing_pending: None,
+        similar: Vec::new(),
+        history: None,
+    }
 }
 
 /// The seller overlay of item `id` (a slug or an id), when the page shows it: on the Sell tab,
@@ -921,6 +1040,7 @@ pub fn render(
     screen.stale_listing &= reads.listing_pending.is_none();
     screen.listing_pending = reads.listing_pending;
     screen.similar = reads.similar;
+    screen.history = reads.history;
     let behind = reads.behind;
     let t: ItemMsg = req.t();
     let item = &screen.item;

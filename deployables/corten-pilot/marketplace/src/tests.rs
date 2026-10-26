@@ -376,6 +376,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
         return answer;
     }
+    if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
+        return rollups(rest);
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         // Discovery has not caught up with a listing published at 44.
         if waits_for(&headers).as_deref() == Some("44") {
@@ -1795,6 +1798,41 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
 
 const ITEM_PAGE: &str = "/items/charizard";
 
+const ROLLUPS: &str = "/api/marketplace/market-rollups/";
+
+/// Pricing's market rollups: Charizard's `lst_vault` product (the raw one the page picks) has
+/// sold in dollars (one sale in 30 days, four units in 90, three days of prices, one with a
+/// verified sale); any other product's stats fail.
+fn rollups(rest: &str) -> Response {
+    let raw = rest.starts_with("cat_charizard/cat_charizard%3A%3Alst_vault/");
+    if rest.ends_with("/stats") && raw {
+        return Json(json!({
+            "aggregates": [{
+                "currencyCode": "USD", "lastSoldAt": "2026-10-20T15:00:00.000Z", "lastSoldPriceAmount": "395.00",
+                "medianPrice30d": null, "volume30d": 1, "tradeCount30d": 1,
+                "medianPrice90d": "392.50", "volume90d": 4, "tradeCount90d": 4,
+            }],
+            "marketState": { "day": "2026-10-25", "minAskAmount": "389.00", "maxBidAmount": "380.00", "spreadAmount": "9.00" },
+            "statHygiene": { "minimumTradeSample": 3 },
+            "displayPolicy": { "showVerifiedMarkers": true },
+        }))
+        .into_response();
+    }
+    if rest.ends_with("/series") && raw {
+        let point = |day: &str, last: &str, min: &str, max: &str, verified: u64| {
+            json!({ "currencyCode": "USD", "day": day, "firstPriceAmount": last, "lastPriceAmount": last, "minPriceAmount": min,
+                "maxPriceAmount": max, "medianPriceAmount": last, "unitVolume": 1, "tradeCount": 1, "verifiedTradeCount": verified })
+        };
+        return Json(json!({ "items": [
+            point("2026-08-01", "380.00", "375.00", "385.00", 0),
+            point("2026-09-01", "390.00", "390.00", "390.00", 1),
+            point("2026-10-20", "395.00", "390.00", "400.00", 0),
+        ] }))
+        .into_response();
+    }
+    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+}
+
 /// The address of each link on the page with `text` in it.
 fn hrefs<'a>(html: &'a str, text: &str) -> Vec<&'a str> {
     html.split("<a ")
@@ -2838,6 +2876,70 @@ async fn similar_items_are_cards_under_the_market_book_and_a_failed_read_leaves_
     let (status, _, html) = pilot.send(get("/items/unlisted", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("similar-items"), "{html}");
+}
+
+#[tokio::test]
+async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws_its_chart() {
+    let pilot = Pilot::new().await;
+    let page = "/items/charizard?book=sales&range=1y&dimension.dim_form=chc_raw";
+    let (status, _, html) = pilot.send(get(page, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let at = html.find(r#"id="market-book""#).expect("the market book");
+    let book = &html[at..at + html[at..].find("</section>").unwrap()];
+    assert_eq!(
+        hrefs(book, "Sales"),
+        ["/items/charizard?book=sales&amp;range=1y&amp;dimension.dim_form=chc_raw"],
+        "the tab keeps the range: {book}"
+    );
+    let shown = text(book);
+    // The spread between the ask and the bid, then the dollars' last sale and medians.
+    assert!(shown.contains("Spread $9.00 $389.00 ask / $380.00 bid"), "{shown}");
+    assert!(shown.contains("Last sold $395.00 Sold Oct 20, 2026, 3:00 PM UTC"), "{shown}");
+    assert!(shown.contains("30-day median Unavailable 1 sale in 30 days — median shown at 3+ sales"), "{shown}");
+    assert!(shown.contains("90-day median $392.50 4 units sold"), "{shown}");
+    // The series is read for a year, a point a week, to today.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let series = calls.iter().find(|c| c.path.contains("/series?")).expect("the series is read");
+    let today = time::OffsetDateTime::now_utc().date();
+    assert!(
+        series
+            .path
+            .contains(&format!("from={}&to={today}&currencyCode=USD&granularity=weekly", today - time::Duration::days(365)))
+    );
+    assert!(series.headers.get("chase-sets-read-after-write").is_none());
+    // The range is links, the year chosen; the chart is a line, a band and one verified sale.
+    assert!(book.contains(r#"aria-current="true">1 year</a>"#), "{book}");
+    assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
+    assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
+    assert!(book.contains(r#"class="item-detail__chart-line" d="M12.00,"#), "{book}");
+    assert_eq!(book.matches("item-detail__chart-band").count(), 1, "{book}");
+    assert_eq!(book.matches("<circle").count(), 1, "{book}");
+    assert!(book.contains("<title>Verified sale, $390.00, 2026-09-01</title>"), "{book}");
+    assert!(
+        shown.contains("Sale price: 3 points, from $380.00 to $395.00. Sale price marker: Verified sale, $390.00, 2026-09-01."),
+        "{shown}"
+    );
+    // Another tab reads none of it.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    pilot.send(get("/items/charizard?dimension.dim_form=chc_raw", None)).await;
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.starts_with(ROLLUPS)));
+}
+
+#[tokio::test]
+async fn the_sales_tab_asks_for_a_product_and_says_when_its_history_cannot_be_read() {
+    let pilot = Pilot::new().await;
+    // No product named: choose one.
+    let (status, _, html) = pilot.send(get("/items/unlisted?book=sales", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Select a condition Choose a product option above to see its sales history."), "{html}");
+    // Pricing fails for another product: the tab says so, the page is still the page.
+    let (status, _, html) = pilot.send(get("/items/charizard?book=sales&listing=lst_chase", None)).await;
+    assert!(
+        pilot.stand.calls.lock().unwrap().iter().any(|c| c.path.ends_with("dim_grade%3A-/stats")),
+        "the listing's product's stats"
+    );
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Sales history unavailable We could not load sales history right now."), "{html}");
 }
 
 #[tokio::test]

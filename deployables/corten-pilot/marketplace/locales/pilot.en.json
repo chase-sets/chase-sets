@@ -19,7 +19,10 @@
     "watch_saved_description": "We will notify you when this product matches your alert.",
     "manage_alerts": "Manage alerts",
     "listing_published": "Listing published",
-    "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up."
+    "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up.",
+    "sales_again": "Show sales history",
+    "chart_summary": "{name}: {count} points, from {min} to {max}.",
+    "chart_marker": "{name} marker: {label}."
   },
   "error": {
     "forbidden_title": "Not allowed",

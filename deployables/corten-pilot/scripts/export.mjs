@@ -21,7 +21,7 @@
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
-//   its page view's, product selector's and similar items', discovery.routes.itemDetail.*, the language
+//   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
 //   labels the details list uses, and an item's display identity).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -285,6 +285,7 @@ const outputs = [
         ["discovery.features.itemDetail.ui.itemDetailPageView.", "view"],
         ["discovery.features.itemDetail.ui.productSelector.", "selector"],
         ["discovery.features.itemDetail.ui.similarItems.", "similar"],
+        ["discovery.features.itemDetail.ui.marketPanel.", "panel"],
         ["discovery.routes.itemDetail.", "route"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [

@@ -636,6 +636,8 @@ impl Checkout for Caller<'_> {
 }
 
 const DISCOVERY: &str = "discovery";
+const PRICING: &str = "pricing";
+const ROLLUPS: &str = "/api/marketplace/market-rollups";
 const ITEMS: &str = "/api/marketplace/items";
 
 /// An item page's read (`GET /api/marketplace/items/{id}`, `DiscoveryItemDetail` in
@@ -890,6 +892,125 @@ pub trait Discovery {
     async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
     /// Items like the item, by its slug or its id (`GET /api/marketplace/items/{id}/similar`).
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
+}
+
+/// Pricing's market rollups for a product, which the Sales tab shows.
+pub trait MarketHistory {
+    /// The product's market stats (`ProductMarketStatsSnapshotResponse`).
+    async fn market_stats(&self, item_id: &str, product_id: &str) -> Result<MarketStats, ApiError>;
+    /// The product's sale prices in `currency` from `from` to `to` (`YYYY-MM-DD`), one point a
+    /// `granularity` (`daily`, `weekly` or `monthly`).
+    async fn rollup_series(
+        &self,
+        item_id: &str,
+        product_id: &str,
+        currency: &str,
+        window: &SeriesWindow,
+    ) -> Result<Vec<RollupPoint>, ApiError>;
+}
+
+/// The days a series covers and its granularity.
+pub struct SeriesWindow {
+    pub from: String,
+    pub to: String,
+    pub granularity: &'static str,
+}
+
+impl MarketHistory for Caller<'_> {
+    async fn market_stats(&self, item_id: &str, product_id: &str) -> Result<MarketStats, ApiError> {
+        self.read(&format!("{ROLLUPS}/{}/{}/stats", segment(item_id), segment(product_id)), PRICING).await
+    }
+
+    async fn rollup_series(
+        &self,
+        item_id: &str,
+        product_id: &str,
+        currency: &str,
+        window: &SeriesWindow,
+    ) -> Result<Vec<RollupPoint>, ApiError> {
+        let path = format!(
+            "{ROLLUPS}/{}/{}/series?from={}&to={}&currencyCode={}&granularity={}",
+            segment(item_id),
+            segment(product_id),
+            segment(&window.from),
+            segment(&window.to),
+            segment(currency),
+            window.granularity,
+        );
+        Ok(self.read::<RollupSeries>(&path, PRICING).await?.items)
+    }
+}
+
+/// `ProductMarketStatsSnapshotResponse`, the fields the Sales tab reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketStats {
+    /// One for each currency the product has sold in.
+    #[serde(default)]
+    pub aggregates: Vec<MarketAggregate>,
+    pub market_state: Option<MarketState>,
+    pub stat_hygiene: Option<StatHygiene>,
+    pub display_policy: Option<DisplayPolicy>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketAggregate {
+    pub currency_code: String,
+    pub last_sold_at: Option<String>,
+    pub last_sold_price_amount: Option<String>,
+    pub median_price30d: Option<String>,
+    #[serde(default)]
+    pub volume30d: u64,
+    #[serde(default)]
+    pub trade_count30d: u64,
+    pub median_price90d: Option<String>,
+    #[serde(default)]
+    pub volume90d: u64,
+    #[serde(default)]
+    pub trade_count90d: u64,
+}
+
+/// The product's market today: its lowest ask, highest bid and the spread between them.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketState {
+    pub min_ask_amount: Option<String>,
+    pub max_bid_amount: Option<String>,
+    pub spread_amount: Option<String>,
+}
+
+/// Fewer sales than this in a window and its median is not shown.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatHygiene {
+    pub minimum_trade_sample: u64,
+}
+
+/// Pricing's display policy: whether verified sales are marked on the chart.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayPolicy {
+    pub show_verified_markers: bool,
+}
+
+/// A day's (or a week's, or a month's) sales (`ProductRollupSeriesPoint`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RollupPoint {
+    /// The period's first day, `YYYY-MM-DD`.
+    pub day: String,
+    pub last_price_amount: Option<String>,
+    pub min_price_amount: Option<String>,
+    pub max_price_amount: Option<String>,
+    #[serde(default)]
+    pub verified_trade_count: u64,
+}
+
+#[derive(Deserialize)]
+struct RollupSeries {
+    #[serde(default)]
+    items: Vec<RollupPoint>,
 }
 
 /// An item like the page's (`DiscoverySimilarItem`), the fields its card shows.

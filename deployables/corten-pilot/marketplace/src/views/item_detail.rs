@@ -8,12 +8,12 @@ use serde_json::{Value, json};
 
 use super::on_marketplace;
 use crate::{
-    api::{FieldValue, Item, Listing, Offer, Reference, SimilarItem, segment},
+    api::{FieldValue, Item, Listing, MarketAggregate, MarketState, Offer, Reference, RollupPoint, SimilarItem, segment},
     app::url,
     buying::{BuyFields, BuyNotice, RailForm, field},
     items::{
-        Address, Book, ItemScreen, ListingSetup, Market, OptionMarket, Picks, active_dimensions, available, normalize,
-        option_label, ordered_options,
+        Address, Book, History, ItemScreen, ListingSetup, Market, OptionMarket, Picks, Range, active_dimensions, available,
+        normalize, option_label, ordered_options,
     },
     listing::{self, ListFields},
     selling::{self, SellForm, SellIntent},
@@ -556,6 +556,353 @@ pub fn similar_image(item: &SimilarItem) -> Option<Image> {
             .join(", ")
     });
     Some(Image { src: on_marketplace(&fallback.url), srcset: srcset.filter(|s| !s.is_empty()), width: None, height: None })
+}
+
+/// The Sales tab (`ItemDetailMarketPanel`): the spread, then for each currency the product has
+/// sold in its last sale, its 30- and 90-day medians and its sale prices over the range, which are
+/// links. Neutral words only, as marketplace's: counts, prices and dates.
+#[component(css = ItemDetail)]
+fn Sales<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
+    let p = Pilot::default();
+    let again = url::Item { slug, state: address.clone() }.href();
+    html! {
+        <div class={Panel}>
+            match &screen.history {
+                Some(History::NoProduct) => {
+                    <div class={Empty}>
+                        <p class={Strong}>{t.panel_select_condition_title()}</p>
+                        <p class={Muted}>{t.panel_select_condition_description()}</p>
+                    </div>
+                }
+                Some(History::Failed) => {
+                    <div class={Empty}>
+                        <p class={Strong}>{t.panel_error_title()}</p>
+                        <p class={Muted}>{t.panel_error_description()}</p>
+                    </div>
+                }
+                Some(History::Read { stats, series }) => {
+                    <SalesRead t={t} stats={stats} series={series} title={&screen.item.title} address={address} slug={slug} />
+                }
+                // A refused form's page does not read the history again: the page itself does.
+                None => {
+                    <p class={Count}><a href={&again}>{p.item_sales_again()}</a></p>
+                }
+            }
+        </div>
+    }
+}
+
+/// One currency's numbers and chart on the Sales tab.
+struct CurrencySales {
+    heading: Option<String>,
+    sold: (String, Option<String>),
+    m30: (String, String),
+    m90: (String, String),
+    chart: Chart,
+    /// The chart summary's id, one for each currency.
+    summary_id: String,
+}
+
+/// The Sales tab's numbers and chart, once read.
+#[component(css = ItemDetail)]
+fn SalesRead<'a>(
+    t: ItemMsg,
+    stats: &'a crate::api::MarketStats,
+    series: &'a [(String, Vec<RollupPoint>)],
+    title: &'a str,
+    address: &'a Address,
+    slug: &'a str,
+) -> impl Render {
+    let minimum = stats.stat_hygiene.as_ref().map_or(3, |h| h.minimum_trade_sample);
+    let markers = stats.display_policy.as_ref().is_none_or(|d| d.show_verified_markers);
+    let (spread, spread_note) = spread(t, stats.market_state.as_ref());
+    let aggregates: Vec<Option<&MarketAggregate>> =
+        if stats.aggregates.is_empty() { vec![None] } else { stats.aggregates.iter().map(Some).collect() };
+    let several = stats.aggregates.len() > 1;
+    let groups: Vec<CurrencySales> = aggregates
+        .into_iter()
+        .map(|aggregate| {
+            let currency = aggregate.map(|a| a.currency_code.as_str());
+            let points: &[RollupPoint] =
+                series.iter().find(|(c, _)| Some(c.as_str()) == currency).map_or(&[], |(_, points)| points.as_slice());
+            CurrencySales {
+                heading: currency.filter(|_| several).map(|c| t.panel_currency_group(c).to_string()),
+                sold: last_sold(t, aggregate),
+                m30: median(t, aggregate, 30, minimum),
+                m90: median(t, aggregate, 90, minimum),
+                chart: Chart::of(t, points, currency, markers),
+                summary_id: format!("sales-summary-{}", currency.unwrap_or("none").to_ascii_lowercase()),
+            }
+        })
+        .collect();
+    let label = t.panel_chart_label(title).to_string();
+    html! {
+        <dl class={Stats}>
+            <div class={Stat}>
+                <dt>{t.panel_spread_label()}</dt>
+                <dd class={StatValue}>{&spread}</dd>
+                if let Some(note) = &spread_note {
+                    <dd class={Muted}>{note}</dd>
+                }
+            </div>
+        </dl>
+        for group in &groups {
+            <section class={SalesGroup}>
+                if let Some(heading) = &group.heading {
+                    <h3 class={Label}>{heading}</h3>
+                }
+                <dl class={(Stats, Three)}>
+                    <div class={Stat}>
+                        <dt>{t.panel_last_sold_label()}</dt>
+                        <dd class={StatValue}>{&group.sold.0}</dd>
+                        if let Some(note) = &group.sold.1 {
+                            <dd class={Muted}>{note}</dd>
+                        }
+                    </div>
+                    <div class={Stat}>
+                        <dt>{t.panel_median30d_label()}</dt>
+                        <dd class={StatValue}>{&group.m30.0}</dd>
+                        <dd class={Muted}>{&group.m30.1}</dd>
+                    </div>
+                    <div class={Stat}>
+                        <dt>{t.panel_median90d_label()}</dt>
+                        <dd class={StatValue}>{&group.m90.0}</dd>
+                        <dd class={Muted}>{&group.m90.1}</dd>
+                    </div>
+                </dl>
+                <Ranges t={t} address={address} slug={slug} />
+                match &group.chart {
+                    Chart::Plot(plot) => { <Plot plot={plot} label={&label} summary_id={&group.summary_id} /> }
+                    Chart::Empty => {
+                        <div class={Empty}>
+                            <p class={Strong}>{t.panel_chart_empty_title()}</p>
+                            <p class={Muted}>{t.panel_chart_empty_description()}</p>
+                        </div>
+                    }
+                    Chart::Insufficient => {
+                        <div class={Empty}>
+                            <p class={Strong}>{t.panel_chart_insufficient_title()}</p>
+                            <p class={Muted}>{t.panel_chart_insufficient_description()}</p>
+                        </div>
+                    }
+                }
+            </section>
+        }
+    }
+}
+
+/// The chart's time range, each a link to the page with it (`SegmentedControl`). Marketplace
+/// draws it only above a plot; the pilot draws it above an empty chart too, since a wider range
+/// may have the sales a narrow one lacks.
+#[component(css = ItemDetail)]
+fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
+    let range = move |r: Range| url::Item { slug, state: address.with_range(r) }.href();
+    let current = move |r: Range| (address.range == r).then_some("true");
+    html! {
+        <nav class={(Segmented, ChartRanges)} aria-label={t.panel_range_selector_label()}>
+            for r in Range::EVERY {
+                <a class={Segment} href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
+            }
+        </nav>
+    }
+}
+
+fn range_label(t: ItemMsg, range: Range) -> &'static str {
+    match range {
+        Range::Days30 => t.panel_range_30d(),
+        Range::Days90 => t.panel_range_90d(),
+        Range::Year => t.panel_range_1y(),
+        Range::All => t.panel_range_all(),
+    }
+}
+
+/// The spread and what it is between (`formatSpread`): ask and bid, or only one of them.
+fn spread(t: ItemMsg, state: Option<&MarketState>) -> (String, Option<String>) {
+    // Marketplace formats these without a currency, which it reads as dollars.
+    let usd = |amount: &str| money(t, Some(amount), Some("USD"));
+    let unavailable = || t.panel_unavailable().to_owned();
+    let Some(state) = state else { return (unavailable(), None) };
+    let ask = state.min_ask_amount.as_deref().filter(|a| !a.is_empty());
+    let bid = state.max_bid_amount.as_deref().filter(|a| !a.is_empty());
+    match (ask, bid) {
+        (Some(ask), Some(bid)) => (
+            state.spread_amount.as_deref().filter(|a| !a.is_empty()).map_or_else(unavailable, usd),
+            Some(t.panel_ask_and_bid(&usd(ask), &usd(bid)).to_string()),
+        ),
+        (Some(ask), None) => (usd(ask), Some(t.panel_ask_only().to_owned())),
+        (None, Some(bid)) => (usd(bid), Some(t.panel_bid_only().to_owned())),
+        (None, None) => (unavailable(), None),
+    }
+}
+
+/// The last sale and when (`formatLastSold`).
+fn last_sold(t: ItemMsg, aggregate: Option<&MarketAggregate>) -> (String, Option<String>) {
+    let Some((aggregate, at)) = aggregate.and_then(|a| a.last_sold_at.as_deref().map(|at| (a, at))) else {
+        return (t.panel_no_sales_yet().to_owned(), None);
+    };
+    let date = corten::i18n::parse_timestamp(at)
+        .map(|at| t.date_time(at, corten::i18n::DateStyle::Medium, corten::i18n::TimeStyle::Short).to_string())
+        .unwrap_or_else(|| at.to_owned());
+    (
+        money(t, aggregate.last_sold_price_amount.as_deref(), Some(&aggregate.currency_code)),
+        Some(t.panel_sold_on(&date).to_string()),
+    )
+}
+
+/// A window's median, or why it is not shown (`formatMedianWindow`): no sales, or fewer than
+/// the minimum sample.
+fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u64) -> (String, String) {
+    let (amount, volume, trades) = match (aggregate, days) {
+        (Some(a), 30) => (a.median_price30d.as_deref(), a.volume30d, a.trade_count30d),
+        (Some(a), _) => (a.median_price90d.as_deref(), a.volume90d, a.trade_count90d),
+        (None, _) => (None, 0, 0),
+    };
+    if let (Some(a), Some(amount)) = (aggregate, amount.filter(|m| !m.is_empty())) {
+        let sold = if volume == 1 {
+            t.panel_units_sold_singular(volume).to_string()
+        } else {
+            t.panel_units_sold_plural(volume).to_string()
+        };
+        return (money(t, Some(amount), Some(&a.currency_code)), sold);
+    }
+    let unavailable = t.panel_unavailable().to_owned();
+    if trades == 0 {
+        return (unavailable, t.panel_no_sales_in_window(days).to_string());
+    }
+    let note = if trades == 1 {
+        t.panel_median_suppressed_singular(trades, days, minimum).to_string()
+    } else {
+        t.panel_median_suppressed_plural(trades, days, minimum).to_string()
+    };
+    (unavailable, note)
+}
+
+/// A currency's sale prices as a chart (`TimeSeriesChart`, drawn here as SVG): nothing sold, one
+/// day sold (a trend needs two), or the plot.
+enum Chart {
+    Empty,
+    Insufficient,
+    Plot(PlotShape),
+}
+
+/// The plot's geometry in a 640 by 220 box, and its words: the line of each period's last price,
+/// the band from its lowest to its highest, a mark on each period with a verified sale, and the
+/// summary a screen reader reads.
+pub struct PlotShape {
+    line: String,
+    band: Option<String>,
+    marks: Vec<(String, String, String)>,
+    summary: String,
+}
+
+const CHART_WIDTH: f64 = 640.0;
+const CHART_HEIGHT: f64 = 220.0;
+const CHART_PAD: f64 = 12.0;
+
+impl Chart {
+    fn of(t: ItemMsg, points: &[RollupPoint], currency: Option<&str>, markers: bool) -> Self {
+        let p = Pilot::default();
+        let mut plotted: Vec<(f64, f64, &RollupPoint)> = points
+            .iter()
+            .filter_map(|point| {
+                let value = point.last_price_amount.as_deref()?.parse::<f64>().ok()?;
+                Some((day_number(&point.day)?, value, point))
+            })
+            .collect();
+        match plotted.len() {
+            0 => return Chart::Empty,
+            1 => return Chart::Insufficient,
+            _ => {}
+        }
+        plotted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let band: Vec<(f64, f64, f64)> = plotted
+            .iter()
+            .filter_map(|(x, _, point)| {
+                let min = point.min_price_amount.as_deref()?.parse::<f64>().ok()?;
+                let max = point.max_price_amount.as_deref()?.parse::<f64>().ok()?;
+                Some((*x, min, max))
+            })
+            .collect();
+        let (x0, x1) = (plotted[0].0, plotted[plotted.len() - 1].0);
+        let values = plotted.iter().map(|p| p.1).chain(band.iter().flat_map(|b| [b.1, b.2]));
+        let (lo, hi) = values.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        let (lo, hi) = pad_domain(lo, hi);
+        let x = |v: f64| CHART_PAD + scale(v, x0, x1, 0.0, CHART_WIDTH - 2.0 * CHART_PAD);
+        let y = |v: f64| CHART_PAD + scale(v, lo, hi, CHART_HEIGHT - 2.0 * CHART_PAD, 0.0);
+        let at = |px: f64, py: f64| format!("{:.2},{:.2}", x(px), y(py));
+        let line = plotted
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("{}{}", if i == 0 { "M" } else { "L" }, at(p.0, p.1)))
+            .collect::<Vec<_>>();
+        let band = (!band.is_empty()).then(|| {
+            let top = band.iter().enumerate().map(|(i, b)| format!("{}{}", if i == 0 { "M" } else { "L" }, at(b.0, b.2)));
+            let bottom = band.iter().rev().map(|b| format!("L{}", at(b.0, b.1)));
+            format!("{} Z", top.chain(bottom).collect::<Vec<_>>().join(" "))
+        });
+        let price = |v: f64| money(t, Some(&format!("{v:.2}")), currency);
+        let name = t.panel_chart_series_name();
+        let marks: Vec<(String, String, String)> = if markers {
+            plotted
+                .iter()
+                .filter(|(_, _, point)| point.verified_trade_count > 0)
+                .map(|(px, py, point)| {
+                    let label = t.panel_verified_sale_marker(&price(*py), &point.day).to_string();
+                    (format!("{:.2}", x(*px)), format!("{:.2}", y(*py)), label)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let (min, max) = plotted.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
+        let mut summary = p.item_chart_summary(name, plotted.len(), &price(min), &price(max)).to_string();
+        for (_, _, label) in &marks {
+            summary.push(' ');
+            summary.push_str(&p.item_chart_marker(name, label).to_string());
+        }
+        Chart::Plot(PlotShape { line: line.join(" "), band, marks, summary })
+    }
+}
+
+/// A `YYYY-MM-DD` day as a number of days, the chart's time axis.
+fn day_number(day: &str) -> Option<f64> {
+    let mut parts = day.splitn(3, '-').map(|p| p.parse::<i32>().ok());
+    let (year, month, day) = (parts.next()??, parts.next()??, parts.next()??);
+    let month = time::Month::try_from(u8::try_from(month).ok()?).ok()?;
+    let date = time::Date::from_calendar_date(year, month, u8::try_from(day).ok()?).ok()?;
+    Some(f64::from(date.to_julian_day()))
+}
+
+fn scale(value: f64, d0: f64, d1: f64, r0: f64, r1: f64) -> f64 {
+    if d1 == d0 { (r0 + r1) / 2.0 } else { r0 + (value - d0) / (d1 - d0) * (r1 - r0) }
+}
+
+/// The value axis a little wider than the values (`padDomain` by 8%).
+fn pad_domain(min: f64, max: f64) -> (f64, f64) {
+    let span = max - min;
+    let pad = if span == 0.0 { (max.abs() * 0.08).max(1.0) } else { span * 0.08 };
+    (min - pad, max + pad)
+}
+
+/// The plot: scrolls inside its box below 480 px wide rather than squeezing, as marketplace's.
+#[component(css = ItemDetail)]
+fn Plot<'a>(plot: &'a PlotShape, label: &'a str, summary_id: &'a str) -> impl Render {
+    html! {
+        <figure class={ChartBox}>
+            <div class={ChartScroll}>
+                <svg viewBox="0 0 640 220" role="img" aria-label={label} aria-describedby={summary_id} focusable="false">
+                    if let Some(band) = &plot.band {
+                        <path class={ChartBand} d={band}></path>
+                    }
+                    <path class={ChartLine} d={&plot.line}></path>
+                    for (cx, cy, title) in &plot.marks {
+                        <circle class={ChartMark} cx={cx} cy={cy} r="4"><title>{title}</title></circle>
+                    }
+                </svg>
+            </div>
+            <figcaption class={VisuallyHidden} id={summary_id}>{&plot.summary}</figcaption>
+        </figure>
+    }
 }
 
 /// A listing or offer the address chose that the market no longer has.
@@ -1561,6 +1908,7 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
             <nav class={Tabs} aria-label={t.page_market_book()}>
                 <a class={Tab} href={&tab(Book::Listings)} aria-current={current(Book::Listings)}>{t.page_listings_2()}</a>
                 <a class={Tab} href={&tab(Book::Offers)} aria-current={current(Book::Offers)}>{t.page_offers_2()}</a>
+                <a class={Tab} href={&tab(Book::Sales)} aria-current={current(Book::Sales)}>{t.page_sales()}</a>
                 <a class={Tab} href={&tab(Book::Details)} aria-current={current(Book::Details)}>{t.page_details()}</a>
             </nav>
             match book {
@@ -1570,6 +1918,7 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
                 Book::Offers => {
                     <Offers t={t} screen={screen} address={address} slug={slug} clear={clear.as_deref().filter(|_| filtered)} />
                 }
+                Book::Sales => { <Sales t={t} screen={screen} address={address} slug={slug} /> }
                 Book::Details => { <Details t={t} item={&screen.item} /> }
             }
         </section>

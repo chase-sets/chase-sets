@@ -19,7 +19,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
-| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration The mobile action dock below 80rem: the price, then Buy, Sell and Watch as links to the rail on that side, or Select options. The gallery: more than one picture shows one at a time, picked by its thumbnail. More like this: the similar items' cards under the market book, each to its page here (not ported yet: a graded product's listing; the Sales tab; the reference dialog) |
+| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration The mobile action dock below 80rem: the price, then Buy, Sell and Watch as links to the rail on that side, or Select options. The gallery: more than one picture shows one at a time, picked by its thumbnail. More like this: the similar items' cards under the market book, each to its page here. The market book's Sales tab: the chosen product's spread, last sale and medians, and its sale prices over a range as a chart drawn on the server, the range links (not ported yet: a graded product's listing; the reference dialog; the Sales tab's live refresh) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -689,6 +689,28 @@ forward only on purpose, when a fix the pilot needs lands.
     are told apart. Checked at 390, 800 and 1280 px against the sandbox: the same eight items in
     the same order as marketplace's page, one column then two from 64rem, no sideways scroll, and
     every picture loaded once scrolled to (each is `loading="lazy"`).
+40. **The Sales tab is read with the page and its chart is SVG drawn on the server.** Marketplace's
+    `ItemDetailMarketPanel` fetches the market history from a resource route after the page
+    hydrates, keeps the range in React state, and draws `TimeSeriesChart` (hand-rolled SVG, with
+    a fade-in) in the browser. The pilot reads Pricing's stats, then each currency's series
+    (`GET /api/marketplace/market-rollups/{item}/{product}/stats` and `.../series`, the windows
+    and granularities of `resolveMarketHistoryRangeWindow`), only when the Sales tab is shown,
+    and without a write's receipt. It draws the same geometry on the server: the line, the
+    band, and a mark with a `<title>` for each verified sale, in a 640 by 220 box that scales
+    with its width and scrolls in its box below 480 px, with the same screen-reader summary
+    (`item.chart_summary` and `item.chart_marker`, since marketplace's are English in the design
+    system). The range is a `range=30d|90d|1y|all` parameter (90 days when absent), and each
+    range is a link, so the tab works without a script and can be shared. It adds no script. One
+    deliberate difference: marketplace drops the range control when the range has fewer than
+    two sale days, so older sales cannot be reached
+    ([#10603 [design-system] Keep a chart's range control when the range has too few points to plot](https://github.com/chase-sets/chase-sets/issues/10603)).
+    The pilot keeps it. A refused form's page does not read the history again; its Sales tab is
+    a link to the page that does (`item.sales_again`). Not ported: marketplace refetches when a
+    `pricing.productMarketStats` realtime patch lands for the product, so a sale moves the
+    numbers without a reload. Measured once against the sandbox's release build: the Sales tab's
+    page in 48 to 76 ms warm, the Listings tab's in 34 to 51 ms. The sandbox has no recorded
+    sales, so the chart was checked with the router test's stand-in history in the real page's
+    stylesheet at 390 and 1280 px.
 
 ## Corten gaps
 
