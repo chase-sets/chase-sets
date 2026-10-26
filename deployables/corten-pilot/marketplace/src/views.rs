@@ -29,6 +29,7 @@ mod listing_page;
 mod location_card;
 mod market_nav;
 mod notification_page;
+mod order_page;
 mod page_actions;
 mod recovery;
 mod search_page;
@@ -45,6 +46,7 @@ pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch};
+pub use order_page::{OrderList, OrderPage};
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
@@ -76,6 +78,9 @@ pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
 
 /// The notification center (`/account/notifications`).
 pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
+
+/// The account's orders (`/account/purchases` and `/account/sales`).
+pub const ORDERS: &[Component] = &[OrderPage];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

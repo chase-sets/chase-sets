@@ -30,7 +30,7 @@
   },
   "error": {
     "forbidden_title": "Not allowed",
-    "forbidden": "Your role cannot open storage locations.",
+    "forbidden": "Your role cannot open this page.",
     "not_found_title": "Not found",
     "not_found": "There is nothing at this address.",
     "failed_title": "Something went wrong",
@@ -65,5 +65,17 @@
   },
   "notifications": {
     "pending": "Saved. Your Product alerts will show the change in a moment."
+  },
+  "orders": {
+    "source_buy_now": "Buy now",
+    "source_cart": "Cart checkout",
+    "source_offer_acceptance": "Accepted offer",
+    "terms_locked": "Seller terms were locked when this order was created.",
+    "summary": "Order summary",
+    "purchase_pending": "We are preparing your purchase. Refresh in a moment and it should appear.",
+    "sale_pending": "We are preparing your sale. Refresh in a moment and it should appear.",
+    "purchase_unverified": "Purchase handoff is no longer valid.",
+    "sale_unverified": "Sale handoff is no longer valid.",
+    "evidence_alt": "{title} evidence"
   }
 }

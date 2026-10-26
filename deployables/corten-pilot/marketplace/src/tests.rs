@@ -360,6 +360,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
             // none until its ship-from setup is saved.
             "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
+            // may only read its purchases.
+            "shopper" => actor(&["orders.view", "orders.manage"]),
+            "merchant" => actor(&["orders.view", "orders.manage", "listings.view"]),
+            "looker" => actor(&["orders.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -380,6 +385,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = notification_center(session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = ordering(&method, &uri, &headers) {
         return answer;
     }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
@@ -4578,4 +4586,327 @@ async fn a_failed_read_is_a_banner_answered_502_and_a_visitor_signs_in() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "http://localhost:7753/sign-in?returnTo=%2Faccount%2Fnotifications");
     assert_eq!(pilot.send(get("/account/notifications", Some("other"))).await.0, StatusCode::FORBIDDEN);
+}
+
+const PURCHASES_API: &str = "/api/marketplace/account/purchases";
+const SALES_API: &str = "/api/marketplace/account/sales";
+
+/// An order as Ordering's projection has it: `status` and the reason it cannot be cancelled.
+fn order(id: &str, status: &str, unavailable: Option<&str>) -> Value {
+    json!({
+        "order_id": id, "display_reference": format!("ORD-{}", id[4..].to_uppercase()), "source_type": "offer-acceptance",
+        "source_reference_id": "off_1", "buyer_account_id": "acc_buyer", "buyer_display_name": "Collector Zero",
+        "seller_account_id": "acc_seller", "seller_display_name": "Chase Sets", "shipping_option": "standard",
+        "item_subtotal_amount": "44.50", "shipping_allowance_amount": "1.77", "protection_amount": "0.45",
+        "shipping_charge_amount": "12.82", "sales_tax_amount": "0.00", "total_amount": "57.32",
+        "marketplace_sales_fee_amount": "3.17", "seller_item_net_amount": "41.33", "seller_payout_amount": "53.70",
+        "terms_schedule_id": "ots_1", "terms_resolved_at": "2026-10-24T03:55:44.970Z",
+        "shipping_destination_snapshot": {
+            "name": "Synthetic Buyer", "company": null, "line1": "100 Market Street", "line2": null, "city": "Chicago",
+            "state": "IL", "postalCode": "60601", "country": "US",
+        },
+        "status": status, "payment_deadline_at": "2026-10-24T04:55:48.540Z", "ready_for_fulfillment_at": null,
+        "self_service_cancellation_available": status == "ready-for-fulfillment" && unavailable.is_none(),
+        "cancellation_unavailable_reason": unavailable, "created_at": "2026-10-25T14:10:03.103Z", "total_quantity": 2,
+        "item_titles": ["Twilight Masquerade Elite Trainer Box", "Pikachu"],
+        "lines": [{
+            "line_id": "oli_1", "item_title": "Twilight Masquerade Elite Trainer Box", "item_subtitle": "Sealed Elite Trainer Box",
+            "product_summary": "Form: Raw | Condition: Near Mint", "unit_price_amount": "44.50", "quantity": 1,
+            "line_total_amount": "44.50", "listing_evidence_gallery": [],
+        }],
+        "inventory_holds": [{ "hold_id": "hld_1", "quantity": 1, "status": "active" }],
+        "money_timeline": { "refunds": [], "support_cases": [], "refunded_amount": "0.00", "currency_code": "USD" },
+    })
+}
+
+/// The account's orders, as the stand-in answers them. Purchases: `ord_open` is pending payment,
+/// `ord_packed` is being packed (cancelling it is refused), `ord_lost`'s cancellation fails and
+/// `ord_gone` is not found. A read after
+/// a cancellation at 42 has caught up (the purchase is cancelled); one at 43 has not. The sale
+/// `ord_sold` has a held case and a refund.
+fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let path = uri.path();
+    let (side, rest) = match (path.strip_prefix(PURCHASES_API), path.strip_prefix(SALES_API)) {
+        (Some(rest), _) => ("buyer", rest),
+        (_, Some(rest)) => ("seller", rest),
+        _ => return None,
+    };
+    let query: HashMap<String, String> = uri
+        .query()
+        .unwrap_or_default()
+        .split('&')
+        .filter_map(|p| p.split_once('='))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    if rest.is_empty() {
+        let limit: u64 = query.get("limit").and_then(|l| l.parse().ok()).unwrap_or(0);
+        let offset: u64 = query.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
+        let items = match side {
+            "buyer" => vec![
+                order("ord_open", "pending-payment", Some("payment-pending")),
+                order("ord_packed", "cancelled", Some("already-cancelled")),
+            ],
+            _ => vec![order("ord_sold", "ready-for-fulfillment", Some("fulfillment-started"))],
+        };
+        let total = if side == "buyer" { 205 } else { 1 };
+        let summary = json!({ "total_quantity": 7, "pending_count": 1 });
+        return Some(
+            Json(json!({ "items": items, "total": total, "count": 2, "limit": limit, "offset": offset, "summary": summary }))
+                .into_response(),
+        );
+    }
+    let rest = rest.strip_prefix('/')?;
+    if *method == Method::POST {
+        let id = rest.strip_suffix("/cancel")?;
+        return Some(match id {
+            // The API's answer for an order being packed (`cancelPurchase`).
+            "ord_packed" => refusal(
+                StatusCode::BAD_REQUEST,
+                "validation_failed",
+                "Purchase cancellation is now handled through support because fulfillment has started.",
+            ),
+            "ord_lost" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => committed(StatusCode::OK, "ordering", "42", json!({ "order_id": id, "status": "cancelled" })),
+        });
+    }
+    let waits = waits_for(headers);
+    if waits.as_deref() == Some("43") {
+        return Some(refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ));
+    }
+    let mut detail = match rest {
+        "ord_open" if waits.as_deref() == Some("42") => order(rest, "cancelled", Some("already-cancelled")),
+        "ord_open" => order(rest, "pending-payment", Some("payment-pending")),
+        "ord_packed" => order(rest, "ready-for-fulfillment", Some("fulfillment-started")),
+        "ord_sold" => {
+            let mut sold = order(rest, "ready-for-fulfillment", Some("fulfillment-started"));
+            sold["money_timeline"] = json!({
+                "refunds": [{ "refund_id": "rfd_1", "amount": "5.00", "currency_code": "USD", "status": "issued",
+                    "requested_at": "2026-10-25T10:00:00.000Z", "issued_at": "2026-10-25T11:00:00.000Z", "failed_at": null }],
+                "support_cases": [{ "support_request_id": "sup_01M5SPB8DCX26R20QVHASPF77D", "status": "open", "active_hold": true }],
+                "refunded_amount": "5.00", "currency_code": "USD",
+            });
+            sold
+        }
+        _ => return Some(refusal(StatusCode::NOT_FOUND, "order_not_found", "Order not found.")),
+    };
+    if side == "buyer" {
+        detail["delivery_summary"] =
+            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22 12:00:00+00" });
+        detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
+            "author_role": "buyer", "active_review_id": "rev_1", "active_review_revealed_at": "2026-03-23T10:05:00.000Z",
+            "submission_state": "allowed", "window_expired": false, "revealed": true,
+        } });
+    } else {
+        detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
+            "author_role": "seller", "active_review_id": null, "active_review_revealed_at": null,
+            "submission_state": "expired", "window_expired": true, "revealed": false,
+        } });
+    }
+    Some(Json(detail).into_response())
+}
+
+/// The calls the pilot made to Ordering.
+fn order_calls(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(PURCHASES_API) || c.path.starts_with(SALES_API)).cloned().collect()
+}
+
+#[tokio::test]
+async fn the_orders_sign_in_and_need_their_permissions() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/account/purchases/ord_open", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "http://localhost:7753/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open");
+    // Reading needs orders.view; a sale's pages need listings.view too; cancelling orders.manage.
+    let (status, _, _) = pilot.send(get("/account/purchases", Some("looker"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(get("/account/sales", Some("looker"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(post("/account/purchases/ord_open/cancel", "looker", "", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/account/purchases", Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // A purchase it may read but not cancel offers no Cancel (marketplace's does, and its action
+    // then refuses).
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("/cancel\"") && !text(&html).contains("Cancel purchase"), "{html}");
+    assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
+}
+
+#[tokio::test]
+async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/purchases?limit=100&offset=100", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("BUYER") || shown.contains("Buyer"), "{shown}");
+    assert!(shown.contains("205 Purchases 7 Items 1 Pending") || shown.contains("Purchases 205 Items 7 Pending 1"), "{shown}");
+    assert!(
+        shown.contains(
+            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN pending-payment"
+        ),
+        "{shown}"
+    );
+    assert!(shown.contains("Quantity 2 Total $57.32 Open order"), "{shown}");
+    assert!(!shown.contains("Seller payout"), "a buyer sees no payout: {shown}");
+    assert!(html.contains(r#"href="/account/purchases/ord_open">Open order</a>"#), "{html}");
+    // Page 2 of 3, as links that work without a script.
+    assert!(html.contains(r#"href="/account/purchases?limit=100&amp;offset=0">Previous page</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/purchases?limit=100&amp;offset=100" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"href="/account/purchases?limit=100&amp;offset=200">Next page</a>"#), "{html}");
+    // The API is asked for the page the address names; a limit that is not a number is 100.
+    let (_, _, _) = pilot.send(get("/account/purchases?limit=abc&offset=-3", Some("shopper"))).await;
+    let paths: Vec<_> = order_calls(&pilot).into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, [format!("{PURCHASES_API}?limit=100&offset=100"), format!("{PURCHASES_API}?limit=100&offset=0")]);
+}
+
+#[tokio::test]
+async fn a_sale_card_shows_the_sellers_payout_and_a_data_client_gets_the_list() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales", Some("merchant"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Quantity 2 Total $57.32 Seller payout $53.70 Open order"), "{}", text(&html));
+    assert!(!html.contains("Previous page") && !html.contains("Next page"), "one page has no pager: {html}");
+    let mut req = get("/account/sales", Some("merchant"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    let data = &screen["data"];
+    assert_eq!(
+        (data["side"].as_str(), data["orders"]["items"][0]["order_id"].as_str()),
+        (Some("seller"), Some("ord_sold")),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn a_purchase_pending_payment_can_be_paid_or_cancelled() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Purchase ORD-OPEN Counterparty: Chase Sets Back"), "{shown}");
+    assert!(
+        shown.contains(
+            "Source Accepted offer Support reference off_1 Counterparty Chase Sets Terms resolved Oct 24, 2026, 3:55 AM UTC"
+        ),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("Complete payment by deadline Complete payment by Oct 24, 2026, 4:55 AM UTC to keep this order."),
+        "{shown}"
+    );
+    assert!(html.contains(r#"href="http://localhost:7753/account/payments/new?orderIds=ord_open">Pay now</a>"#), "{html}");
+    assert!(html.contains(r#"<form method="post" action="/account/purchases/ord_open/cancel"><button type="submit""#), "{html}");
+    assert!(shown.contains("Cancel purchase"), "{shown}");
+    // Nothing is fulfilled before it is paid.
+    assert!(!shown.contains("View fulfillment"), "{shown}");
+    // The buyer's money: what they paid, none of the seller's.
+    assert!(shown.contains("Item subtotal $44.50 Shipping $12.82 Tax $0.00 Purchase Summary $57.32"), "{shown}");
+    assert!(!shown.contains("Seller payout") && !shown.contains("Marketplace sales fee"), "{shown}");
+    assert!(shown.contains("Raw Near Mint Quantity 1 Line total 1 x $44.50 = $44.50"), "{shown}");
+    assert!(shown.contains("Your account review is already active. Published Open your review"), "{shown}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/reviews/rev_1""#), "{html}");
+    assert!(!shown.contains("Inventory Holds"), "a buyer sees no holds: {shown}");
+}
+
+#[tokio::test]
+async fn cancelling_redirects_to_the_order_read_after_it_and_a_late_read_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post("/account/purchases/ord_open/cancel", "shopper", "", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/purchases/ord_open?after_write="), "{to}");
+    assert!(query(&to)["after_write"].contains(r#""commitPosition":"42""#), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Status cancelled"), "{}", text(&html));
+    assert!(!html.contains("/cancel\""), "a cancelled purchase has no Cancel: {html}");
+    let sent = order_calls(&pilot);
+    assert_eq!(sent[0].path, format!("{PURCHASES_API}/ord_open/cancel"));
+    assert_eq!(waits_for(&sent[1].headers).as_deref(), Some("42"));
+    // Not caught up yet: marketplace's pending words, read again in a moment.
+    let (status, _, html) =
+        pilot.send(get(&format!("/account/purchases/ord_open?after_write={}", receipt_at("43")), Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#"role="status">We are preparing your purchase. Refresh in a moment and it should appear.</p>"#),
+        "{html}"
+    );
+    assert!(html.contains("data-corten-read-again"), "{html}");
+}
+
+#[tokio::test]
+async fn a_cancellation_the_api_refuses_is_the_order_with_what_it_said() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/account/purchases/ord_packed/cancel", "shopper", "", false)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{html}");
+    assert!(html.contains(r#"role="alert"><p class="#), "{html}");
+    assert!(
+        text(&html)
+            .contains("Purchase issue Purchase cancellation is now handled through support because fulfillment has started."),
+        "{}",
+        text(&html)
+    );
+    // Being packed: support instead of Cancel.
+    assert!(text(&html).contains("The seller has started packing. Contact support for help with this purchase."), "{html}");
+    assert!(
+        html.contains(
+            r#"href="http://localhost:7753/account/support?orderId=ord_packed&amp;flow=buyer-cancel-request">Ask to cancel</a>"#
+        ),
+        "{html}"
+    );
+    // An answer that is not a refusal is the error page; an unknown order is not found.
+    let (status, _, _) = pilot.send(post("/account/purchases/ord_lost/cancel", "shopper", "", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, _, _) = pilot.send(get("/account/purchases/ord_gone", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Sale ORD-SOLD Counterparty: Collector Zero"), "{shown}");
+    assert!(
+        shown.contains("Item subtotal $44.50 Shipping allowance $1.77 Order protection $0.45 Marketplace sales fee $3.17 Seller item net $41.33 Seller payout $53.70 Sale Summary $57.32"),
+        "{shown}"
+    );
+    assert!(!shown.contains("Tax $"), "a seller sees no buyer tax line: {shown}");
+    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status active"), "{shown}");
+    assert!(shown.contains("Review window closed The feedback window for this order has closed."), "{shown}");
+    // The held case and the refund outcome.
+    assert!(
+        shown.contains("Sale proceeds under support review $53.70 is held for this sale and released when the case closes."),
+        "{shown}"
+    );
+    assert!(
+        html.contains(r#"href="http://localhost:7753/account/support?orderId=ord_sold&amp;flow=seller-cannot-fulfill&amp;requestId=sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#),
+        "{html}"
+    );
+    assert!(shown.contains("Refund outcome Refunded $5.00 Retained $52.32"), "{shown}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_cancellable_sale_asks_in_a_dialog_before_it_posts() {
+    let pilot = Pilot::new().await;
+    // A sale the seller may still cancel: the stand-in's purchase, read as a sale.
+    let (status, _, html) = pilot.send(get("/account/sales/ord_open", Some("merchant"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"command="show-modal" commandfor="cancel-dialog""#), "{html}");
+    assert!(html.contains(r#"<dialog id="cancel-dialog""#), "{html}");
+    assert!(text(&html).contains("Cancel this sale? The buyer will receive a full refund"), "{}", text(&html));
+    assert!(html.contains(r#"action="/account/sales/ord_open/cancel""#), "{html}");
+    let (status, headers, _) = pilot.send(post("/account/sales/ord_open/cancel", "merchant", "", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/account/sales/ord_open?after_write="));
 }

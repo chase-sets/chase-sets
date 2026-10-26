@@ -1,14 +1,14 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
 // user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
 // list and a dimension, `screen=catalog`), admin's operations attention queue (`screen=attention`), marketplace's storage locations
-// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) a set's page (`screen=set`, `/sets/{set}`) a listing's (`screen=listing`, `/listings/{listing}`) an account's (`screen=account`, `/accounts/{account}`) the notification center (`screen=notifications`, its feed and its settings) or public-web's market page (`screen=market`, `/market/{slug}`, signed out), as the auth seed's collector, cold-cache loads on desktop and on a
+// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) a set's page (`screen=set`, `/sets/{set}`) a listing's (`screen=listing`, `/listings/{listing}`) an account's (`screen=account`, `/accounts/{account}`) the notification center (`screen=notifications`, its feed and its settings), the account's orders (`screen=purchases` as the collector, `screen=sales` as the seller, the list and `order`'s page) or public-web's market page (`screen=market`, `/market/{slug}`, signed out), as the auth seed's collector, cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set|listing|account|notifications|market] [q=search words] [runs=7] [state=..] [policy=id]
-//        [dimension=id] [slug=item slug] [set=set slug] [listing=listing slug] [account=account slug] [profiles=desktop,mobile] [out=file]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set|listing|account|notifications|purchases|sales|market] [q=search words] [runs=7] [state=..] [policy=id]
+//        [dimension=id] [slug=item slug] [set=set slug] [listing=listing slug] [account=account slug] [order=order id] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -16,7 +16,7 @@ import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
 const screen = named.screen ?? "admin";
-const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector", account: "collector", notifications: "collector", market: "none" }[screen] ?? "admin";
+const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector", account: "collector", notifications: "collector", purchases: "collector", sales: "marketplace", market: "none" }[screen] ?? "admin";
 const {
   screen: _screen,
   runs: runsText = "7",
@@ -30,6 +30,7 @@ const {
   set: _set,
   listing: _listing,
   account: _account,
+  order: _order,
   out,
   ...apps
 } = named;
@@ -52,12 +53,14 @@ const screens = {
   },
   account: { page: `/accounts/${named.account ?? "chase-sets-acc-seed-demo-account-1mltldk"}` },
   notifications: { feed: "/account/notifications", settings: "/account/notifications?view=settings" },
+  purchases: { list: "/account/purchases", detail: `/account/purchases/${named.order ?? "ord_01M5P0SQE5TQGRJCTMD116ACF7"}` },
+  sales: { list: "/account/sales", detail: `/account/sales/${named.order ?? "ord_01M5P0SQE5TQGRJCTMD116ACF7"}` },
   market: { page: `/market/${named.slug ?? "twilight-masquerade-elite-trainer-box-sealed-elite-trainer-box-uerade-elite-trainer-box-1804cgp"}` },
   item: { page: `/items/${named.slug ?? "charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"}` },
 };
 for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart, item, search, home, set, listing, account, notifications or market`);
+if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart, item, search, home, set, listing, account, notifications, purchases, sales or market`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));

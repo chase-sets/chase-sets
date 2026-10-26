@@ -25,6 +25,7 @@ pilot owns only the screens:
 | `marketplace/` | A listing's page, `/listings/{slug}` | marketplace | anyone: the status, the item, the product's options and price; the purchase panel with the seller's rating, availability, fulfillment, returns and protection, Buy this listing (an account's checkout session, a guest's marketplace guest checkout) and Compare market (the pilot's item page); the seller with their account link, tiles, shipping credit and product; a seller away or at capacity as a warning with no Buy; and Report Listing, which says the report was received, or was sent already, or to wait, where marketplace says nothing ([chase-sets/chase-sets#10614 [discovery] Tell a visitor their listing report was received (the page ignores ?reported=1)](https://github.com/chase-sets/chase-sets/issues/10614)) or shows its 500 page ([chase-sets/chase-sets#10615 [discovery] A repeat listing report shows a 500 page instead of saying it was already reported](https://github.com/chase-sets/chase-sets/issues/10615)). An old slug moves for good; an unknown listing is a 404, a failed read a 502 (not ported: the realtime patches, and the Product JSON-LD marketplace writes only in production) |
 | `marketplace/` | An account's page, `/accounts/{slug}` | marketplace | anyone: the account's standing (its name as the page's one `h1`, Verified account, Trusted seller and Founder badges, Contact and Report account to marketplace, active listings, review history, member since and response time, and the two policies), the seller's chips when the API vouches for them (best-effort: a failed read shows none), its feedback as a seller and as a buyer with each rating's share, the reviews by role (All roles, As seller, As buyer) and by page (links to the feedback, ten a page), each review's byline, role, rating, how it counts toward the rating, words and the account's reply, the order confidence promises, and its active listings as cards (options, availability and limit, price, seller, fulfillment, View listing and Compare). Report review, for an account: a dialog its button opens (modal once the page's script joins), sent once (`303` back to the review, `#review-{id}`, saying it was received), a repeat said as sent already (`409`), a refusal or a missing reason drawn again in the open dialog (`422`), too many reports (`429`), a visitor sent to sign in. The account's id or an old slug moves for good with the query; an unknown account is a 404 and a failed read a 502 (marketplace answers 200 for both: [chase-sets/chase-sets#10619 [discovery] An unknown account page answers 200, and a failed account read reads as not found](https://github.com/chase-sets/chase-sets/issues/10619)); a closed or suspended account says only that it is unavailable, `noindex`. The item and listing pages' seller links now open it here (not ported: the realtime patches to the listings and counts) |
 | `marketplace/` | The notification center, `/account/notifications` | marketplace | a member (signed out goes to sign-in and back): Feed and Settings as links (`?view=settings`, `&section=product-alerts`). The feed: the unread count, each notification's title, words, New or Read, source and time, Open (here for a ported page, marketplace for another, no link off-site) and Mark read; Mark all read, off when none is unread. Each write draws the feed again in place with a script and redirects without one. The settings: a switch per channel the page has words for (web, email, product alerts; marketplace also shows bare `sms` and `rcs`, [chase-sets/chase-sets#10625 [notifications] Delivery settings show unlabeled 'sms' and 'rcs' switches for channels the platform does not deliver](https://github.com/chase-sets/chase-sets/issues/10625)), each a form button with `role="switch"` drawn again in place; then the account's Product alerts with Pause or Resume, Delete and View product, read after each write with its receipt. A refusal is a `422` with the API's words, a failed read or write a `502`. The item page's Manage alerts now opens it here at `#product-alerts` (not ported: the feed's live updates) |
+| `marketplace/` | The account's orders, `/account/purchases`, `/account/sales` and each order's page | marketplace | a member (signed out goes to sign-in and back): Purchases and Sales, each its counts (orders, items, pending) and the orders as cards (the first line's title and how many more, the side, when, the reference and status, the quantity, the total and, for a sale, the seller's payout, Open order), a page at a time as links (`limit`, `offset`); an order's page: its facts (source, support reference, counterparty, when its terms were set), each line with its picture, the delivery summary, the money (subtotal, shipping, tax, total, and for a sale the fee and payout, holds and the money's timeline), refunds, the support case, the review outcome and the review it opens, and Cancel: a purchase posts a form, a sale opens a `<dialog>` with its button (`command="show-modal"`, no script). A cancellation sends the buyer or seller back to the order with the write's receipt; a refusal is the order again with the API's words. An unknown order is a 404, a failed read a 502. A reader without `orders.manage` sees no Cancel ([chase-sets/chase-sets#10635 [ordering] A purchase page offers Cancel to a member without orders.manage (an unverified email), and the action then answers Forbidden](https://github.com/chase-sets/chase-sets/issues/10635)) (not ported: Fulfillment's shipments, `/account/shipments` and `/account/sales/shipments`, which View fulfillment opens on marketplace) |
 | `marketplace/` | A set's page, `/sets/{slug}` | marketplace | anyone: the game, the set's name and what is known of it (its card count, cataloged items, code and long release date), its cataloged items as search's cards (the lowest price and View card; one column, two from lg, three from 2xl), Browse all in search (`reference.<type>=<set>`) when the API sent only some, an empty state with none, and the breadcrumb's JSON-LD. An old slug moves for good with its query; an unknown set is a 404 and a failed read a 502 (marketplace answers 200 for both: [chase-sets/chase-sets#10612 [discovery] Answer an unknown set page with 404, and a failed set read with 5xx, not 200](https://github.com/chase-sets/chase-sets/issues/10612)) |
 | `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a GET form: with a script, the next page added after the rows shown; without one, the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories, and on `/` the home page's shelf in place of the results: the four featured categories (their description, count and a link to each) and the three newest items (the lowest price and View item), one column on a phone; words or a filter asked on `/` show the results there. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` | public-web | anyone, the same page for everyone (`Public`: shared caches keep it a minute and serve it stale for an hour; public-web's CDN lifetime is a day, [todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106)): the breadcrumb, the item's title and subtitle, then for each currency it traded in its price history (each day's median or last price, the day's low to high as a band, drawn on the server; an empty or one-day chart says so) and its market stats as a list (last sold and when, the 30- and 90-day medians and their trades, active listings and the lowest asks, the 30-day sell-through), and View active listings, Create a price alert and Sell yours on marketplace. The title, description, social tags, canonical, `noindex` when the site is not indexed, and the Product's lowest ask as JSON-LD on the production site. An unknown item is a 404 with public-web's words, a failed read a 502 no cache keeps. `robots.txt` and the sitemap of the market pages Pricing says are worth indexing follow `CHASE_SETS_PUBLIC_INDEXING` (not ported: public-web's other pages, its favicons and manifest, and its waitlist analytics bridge) |
@@ -225,6 +226,33 @@ first paint, so the 11-load run is the one recorded.
 The page has no script of its own. Its server time is one Pricing read with no session; in front
 of a CDN most loads would not reach it at all.
 
+The account's orders (the collector's Purchases, 205 orders, and its purchase
+`ord_01M5P0SQE5TQGRJCTMD116ACF7`; the seller's Sales and the same order as a sale), the pilot's
+release build at the `770b7eb` pin against marketplace's dev server, desktop only for marketplace
+(its dev server timed out under the mobile profile). As for the cart, the dev numbers are not a
+comparison. Marketplace measured 5 loads each, the pilot 11. The machine was busy: the
+notification center measured again just before gave 796 / 473 ms interactive where it measured
+312 / 244 ms above, and one purchase-page run's median server time was 954 ms where every other
+run of the same page was about 70 ms. Read the pilot's times as an upper bound until measured on a
+quiet machine; the bytes and requests are exact.
+
+| Orders | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive, Purchases / a purchase | 3,581 / 3,544 ms | 556 / 1,627 ms | 1,109 / 1,477 ms |
+| Interactive, Sales / a sale | 4,563 / 3,055 ms | 1,141 / 601 ms | 1,104 / 1,325 ms |
+| Largest contentful paint, Purchases / a purchase | 1,812 / 1,680 ms | 576 / 1,612 ms | 1,680 / 2,352 ms |
+| Largest contentful paint, Sales / a sale | 2,608 / 1,516 ms | 1,348 / 620 ms | 1,700 / 1,976 ms |
+| Server time (document), Purchases / a purchase | 1,388 / 1,462 ms | 69 / 954 ms | 64 / 72 ms |
+| Server time (document), Sales / a sale | 2,108 / 1,309 ms | 73 / 96 ms | 65 / 82 ms |
+| JavaScript transferred | 7,718,152 to 7,813,780 B | 8,626 B | 8,626 B |
+| HTML transferred | 427,033 to 433,740 B | 1,988 to 2,776 B | 1,988 to 2,776 B |
+| CSS transferred | 186,198 B | 4,472 B | 4,472 B |
+| Requests | 251 | 9 | 9 |
+
+The pages have no script of their own; Cancel and the sale's dialog need none. The JavaScript is
+122 B more than the notification center's at the `d824f40` pin: Corten's runtime
+(`dist/corten.js`) is 502 B larger at `770b7eb` before compression, and no page here adds a script.
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -354,6 +382,7 @@ node scripts/smoke-market-item-list.mjs http://localhost:7793  # List this produ
 node scripts/smoke-market-listing.mjs http://localhost:7793 # a listing's page beside marketplace's: its title, price, seller and facts, an unknown listing's 404, a visitor's Buy to guest checkout, a repeat report told so (no new report), the collector's Buy to a checkout session, two columns at 1280 px and one at 390 px (writes a checkout session)
 node scripts/smoke-market-set.mjs http://localhost:7793     # a set's page beside marketplace's: its name, facts and cards in marketplace's order, an unknown set's 404, two columns at 1280 px and one at 390 px (reads only)
 node scripts/smoke-market-search.mjs http://localhost:7793  # search as a visitor: the words' filters applied, Show results and a chip without a script, a filter applied on change with focus and scroll kept, the sort, a category's path, the filters dialog at 390 px, the home page's shelf and its columns at 1280 and 390 px (reads only)
+node scripts/smoke-market-orders.mjs http://localhost:7794  # the account's orders beside marketplace's: Purchases, two purchases, Sales and a sale word for word, Open order, two to a page, a cancel the collector may not send (403) and one the API refuses, 1280 and 390 px (writes nothing the API applies)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -372,6 +401,7 @@ node scripts/measure.mjs screen=search marketplace=http://localhost:7753 pilot=h
 node scripts/measure.mjs screen=home marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=set marketplace=http://localhost:7753 pilot=http://localhost:7793 set=base-set
 node scripts/measure.mjs screen=listing marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=purchases marketplace=http://localhost:7753 pilot=http://localhost:7794   # screen=sales for the seller; order= for another order
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/smoke-public-market.mjs http://localhost:7797 http://localhost:7754  # public-web's market page beside its own: the head's tags, the h1 and sections, every stat, the links, what caches keep (with and without a cookie), no JavaScript, a 404, robots and the sitemap, 1280 and 390 px (only reads)
 node scripts/measure.mjs screen=market public-web=http://localhost:7754 pilot=http://localhost:7797   # signed out
@@ -493,6 +523,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `marketplace/src/selling.rs` | the item page's sell writes: the sell-list line built from the item read again (an offer or a product), the guest sell list, the payout terms, and what the page says after each |
 | `marketplace/src/listing.rs` | the item page's List this product writes: the ship-from setup, the stock, the listing and its publication as one attempt, a guest's draft, and what the page says after each |
 | `marketplace/src/buying.rs` | the item page's buy writes: the cart line built from the item read again, the guest cart, Buy best match, Buy this listing, and what the page says after each |
+| `marketplace/src/orders.rs`, `views/order_page.*` | the account's orders: Purchases and Sales a page at a time (`Paging`), an order's page, Cancel and what the page says after it, for a buyer or a seller (`Side`); the stylesheet is `sections/account/purchases+account/sales.css` |
 | `platform/src/money.rs` | what an amount the APIs send is (decimal text, at most two fraction digits, read as cents); Corten writes it (`t.money`) |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
@@ -1105,6 +1136,30 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([`market.rs`](public/src/market.rs), [`market_page.rs`](public/src/views/market_page.rs),
     [`chart.rs`](platform/src/chart.rs)).
 
+47. **The account's orders are plain links and forms, and Cancel shows only to who may cancel.**
+    Ordering's four routes (`account-purchases`, `account-purchase`, `account-sales`,
+    `account-sale`) are one module for both sides (`Side`): a buyer reads with `orders.view`, a
+    seller with `orders.view` and `listings.view`, and both cancel with `orders.manage`, as
+    Ordering's loaders and actions ask. The list's pages are links (`Paging`: `limit` 1 to 250,
+    100 when missing, zero or not a number, as `orderListPageQuery` reads it). A purchase's Cancel
+    is a form; a sale's asks first in a `<dialog>` its button opens with `command="show-modal"`,
+    so it needs no script. A cancellation redirects to the order with the write's receipt; while the
+    read has not caught up the page says the change is pending and reads again after 2 s
+    (`ReadAgain`), and a read that fails after a write says the change could not be confirmed. A
+    refusal is the order again with the API's status and words. Three differences. Cancel is drawn
+    only for `orders.manage`: marketplace draws it for anyone who may read the order and its action
+    answers Forbidden
+    ([chase-sets/chase-sets#10635 [ordering] A purchase page offers Cancel to a member without orders.manage (an unverified email), and the action then answers Forbidden](https://github.com/chase-sets/chase-sets/issues/10635)).
+    The delivery summary's time is read in Postgres's form as well as ISO 8601, since the API sends
+    `2026-03-22 12:00:00+00`
+    ([chase-sets/chase-sets#10634 [ordering] A purchase's delivery_summary.latest_delivered_at is Postgres text (2026-03-22 12:00:00+00), not ISO 8601](https://github.com/chase-sets/chase-sets/issues/10634)).
+    The card and fact badges keep marketplace's status codes (`ready-for-fulfillment`,
+    `standard`), where its outcome panel writes words; the pilot matches it until Ordering decides
+    ([chase-sets/chase-sets#10633 [ordering] Order pages show status codes (ready-for-fulfillment, standard, active) where the same page elsewhere writes words](https://github.com/chase-sets/chase-sets/issues/10633)).
+    One column on a phone; the money beside the order from 64rem; two cards to a row from 80rem;
+    2.75rem controls
+    ([`orders.rs`](marketplace/src/orders.rs), [`order_page.rs`](marketplace/src/views/order_page.rs)).
+
 ## Corten gaps
 
 Open, filed in Corten, at the `770b7eb` pin, each with its workaround:
@@ -1130,6 +1185,9 @@ Found in Chase Sets by the search port:
 10. [chase-sets/chase-sets#10627 [discovery] Pausing, resuming or deleting a Product alert shows its old status: the redirect carries no write receipt](https://github.com/chase-sets/chase-sets/issues/10627), found the same way. The pilot reads with the receipt (decision 45).
 11. [chase-sets/chase-sets#10629 [pricing] The public market page's stat values are h2 headings, so a screen reader lists "$44.50" and "3" as sections](https://github.com/chase-sets/chase-sets/issues/10629), found by the market page's port. The pilot's stats are a `<dl>`; `smoke-public-market.mjs` prints public-web's headings beside the pilot's.
 12. [chase-sets/chase-sets#10630 [pricing] The public market page says '1 trades' for a window with one trade](https://github.com/chase-sets/chase-sets/issues/10630), found the same way, from the catalog. The pilot keeps the catalog's message.
+13. [chase-sets/chase-sets#10633 [ordering] Order pages show status codes (ready-for-fulfillment, standard, active) where the same page elsewhere writes words](https://github.com/chase-sets/chase-sets/issues/10633), found by the orders' port. The pilot shows the codes as marketplace does (decision 47).
+14. [chase-sets/chase-sets#10634 [ordering] A purchase's delivery_summary.latest_delivered_at is Postgres text (2026-03-22 12:00:00+00), not ISO 8601](https://github.com/chase-sets/chase-sets/issues/10634), found the same way. The pilot reads both forms (`order_page::timestamp`).
+15. [chase-sets/chase-sets#10635 [ordering] A purchase page offers Cancel to a member without orders.manage (an unverified email), and the action then answers Forbidden](https://github.com/chase-sets/chase-sets/issues/10635), found the same way. The pilot draws Cancel only for `orders.manage`; `smoke-market-orders.mjs` checks the collector's cancel answers 403.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

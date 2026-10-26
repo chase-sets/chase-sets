@@ -1788,3 +1788,239 @@ impl Notifications for Caller<'_> {
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 }
+
+const ORDERING: &str = "ordering";
+const PURCHASES: &str = "/api/marketplace/account/purchases";
+const SALES: &str = "/api/marketplace/account/sales";
+
+/// Which side of an order the account is on: its purchases, or its sales.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Buyer,
+    Seller,
+}
+
+impl Side {
+    fn path(self) -> &'static str {
+        match self {
+            Side::Buyer => PURCHASES,
+            Side::Seller => SALES,
+        }
+    }
+}
+
+/// The account's orders (Ordering's `account/purchases` and `account/sales`): a page of them.
+pub trait Orders {
+    /// The page `limit` long from `offset`, with how many there are and the summary of all.
+    async fn orders(&self, side: Side, limit: u32, offset: u32) -> Result<OrderList, ApiError>;
+    /// One order, as `side` sees it.
+    async fn order(&self, side: Side, id: &str) -> Result<OrderDetail, ApiError>;
+    /// Cancels the order; the answer's receipt is the cancellation's.
+    async fn cancel_order(&self, side: Side, id: &str) -> Result<Option<Receipt>, ApiError>;
+}
+
+/// A page of orders (`ListResponse<PurchaseListItem>` with its `limit`, `offset` and `summary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderList {
+    pub items: Vec<OrderCard>,
+    pub total: u64,
+    pub limit: u64,
+    pub offset: u64,
+    pub summary: OrderSummary,
+}
+
+/// Every order's quantity and how many are pending (`OrderListSummary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderSummary {
+    pub total_quantity: u64,
+    pub pending_count: u64,
+}
+
+/// An order as the list shows it (`OrderingOrderProjection`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderCard {
+    pub order_id: String,
+    pub display_reference: String,
+    pub status: String,
+    pub created_at: String,
+    pub total_quantity: u64,
+    pub total_amount: String,
+    pub seller_payout_amount: String,
+    pub item_titles: Vec<String>,
+}
+
+/// An order as its page shows it (`PurchaseDetail` or `SaleDetail`, the fields shown). Each
+/// side's API answers only that side's money; the page shows only the side's lines of it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderDetail {
+    pub order_id: String,
+    pub display_reference: String,
+    pub source_type: String,
+    pub source_reference_id: Option<String>,
+    pub buyer_account_id: String,
+    pub buyer_display_name: Option<String>,
+    pub seller_account_id: String,
+    pub seller_display_name: Option<String>,
+    pub shipping_option: String,
+    pub item_subtotal_amount: String,
+    pub shipping_allowance_amount: String,
+    pub protection_amount: Option<String>,
+    pub shipping_charge_amount: String,
+    pub sales_tax_amount: String,
+    pub total_amount: String,
+    pub marketplace_sales_fee_amount: String,
+    pub seller_item_net_amount: String,
+    pub seller_payout_amount: String,
+    pub terms_schedule_id: Option<String>,
+    pub terms_resolved_at: String,
+    pub shipping_destination_snapshot: AddressSnapshot,
+    pub status: String,
+    pub payment_deadline_at: Option<String>,
+    pub ready_for_fulfillment_at: Option<String>,
+    pub self_service_cancellation_available: bool,
+    /// `payment-pending`, `fulfillment-started` or `already-cancelled`.
+    pub cancellation_unavailable_reason: Option<String>,
+    pub lines: Vec<OrderLine>,
+    pub inventory_holds: Vec<OrderHold>,
+    pub money_timeline: Option<MoneyTimeline>,
+    /// The buyer's: how many shipments there are and how many arrived.
+    pub delivery_summary: Option<DeliverySummary>,
+    #[serde(rename = "reviewOutcome")]
+    pub review_outcome: Option<ReviewOutcome>,
+}
+
+/// Where an order ships (`AddressSnapshot`, the lines `AddressBlock` shows).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AddressSnapshot {
+    pub name: Option<String>,
+    pub company: Option<String>,
+    pub line1: Option<String>,
+    pub line2: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
+}
+
+/// An order's line (`OrderingOrderProjectionLine`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderLine {
+    pub line_id: String,
+    pub item_title: String,
+    pub item_subtitle: Option<String>,
+    pub product_summary: Option<String>,
+    pub unit_price_amount: String,
+    pub quantity: u64,
+    pub line_total_amount: String,
+    /// The pictures the seller showed when the offer was accepted, the buyer's.
+    pub listing_evidence_gallery: Vec<EvidenceImage>,
+}
+
+/// One of a line's evidence pictures (`MarketplaceListingPublicGalleryImage`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EvidenceImage {
+    pub alt_text: Option<String>,
+    pub assets: Vec<EvidenceAsset>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EvidenceAsset {
+    pub role: String,
+    pub public_url: String,
+}
+
+/// Stock held for the order (`OrderingOrderProjectionHold`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OrderHold {
+    pub hold_id: String,
+    pub quantity: u64,
+    pub status: String,
+}
+
+/// What happened to the order's money after it was paid (`OrderingOrderMoneyTimeline`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct MoneyTimeline {
+    pub refunds: Vec<Refund>,
+    pub support_cases: Vec<SupportCase>,
+    pub refunded_amount: String,
+    pub currency_code: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Refund {
+    pub refund_id: String,
+    pub amount: Option<String>,
+    pub currency_code: String,
+    /// `requested`, `issued` or `failed`.
+    pub status: String,
+    pub requested_at: String,
+    pub issued_at: Option<String>,
+    pub failed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SupportCase {
+    pub support_request_id: String,
+    pub status: String,
+    pub active_hold: bool,
+}
+
+/// The buyer's shipments and how many arrived (`OrderingOrderDeliverySummary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DeliverySummary {
+    pub shipment_count: u64,
+    pub delivered_count: u64,
+    pub latest_delivered_at: Option<String>,
+}
+
+/// Whether the account may review the other side of the order (`OrderingOrderReviewOutcome`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReviewOutcome {
+    /// `ready` or `unavailable`.
+    pub status: String,
+    pub opportunity: Option<ReviewOpportunity>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReviewOpportunity {
+    /// `buyer` or `seller`: who writes the review.
+    pub author_role: String,
+    pub active_review_id: Option<String>,
+    pub active_review_revealed_at: Option<String>,
+    /// `allowed`, `held` or `expired`.
+    pub submission_state: String,
+    pub window_expired: bool,
+    pub revealed: bool,
+}
+
+impl Orders for Caller<'_> {
+    async fn orders(&self, side: Side, limit: u32, offset: u32) -> Result<OrderList, ApiError> {
+        self.read(&format!("{}?limit={limit}&offset={offset}", side.path()), ORDERING).await
+    }
+
+    async fn order(&self, side: Side, id: &str) -> Result<OrderDetail, ApiError> {
+        self.read(&format!("{}/{}", side.path(), segment(id)), ORDERING).await
+    }
+
+    async fn cancel_order(&self, side: Side, id: &str) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{}/{}/cancel", side.path(), segment(id));
+        let req = self.request(Method::POST, &path, ORDERING).json(&serde_json::json!({}));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}

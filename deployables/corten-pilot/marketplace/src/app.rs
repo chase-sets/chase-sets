@@ -24,6 +24,7 @@
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
 //! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
+//! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
@@ -52,6 +53,11 @@ pub const MANAGE: &str = "inventory.manage";
 pub const GUEST_CHECKOUT: &str = "guest-checkout.manage";
 /// An account's own pages (the notification center), as marketplace's loaders require.
 pub const ACCOUNTS_VIEW: &str = "accounts.view";
+/// The account's orders, as marketplace's order loaders and actions require.
+pub const ORDERS_VIEW: &str = "orders.view";
+pub const ORDERS_MANAGE: &str = "orders.manage";
+/// A sale's pages need it too (marketplace's `account-sale` and `account-sales` loaders).
+pub const LISTINGS_VIEW: &str = "listings.view";
 
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
@@ -94,6 +100,8 @@ pub mod url {
     };
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
+    pub use purchases::{Purchase, PurchaseCancel, Purchases};
+    pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use sets::{Set, Sets};
 
@@ -422,6 +430,62 @@ pub mod url {
         }
     }
 
+    /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
+    /// is the area's route, and every handler takes an `OrderBuyer`.
+    #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
+    pub mod purchases {
+        /// A page of the purchases.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/purchases", get = crate::orders::purchases)]
+        pub struct Purchases {
+            #[route(query)]
+            pub page: crate::orders::Paging,
+        }
+
+        /// A purchase, read after the write whose receipt it carries.
+        #[route("/account/purchases/{id}", get = crate::orders::purchase)]
+        pub struct Purchase<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub after: crate::cart::AfterWrite,
+        }
+
+        /// Cancel the purchase.
+        #[route("/account/purchases/{id}/cancel", post = crate::orders::cancel_purchase)]
+        pub struct PurchaseCancel<'a> {
+            pub id: &'a str,
+        }
+    }
+
+    /// The account's sales (Ordering's `account-sales` and `account-sale`): the list is the area's
+    /// route, and every handler takes an `OrderSeller`. Marketplace's `/account/sales/shipments`
+    /// (Fulfillment's) is not ported; this area would read it as a sale, which the API does not
+    /// find.
+    #[corten::routes(state = crate::app::Shared, area = Sales, caller = crate::auth::OrderSeller)]
+    pub mod sales {
+        /// A page of the sales.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sales", get = crate::orders::sales)]
+        pub struct Sales {
+            #[route(query)]
+            pub page: crate::orders::Paging,
+        }
+
+        /// A sale, read after the write whose receipt it carries.
+        #[route("/account/sales/{id}", get = crate::orders::sale)]
+        pub struct Sale<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub after: crate::cart::AfterWrite,
+        }
+
+        /// Cancel the sale.
+        #[route("/account/sales/{id}/cancel", post = crate::orders::cancel_sale)]
+        pub struct SaleCancel<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
     /// account cart).
     #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
@@ -483,6 +547,8 @@ pub fn app(config: Config) -> App {
         .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SEARCH).components(views::SET))
         .area::<url::ListingsArea>(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
         .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
+        .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
+        .area::<url::Sales>(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
         .area::<url::Notifications>(|area| url::notifications::area(area, shared).components(views::NOTIFICATIONS))
         .error_page(views::error_page)
 }

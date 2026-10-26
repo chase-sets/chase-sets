@@ -2,7 +2,8 @@
 //! (pilot ports of marketplace's `/account/inventory/locations` and
 //! `/account/inventory/restock-decisions`), the buyer's cart (`/account/cart`), which read and
 //! write through the platform API as the signed-in account, and the public item page
-//! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`). See README.md.
+//! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`), and the account's orders
+//! (`/account/purchases`, `/account/sales`). See README.md.
 mod accounts;
 mod api;
 mod app;
@@ -15,6 +16,7 @@ mod items;
 mod listing;
 mod locations;
 mod notifications;
+mod orders;
 mod public_listing;
 mod recovery;
 mod restock;

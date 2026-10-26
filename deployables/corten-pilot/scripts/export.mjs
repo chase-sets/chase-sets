@@ -36,6 +36,9 @@
 //   reputation.features.reviews.ui.reviewReportAction.* and .reviewScoringContext.*).
 // - marketplace/locales/notifications.en.json: the notification center's English catalog
 //   (notifications.features.notificationCenter.ui.page.* and .shell.*, and notifications.routes.accountNotifications.*).
+// - marketplace/locales/orders.en.json: the account's order pages' English catalog
+//   (ordering.features.orders.ui.orderListPage.*, .orderDetailPage.*, .moneyTimeline.*, .orderOutcome.* and
+//   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
@@ -376,6 +379,22 @@ const outputs = [
         ["notifications.features.notificationCenter.ui.page.", "page"],
         ["notifications.features.notificationCenter.ui.shell.", "shell"],
         ["notifications.routes.accountNotifications.", "route"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/orders.en.json",
+    json(
+      await catalog("ordering.ts", "orderingEnglishTranslations", [
+        ["ordering.features.orders.ui.orderListPage.", "list"],
+        ["ordering.features.orders.ui.orderDetailPage.", "detail"],
+        ["ordering.features.orders.ui.moneyTimeline.", "money"],
+        ["ordering.features.orders.ui.orderOutcome.", "outcome"],
+        ["ordering.features.orders.ui.orderReviewOpportunityCallout.", "callout"],
+        ["ordering.routes.accountPurchases.", "purchases"],
+        ["ordering.routes.accountPurchase.", "purchase"],
+        ["ordering.routes.accountSales.", "sales"],
+        ["ordering.routes.accountSale.", "sale"],
       ]),
     ),
   ],

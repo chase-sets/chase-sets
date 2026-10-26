@@ -15,7 +15,7 @@ pub use platform::{
 
 use crate::{
     api::Identity,
-    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, MANAGE, Shared, VIEW, sign_in_at},
+    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at},
     views,
 };
 
@@ -121,6 +121,44 @@ impl Identify<Shared> for Member {
             Found::Account(viewer) if viewer.actor.can(ACCOUNTS_VIEW) => Ok(Member(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(sign_in_at("/account/notifications"))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A buyer on its purchases: reading needs `orders.view`, cancelling `orders.manage`, as
+/// marketplace's loader and action require (the API checks both again). Anyone not signed in is
+/// sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct OrderBuyer(pub Viewer);
+
+impl Identify<Shared> for OrderBuyer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { ORDERS_VIEW } else { ORDERS_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(OrderBuyer(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller on its sales: reading needs `orders.view` and `listings.view`, cancelling
+/// `orders.manage`, as marketplace's loaders and action require.
+#[derive(Clone, Debug, Hash)]
+pub struct OrderSeller(pub Viewer);
+
+impl Identify<Shared> for OrderSeller {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let may = |actor: &Actor| match parts.method.is_safe() {
+            true => actor.can(ORDERS_VIEW) && actor.can(LISTINGS_VIEW),
+            false => actor.can(ORDERS_MANAGE),
+        };
+        match find(parts, config).await {
+            Found::Account(viewer) if may(&viewer.actor) => Ok(OrderSeller(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
