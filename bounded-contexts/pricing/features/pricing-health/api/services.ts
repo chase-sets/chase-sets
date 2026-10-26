@@ -22,6 +22,8 @@ import {
   type GoalChoice,
   type Recommendation,
 } from "./goal-comparison";
+import { createPricingHealthWhatIfAdapter, type PricingHealthWhatIf } from "./portfolio-what-if";
+import type { EconomicsServices } from "../../economics/api/services";
 
 export class PricingHealthCandidateRefusedError extends Error {
   constructor() {
@@ -78,6 +80,7 @@ export function createPricingHealthServices({
   repricingEngine,
   repricingPolicies,
   forecastLedger,
+  economics,
 }: Readonly<{
   db: PgQueryable;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
@@ -87,7 +90,9 @@ export function createPricingHealthServices({
     "loadOwnedRepricingPolicy" | "executeOwnedRepricingPolicy" | "getHalt"
   >;
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
+  economics?: Pick<EconomicsServices, "resolve">;
 }>) {
+  const whatIf = economics ? createPricingHealthWhatIfAdapter({ db, economics }) : null;
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);
     const state = loaded?.state;
@@ -145,6 +150,7 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: "create-editor",
+          whatIf: null,
         };
       const target = await currentTarget(accountId, selected.policyId);
       if (!target) return null;
@@ -189,6 +195,7 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
+          whatIf: whatIf ? await whatIf.get(accountId, now) : null,
         };
       const goalChoices = await choices();
       const currentFacts = stored.run
@@ -239,6 +246,7 @@ export function createPricingHealthServices({
         run: currentHealth ? stored.run : null,
         computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
+        whatIf: whatIf ? await whatIf.get(accountId, now) : null,
       };
     },
     compute: async (
@@ -414,5 +422,6 @@ export type PricingHealthData = Readonly<{
   recommendation?: Recommendation;
   branch?: "comparison" | "advanced-editor" | "create-editor";
   canCompute?: boolean;
+  whatIf?: PricingHealthWhatIf | null;
 }>;
 export type PricingHealthServices = ReturnType<typeof createPricingHealthServices>;

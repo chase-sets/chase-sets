@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Sparkline, TimeSeriesChart, type TimeSeriesSeries } from "../components/data-display/chart";
+import {
+  NumericSeriesChart,
+  Sparkline,
+  TimeSeriesChart,
+  type TimeSeriesSeries,
+} from "../components/data-display/chart";
 import { ChaseRoot } from "../theme/provider";
 
 const motionElementCalls = vi.hoisted(
@@ -224,5 +229,32 @@ describe("TimeSeriesChart", () => {
 
     const svgCall = motionElementCalls.find((call) => call.tag === "svg");
     expect(svgCall).toMatchObject({ initial: undefined, animate: undefined, transition: undefined });
+  });
+});
+
+describe("NumericSeriesChart", () => {
+  it("uses finite numeric axes, keeps the line and accessible samples aligned, and marks the best cycle", () => {
+    const { container } = renderWithRoot(
+      <NumericSeriesChart
+        label="Horizon value"
+        series={[{
+          id: "value",
+          name: "Portfolio value",
+          points: [{ x: 1, y: 10, label: "1 day: $10" }, { x: Number.NaN, y: 20 }, { x: 3, y: 30 }],
+          markers: [{ x: 3, y: 30, label: "Best cycle" }],
+        }]}
+      />,
+    );
+    expect(container.querySelectorAll("svg > path")).toHaveLength(1);
+    expect(container.querySelector("circle title")?.textContent).toBe("Best cycle");
+    expect(screen.getByRole("table", { name: "Chart samples" })).toBeTruthy();
+    expect(screen.getByText("1 day: $10")).toBeTruthy();
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+  });
+
+  it("renders distinct empty, insufficient, and error states", () => {
+    expect(renderWithRoot(<NumericSeriesChart label="Empty" series={[{ id: "x", name: "X", points: [] }]} />).container.textContent).toContain("No data yet");
+    expect(renderWithRoot(<NumericSeriesChart label="Insufficient" series={[{ id: "x", name: "X", points: [{ x: 1, y: 2 }] }]} />).container.textContent).toContain("Not enough data yet");
+    expect(renderWithRoot(<NumericSeriesChart label="Error" error="Synthetic outage" series={[]} />).container.textContent).toContain("Synthetic outage");
   });
 });
