@@ -51,7 +51,7 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
 /// The page for a failed request (`App::error_page`, public-web's `ErrorBoundary` and its
 /// not-found route): what happened, that nothing was changed, and Home. Corten sends it with
 /// `X-Robots-Tag: noindex` and never to a shared cache.
-pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
+pub async fn error_page(failure: Failure, req: Req) -> HtmlResult {
     let t: MarketMsg = req.t();
     let p: crate::text::Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
@@ -60,6 +60,7 @@ pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
         Failure::WrongMethod
         | Failure::Refused { .. }
         | Failure::CrossSite
+        | Failure::Unidentified { .. }
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }
@@ -67,11 +68,12 @@ pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
         | Failure::Offline => (t.root_public_error(), p.error_failed()),
     };
     let head_title = format!("{title} | {}", p.shell_site());
-    html! {
-        <Layout req={req} title={head_title} head="">
-            <NotFound t={t} title={title} text={text} detail={failure.detail()} />
+    let detail = failure.detail().map(str::to_owned);
+    req.page(html! {
+        <Layout req={&req} title={head_title} head="">
+            <NotFound t={t} title={title} text={text} detail={detail.as_deref()} />
         </Layout>
-    }
+    })
 }
 
 /// public-web's `MarketplaceEmptyState` on an error: the title, what to do, the trust cue and

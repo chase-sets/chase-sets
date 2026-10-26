@@ -136,16 +136,14 @@ fn currency(text: &str) -> Option<String> {
 }
 
 /// The alerts' settings (the pilot's notification center, section `product-alerts`), read after
-/// the write whose receipt is `receipt` (empty for none). No `#product-alerts`: the page reads
-/// itself again while the alerts catch up, and a page at a #fragment is never read again
-/// (todd-skelton/corten#107). The section's heading takes focus when the address names it.
+/// the write whose receipt is `receipt` (empty for none), at the alerts.
 pub fn alerts_href(receipt: &str) -> String {
     let place = crate::notifications::Place {
         view: Some("settings".into()),
         section: Some(crate::notifications::ALERTS.into()),
         after_write: (!receipt.is_empty()).then(|| receipt.to_owned()),
     };
-    url::Notifications { place }.href()
+    url::Notifications { place }.at(views::ProductAlertsId).href()
 }
 
 /// Marketplace's registration, back to the item's Watch tab with the intent to claim

@@ -549,8 +549,8 @@ pub fn app(config: Config) -> App {
         .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
         .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
         .area::<url::Sales>(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
-        .area::<url::Notifications>(|area| url::notifications::area(area, shared).components(views::NOTIFICATIONS))
-        .error_page(views::error_page)
+        .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
+        .error_page(views::error_page, shared)
 }
 
 /// Marketplace's sign-in, for a session the API says has ended (the callers' `identify` sends the rest

@@ -220,13 +220,26 @@ async fn a_signed_out_visitor_signs_in_through_admin_web() {
 #[tokio::test]
 async fn staff_without_the_permission_are_refused_and_an_unreachable_session_is_not_signed_out() {
     let pilot = Pilot::new().await;
-    let (status, _, _) = pilot.send(get("/commerce/postage-policies", Some("reader"))).await;
+    let (status, _, html) = pilot.send(get("/commerce/postage-policies", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // Corten's `Refused::unavailable`: a 503, not a sign-in. Its page says "preparing your change"
-    // (the screen's own 503) until Corten tells the error page which it is: todd-skelton/corten#89.
-    let (status, _, _) = pilot.send(get("/commerce/postage-policies", Some("down"))).await;
+    assert!(html.contains("Your role cannot open this page.") && html.contains("<header"), "drawn with the reader's nav: {html}");
+    // Corten's `Refused::unavailable`: a 503, not a sign-in, in its own words (not a screen's
+    // "preparing your change") and with no nav, since no one could be read.
+    let (status, _, html) = pilot.send(get("/commerce/postage-policies", Some("down"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a failed lookup must not send the user to sign in again");
+    assert!(html.contains("We could not check who you are.") && !html.contains("<header"), "{html}");
     assert!(pilot.policy_calls().is_empty());
+}
+
+#[tokio::test]
+async fn an_unknown_address_is_drawn_for_who_is_asking() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/commerce/nowhere", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the staff nav: {html}");
+    let (status, _, html) = pilot.send(get("/commerce/nowhere", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "an unknown address is not a sign-in");
+    assert!(!html.contains("<header"), "no one, no nav: {html}");
 }
 
 #[tokio::test]

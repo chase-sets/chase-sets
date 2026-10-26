@@ -90,7 +90,7 @@ pub fn now_iso() -> String {
 /// The document around every page: admin-web's frame (its sections and the commerce pages) for
 /// `viewer` and their color mode, `title`, the page's own `head` tags and the page
 /// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
-/// The viewer is the handler's `Caller`; the error page has none (Corten gives it no caller).
+/// The viewer is the handler's `Caller`, or the error page's.
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
@@ -130,9 +130,10 @@ pub fn Layout<'a, H: Render, C: Render>(
     }
 }
 
-/// The page for a failed request, in the layout (`App::error_page`). Under `corten dev` it shows
-/// the error; Corten sends it with `X-Robots-Tag: noindex`.
-pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
+/// The page for a failed request, in the layout (`App::error_page`), for who is asking: the staff
+/// member's nav and theme, and none for someone not signed in or when the session could not be
+/// read. Under `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
+pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer>>) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
@@ -143,6 +144,8 @@ pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
             (p.error_failed_title(), p.error_pending())
         }
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        // The platform API could not say whose the session is (`Refused::unavailable`).
+        Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         Failure::WrongMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
@@ -151,17 +154,16 @@ pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
         | Failure::Offline => (p.error_failed_title(), p.error_failed()),
     };
     let detail = failure.detail().map(str::to_owned);
-    // Corten gives the error page no caller, so it is drawn without the nav and the user's theme
-    // (todd-skelton/corten#88).
-    html! {
-        <Layout req={req} viewer={None} title={title} head="">
+    let viewer = viewer.map(|Caller(viewer)| viewer);
+    req.page(html! {
+        <Layout req={&req} viewer={viewer.as_ref()} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {
                 <pre>{detail}</pre>
             }
         </Layout>
-    }
+    })
 }
 
 /// A link to an admin-web page outside the pilot.

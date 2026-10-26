@@ -98,5 +98,5 @@ pub fn app(config: Config) -> App {
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
         .area::<url::Market>(|area| url::market::area(area, shared).components(views::MARKET))
-        .error_page(views::error_page)
+        .error_page(views::error_page, ())
 }

@@ -467,6 +467,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `319d3b7` | Corten `main` with [todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81) merged, the breaking change the pilot had been ported to ahead of time on `pilot/corten-route-handlers` (below), and [todd-skelton/corten#94 Filters keep the user's place, lists grow by appending, query names follow serde, areas share stylesheets](https://github.com/todd-skelton/corten/pull/94). Breaking beyond the earlier port: `App::new` takes `Routes` (`Routes::new()` in admin, where every route is in an area), so the local `[patch]` is gone and the four search gaps' workarounds could be removed (see [Corten gaps](#corten-gaps)) |
 | `d824f40` | Corten `main` with [todd-skelton/corten#102 Keeping a place keeps the rail's scroll and the open groups; Fields takes generics; Route declares serde](https://github.com/todd-skelton/corten/pull/102) merged, closing [#96](https://github.com/todd-skelton/corten/issues/96), [#97](https://github.com/todd-skelton/corten/issues/97), [#98](https://github.com/todd-skelton/corten/issues/98) and [#99](https://github.com/todd-skelton/corten/issues/99), each adopted (see [Corten gaps](#corten-gaps)). No breaking change for the pilot |
 | `770b7eb` | Corten `main` with [todd-skelton/corten#105 A typed route carries a place on its page (Route::at); t.date writes the month and year (MonthStyle)](https://github.com/todd-skelton/corten/pull/105) merged, closing [#100](https://github.com/todd-skelton/corten/issues/100) and [#101](https://github.com/todd-skelton/corten/issues/101), each adopted (see [Corten gaps](#corten-gaps)). No breaking change for the pilot |
+| `0f3f03f` | Corten `main` with [todd-skelton/corten#108 The error page takes extractors (the caller), Failure::Unidentified, ReadAgain at a #place](https://github.com/todd-skelton/corten/pull/108) merged, closing [#88](https://github.com/todd-skelton/corten/issues/88), [#89](https://github.com/todd-skelton/corten/issues/89) and [#107](https://github.com/todd-skelton/corten/issues/107), each adopted (see [Corten gaps](#corten-gaps)), and [todd-skelton/corten#109 Brand pack, README lockup, and favicons for the examples and corten new](https://github.com/todd-skelton/corten/pull/109), which changes nothing the pilot uses. Breaking: `App::error_page(page, state)` takes an async function of the `Failure` and extractors, and `Failure` has a new case, `Unidentified`, which each app's error page now names |
 
 **Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
 ([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
@@ -558,8 +559,9 @@ postage, storage locations, cart, item and Add to List. What changed:
    look up gets a 503 (`Refused::unavailable`; it was a 502 before the port), because signing in
    again would loop while the API is down. No session signs in at the React app. A write whose API
    call says the session ended meanwhile still signs in from the handler. The layout shows the
-   viewer the handler passes it; the error page has none
-   ([todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)).
+   viewer the handler passes it, and the error page the one it reads itself (from the `0f3f03f` pin;
+   it had none before,
+   [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)).
 4. **Every write is its own route** (`/revise`, `/archive`, ...) where the React apps post one
    form with an `intent`; admin's preview button posts the revise form to `/preview` with
    `formaction`.
@@ -1096,11 +1098,11 @@ postage, storage locations, cart, item and Add to List. What changed:
     longer than the platform's freshness wait (about 2.5 s). So Pause, Resume and Delete send the
     write's receipt with the list's read. When that read catches up the alerts are drawn again in
     place; when it does not, the answer redirects to the settings with the receipt
-    (`afterWrite`, `section=product-alerts`, whose heading takes focus), which says the change is
+    (`afterWrite`, `section=product-alerts`, at `#product-alerts`, whose heading takes focus), which says the change is
     pending and reads again after 2 s (`ReadAgain`). That redirect is the workaround for
     [todd-skelton/corten#104 A data-patch answer cannot ask to be read again, so a write whose read is catching up has to navigate](https://github.com/todd-skelton/corten/issues/104).
-    It and the item page's Manage alerts link carry no `#product-alerts`, because a page at a
-    fragment is never read again
+    Before the `0f3f03f` pin it and the item page's Manage alerts link carried no fragment, since
+    a page at one was never read again
     ([todd-skelton/corten#107 ReadAgain never reads a page whose address has a #fragment, so a write redirected to route.at(..) stays on its catching-up state](https://github.com/todd-skelton/corten/issues/107)).
     Marketplace's redirect carries no receipt at all
     ([chase-sets/chase-sets#10627 [discovery] Pausing, resuming or deleting a Product alert shows its old status: the redirect carries no write receipt](https://github.com/chase-sets/chase-sets/issues/10627)).
@@ -1162,14 +1164,11 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open, filed in Corten, at the `770b7eb` pin, each with its workaround:
+Open, filed in Corten, at the `0f3f03f` pin, each with its workaround:
 
-1. [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88): both error pages pass `viewer={None}`.
-2. [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89): none; a session lookup outage shows the failed page's words.
-3. [todd-skelton/corten#95 A page outside every area (the app's /) cannot link an area's stylesheet, so a screen that is also the home page ships its CSS on every page](https://github.com/todd-skelton/corten/issues/95): the home page writes `<link rel="stylesheet" href={req.asset("sections/search+categories+sets.css")} data-corten-style>` in its body, which the runtime moves to the head on a client navigation and keeps after it. Under `corten dev` the home page is an error, since it renders a component outside the areas that list it ([`search::render`](marketplace/src/search.rs)).
-4. [todd-skelton/corten#104 A data-patch answer cannot ask to be read again, so a write whose read is catching up has to navigate](https://github.com/todd-skelton/corten/issues/104): an alert's write whose read has not caught up redirects to the settings with its receipt (`section=product-alerts`) instead of patching the list; that page reads again with `ReadAgain` ([`notifications::change_alert`](marketplace/src/notifications.rs), decision 45).
-5. [todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106): the market page is `Public::new(60 s).stale_while_revalidate(3600 s)`, so a CDN keeps it a minute where public-web gives it a day ([`market.rs`](public/src/market.rs), decision 46).
-6. [todd-skelton/corten#107 ReadAgain never reads a page whose address has a #fragment, so a write redirected to route.at(..) stays on its catching-up state](https://github.com/todd-skelton/corten/issues/107): the alert fallback redirect and the item page's Manage alerts link (`watching::alerts_href`) are not `.at(ProductAlertsId)`; they name `section=product-alerts`, whose heading has `autofocus` ([`notifications::change_alert`](marketplace/src/notifications.rs), decision 45).
+1. [todd-skelton/corten#95 A page outside every area (the app's /) cannot link an area's stylesheet, so a screen that is also the home page ships its CSS on every page](https://github.com/todd-skelton/corten/issues/95): the home page writes `<link rel="stylesheet" href={req.asset("sections/search+categories+sets.css")} data-corten-style>` in its body, which the runtime moves to the head on a client navigation and keeps after it. Under `corten dev` the home page is an error, since it renders a component outside the areas that list it ([`search::render`](marketplace/src/search.rs)).
+2. [todd-skelton/corten#104 A data-patch answer cannot ask to be read again, so a write whose read is catching up has to navigate](https://github.com/todd-skelton/corten/issues/104): an alert's write whose read has not caught up redirects to the settings with its receipt (`section=product-alerts`) instead of patching the list; that page reads again with `ReadAgain` ([`notifications::change_alert`](marketplace/src/notifications.rs), decision 45).
+3. [todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106): the market page is `Public::new(60 s).stale_while_revalidate(3600 s)`, so a CDN keeps it a minute where public-web gives it a day ([`market.rs`](public/src/market.rs), decision 46).
 
 Found in Chase Sets by the search port:
 
@@ -1217,9 +1216,15 @@ none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (me
 
 Closed:
 
+Fixed at the `0f3f03f` pin ([todd-skelton/corten#108 The error page takes extractors (the caller), Failure::Unidentified, ReadAgain at a #place](https://github.com/todd-skelton/corten/pull/108)), workarounds removed:
+
+1. [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88): each app's error page is `async fn error_page(failure, req, ..)` and takes who is asking as a page does, marketplace's `Option<Caller<Session>>` and admin's `Option<Caller<Viewer>>` (any signed-in staff member, `auth::Viewer`'s `Identify`), so a 404 or a 403 is drawn with the user's nav and theme. public's takes none. Corten looks the caller up again for the error page (its measurement: an unknown URL's error page 20,650 to 26,122 instructions).
+2. [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89): a session the platform API could not read is `Failure::Unidentified`, "We could not check who you are", with no nav. In admin it read as the screens' own 503 ("We are preparing your change") before.
+3. [todd-skelton/corten#107 ReadAgain never reads a page whose address has a #fragment, so a write redirected to route.at(..) stays on its catching-up state](https://github.com/todd-skelton/corten/issues/107): the alert fallback redirect and the item page's Manage alerts link are `.at(ProductAlertsId)` again; the settings at `#product-alerts` read themselves again while the alerts catch up.
+
 Fixed at the `770b7eb` pin ([todd-skelton/corten#105 A typed route carries a place on its page (Route::at); t.date writes the month and year (MonthStyle)](https://github.com/todd-skelton/corten/pull/105)), workarounds removed:
 
-1. [todd-skelton/corten#100 A typed route cannot carry a #fragment, so a redirect after a write cannot bring the browser back to the element it acted on](https://github.com/todd-skelton/corten/issues/100): `app::At` and `account_page::review_anchor` are gone. Report review redirects to `to.at(ReviewId(&review))`, and the `#feedback` link is `.at(FeedbackId)`, so the markup's id and the URL's are the same type. The alert links were `.at(ProductAlertsId)` too until [todd-skelton/corten#107 ReadAgain never reads a page whose address has a #fragment, so a write redirected to route.at(..) stays on its catching-up state](https://github.com/todd-skelton/corten/issues/107) took the fragment back off them.
+1. [todd-skelton/corten#100 A typed route cannot carry a #fragment, so a redirect after a write cannot bring the browser back to the element it acted on](https://github.com/todd-skelton/corten/issues/100): `app::At` and `account_page::review_anchor` are gone. Report review redirects to `to.at(ReviewId(&review))`, and the `#feedback` link is `.at(FeedbackId)`, so the markup's id and the URL's are the same type. The alert links were `.at(ProductAlertsId)` too until [todd-skelton/corten#107 ReadAgain never reads a page whose address has a #fragment, so a write redirected to route.at(..) stays on its catching-up state](https://github.com/todd-skelton/corten/issues/107) took the fragment back off them; they are again at the `0f3f03f` pin.
 2. [todd-skelton/corten#101 t.date has no month-and-year style, so 'Member since March 2025' cannot be localized](https://github.com/todd-skelton/corten/issues/101): `set_page::month_year` is gone; "Member since" is `t.date(at, MonthStyle::Long)` of the account's `created_at` (Postgres' text, which `parse_timestamp` reads).
 
 Fixed at the `d824f40` pin ([todd-skelton/corten#102 Keeping a place keeps the rail's scroll and the open groups; Fields takes generics; Route declares serde](https://github.com/todd-skelton/corten/pull/102)), workarounds removed:

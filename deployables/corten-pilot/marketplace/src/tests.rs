@@ -1250,6 +1250,24 @@ async fn reading_needs_inventory_view_writing_needs_inventory_manage() {
 }
 
 #[tokio::test]
+async fn an_error_page_is_drawn_for_who_is_asking() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/nowhere", Some("seller"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the member's nav: {html}");
+    let (status, _, html) = pilot.send(get("/account/nowhere", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("<header"), "a visitor has no nav: {html}");
+    let (status, _, html) = pilot.send(get(SCREEN, Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(html.contains("Your role cannot open this page.") && html.contains("<header"), "{html}");
+    // A session the API could not read is said so, not as a failed page.
+    let (status, _, html) = pilot.send(get(SCREEN, Some("down"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(html.contains("We could not check who you are.") && !html.contains("<header"), "{html}");
+}
+
+#[tokio::test]
 async fn the_list_shows_archived_locations_and_data_clients_get_the_screen() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(SCREEN, Some("seller"))).await;
@@ -3065,7 +3083,7 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         html.contains(r#"href="/account/notifications?view=settings&amp;section=product-alerts&amp;afterWrite=%7B"#),
         "{html}"
     );
-    assert!(!html.contains(r#"%7D#product-alerts""#), "the link has no fragment (todd-skelton/corten#107): {html}");
+    assert!(html.contains(r#"%7D#product-alerts""#), "the link is at the alerts: {html}");
     assert!(!text(&html).contains("Alerts are created after account registration"), "an account is not told to register: {html}");
 
     // No threshold is an alert without one, whatever the currency says.
@@ -4537,18 +4555,17 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
     let calls = notice_calls(&pilot);
     assert_eq!(calls[0].path, "/api/marketplace/account/product-alerts/pal_1/pause");
     assert_eq!(waits_for(&calls[1].headers).as_deref(), Some("22"), "the read waits for the write");
-    // Without a script: the settings at the alerts (the section names them; no #fragment, which
-    // a page that reads itself again would never be read at: todd-skelton/corten#107), with the
-    // receipt, which the read waits for.
+    // Without a script: the settings at the alerts, with the receipt, which the read waits for.
     let (status, headers, _) =
         pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=pause", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap().to_owned();
     assert!(
-        to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite=") && !to.contains('#'),
+        to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite=")
+            && to.ends_with("#product-alerts"),
         "{to}"
     );
-    let (_, _, html) = pilot.send(get(&to, Some("watcher"))).await;
+    let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("watcher"))).await;
     assert!(html.contains(r#"autofocus"#), "the alerts' heading takes focus: {html}");
     assert!(html.contains(r#"/product-alerts/pal_1" data-patch><input type="hidden" name="action" value="resume">"#), "{html}");
     // A read that has not caught up: saved, reading again.

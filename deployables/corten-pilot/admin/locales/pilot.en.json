@@ -32,7 +32,9 @@
     "not_found": "There is nothing at this address.",
     "failed_title": "Something went wrong",
     "failed": "The platform API did not answer. Try again in a moment.",
-    "pending": "We are preparing your change. Refresh in a moment and it should appear."
+    "pending": "We are preparing your change. Refresh in a moment and it should appear.",
+    "unidentified_title": "Not available",
+    "unidentified": "We could not check who you are. Try again in a moment."
   },
   "catalog": {
     "close": "Close",

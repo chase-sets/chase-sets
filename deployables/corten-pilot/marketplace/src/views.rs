@@ -12,7 +12,7 @@ use platform::{
 
 use crate::{
     app::url,
-    auth::Viewer,
+    auth::{Session, Viewer},
     cart::CartScreen,
     form::LocationInput,
     locations::Screen,
@@ -45,7 +45,7 @@ pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_part
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
-pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch};
+pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use order_page::{OrderList, OrderPage};
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
@@ -149,8 +149,7 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
 /// The document around every page: marketplace's top bar and the user's color mode, `title`, the
 /// page's own `head` tags (description, canonical, social, JSON-LD, `ReadAgain`) and the page
 /// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
-/// `viewer` is the handler's `Caller` (none for a visitor, and on the error page, which Corten
-/// gives no caller).
+/// `viewer` is the handler's `Caller` (none for a visitor).
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
@@ -190,15 +189,18 @@ pub fn Layout<'a, H: Render, C: Render>(
     }
 }
 
-/// The page for a failed request, in the layout (`App::error_page`). Under `corten dev` it shows
-/// the error; Corten sends it with `X-Robots-Tag: noindex`.
-pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
+/// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
+/// nav and theme, and none for a visitor or when the session could not be read. Under
+/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
+pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
         Failure::NotFound => (p.error_not_found_title(), p.error_not_found()),
         Failure::Refused { .. } | Failure::CrossSite => (p.error_forbidden_title(), p.error_forbidden()),
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        // The platform API could not say whose the session is (`Refused::unavailable`).
+        Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         Failure::WrongMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
@@ -207,17 +209,16 @@ pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
         | Failure::Offline => (p.error_failed_title(), p.error_failed()),
     };
     let detail = failure.detail().map(str::to_owned);
-    // Corten gives the error page no caller, so it is drawn without the nav and the user's theme
-    // (todd-skelton/corten#88).
-    html! {
-        <Layout req={req} viewer={None} title={title} head="">
+    let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
+    req.page(html! {
+        <Layout req={&req} viewer={viewer} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {
                 <pre>{detail}</pre>
             }
         </Layout>
-    }
+    })
 }
 
 /// A page that could not be drawn: its title and what to do.

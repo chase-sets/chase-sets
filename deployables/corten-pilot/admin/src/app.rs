@@ -125,8 +125,8 @@ pub fn app(config: Config) -> App {
         .components(views::COMPONENTS)
         .area::<url::Policies>(|area| url::area(area, shared.clone()).components(views::POSTAGE))
         .area::<crate::operations::url::Attention>(|area| crate::operations::area(area, shared.clone()))
-        .area::<catalog::url::Catalog>(|area| catalog::area(area, shared))
-        .error_page(views::error_page)
+        .area::<catalog::url::Catalog>(|area| catalog::area(area, shared.clone()))
+        .error_page(views::error_page, shared)
 }
 
 /// Why a write's API call ends in something other than the form: the caller was found,

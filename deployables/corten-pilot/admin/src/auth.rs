@@ -39,6 +39,14 @@ impl<R: Rule> Identify<Shared> for Staff<R> {
     }
 }
 
+/// Any signed-in staff member, whatever they may use: the error page's `Option<Caller<Viewer>>`,
+/// which draws the nav for who is asking. A handler takes `Staff<..>`, which says what it needs.
+impl Identify<Shared> for Viewer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        viewer(parts, config).await
+    }
+}
+
 /// The signed-in staff member, or why there is none.
 async fn viewer(parts: &Parts, config: &Shared) -> Result<Viewer, Refused> {
     let sign_in = || match crate::app::sign_in_at(parts.uri.path()) {
