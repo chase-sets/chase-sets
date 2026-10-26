@@ -12,27 +12,23 @@
 use std::sync::Arc;
 
 use corten::{
-    Fragment, LiveSince,
-    axum::{
-        http::{HeaderMap, StatusCode},
-        response::IntoResponse,
-    },
+    Fragment, LiveResponse, LiveSince,
+    axum::http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt, session};
+use platform::{realtime::Tick, receipt::Receipt};
 use serde::Serialize;
 
 use crate::{
     api::{ApiError, PackagePlan, Platform, Policies as _, Policy, PolicyList, Written},
-    auth::{self, ColorMode, Session},
+    auth::{PostageView, Staff, Viewer},
     catalog,
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, reason},
     text::{Msg, Pilot},
     views::{self, Draft, Forms},
 };
 
-const VIEW: &str = "postage-policies.view";
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
 
@@ -72,19 +68,15 @@ pub fn admin_web_origin() -> &'static str {
 
 pub(crate) type Shared = Arc<Config>;
 
-/// Every URL the pilot serves.
+/// Every URL the postage screen serves, with its handlers. The list is the area's route: its
+/// routes, its stylesheet, and the caller every handler takes (staff who may see postage policies).
+#[corten::routes(state = Shared, area = Policies, caller = Staff<PostageView>)]
 pub mod url {
-    use corten::Route;
     use serde::Deserialize;
 
-    /// The postage-policy screen's area: its routes, stylesheet and guard.
-    #[derive(Route)]
-    #[route("/commerce/postage-policies")]
-    pub struct PostageArea;
-
     /// The list; `policy` opens its sheet, `after_write` is the receipt of the write before.
-    #[derive(Clone, Debug, Default, Deserialize, Route)]
-    #[route("/commerce/postage-policies")]
+    #[derive(Clone, Debug, Default, Deserialize)]
+    #[route("/commerce/postage-policies", get = list, post = create)]
     pub struct Policies {
         pub limit: Option<u32>,
         pub offset: Option<u32>,
@@ -92,101 +84,52 @@ pub mod url {
         pub after_write: Option<String>,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}")]
+    #[route("/commerce/postage-policies/{id}", get = open)]
     pub struct Policy<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}/revise")]
+    #[route("/commerce/postage-policies/{id}/revise", post = revise)]
     pub struct Revise<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}/activate")]
+    #[route("/commerce/postage-policies/{id}/activate", post = activate)]
     pub struct Activate<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}/retire")]
+    #[route("/commerce/postage-policies/{id}/retire", post = retire)]
     pub struct Retire<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}/clone")]
+    #[route("/commerce/postage-policies/{id}/clone", post = clone)]
     pub struct Clone<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/commerce/postage-policies/{id}/preview")]
+    #[route("/commerce/postage-policies/{id}/preview", post = preview)]
     pub struct Preview<'a> {
         pub id: &'a str,
     }
 }
 
-pub fn app(config: Config) -> App<Session> {
+/// The pilot: every screen is an area whose routes module says which staff may use it
+/// (`caller = Staff<..>`), so every route there, and any added later, takes that caller. Nothing
+/// is served outside an area but Corten's own (health, the runtime, assets).
+pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
-    let context = shared.clone();
     App::new(Router::new())
-        .context(move |headers: &HeaderMap| {
-            let forward = session::forwarded(headers);
-            let color_mode = ColorMode::from_headers(headers);
-            let config = context.clone();
-            async move {
-                let forward = forward?;
-                auth::session(config.platform.caller(&forward, config.proto, None), color_mode).await
-            }
-        })
-        // Every route the pilot serves, and any added later, is for signed-in staff; each area
-        // then asks for its own permission.
-        .guard(move |session, req| match session {
-            Some(Session::Staff(_)) => Access::ALLOW,
-            // The API could not say whose the cookie is: signing in again would loop while it is down.
-            Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
-            None => match sign_in_at(req.uri().path()) {
-                Some(to) => Access::sign_in(&to),
-                None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-            },
-        })
         .messages::<Msg>()
         .components(views::COMPONENTS)
-        .area::<url::PostageArea>(|area| {
-            routes(area, shared.clone()).components(views::POSTAGE).guard(|session, _| allow(session, VIEW))
-        })
-        .area::<crate::operations::url::OperationsArea>(|area| crate::operations::area(area, shared.clone()))
-        .area::<catalog::url::Catalog>(|area| {
-            catalog::routes(area, shared)
-                .components(catalog::views::COMPONENTS)
-                .guard(|session, req| allow(session, if req.writes() { catalog::MANAGE } else { catalog::VIEW }))
-        })
+        .area::<url::Policies>(|area| url::area(area, shared.clone()).components(views::POSTAGE))
+        .area::<crate::operations::url::Attention>(|area| crate::operations::area(area, shared.clone()))
+        .area::<catalog::url::Catalog>(|area| catalog::area(area, shared))
         .error_page(views::error_page)
 }
 
-/// An area's answer: staff with `permission` pass, anyone else is refused (the app's guard has
-/// already sent everyone without a session to sign in).
-pub(crate) fn allow(session: Option<&Session>, permission: &str) -> Access {
-    match session {
-        Some(Session::Staff(viewer)) if viewer.can(permission) => Access::ALLOW,
-        _ => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
-    }
-}
-
-fn routes(area: Area<Session, url::PostageArea>, shared: Shared) -> Area<Session, url::PostageArea> {
-    area.route::<url::Policies>(get(list).post(create).with_state(shared.clone()))
-        .route::<url::Policy>(get(open).with_state(shared.clone()))
-        .route::<url::Revise>(post(revise).with_state(shared.clone()))
-        .route::<url::Activate>(post(activate).with_state(shared.clone()))
-        .route::<url::Retire>(post(retire).with_state(shared.clone()))
-        .route::<url::Clone>(post(clone).with_state(shared.clone()))
-        .route::<url::Preview>(post(preview).with_state(shared))
-}
-
-/// Why a write's API call ends in something other than the form: the guard let the request in,
+/// Why a write's API call ends in something other than the form: the caller was found,
 /// but the API says the session ended meanwhile, or failed.
 pub(crate) enum Denied {
     /// Not signed in (or no longer): sign in at admin-web.
@@ -196,7 +139,7 @@ pub(crate) enum Denied {
 }
 
 impl Denied {
-    pub(crate) fn answer(self, req: &Req) -> corten::Result {
+    pub(crate) fn answer(self, req: &Req) -> HtmlResult {
         match self {
             Denied::SignIn => sign_in(req),
             Denied::Error(error) => Err(error),
@@ -204,8 +147,8 @@ impl Denied {
     }
 }
 
-/// admin-web's sign-in, for a session the API says has ended (the guard sends the rest there).
-pub(crate) fn sign_in(req: &Req) -> corten::Result {
+/// admin-web's sign-in, for a session the API says has ended (`Staff::identify` sends the rest there).
+pub(crate) fn sign_in(req: &Req) -> HtmlResult {
     match sign_in_at(req.path()) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
@@ -213,7 +156,7 @@ pub(crate) fn sign_in(req: &Req) -> corten::Result {
 }
 
 /// A read that failed, as the page's answer.
-pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> corten::Result {
+pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> HtmlResult {
     // The write's projection is not readable yet: admin-web's "pending" answer, which asks the
     // user to refresh (the receipt stays in the address for 30 seconds).
     if after_write && error.catching_up() {
@@ -240,7 +183,7 @@ pub(crate) fn live_rows<F, Fut>(
     since: LiveSince,
     topic: &'static str,
     rows: F,
-) -> impl IntoResponse
+) -> LiveResponse
 where
     F: Fn(Shared, HeaderMap) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Option<String>> + Send + 'static,
@@ -281,7 +224,14 @@ pub struct Screen {
 }
 
 /// The page for `query`, with `forms` in place of the forms' defaults.
-async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &url::Policies, forms: Forms) -> corten::Result {
+async fn render(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    query: &url::Policies,
+    forms: Forms,
+) -> HtmlResult {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -301,19 +251,30 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &url::Po
     let screen = Screen { policies, selected, preview, limit, offset };
     let t: Msg = req.t();
     let view = views::page(t, req.t(), &screen, forms);
-    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_title()} head="">{view}</crate::views::Layout> })
+    req.screen(
+        &screen,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_title()} head="">{view}</crate::views::Layout>
+        },
+    )
 }
 
-async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<url::Policies>) -> corten::Result {
-    render(&req, &config, &headers, &query, Forms::default()).await
+async fn list(
+    req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<url::Policies>,
+) -> HtmlResult {
+    render(&req, &staff.viewer, &config, &headers, &query, Forms::default()).await
 }
 
-async fn open(req: Req, Path(id): Path<String>) -> corten::Result {
+async fn open(req: Req, _: Caller<Staff<PostageView>>, Path(id): Path<String>) -> HtmlResult {
     req.redirect(&url::Policies { policy: Some(id), ..Default::default() })
 }
 
 /// The policy's sheet after a write, waiting for the write's projection.
-fn written(req: &Req, written: Written) -> corten::Result {
+fn written(req: &Req, written: Written) -> HtmlResult {
     req.redirect(&url::Policies {
         policy: Some(written.id),
         after_write: written.receipt.map(|r| r.param()),
@@ -335,20 +296,31 @@ pub(crate) fn refused(error: ApiError) -> Result<Errors, Denied> {
 }
 
 /// 422: the form with its errors as a patch, or the whole page without JavaScript.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn invalid(
     req: &Req,
+    viewer: &Viewer,
     config: &Config,
     headers: &HeaderMap,
     errors: Errors,
     form: impl Patch,
     policy: Option<&str>,
     forms: Forms,
-) -> corten::Result {
+) -> HtmlResult {
     let query = url::Policies { policy: policy.map(str::to_owned), ..Default::default() };
-    req.invalid(&errors, form, || render(req, config, headers, &query, forms)).await
+    req.invalid(&errors, form, || render(req, viewer, config, headers, &query, forms)).await
 }
 
-async fn create(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<PolicyInput>) -> corten::Result {
+async fn create(
+    req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<PolicyInput>,
+) -> HtmlResult {
     let pilot: Pilot = req.t();
     let errors = match input.command(pilot) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).create(&command).await {
@@ -363,16 +335,17 @@ async fn create(req: Req, State(config): State<Shared>, headers: HeaderMap, Form
     let draft = Draft { input, errors };
     let form = views::CreateForm { t: req.t(), form: &draft };
     let forms = Forms { create: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, None, forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, None, forms).await
 }
 
 async fn revise(
     req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<PolicyInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).revise(&id, &command).await {
             Ok(done) => return written(&req, done),
@@ -386,16 +359,17 @@ async fn revise(
     let draft = Draft { input, errors };
     let form = views::ReviseForm { t: req.t(), id: &id, form: &draft };
     let forms = Forms { revise: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
 }
 
 async fn preview(
     req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<PolicyInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.preview_payload(req.t()) {
         Ok((payload, numbers)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -405,7 +379,7 @@ async fn preview(
                     let query = url::Policies { policy: Some(id), ..Default::default() };
                     let forms =
                         Forms { revise: Some(Draft { input, errors: Errors::new() }), preview: Some(plan), ..Forms::default() };
-                    return render(&req, &config, &headers, &query, forms).await;
+                    return render(&req, &staff.viewer, &config, &headers, &query, forms).await;
                 }
                 Err(error) => match refused(error) {
                     Ok(errors) => errors,
@@ -418,16 +392,17 @@ async fn preview(
     let draft = Draft { input, errors };
     let form = views::ReviseForm { t: req.t(), id: &id, form: &draft };
     let forms = Forms { revise: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
 }
 
 async fn activate(
     req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ActivateInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match reason(req.t(), ActivateInput::FIELDS.activation_reason, &input.activation_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).activate(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -442,16 +417,17 @@ async fn activate(
     // The status decides whether the button is enabled; the form only failed, so it stays enabled.
     let form = views::ActivateForm { t: req.t(), id: &id, enabled: true, form: &draft };
     let forms = Forms { activate: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
 }
 
 async fn retire(
     req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<RetireInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match reason(req.t(), RetireInput::FIELDS.retirement_reason, &input.retirement_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).retire(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -465,16 +441,17 @@ async fn retire(
     let draft = Draft { input, errors };
     let form = views::RetireForm { t: req.t(), id: &id, enabled: true, form: &draft };
     let forms = Forms { retire: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
 }
 
 async fn clone(
     req: Req,
+    Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<CloneInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).clone_policy(&id, &command).await {
             Ok(done) => return written(&req, done),
@@ -488,5 +465,5 @@ async fn clone(
     let draft = Draft { input, errors };
     let form = views::CloneForm { t: req.t(), id: &id, form: &draft };
     let forms = Forms { clone: Some(draft.clone()), ..Forms::default() };
-    invalid(&req, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
+    invalid(&req, &staff.viewer, &config, &headers, draft.errors.clone(), form, Some(&id), forms).await
 }

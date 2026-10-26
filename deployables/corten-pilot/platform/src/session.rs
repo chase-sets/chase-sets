@@ -36,7 +36,7 @@ impl ColorMode {
     }
 }
 
-/// What the session lookup forwards, owned so `App::context`'s future can keep it: the cookies
+/// What the session lookup forwards, owned so an `Identify` lookup's future can keep it: the cookies
 /// and the host, or `None` without a session cookie (no lookup, no one signed in).
 pub fn forwarded(headers: &HeaderMap) -> Option<HeaderMap> {
     cookie::get(headers, SESSION_COOKIE)?;

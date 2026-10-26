@@ -159,8 +159,8 @@ pub struct Saved {
 /// 2.5 s (the picker's freshness SLO, p95), so an addition to a list the picker has, the usual
 /// one, is not kept waiting for counts it does not show; a wait that times out keeps the read
 /// without it.
-pub async fn state_after(req: &Req, caller: &Caller<'_>, waited: &Caller<'_>, list: &str) -> SaveState {
-    let state = state(req, caller).await;
+pub async fn state_after(session: Option<&Session>, caller: &Caller<'_>, waited: &Caller<'_>, list: &str) -> SaveState {
+    let state = state(session, caller).await;
     let SaveState::Ready { lists } = &state else { return state };
     if list.is_empty() || lists.iter().any(|l| l.list_id == list) {
         return state;
@@ -175,8 +175,8 @@ pub async fn state_after(req: &Req, caller: &Caller<'_>, waited: &Caller<'_>, li
 }
 
 /// The viewer's Add to List: for an account that may, its recent lists, read by `caller`.
-pub async fn state(req: &Req, caller: &Caller<'_>) -> SaveState {
-    match req.context::<Session>() {
+pub async fn state(session: Option<&Session>, caller: &Caller<'_>) -> SaveState {
+    match session {
         Some(Session::Account(viewer)) if viewer.actor.can(ACCOUNTS_VIEW) => match caller.recent_saved_lists().await {
             Ok(lists) => SaveState::Ready { lists },
             Err(error) => {
@@ -310,28 +310,35 @@ fn guest_owner(headers: &HeaderMap) -> String {
 }
 
 /// The page again, its Add to List dialog drawn open with why nothing was saved.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn refused(
     req: &Req,
+    session: Option<&Session>,
     caller: &Caller<'_>,
     item: Item,
     address: &Address,
     input: SaveInput,
     message: String,
     status: StatusCode,
-) -> corten::Result {
+) -> HtmlResult {
     let notice = BuyNotice::SaveRefused { message, input };
-    let reads = PageReads { save: state(req, caller).await, ..Default::default() };
-    items::render(req, item, address, Some(&notice), status, reads)
+    let reads = PageReads { save: state(session, caller).await, ..Default::default() };
+    items::render(req, session, item, address, Some(&notice), status, reads)
 }
 
 /// Add to List's Add Product, and a guest's Add to List.
 pub(crate) async fn save(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let p = Pilot::default();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
@@ -342,7 +349,6 @@ pub(crate) async fn save(
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     };
-    let session = req.context::<Session>();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
     }
@@ -362,7 +368,7 @@ pub(crate) async fn save(
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     if product_id.is_empty() || screen.product_id.as_deref() != Some(product_id.as_str()) {
         let message = t.saved_api_product_invalid().to_owned();
-        return refused(&req, &caller, item, &address, input, message, unprocessable).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     }
     let product =
         Product { catalog_item_id: &item.catalog_item_id, product_id: &product_id, selected_options: &screen.product_options };
@@ -375,7 +381,7 @@ pub(crate) async fn save(
         let owner = guest_owner(&headers);
         let intent = match caller.saved_list_intent(&owner, &intent).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, &caller, item, &address, input, error).await,
+            Err(error) => return refusal(&req, session, &caller, item, &address, input, error).await,
         };
         let to: Uri = register_href(&source, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -386,16 +392,16 @@ pub(crate) async fn save(
     };
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.saved_api_account_forbidden().to_owned();
-        return refused(&req, &caller, item, &address, input, message, StatusCode::FORBIDDEN).await;
+        return refused(&req, session, &caller, item, &address, input, message, StatusCode::FORBIDDEN).await;
     }
     // A form without its ids is not one the page drew (or one from before the ids): drawn again
     // with new ones, nothing sent.
     if tokens.is_none() {
-        return refused(&req, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable).await;
+        return refused(&req, session, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable).await;
     }
     let Some(tracked) = quantity(&input.quantity) else {
         let message = p.item_saved_quantity_invalid().to_owned();
-        return refused(&req, &caller, item, &address, input, message, unprocessable).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     };
     let destination = if input.list == NEW_LIST {
         match title(&input.title) {
@@ -404,12 +410,12 @@ pub(crate) async fn save(
             }
             None => {
                 let message = p.item_saved_title_required().to_owned();
-                return refused(&req, &caller, item, &address, input, message, unprocessable).await;
+                return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
             }
         }
     } else if input.list.is_empty() {
         let message = p.item_saved_choose_list().to_owned();
-        return refused(&req, &caller, item, &address, input, message, unprocessable).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     } else {
         Destination::Existing { list_id: &input.list }
     };
@@ -443,7 +449,7 @@ pub(crate) async fn save(
         Err(error) => {
             // A new list's title stays as typed; the ids stay, so trying again is the same addition.
             input.title = input.title.trim().to_owned();
-            refusal(&req, &caller, item, &address, input, error).await
+            refusal(&req, session, &caller, item, &address, input, error).await
         }
     }
 }
@@ -451,16 +457,17 @@ pub(crate) async fn save(
 /// A write the API refused shows its reason in the dialog; anything else is the API failing.
 async fn refusal(
     req: &Req,
+    session: Option<&Session>,
     caller: &Caller<'_>,
     item: Item,
     address: &Address,
     input: SaveInput,
     error: ApiError,
-) -> corten::Result {
+) -> HtmlResult {
     match error.refusal() {
         Some(message) => {
             let message = message.to_owned();
-            refused(req, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY).await
+            refused(req, session, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

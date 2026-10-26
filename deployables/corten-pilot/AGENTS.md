@@ -2,7 +2,7 @@
 
 This is the Corten pilot (README.md): a Cargo workspace of Chase Sets screens ported to Corten,
 in front of the platform API: `admin/` (admin-web's postage policies and catalog dimensions and
-fields, each an `App::area` with its own stylesheet and guard), `marketplace/`
+fields, each an `App::area` with its own stylesheet and the caller its routes module names), `marketplace/`
 (marketplace's storage locations) and `platform/`, the library both share. Keep it isolated: it is not deployed and is not part of the platform gates. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`

@@ -35,9 +35,12 @@ use super::{
 use crate::{
     api::Method,
     app::Shared,
+    auth::{CatalogAccess, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
+/// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
+#[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::Route;
     use serde::Deserialize;
@@ -45,8 +48,8 @@ pub mod url {
     use crate::catalog::scopes::url::ScopeQuery;
 
     /// An item's sheet, opened from the list with its filters.
-    #[derive(Clone, Debug, Default, Deserialize, Route)]
-    #[route("/catalog/scopes/attention/review")]
+    #[derive(Clone, Debug, Default, Deserialize)]
+    #[route("/catalog/scopes/attention/review", get = review)]
     pub struct AttentionReview {
         #[route(query)]
         pub query: ScopeQuery,
@@ -61,36 +64,31 @@ pub mod url {
         pub item: Option<String>,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/scopes/attention/dismiss")]
+    #[route("/catalog/scopes/attention/dismiss", post = dismiss)]
     pub struct AttentionDismiss {
         #[route(query)]
         pub query: ScopeQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/scopes/attention/defer")]
+    #[route("/catalog/scopes/attention/defer", post = defer)]
     pub struct AttentionDefer {
         #[route(query)]
         pub query: ScopeQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/scopes/attention/restore")]
+    #[route("/catalog/scopes/attention/restore", post = restore)]
     pub struct AttentionRestore {
         #[route(query)]
         pub query: ScopeQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/scopes/attention/alias/accept")]
+    #[route("/catalog/scopes/attention/alias/accept", post = alias_accept)]
     pub struct AliasAccept {
         #[route(query)]
         pub query: ScopeQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/scopes/attention/alias/reject")]
+    #[route("/catalog/scopes/attention/alias/reject", post = alias_reject)]
     pub struct AliasReject {
         #[route(query)]
         pub query: ScopeQuery,
@@ -135,61 +133,75 @@ pub enum Parked {
     Defer(Draft<ParkInput>),
 }
 
-pub fn routes(
-    area: Area<crate::auth::Session, super::url::Catalog>,
-    shared: Shared,
-) -> Area<crate::auth::Session, super::url::Catalog> {
-    area.route::<url::AttentionReview>(get(review).with_state(shared.clone()))
-        .route::<url::AttentionDismiss>(post(dismiss).with_state(shared.clone()))
-        .route::<url::AttentionDefer>(post(defer).with_state(shared.clone()))
-        .route::<url::AttentionRestore>(post(restore).with_state(shared.clone()))
-        .route::<url::AliasAccept>(post(alias_accept).with_state(shared.clone()))
-        .route::<url::AliasReject>(post(alias_reject).with_state(shared))
-}
-
 /// An item's sheet: with the script, the sheet alone (the queue read again for the item); without,
 /// the list with it open.
 async fn review(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Query(item): Query<url::ReviewItem>,
-) -> corten::Result {
+) -> HtmlResult {
     let key = item.item.unwrap_or_default();
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
         let queue = scopes::read_queue(&caller).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
         let t: Cat = req.t();
-        return req.patch(views::AttentionSheet { t, query: &query, item: found, parked: None, manage: super::manages(&req) });
+        return req.patch(views::AttentionSheet {
+            t,
+            query: &query,
+            item: found,
+            parked: None,
+            manage: super::manages(&staff.viewer),
+        });
     }
-    scopes::render(&req, &config, &headers, &query, &scopes::url::ScopeNotice::default(), ScopeBack::Review(key, None)).await
+    scopes::render(
+        &req,
+        &staff.viewer,
+        &config,
+        &headers,
+        &query,
+        &scopes::url::ScopeNotice::default(),
+        ScopeBack::Review(key, None),
+    )
+    .await
 }
 
 async fn dismiss(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Form(input): Form<ParkInput>,
-) -> corten::Result {
-    park(req, config, headers, query, input, false).await
+) -> HtmlResult {
+    park(req, &staff.viewer, config, headers, query, input, false).await
 }
 
 async fn defer(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Form(input): Form<ParkInput>,
-) -> corten::Result {
-    park(req, config, headers, query, input, true).await
+) -> HtmlResult {
+    park(req, &staff.viewer, config, headers, query, input, true).await
 }
 
 /// `handleAttentionQueueCommand`'s dismiss and defer: the pilot checks only that the reason is
 /// there and the kind is one the queue has; the API checks the rest.
-async fn park(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, input: ParkInput, defer: bool) -> corten::Result {
+async fn park(
+    req: Req,
+    viewer: &Viewer,
+    config: Shared,
+    headers: HeaderMap,
+    query: ScopeQuery,
+    input: ParkInput,
+    defer: bool,
+) -> HtmlResult {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let f = ParkInput::FIELDS;
     let mut errors = Errors::new();
@@ -228,10 +240,10 @@ async fn park(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, i
     let draft = Draft { input, errors: errors.clone() };
     let key = draft.input.item_key.clone();
     let parked = if defer { Parked::Defer(draft) } else { Parked::Dismiss(draft) };
-    let form = views::park_form(t, &query, &parked, super::manages(&req));
+    let form = views::park_form(t, &query, &parked, super::manages(viewer));
     let notice = scopes::url::ScopeNotice::default();
     req.invalid(&errors, form, || {
-        scopes::render(&req, &config, &headers, &query, &notice, ScopeBack::Review(key.clone(), Some(parked.clone())))
+        scopes::render(&req, viewer, &config, &headers, &query, &notice, ScopeBack::Review(key.clone(), Some(parked.clone())))
     })
     .await
 }
@@ -239,44 +251,40 @@ async fn park(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, i
 /// Restore after a park: the list again, without the Restore it offered.
 async fn restore(
     req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Form(input): Form<RestoreInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let body = json!({ "intent": "restore", "itemKey": input.item_key.trim() });
     queued(&req, &config, &headers, query, Kind::AttentionQueue, &body).await
 }
 
 async fn alias_accept(
     req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Form(input): Form<AliasInput>,
-) -> corten::Result {
+) -> HtmlResult {
     alias(req, config, headers, query, input, "accept").await
 }
 
 async fn alias_reject(
     req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<ScopeQuery>,
     Form(input): Form<AliasInput>,
-) -> corten::Result {
+) -> HtmlResult {
     alias(req, config, headers, query, input, "reject").await
 }
 
 /// `handleAliasReviewCommand`: accept or reject the candidates (a reject needs its reason).
-async fn alias(
-    req: Req,
-    config: Shared,
-    headers: HeaderMap,
-    query: ScopeQuery,
-    input: AliasInput,
-    intent: &str,
-) -> corten::Result {
+async fn alias(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, input: AliasInput, intent: &str) -> HtmlResult {
     let hashes: Vec<&str> = input.alias_hashes.split(',').map(str::trim).filter(|h| !h.is_empty()).collect();
     let reason = input.reason.trim();
     if hashes.is_empty() || (intent == "reject" && reason.is_empty()) {
@@ -290,7 +298,7 @@ async fn alias(
 }
 
 /// A one-click command: the list after it, with admin-web's banner (queued, or the command failed).
-async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQuery, kind: Kind, body: &Value) -> corten::Result {
+async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQuery, kind: Kind, body: &Value) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     match command(&caller, Method::POST, kind, "/commands", Some(body)).await {
         Sent::Written(written) => {
@@ -307,7 +315,7 @@ async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQue
     }
 }
 
-fn failed(req: &Req, query: ScopeQuery) -> corten::Result {
+fn failed(req: &Req, query: ScopeQuery) -> HtmlResult {
     let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Failed), ..Default::default() };
     req.redirect(&scopes::url::Scopes { query, notice })
 }

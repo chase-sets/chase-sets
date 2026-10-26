@@ -12,7 +12,7 @@ use platform::{
 
 use crate::{
     app::url,
-    auth::{Session, Viewer},
+    auth::Viewer,
     cart::CartScreen,
     form::LocationInput,
     locations::Screen,
@@ -109,13 +109,17 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
 /// The document around every page: marketplace's top bar and the user's color mode, `title`, the
 /// page's own `head` tags (description, canonical, social, JSON-LD, `ReadAgain`) and the page
 /// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
+/// `viewer` is the handler's `Caller` (none for a visitor, and on the error page, which Corten
+/// gives no caller).
 #[component]
-pub fn Layout<'a, H: Render, C: Render>(req: &'a Req, title: &'a str, head: H, children: C) -> impl Document + 'a {
+pub fn Layout<'a, H: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    children: C,
+) -> impl Document + 'a {
     let p: Pilot = req.t();
-    let viewer = match req.context::<Session>() {
-        Some(Session::Account(viewer)) => Some(viewer),
-        _ => None,
-    };
     let theme = viewer.and_then(|v| v.color_mode.theme());
     html! {
         <!DOCTYPE html>
@@ -150,14 +154,23 @@ pub fn Layout<'a, H: Render, C: Render>(req: &'a Req, title: &'a str, head: H, c
 /// the error; Corten sends it with `X-Robots-Tag: noindex`.
 pub fn error_page(req: &Req, failure: Failure) -> impl Document + '_ {
     let p: Pilot = req.t();
-    let (title, text) = match failure.status {
-        StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
-        StatusCode::NOT_FOUND => (p.error_not_found_title(), p.error_not_found()),
-        _ => (p.error_failed_title(), p.error_failed()),
+    // Each case is named, so a case Corten adds stops this compiling.
+    let (title, text) = match &failure {
+        Failure::NotFound => (p.error_not_found_title(), p.error_not_found()),
+        Failure::Refused { .. } | Failure::CrossSite => (p.error_forbidden_title(), p.error_forbidden()),
+        Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        Failure::WrongMethod
+        | Failure::Rejected { .. }
+        | Failure::Failed { .. }
+        | Failure::Panicked { .. }
+        | Failure::TimedOut
+        | Failure::Offline => (p.error_failed_title(), p.error_failed()),
     };
-    let detail = failure.detail;
+    let detail = failure.detail().map(str::to_owned);
+    // Corten gives the error page no caller, so it is drawn without the nav and the user's theme
+    // (todd-skelton/corten#88).
     html! {
-        <Layout req={req} title={title} head="">
+        <Layout req={req} viewer={None} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {

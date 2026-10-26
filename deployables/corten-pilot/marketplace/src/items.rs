@@ -24,10 +24,10 @@ use std::{
 };
 
 use corten::{
+    LiveResponse,
     axum::{
         extract::{Path, State},
         http::{HeaderMap, StatusCode, Uri},
-        response::IntoResponse,
     },
     prelude::*,
     route::Params,
@@ -48,55 +48,6 @@ use crate::{
     text::ItemMsg,
     views, watching,
 };
-
-pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    url::items::area(area, Pages(shared.clone()))
-}
-
-/// The handler of each item route; the routes module does not compile without one per route.
-struct Pages(Shared);
-
-impl url::items::Handlers for Pages {
-    fn item(&self) -> MethodRouter {
-        get(page).with_state(self.0.clone())
-    }
-
-    fn item_live(&self) -> MethodRouter {
-        get(live).with_state(self.0.clone())
-    }
-
-    fn item_cart(&self) -> MethodRouter {
-        post(buying::add).with_state(self.0.clone())
-    }
-
-    fn item_buy(&self) -> MethodRouter {
-        post(buying::buy).with_state(self.0.clone())
-    }
-
-    fn item_offer(&self) -> MethodRouter {
-        post(buying::offer).with_state(self.0.clone())
-    }
-
-    fn item_sell_list(&self) -> MethodRouter {
-        post(selling::add).with_state(self.0.clone())
-    }
-
-    fn item_watch(&self) -> MethodRouter {
-        post(watching::watch).with_state(self.0.clone())
-    }
-
-    fn item_save(&self) -> MethodRouter {
-        post(saving::save).with_state(self.0.clone())
-    }
-
-    fn item_list(&self) -> MethodRouter {
-        post(listing::list).with_state(self.0.clone())
-    }
-
-    fn item_ship_from(&self) -> MethodRouter {
-        post(listing::ship_from).with_state(self.0.clone())
-    }
-}
 
 /// The side of the market the page shows (`MarketIntent`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -817,14 +768,16 @@ pub fn canonical(slug: &str) -> String {
     format!("{}{}", marketplace_origin(), url::Item { slug, state: Address::default() }.href())
 }
 
-async fn page(
+pub(crate) async fn page(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
     Path(id): Path<String>,
     Query(raw): Query<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
     // After a seller's write (a listing, the ship-from setup), the page reads with its receipt, so
     // the listing or the setup is there. A read the write's projection has not caught up with yet
@@ -842,9 +795,9 @@ async fn page(
     let saved_list = first(saving::SAVED_LIST).map_or("", String::as_str);
     let (read, overlay, similar, save) = tokio::join!(
         caller.item(&id),
-        read_overlay(&req, &caller, &id, &address),
+        read_overlay(session, &caller, &id, &address),
         similar_items(&unwaited, &id),
-        saving::state_after(&req, &unwaited, &waited, saved_list)
+        saving::state_after(session, &unwaited, &waited, saved_list)
     );
     let (item, behind) = match read {
         Ok(Some(item)) => (Some(item), false),
@@ -876,16 +829,17 @@ async fn page(
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
     // After Set alert, the page says so; the alerts' settings wait for the write's receipt.
     let notice = first(ADDED)
-        .map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)))
+        .map(|receipt| BuyNotice::Added(buying::cart_href(session, receipt)))
         .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))))
         .or_else(|| saving::saved(|key| first(key).cloned(), &save).map(BuyNotice::Saved));
-    let (terms, history) = tokio::join!(offer_terms(&req, &caller, &item, &address), market_history(&unwaited, &item, &address));
+    let (terms, history) =
+        tokio::join!(offer_terms(session, &caller, &item, &address), market_history(&unwaited, &item, &address));
     let setup = listing_setup(&req, overlay, receipt.is_some());
     // The listing the address names was just published and the item's read is behind it.
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
     let behind = behind || setup == ListingSetup::Recovering;
     let reads = PageReads { terms, behind, setup, listing_pending, similar, history, save };
-    render(&req, item, &address, notice.as_ref(), StatusCode::OK, reads)
+    render(&req, session, item, &address, notice.as_ref(), StatusCode::OK, reads)
 }
 
 /// The Sales tab's market history (`market-history-loader.ts`), when it is the tab shown: the
@@ -983,9 +937,16 @@ pub enum ListingSetup {
 
 /// The Sell tab's reads for `item` at `address` (`sell_reads` without a receipt for a
 /// refused form).
-pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address, after_write: bool) -> PageReads {
+pub async fn sell_reads(
+    req: &Req,
+    session: Option<&Session>,
+    caller: &Caller<'_>,
+    item: &Item,
+    address: &Address,
+    after_write: bool,
+) -> PageReads {
     let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
-    let (terms, overlay) = tokio::join!(offer_terms(req, caller, item, address), read_overlay(req, caller, id, address));
+    let (terms, overlay) = tokio::join!(offer_terms(session, caller, item, address), read_overlay(session, caller, id, address));
     let setup = listing_setup(req, overlay, after_write);
     PageReads {
         terms,
@@ -1000,8 +961,13 @@ pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &A
 
 /// The seller overlay of item `id` (a slug or an id), when the page shows it: on the Sell tab,
 /// to a seller who may list.
-async fn read_overlay(req: &Req, caller: &Caller<'_>, id: &str, address: &Address) -> Option<Result<SellerOverlay, ApiError>> {
-    if address.market != Market::Sell || !listing::listing_features(req) {
+async fn read_overlay(
+    session: Option<&Session>,
+    caller: &Caller<'_>,
+    id: &str,
+    address: &Address,
+) -> Option<Result<SellerOverlay, ApiError>> {
+    if address.market != Market::Sell || !listing::listing_features(session) {
         return None;
     }
     Some(caller.seller_overlay(id).await)
@@ -1026,8 +992,13 @@ fn listing_setup(req: &Req, overlay: Option<Result<SellerOverlay, ApiError>>, af
 /// The standard terms for the offer a guest's Sell rail shows (marketplace reads them for every
 /// offer of the item; the rail shows one). None when the API has none: the rail then says the
 /// terms are worked out before acceptance, as marketplace does.
-pub async fn offer_terms(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address) -> Option<StandardTerms> {
-    if address.market != Market::Sell || selling::account_sell_list(req) {
+pub async fn offer_terms(
+    session: Option<&Session>,
+    caller: &Caller<'_>,
+    item: &Item,
+    address: &Address,
+) -> Option<StandardTerms> {
+    if address.market != Market::Sell || selling::account_sell_list(session) {
         return None;
     }
     let screen = ItemScreen::of(item.clone(), address, None);
@@ -1051,16 +1022,13 @@ struct Viewing {
 }
 
 impl Viewing {
-    fn of(req: &Req) -> Self {
-        let viewer = match req.context::<Session>() {
-            Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
-            _ => None,
-        };
+    fn of(session: Option<&Session>) -> Self {
+        let viewer = session.and_then(Session::viewer).map(|viewer| viewer.actor.account_id.clone());
         Viewing {
             viewer,
-            seller_features: selling::seller_features(req),
-            listing_features: listing::listing_features(req),
-            guest_listing_draft: !selling::account_sell_list(req),
+            seller_features: selling::seller_features(session),
+            listing_features: listing::listing_features(session),
+            guest_listing_draft: !selling::account_sell_list(session),
         }
     }
 
@@ -1081,15 +1049,17 @@ impl Viewing {
 /// did not ask for. Each fragment carries the realtime stream's cursor, so a reconnect goes on
 /// from there. Marketplace also listens to `public:market`, every change in the marketplace;
 /// the item's own topic carries every change the page shows.
-async fn live(
+pub(crate) async fn live(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     since: corten::LiveSince,
     Path(id): Path<String>,
     Query(raw): Query<Raw>,
-) -> impl IntoResponse {
-    let (t, viewing, address): (ItemMsg, _, _) = (req.t(), Viewing::of(&req), Address::read(&raw));
+) -> LiveResponse {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let (t, viewing, address): (ItemMsg, _, _) = (req.t(), Viewing::of(session), Address::read(&raw));
     let topic = format!("item:{id}");
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
@@ -1133,13 +1103,14 @@ async fn live(
 /// read (`sell_reads`).
 pub fn render(
     req: &Req,
+    session: Option<&Session>,
     item: Item,
     address: &Address,
     notice: Option<&BuyNotice>,
     status: StatusCode,
     reads: PageReads,
-) -> corten::Result {
-    let mut screen = Viewing::of(req).screen(item, address);
+) -> HtmlResult {
+    let mut screen = Viewing::of(session).screen(item, address);
     screen.offer_terms = reads.terms;
     screen.listing_setup = reads.setup;
     // A listing still catching up is not "unavailable": the rail says it is on its way.
@@ -1182,5 +1153,11 @@ pub fn render(
         }
     };
     let view = views::item_page(t, &screen, address, slug, notice);
-    req.screen_with_status(status, &screen, html! { <views::Layout req={req} title={&title} head={head}>{view}</views::Layout> })
+    req.screen_with_status(
+        status,
+        &screen,
+        html! {
+            <views::Layout req={req} viewer={session.and_then(Session::viewer)} title={&title} head={head}>{view}</views::Layout>
+        },
+    )
 }

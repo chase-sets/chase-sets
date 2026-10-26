@@ -1,6 +1,6 @@
 //! The catalog area (`/catalog`): admin-web's catalog authoring screens for dimensions and
 //! fields, through the Catalog API (`/api/catalog`) as the signed-in staff member. The area
-//! has its own stylesheet and guard: reading needs `catalog.view`, writing `catalog.manage`, as
+//! has its own stylesheet and caller (`Staff<CatalogAccess>`): reading needs `catalog.view`, writing `catalog.manage`, as
 //! the platform API asks for them (`deployables/platform-api/src/app.ts`).
 //!
 //! Every write is its own typed route; each answers its form with the API's refusal, or a
@@ -32,11 +32,7 @@
 //! whose progress the list's dialog follows from the job's own stream.
 use std::fmt;
 
-use corten::{
-    Fragment, LiveSince,
-    axum::{http::HeaderMap, response::IntoResponse},
-    prelude::*,
-};
+use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{jobs::Update, receipt::Receipt};
 use serde::Deserialize;
@@ -53,7 +49,7 @@ pub mod views;
 use crate::{
     api::{Caller, Method, segment},
     app::{Denied, Shared, live_rows, read_failed, refused},
-    auth::Session,
+    auth::{CatalogAccess, Staff, Viewer},
     text::{Cat, Pilot},
 };
 use api::{Catalog as _, Dimension, DimensionDetail, Field, Job, Kind, List, Preview, Written, under};
@@ -65,7 +61,9 @@ pub const MANAGE: &str = "catalog.manage";
 /// `CATALOG_LIST_PAGE_SIZE`.
 const PAGE_SIZE: u32 = 50;
 
-/// Every URL the area serves.
+/// Every URL the area serves, with its handlers: every one takes staff who may read the catalog,
+/// and who may change it for a write (`CatalogAccess`).
+#[corten::routes(state = Shared, area = Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
     use serde::Deserialize;
@@ -75,9 +73,8 @@ pub mod url {
     pub use super::items::url::{ItemQuery, Items, ItemsBulk, ItemsDrafts, ItemsLive};
     pub use super::scopes::url::{ScopeQuery, Scopes};
 
-    /// The area: its routes, stylesheet and guard.
-    #[derive(Route)]
-    #[route("/catalog")]
+    /// The area: admin-web's catalog layout opens on the dimensions.
+    #[route("/catalog", get = home)]
     pub struct Catalog;
 
     /// What the write before left on a list: its receipt and notice, and the bulk change's job
@@ -102,8 +99,8 @@ pub mod url {
     }
 
     /// The dimensions list.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/catalog/dimensions")]
+    #[derive(Clone, Debug, Default)]
+    #[route("/catalog/dimensions", get = dimensions, post = create_dimension)]
     pub struct Dimensions {
         #[route(query)]
         pub query: DimensionQuery,
@@ -118,8 +115,7 @@ pub mod url {
     }
 
     /// The dimensions list's rows, streamed again on each change.
-    #[derive(Route)]
-    #[route("/catalog/dimensions/live")]
+    #[route("/catalog/dimensions/live", get = dimensions_live)]
     pub struct DimensionsLive {
         #[route(query)]
         pub query: DimensionQuery,
@@ -127,62 +123,53 @@ pub mod url {
 
     /// A bulk change of the dimensions: its preview (without JavaScript the answer is the list,
     /// with the preview open).
-    #[derive(Route)]
-    #[route("/catalog/dimensions/bulk")]
+    #[route("/catalog/dimensions/bulk", post = preview_dimensions)]
     pub struct DimensionsBulk {
         #[route(query)]
         pub query: DimensionQuery,
     }
 
     /// The preview's confirm: it starts the change.
-    #[derive(Route)]
-    #[route("/catalog/dimensions/bulk/confirm")]
+    #[route("/catalog/dimensions/bulk/confirm", post = confirm_dimensions)]
     pub struct DimensionsBulkConfirm {
         #[route(query)]
         pub query: DimensionQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}")]
+    #[route("/catalog/dimensions/{id}", get = dimension)]
     pub struct Dimension<'a> {
         pub id: &'a str,
         pub after_write: Option<String>,
         pub done: Option<Done>,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/edit")]
+    #[route("/catalog/dimensions/{id}/edit", post = edit_dimension)]
     pub struct DimensionEdit<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/lifecycle")]
+    #[route("/catalog/dimensions/{id}/lifecycle", post = dimension_lifecycle)]
     pub struct DimensionLifecycle<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/options")]
+    #[route("/catalog/dimensions/{id}/options", post = add_option)]
     pub struct Options<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/options/order")]
+    #[route("/catalog/dimensions/{id}/options/order", post = reorder_options)]
     pub struct OptionOrder<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/options/{option_id}")]
+    #[route("/catalog/dimensions/{id}/options/{option_id}", post = revise_option)]
     pub struct OptionEdit<'a> {
         pub id: &'a str,
         pub option_id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/dimensions/{id}/options/{option_id}/lifecycle")]
+    #[route("/catalog/dimensions/{id}/options/{option_id}/lifecycle", post = option_lifecycle)]
     pub struct OptionLifecycle<'a> {
         pub id: &'a str,
         pub option_id: &'a str,
@@ -202,8 +189,8 @@ pub mod url {
     }
 
     /// The fields list.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/catalog/fields")]
+    #[derive(Clone, Debug, Default)]
+    #[route("/catalog/fields", get = fields, post = create_field)]
     pub struct Fields {
         #[route(query)]
         pub query: FieldQuery,
@@ -218,51 +205,44 @@ pub mod url {
     }
 
     /// The fields list's rows, streamed again on each change.
-    #[derive(Route)]
-    #[route("/catalog/fields/live")]
+    #[route("/catalog/fields/live", get = fields_live)]
     pub struct FieldsLive {
         #[route(query)]
         pub query: FieldQuery,
     }
 
     /// A bulk change of the fields: its preview.
-    #[derive(Route)]
-    #[route("/catalog/fields/bulk")]
+    #[route("/catalog/fields/bulk", post = preview_fields)]
     pub struct FieldsBulk {
         #[route(query)]
         pub query: FieldQuery,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/fields/bulk/confirm")]
+    #[route("/catalog/fields/bulk/confirm", post = confirm_fields)]
     pub struct FieldsBulkConfirm {
         #[route(query)]
         pub query: FieldQuery,
     }
 
     /// A bulk change's job status, streamed again on each change until it is done.
-    #[derive(Route)]
-    #[route("/catalog/jobs/{id}/live")]
+    #[route("/catalog/jobs/{id}/live", get = job_live)]
     pub struct JobLive<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/fields/{id}")]
+    #[route("/catalog/fields/{id}", get = field)]
     pub struct Field<'a> {
         pub id: &'a str,
         pub after_write: Option<String>,
         pub done: Option<Done>,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/fields/{id}/edit")]
+    #[route("/catalog/fields/{id}/edit", post = configure_field)]
     pub struct FieldEdit<'a> {
         pub id: &'a str,
     }
 
-    #[derive(Route)]
-    #[route("/catalog/fields/{id}/lifecycle")]
+    #[route("/catalog/fields/{id}/lifecycle", post = field_lifecycle)]
     pub struct FieldLifecycle<'a> {
         pub id: &'a str,
     }
@@ -349,34 +329,18 @@ impl Done {
     }
 }
 
-pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session, url::Catalog> {
-    let area = area
-        .route::<url::Catalog>(get(home))
-        .route::<url::Dimensions>(get(dimensions).post(create_dimension).with_state(shared.clone()))
-        .route::<url::DimensionsLive>(get(dimensions_live).with_state(shared.clone()))
-        .route::<url::DimensionsBulk>(post(preview_dimensions).with_state(shared.clone()))
-        .route::<url::DimensionsBulkConfirm>(post(confirm_dimensions).with_state(shared.clone()))
-        .route::<url::Dimension>(get(dimension).with_state(shared.clone()))
-        .route::<url::DimensionEdit>(post(edit_dimension).with_state(shared.clone()))
-        .route::<url::DimensionLifecycle>(post(dimension_lifecycle).with_state(shared.clone()))
-        .route::<url::Options>(post(add_option).with_state(shared.clone()))
-        .route::<url::OptionOrder>(post(reorder_options).with_state(shared.clone()))
-        .route::<url::OptionEdit>(post(revise_option).with_state(shared.clone()))
-        .route::<url::OptionLifecycle>(post(option_lifecycle).with_state(shared.clone()))
-        .route::<url::Fields>(get(fields).post(create_field).with_state(shared.clone()))
-        .route::<url::FieldsLive>(get(fields_live).with_state(shared.clone()))
-        .route::<url::FieldsBulk>(post(preview_fields).with_state(shared.clone()))
-        .route::<url::FieldsBulkConfirm>(post(confirm_fields).with_state(shared.clone()))
-        .route::<url::JobLive>(get(job_live).with_state(shared.clone()))
-        .route::<url::Field>(get(field).with_state(shared.clone()))
-        .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
-        .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared.clone()));
-    let area = scopes::routes(area, shared.clone());
-    item::routes(items::routes(area, shared.clone()), shared)
+/// The area: each screen's routes module (all in `/catalog`, each holding its handlers to the
+/// area's caller) and the area's stylesheet.
+pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
+    let area = url::area(area, shared.clone());
+    let area = scopes::url::area(area, shared.clone());
+    let area = attention::url::area(area, shared.clone());
+    let area = items::url::area(area, shared.clone());
+    item::url::area(area, shared).components(views::COMPONENTS)
 }
 
 /// admin-web's catalog layout opens on the dimensions.
-async fn home(req: Req) -> corten::Result {
+async fn home(req: Req, _: corten::Caller<Staff<CatalogAccess>>) -> HtmlResult {
     req.redirect(&url::Dimensions::default())
 }
 
@@ -444,25 +408,31 @@ const FIELDS_TOPIC: &str = "catalog:admin:fields";
 
 async fn dimensions(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::DimensionQuery>,
     Query(notice): Query<url::ListNotice>,
-) -> corten::Result {
-    dimension_list(&req, &config, &headers, &query, &notice, None, None).await
+) -> HtmlResult {
+    dimension_list(&req, &staff.viewer, &config, &headers, &query, &notice, None, None).await
 }
 
 /// The dimensions page; `create` is a create form that came back, drawn open, and `preview` a
 /// bulk preview's answer, drawn open.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn dimension_list(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::DimensionQuery,
     notice: &url::ListNotice,
     create: Option<Draft<DimensionInput>>,
     preview: Option<Previewed<'_>>,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(notice.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
@@ -475,24 +445,29 @@ async fn dimension_list(
     screen.preview = preview.and_then(|shown| shown.preview.cloned());
     screen.job = follow(&caller, notice.job.as_deref()).await;
     let t: Cat = req.t();
-    let bulk = bulk(req, t, Kind::Dimensions, notice.job.is_some(), preview, screen.job.as_ref());
+    let bulk = bulk(viewer, t, Kind::Dimensions, notice.job.is_some(), preview, screen.job.as_ref());
     let notice = notice.done.map(|done| done.dimension(t));
     let view = views::dimension_list(t, req.t(), query, &screen, create, notice, bulk);
     req.screen(
         &screen,
-        html! { <crate::views::Layout req={&req} title={t.route_dimensions()} head="">{view}</crate::views::Layout> },
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_dimensions()} head="">
+                {view}
+            </crate::views::Layout>
+        },
     )
 }
 
 async fn dimensions_live(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
     Query(query): Query<url::DimensionQuery>,
-) -> impl IntoResponse {
+) -> LiveResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let manage = manages(&req);
+    let manage = manages(&staff.viewer);
     live_rows(config, headers, since, DIMENSIONS_TOPIC, move |config, headers| {
         let query = query.clone();
         async move {
@@ -512,11 +487,12 @@ async fn dimensions_live(
 
 async fn create_dimension(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::DimensionQuery>,
     Form(input): Form<DimensionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Dimensions, "", Some(&input.body(true))).await {
         Sent::Written(written) => {
@@ -530,28 +506,33 @@ async fn create_dimension(
     let action = url::Dimensions::of(&query).href();
     let form = views::DimensionForm { t: req.t(), id: ids::CREATE, action: &action, create: true, form: &draft };
     let none = url::ListNotice::default();
-    req.invalid(&draft.errors, form, || dimension_list(&req, &config, &headers, &query, &none, Some(draft.clone()), None)).await
+    req.invalid(&draft.errors, form, || {
+        dimension_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft.clone()), None)
+    })
+    .await
 }
 
 async fn dimension(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(after): Query<url::After>,
-) -> corten::Result {
-    dimension_page(&req, &config, &headers, &id, &after, DimensionForms::default()).await
+) -> HtmlResult {
+    dimension_page(&req, &staff.viewer, &config, &headers, &id, &after, DimensionForms::default()).await
 }
 
 /// A dimension's page, with `forms` in place of its values.
 async fn dimension_page(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     after: &url::After,
     forms: DimensionForms,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let detail = match caller.get::<DimensionDetail>(Kind::Dimensions, id).await {
@@ -563,36 +544,46 @@ async fn dimension_page(
     let view = views::dimension_page(t, req.t(), &detail, notice, forms);
     req.screen(
         &detail,
-        html! { <crate::views::Layout req={&req} title={t.route_dimension()} head="">{view}</crate::views::Layout> },
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_dimension()} head="">
+                {view}
+            </crate::views::Layout>
+        },
     )
 }
 
 /// After a write to dimension `id`: its page, waiting for the write.
-fn to_dimension(req: &Req, id: &str, written: &Written, done: Done) -> corten::Result {
+fn to_dimension(req: &Req, id: &str, written: &Written, done: Done) -> HtmlResult {
     req.redirect(&url::Dimension { id, after_write: receipt(written), done: Some(done) })
 }
 
 /// A form of dimension `id` that came back: the form as a patch (422), or the page with it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn dimension_invalid(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     errors: &Errors,
     form: impl Patch,
     forms: DimensionForms,
-) -> corten::Result {
+) -> HtmlResult {
     let after = url::After::default();
-    req.invalid(errors, form, || dimension_page(req, config, headers, id, &after, forms)).await
+    req.invalid(errors, form, || dimension_page(req, viewer, config, headers, id, &after, forms)).await
 }
 
 async fn edit_dimension(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<DimensionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::PUT, Kind::Dimensions, &under(&id, &[]), Some(&input.body(false))).await {
         Sent::Written(written) => return to_dimension(&req, &id, &written, Done::Revised),
@@ -603,16 +594,17 @@ async fn edit_dimension(
     let action = url::DimensionEdit { id: &id }.href();
     let form = views::DimensionForm { t: req.t(), id: ids::EDIT, action: &action, create: false, form: &draft };
     let forms = DimensionForms { edit: Some(draft.clone()), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &draft.errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
 async fn dimension_lifecycle(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ActionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.of(&["activate", "deprecate", "archive"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -636,22 +628,23 @@ async fn dimension_lifecycle(
         errors: &errors,
     };
     let forms = DimensionForms { lifecycle: Some(errors.clone()), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &errors, form, forms).await
 }
 
 async fn add_option(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<OptionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::Options { id: &id }.href();
     if let Some(next) = input.relabeled() {
         let draft = Draft::new(next);
         let form = views::OptionForm { t: req.t(), id: ids::ADD_OPTION, action: &action, add: true, form: &draft };
         let forms = DimensionForms { add: Some(draft.clone()), ..Default::default() };
-        return redraw(&req, &config, &headers, &id, form, forms).await;
+        return redraw(&req, &staff.viewer, &config, &headers, &id, form, forms).await;
     }
     let errors = match input.body(req.t(), true) {
         Ok(body) => {
@@ -667,23 +660,24 @@ async fn add_option(
     let draft = Draft { input, errors };
     let form = views::OptionForm { t: req.t(), id: ids::ADD_OPTION, action: &action, add: true, form: &draft };
     let forms = DimensionForms { add: Some(draft.clone()), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &draft.errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
 async fn revise_option(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path((id, option_id)): Path<(String, String)>,
     Form(input): Form<OptionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::OptionEdit { id: &id, option_id: &option_id }.href();
     let form_id = ids::option_form(&option_id);
     if let Some(next) = input.relabeled() {
         let draft = Draft::new(next);
         let form = views::OptionForm { t: req.t(), id: &form_id, action: &action, add: false, form: &draft };
         let forms = DimensionForms { option: Some((option_id.clone(), draft.clone())), ..Default::default() };
-        return redraw(&req, &config, &headers, &id, form, forms).await;
+        return redraw(&req, &staff.viewer, &config, &headers, &id, form, forms).await;
     }
     let errors = match input.body(req.t(), false) {
         Ok(body) => {
@@ -699,33 +693,35 @@ async fn revise_option(
     let draft = Draft { input, errors };
     let form = views::OptionForm { t: req.t(), id: &form_id, action: &action, add: false, form: &draft };
     let forms = DimensionForms { option: Some((option_id.clone(), draft.clone())), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &draft.errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
 /// A form drawn again without writing (a label row added or removed): the form as a patch, or
 /// the page with it open.
 async fn redraw(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     form: impl Patch,
     forms: DimensionForms,
-) -> corten::Result {
+) -> HtmlResult {
     if req.mode == Mode::Action {
         return req.patch(form);
     }
     let after = url::After::default();
-    dimension_page(req, config, headers, id, &after, forms).await
+    dimension_page(req, viewer, config, headers, id, &after, forms).await
 }
 
 async fn option_lifecycle(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path((id, option_id)): Path<(String, String)>,
     Form(input): Form<ActionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.of(&["deprecate", "reactivate"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -744,16 +740,17 @@ async fn option_lifecycle(
     let form_id = ids::option_lifecycle(&option_id);
     let form = views::OptionLifecycleForm { t: req.t(), id: form_id, action: &action, status: &input.status, errors: &errors };
     let forms = DimensionForms { option_lifecycle: Some((option_id.clone(), errors.clone())), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &errors, form, forms).await
 }
 
 async fn reorder_options(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ReorderInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors =
         match command(&caller, Method::PUT, Kind::Dimensions, &under(&id, &["options", "order"]), Some(&input.body())).await {
@@ -765,30 +762,36 @@ async fn reorder_options(
     let action = url::OptionOrder { id: &id }.href();
     let form = views::ReorderForm { t: req.t(), id: ids::REORDER, action: &action, form: &draft };
     let forms = DimensionForms { reorder: Some(draft.clone()), ..Default::default() };
-    dimension_invalid(&req, &config, &headers, &id, &draft.errors, form, forms).await
+    dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
 // Fields.
 
 async fn fields(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::FieldQuery>,
     Query(notice): Query<url::ListNotice>,
-) -> corten::Result {
-    field_list(&req, &config, &headers, &query, &notice, None, None).await
+) -> HtmlResult {
+    field_list(&req, &staff.viewer, &config, &headers, &query, &notice, None, None).await
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn field_list(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::FieldQuery,
     notice: &url::ListNotice,
     create: Option<Draft<FieldInput>>,
     preview: Option<Previewed<'_>>,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(notice.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
@@ -800,10 +803,15 @@ async fn field_list(
     screen.preview = preview.and_then(|shown| shown.preview.cloned());
     screen.job = follow(&caller, notice.job.as_deref()).await;
     let t: Cat = req.t();
-    let bulk = bulk(req, t, Kind::Fields, notice.job.is_some(), preview, screen.job.as_ref());
+    let bulk = bulk(viewer, t, Kind::Fields, notice.job.is_some(), preview, screen.job.as_ref());
     let notice = notice.done.map(|done| done.field(t));
     let view = views::field_list(t, req.t(), query, &screen, create, notice, bulk);
-    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_fields()} head="">{view}</crate::views::Layout> })
+    req.screen(
+        &screen,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_fields()} head="">{view}</crate::views::Layout>
+        },
+    )
 }
 
 /// The fields list's API query.
@@ -821,13 +829,14 @@ fn field_query(query: &url::FieldQuery, page: u32) -> String {
 
 async fn fields_live(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
     Query(query): Query<url::FieldQuery>,
-) -> impl IntoResponse {
+) -> LiveResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let manage = manages(&req);
+    let manage = manages(&staff.viewer);
     live_rows(config, headers, since, FIELDS_TOPIC, move |config, headers| {
         let query = query.clone();
         async move {
@@ -846,11 +855,12 @@ async fn fields_live(
 
 async fn create_field(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::FieldQuery>,
     Form(input): Form<FieldInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Fields, "", Some(&input.body(true))).await {
         Sent::Written(written) => {
@@ -864,27 +874,32 @@ async fn create_field(
     let action = url::Fields::of(&query).href();
     let form = views::FieldForm { t: req.t(), id: ids::CREATE, action: &action, create: true, form: &draft };
     let none = url::ListNotice::default();
-    req.invalid(&draft.errors, form, || field_list(&req, &config, &headers, &query, &none, Some(draft.clone()), None)).await
+    req.invalid(&draft.errors, form, || {
+        field_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft.clone()), None)
+    })
+    .await
 }
 
 async fn field(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(after): Query<url::After>,
-) -> corten::Result {
-    field_page(&req, &config, &headers, &id, &after, FieldForms::default()).await
+) -> HtmlResult {
+    field_page(&req, &staff.viewer, &config, &headers, &id, &after, FieldForms::default()).await
 }
 
 async fn field_page(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     after: &url::After,
     forms: FieldForms,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let field = match caller.get::<Field>(Kind::Fields, id).await {
@@ -894,20 +909,26 @@ async fn field_page(
     let t: Cat = req.t();
     let notice = after.done.map(|done| done.field(t));
     let view = views::field_page(t, req.t(), &field, notice, forms);
-    req.screen(&field, html! { <crate::views::Layout req={&req} title={t.route_field()} head="">{view}</crate::views::Layout> })
+    req.screen(
+        &field,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_field()} head="">{view}</crate::views::Layout>
+        },
+    )
 }
 
-fn to_field(req: &Req, id: &str, written: &Written, done: Done) -> corten::Result {
+fn to_field(req: &Req, id: &str, written: &Written, done: Done) -> HtmlResult {
     req.redirect(&url::Field { id, after_write: receipt(written), done: Some(done) })
 }
 
 async fn configure_field(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<FieldInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::PUT, Kind::Fields, &under(&id, &[]), Some(&input.body(false))).await {
         Sent::Written(written) => return to_field(&req, &id, &written, Done::Revised),
@@ -919,16 +940,17 @@ async fn configure_field(
     let form = views::FieldForm { t: req.t(), id: ids::EDIT, action: &action, create: false, form: &draft };
     let forms = FieldForms { edit: Some(draft.clone()), ..Default::default() };
     let after = url::After::default();
-    req.invalid(&draft.errors, form, || field_page(&req, &config, &headers, &id, &after, forms)).await
+    req.invalid(&draft.errors, form, || field_page(&req, &staff.viewer, &config, &headers, &id, &after, forms)).await
 }
 
 async fn field_lifecycle(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ActionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.of(&["activate", "deprecate", "archive"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -953,7 +975,7 @@ async fn field_lifecycle(
     };
     let forms = FieldForms { lifecycle: Some(errors.clone()), ..Default::default() };
     let after = url::After::default();
-    req.invalid(&errors, form, || field_page(&req, &config, &headers, &id, &after, forms)).await
+    req.invalid(&errors, form, || field_page(&req, &staff.viewer, &config, &headers, &id, &after, forms)).await
 }
 
 // Bulk changes.
@@ -963,8 +985,8 @@ const BULK_ACTIONS: [&str; 3] = ["activate", "deprecate", "archive"];
 
 /// Whether the viewer may change the area's records: the bulk bar is theirs (its posts need
 /// `catalog.manage`, as the API's do).
-fn manages(req: &Req) -> bool {
-    matches!(req.context::<Session>(), Some(Session::Staff(viewer)) if viewer.can(MANAGE))
+fn manages(viewer: &Viewer) -> bool {
+    viewer.can(MANAGE)
 }
 
 /// An action's label for records of `kind`, or the action itself when it is not one offered.
@@ -998,13 +1020,20 @@ async fn follow(caller: &Caller<'_>, id: Option<&str>) -> Option<Job<Value>> {
 
 /// A list page's bulk parts: the bar for staff who may change the records, the preview to draw
 /// open, and the job's dialog when the page follows one (`asked`), its stream while it runs.
-fn bulk<'a>(req: &Req, t: Cat, kind: Kind, asked: bool, preview: Option<Previewed<'a>>, job: Option<&'a Job<Value>>) -> Bulk<'a> {
+fn bulk<'a>(
+    viewer: &Viewer,
+    t: Cat,
+    kind: Kind,
+    asked: bool,
+    preview: Option<Previewed<'a>>,
+    job: Option<&'a Job<Value>>,
+) -> Bulk<'a> {
     let followed = asked.then(|| Followed {
         job,
         label: job.map_or("", |job| action_label(t, job.of().unwrap_or(kind), &job.action)),
         live: job.filter(|job| !job.done()).map(|job| url::JobLive { id: &job.job_id }.href()),
     });
-    Bulk { manage: manages(req), preview, job: followed }
+    Bulk { manage: manages(viewer), preview, job: followed }
 }
 
 /// The filters set on a list, as the API's bulk selection reads them (`dimensionListQueryFromRecord`).
@@ -1065,10 +1094,10 @@ async fn preview(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, 
 
 /// A preview's answer: its dialog as a patch, or the list page with it open; a refusal is the
 /// dialog with the message (422).
-async fn answer_preview<'a, F, Fut>(req: &Req, shown: Previewed<'a>, page: F) -> corten::Result
+async fn answer_preview<'a, F, Fut>(req: &Req, shown: Previewed<'a>, page: F) -> HtmlResult
 where
     F: FnOnce(Previewed<'a>) -> Fut,
-    Fut: Future<Output = corten::Result>,
+    Fut: Future<Output = HtmlResult>,
 {
     let dialog = views::PreviewDialog { t: req.t(), p: req.t(), shown };
     if !shown.errors.is_empty() {
@@ -1082,11 +1111,12 @@ where
 
 async fn preview_dimensions(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::DimensionQuery>,
     Form(input): Form<BulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let confirm = url::DimensionsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match preview(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
@@ -1097,16 +1127,18 @@ async fn preview_dimensions(
     let label = action_label(req.t(), Kind::Dimensions, &input.action);
     let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &confirm, label };
     let none = url::ListNotice::default();
-    answer_preview(&req, shown, |shown| dimension_list(&req, &config, &headers, &query, &none, None, Some(shown))).await
+    answer_preview(&req, shown, |shown| dimension_list(&req, &staff.viewer, &config, &headers, &query, &none, None, Some(shown)))
+        .await
 }
 
 async fn preview_fields(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::FieldQuery>,
     Form(input): Form<BulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let confirm = url::FieldsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match preview(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
@@ -1117,7 +1149,8 @@ async fn preview_fields(
     let label = action_label(req.t(), Kind::Fields, &input.action);
     let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &confirm, label };
     let none = url::ListNotice::default();
-    answer_preview(&req, shown, |shown| field_list(&req, &config, &headers, &query, &none, None, Some(shown))).await
+    answer_preview(&req, shown, |shown| field_list(&req, &staff.viewer, &config, &headers, &query, &none, None, Some(shown)))
+        .await
 }
 
 /// What a confirm came to: the job the API started, or the refusal and the preview again (for
@@ -1148,11 +1181,12 @@ async fn confirm(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, 
 
 async fn confirm_dimensions(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::DimensionQuery>,
     Form(input): Form<BulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::DimensionsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (errors, preview) = match confirm(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
@@ -1166,16 +1200,18 @@ async fn confirm_dimensions(
     let label = action_label(req.t(), Kind::Dimensions, &input.action);
     let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &action, label };
     let none = url::ListNotice::default();
-    answer_preview(&req, shown, |shown| dimension_list(&req, &config, &headers, &query, &none, None, Some(shown))).await
+    answer_preview(&req, shown, |shown| dimension_list(&req, &staff.viewer, &config, &headers, &query, &none, None, Some(shown)))
+        .await
 }
 
 async fn confirm_fields(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::FieldQuery>,
     Form(input): Form<BulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::FieldsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (errors, preview) = match confirm(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
@@ -1189,7 +1225,8 @@ async fn confirm_fields(
     let label = action_label(req.t(), Kind::Fields, &input.action);
     let shown = Previewed { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &action, label };
     let none = url::ListNotice::default();
-    answer_preview(&req, shown, |shown| field_list(&req, &config, &headers, &query, &none, None, Some(shown))).await
+    answer_preview(&req, shown, |shown| field_list(&req, &staff.viewer, &config, &headers, &query, &none, None, Some(shown)))
+        .await
 }
 
 /// A job's status for `<corten-live>`: each change the job's stream sends, drawn, until the job
@@ -1199,11 +1236,12 @@ async fn confirm_fields(
 /// events from its start.
 async fn job_live(
     req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> LiveResponse {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
     let updates = caller.watch_job::<Job<Value>>(&api::job_events(&id), api::CONTEXT, since.0, Job::done);

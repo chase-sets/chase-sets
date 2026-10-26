@@ -23,11 +23,7 @@
 //! (chase-sets/chase-sets#10530 asks for a bulk route).
 use std::collections::HashSet;
 
-use corten::{
-    Fragment, LiveSince,
-    axum::{http::HeaderMap, response::IntoResponse},
-    prelude::*,
-};
+use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde_json::{Value, json};
@@ -35,7 +31,7 @@ use serde_json::{Value, json};
 use super::{
     Sent, action_label,
     api::{Catalog as _, ItemRow, Job, Kind, List},
-    command, filter_query, follow, list_query, manages, receipt, screen,
+    command, filter_query, follow, list_query, receipt, screen,
     views::{self, Followed, ItemDialog, ItemPreview, ListScreen, Pending},
 };
 use super::{
@@ -46,6 +42,7 @@ use super::{
 use crate::{
     api::Method,
     app::{Denied, Shared, read_failed, refused},
+    auth::{CatalogAccess, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -68,6 +65,8 @@ fn filters(q: &url::ItemQuery) -> [(&'static str, &Option<String>); 10] {
     ]
 }
 
+/// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
+#[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
     use serde::Deserialize;
@@ -148,8 +147,8 @@ pub mod url {
     }
 
     /// The items list.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/catalog/catalog-items")]
+    #[derive(Clone, Debug, Default)]
+    #[route("/catalog/catalog-items", get = items, post = create)]
     pub struct Items {
         #[route(query)]
         pub query: ItemQuery,
@@ -165,56 +164,39 @@ pub mod url {
     }
 
     /// How many items changed, streamed on each change.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/live")]
+    #[route("/catalog/catalog-items/live", get = items_live)]
     pub struct ItemsLive {
         #[route(query)]
         pub query: ItemQuery,
     }
 
     /// A bulk change's preview.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/bulk")]
+    #[route("/catalog/catalog-items/bulk", post = preview)]
     pub struct ItemsBulk {
         #[route(query)]
         pub query: ItemQuery,
     }
 
     /// The preview's confirm: it starts the change.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/bulk/confirm")]
+    #[route("/catalog/catalog-items/bulk/confirm", post = confirm)]
     pub struct ItemsBulkConfirm {
         #[route(query)]
         pub query: ItemQuery,
     }
 
     /// The checked drafts' removal: its dialog.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/drafts")]
+    #[route("/catalog/catalog-items/drafts", post = drafts)]
     pub struct ItemsDrafts {
         #[route(query)]
         pub query: ItemQuery,
     }
 
     /// Its confirm: removes each.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/drafts/confirm")]
+    #[route("/catalog/catalog-items/drafts/confirm", post = remove_drafts)]
     pub struct ItemsDraftsConfirm {
         #[route(query)]
         pub query: ItemQuery,
     }
-}
-
-pub fn routes(
-    area: Area<crate::auth::Session, super::url::Catalog>,
-    shared: Shared,
-) -> Area<crate::auth::Session, super::url::Catalog> {
-    area.route::<url::Items>(get(items).post(create).with_state(shared.clone()))
-        .route::<url::ItemsLive>(get(items_live).with_state(shared.clone()))
-        .route::<url::ItemsBulk>(post(preview).with_state(shared.clone()))
-        .route::<url::ItemsBulkConfirm>(post(confirm).with_state(shared.clone()))
-        .route::<url::ItemsDrafts>(post(drafts).with_state(shared.clone()))
-        .route::<url::ItemsDraftsConfirm>(post(remove_drafts).with_state(shared))
 }
 
 /// The list's API query (`buildCatalogListApiQuery`).
@@ -233,11 +215,12 @@ fn notice(t: Cat, notice: &url::ItemNotice) -> Option<String> {
 /// The list page, or with the script (a Reload's `GET`), its rows and a new stream of changes.
 async fn items(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Query(after): Query<url::ItemNotice>,
-) -> corten::Result {
+) -> HtmlResult {
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
         let page = query.page.unwrap_or(1).max(1);
@@ -247,27 +230,32 @@ async fn items(
         };
         let screen: ListScreen<ItemRow, ItemPreview> = screen(list, page);
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        let manage = manages(&req);
+        let manage = super::manages(&staff.viewer);
         let view = html! {
             {views::item_rows(t, p, &query, &screen, manage)}
             {views::item_live(t, &query)}
         };
         return req.patch(view);
     }
-    item_list(&req, &config, &headers, &query, &after, None, None).await
+    item_list(&req, &staff.viewer, &config, &headers, &query, &after, None, None).await
 }
 
 /// The items page; `create` is a create form that came back, drawn open, and `dialog` a bulk
 /// preview's or the drafts' answer, drawn open.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn item_list(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::ItemQuery,
     after: &url::ItemNotice,
     create: Option<views::Draft<ItemInput>>,
     dialog: Option<ItemDialog<'_>>,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
@@ -286,9 +274,14 @@ async fn item_list(
         label: screen.job.as_ref().map_or("", |job| action_label(t, job.of().unwrap_or(Kind::Items), &job.action)),
         live: screen.job.as_ref().filter(|job| !job.done()).map(|job| super::url::JobLive { id: &job.job_id }.href()),
     });
-    let parts = views::ItemParts { create, notice: notice(t, after), manage: manages(req), dialog, job };
+    let parts = views::ItemParts { create, notice: notice(t, after), manage: super::manages(viewer), dialog, job };
     let view = views::item_list(t, p, query, &screen, parts);
-    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_items()} head="">{view}</crate::views::Layout> })
+    req.screen(
+        &screen,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_items()} head="">{view}</crate::views::Layout>
+        },
+    )
 }
 
 /// How many items changed for `<corten-live>`: drawn on each change to the items until the API
@@ -296,11 +289,12 @@ async fn item_list(
 /// (`{count}.{sync}.{cursor}`), so a browser that reconnects (`since`) goes on from there.
 async fn items_live(
     req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
     Query(query): Query<url::ItemQuery>,
-) -> impl IntoResponse {
+) -> LiveResponse {
     let t: Cat = req.t();
     let (before, from) = resume(since.0);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[TOPIC], from);
@@ -339,11 +333,12 @@ fn resume(since: Option<String>) -> (Pending, Option<String>) {
 
 async fn create(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Items, "", Some(&input.body())).await {
         Sent::Written(written) => {
@@ -359,7 +354,10 @@ async fn create(
     let action = url::Items::of(&query).href();
     let form = views::ItemForm { t: req.t(), id: views::ids::CREATE, action: &action, form: &draft };
     let none = url::ItemNotice::default();
-    req.invalid(&draft.errors, form, || item_list(&req, &config, &headers, &query, &none, Some(draft.clone()), None)).await
+    req.invalid(&draft.errors, form, || {
+        item_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft.clone()), None)
+    })
+    .await
 }
 
 /// What a bulk preview came to.
@@ -393,11 +391,12 @@ async fn ask_preview(p: Pilot, caller: &crate::api::Caller<'_>, input: &ItemBulk
 /// dialog with the message (422).
 async fn answer(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::ItemQuery,
     dialog: ItemDialog<'_>,
-) -> corten::Result {
+) -> HtmlResult {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let errors = match dialog {
         ItemDialog::Preview { errors, .. } | ItemDialog::Drafts { errors, .. } => errors,
@@ -412,21 +411,22 @@ async fn answer(
     };
     let none = url::ItemNotice::default();
     if !errors.is_empty() {
-        return req.invalid(errors, view, || item_list(req, config, headers, query, &none, None, Some(dialog))).await;
+        return req.invalid(errors, view, || item_list(req, viewer, config, headers, query, &none, None, Some(dialog))).await;
     }
     if req.mode == Mode::Action {
         return req.patch(view);
     }
-    item_list(req, config, headers, query, &none, None, Some(dialog)).await
+    item_list(req, viewer, config, headers, query, &none, None, Some(dialog)).await
 }
 
 async fn preview(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let confirm = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match ask_preview(req.t(), &caller, &input, &query).await {
@@ -436,16 +436,17 @@ async fn preview(
     };
     let label = action_label(req.t(), Kind::Items, &input.action);
     let dialog = ItemDialog::Preview { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &confirm, label };
-    answer(&req, &config, &headers, &query, dialog).await
+    answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
 async fn confirm(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match input.refusal(req.t()) {
@@ -478,7 +479,7 @@ async fn confirm(
     };
     let label = action_label(req.t(), Kind::Items, &input.action);
     let dialog = ItemDialog::Preview { input: &input, preview: preview.as_ref(), errors: &errors, confirm: &action, label };
-    answer(&req, &config, &headers, &query, dialog).await
+    answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
 /// The checked rows' statuses, from the list they were checked on: none checked, or one that is
@@ -511,11 +512,12 @@ async fn draft_refusal(
 
 async fn drafts(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let confirm = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
@@ -523,18 +525,19 @@ async fn drafts(
         Err(denied) => return denied.answer(&req),
     };
     let dialog = ItemDialog::Drafts { ids: &input.ids, errors: &errors, confirm: &confirm };
-    answer(&req, &config, &headers, &query, dialog).await
+    answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
 /// Removes each checked draft in turn (`removeDraftCatalogItem`); the first refusal stops it and
 /// is the dialog's message (the drafts before it stay removed, as in admin-web).
 async fn remove_drafts(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let action = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
@@ -569,7 +572,7 @@ async fn remove_drafts(
         return req.redirect(&done);
     }
     let dialog = ItemDialog::Drafts { ids: &input.ids, errors: &errors, confirm: &action };
-    answer(&req, &config, &headers, &query, dialog).await
+    answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
 #[cfg(test)]

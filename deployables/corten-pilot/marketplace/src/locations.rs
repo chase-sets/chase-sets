@@ -6,19 +6,13 @@ use serde::Serialize;
 
 use crate::{
     api::{Inventory as _, Location},
-    app::{Config, Shared, read_failed, sign_in, url, viewer},
-    auth::Session,
+    app::{Config, Shared, read_failed, sign_in, url},
+    auth::{Seller, Viewer},
     form::LocationInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot},
     views::{self, Draft, Forms, Layout},
 };
-
-pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
-    area.route::<url::Locations>(get(list).post(create).with_state(shared.clone()))
-        .route::<url::Location>(post(update).with_state(shared.clone()))
-        .route::<url::Archive>(post(archive).with_state(shared.clone()))
-}
 
 /// The screen's view model: what the page shows and what a data client gets.
 #[derive(Serialize, ToJson)]
@@ -30,8 +24,7 @@ pub struct Screen {
 }
 
 /// The page for `query`, with `forms` in place of the forms' defaults.
-async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, forms: Forms) -> corten::Result {
-    let viewer = viewer(req)?;
+async fn render(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, query: &Check, forms: Forms) -> HtmlResult {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let status = async {
@@ -54,7 +47,9 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, 
         // The write's projection is not readable yet: marketplace's pending answer, the page with
         // a message and no list (the receipt stays in the address for 30 seconds).
         Err(error) if receipt.is_some() && error.catching_up() => (Vec::new(), true),
-        Err(error) => return read_failed(req, error, receipt.is_some().then(|| req.t::<Pilot>().load_unverified())),
+        Err(error) => {
+            return read_failed(req, Some(viewer), error, receipt.is_some().then(|| req.t::<Pilot>().load_unverified()));
+        }
     };
     let screen = Screen { locations, pending, status };
     let t: Msg = req.t();
@@ -62,11 +57,17 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, 
     // The status's "check again" link: the same check, without the receipt.
     let again = url::Locations { check: query.again() };
     let view = views::page(t, req.t(), viewer, &screen, &again, forms);
-    req.screen(&screen, html! { <Layout req={req} title={title} head={head}>{view}</Layout> })
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> })
 }
 
-async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<Check>) -> corten::Result {
-    render(&req, &config, &headers, &query, Forms::default()).await
+pub(crate) async fn list(
+    req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<Check>,
+) -> HtmlResult {
+    render(&req, &viewer, &config, &headers, &query, Forms::default()).await
 }
 
 /// Which write a form asks for.
@@ -102,37 +103,52 @@ impl Write {
     }
 }
 
-async fn create(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LocationInput>) -> corten::Result {
-    write(&req, &config, &headers, Write::Create, input).await
+pub(crate) async fn create(
+    req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LocationInput>,
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Create, input).await
 }
 
-async fn update(
+pub(crate) async fn update(
     req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<LocationInput>,
-) -> corten::Result {
-    write(&req, &config, &headers, Write::Update(id), input).await
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Update(id), input).await
 }
 
-async fn archive(
+pub(crate) async fn archive(
     req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<LocationInput>,
-) -> corten::Result {
-    write(&req, &config, &headers, Write::Archive(id), input).await
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Archive(id), input).await
 }
 
 /// The list after a write the API applied: it waits for the write's projection and confirms the
 /// attempt, so the browser forgets it.
-fn applied(req: &Req, write: &Write, attempt: &str, receipt: Option<Receipt>) -> corten::Result {
+fn applied(req: &Req, write: &Write, attempt: &str, receipt: Option<Receipt>) -> HtmlResult {
     req.redirect(&url::Locations { check: Check::applied(write.family(), write.target(), attempt, receipt.map(|r| r.param())) })
 }
 
-async fn write(req: &Req, config: &Config, headers: &HeaderMap, write: Write, input: LocationInput) -> corten::Result {
+async fn write(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    write: Write,
+    input: LocationInput,
+) -> HtmlResult {
     let p: Pilot = req.t();
     let errors = match input.command(p, write.archived()) {
         Ok(command) => {
@@ -156,7 +172,6 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, write: Write, in
     };
     // Nothing was applied: the form again, drawn with a new attempt, and a status that settles
     // the posted one.
-    let viewer = viewer(req)?;
     let status = Status::Refused(input.attempt.clone());
     // The form is drawn with a new SubmitKey; the posted attempt applied nothing.
     let draft = Draft { input, errors };
@@ -164,7 +179,7 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, write: Write, in
     let patch = views::Refused { t, viewer, write: &write.view(), draft: &draft, status: &status };
     let forms = Forms { status: Some(status.clone()), draft: Some((write.view(), draft.clone())) };
     let page = Check::default();
-    req.invalid(&draft.errors, patch, || render(req, config, headers, &page, forms)).await
+    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, forms)).await
 }
 
 impl Write {

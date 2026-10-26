@@ -186,14 +186,14 @@ pub fn product_line(item: &Item, screen: &ItemScreen, product: &str, quantity: u
 
 /// Does the viewer use an account sell list (`canUseAccountSellList`): signed in, and not a
 /// guest checkout's session?
-pub fn account_sell_list(req: &Req) -> bool {
-    matches!(req.context::<Session>(), Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
+pub fn account_sell_list(session: Option<&Session>) -> bool {
+    matches!(session, Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
 }
 
 /// Does the viewer see the item as a seller (`canUseSellerFeatures`): offers and listings to
 /// review, or listings to manage? Their Accept offer is `sell-now`.
-pub fn seller_features(req: &Req) -> bool {
-    match req.context::<Session>() {
+pub fn seller_features(session: Option<&Session>) -> bool {
+    match session {
         Some(Session::Account(viewer)) => {
             let can = |p: &str| viewer.actor.can(p);
             (can("offers.view") && can("listings.view")) || (can("listings.view") && can("listings.manage"))
@@ -222,29 +222,36 @@ pub fn sell_list_href(receipt: &str) -> String {
 }
 
 /// The page again, saying in `form` why nothing changed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn refused(
     req: &Req,
+    session: Option<&Session>,
     caller: &Caller<'_>,
     item: Item,
     address: &Address,
     form: SellForm,
     typed: String,
     message: String,
-) -> corten::Result {
+) -> HtmlResult {
     let notice = BuyNotice::SellRefused { message, form, quantity: typed };
-    let reads = items::sell_reads(req, caller, &item, address, false).await;
-    items::render(req, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
+    let reads = items::sell_reads(req, session, caller, &item, address, false).await;
+    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
 }
 
 /// Accept offer, Add offer to Sell List and Add product to Sell List (the action's `sell-now`,
 /// `add-to-sell-list` and `add-product-to-sell-list`).
 pub(crate) async fn add(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
     let Some(intent) = SellIntent::read(&first(field::INTENT)) else {
@@ -258,17 +265,17 @@ pub(crate) async fn add(
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     };
-    if matches!(req.context::<Session>(), Some(Session::Unavailable)) {
+    if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
     }
-    let account = account_sell_list(&req);
+    let account = account_sell_list(session);
     let line = match intent {
         SellIntent::SellNow | SellIntent::AddOffer => {
             let Some(offer) = takeable(&item, &first(field::OFFER)) else {
                 let message = t.route_validation_selected_offer_unavailable().to_owned();
-                return refused(&req, &caller, item, &address, SellForm::Offer, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Offer, typed, message).await;
             };
-            let may = matches!(req.context::<Session>(), Some(Session::Account(viewer)) if viewer.actor.can(OFFERS_MANAGE));
+            let may = matches!(session, Some(Session::Account(viewer)) if viewer.actor.can(OFFERS_MANAGE));
             if account && !may {
                 return Err(corten::Error::status(StatusCode::FORBIDDEN));
             }
@@ -277,9 +284,9 @@ pub(crate) async fn add(
         SellIntent::AddProduct => {
             let Some(quantity) = quantity(&typed) else {
                 let message = t.route_validation_quantity_required().to_owned();
-                return refused(&req, &caller, item, &address, SellForm::Product, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message).await;
             };
-            let viewer = match req.context::<Session>() {
+            let viewer = match session {
                 Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
                 _ => None,
             };
@@ -287,7 +294,7 @@ pub(crate) async fn add(
             let product = first(field::PRODUCT);
             if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
                 let message = t.route_choose_options_to_sell_this_item().to_owned();
-                return refused(&req, &caller, item, &address, SellForm::Product, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message).await;
             }
             product_line(&item, &screen, &product, quantity)
         }
@@ -301,7 +308,7 @@ pub(crate) async fn add(
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             };
         }
-        Err(error) => return refusal(&req, &caller, item, &address, intent.form(), typed, error).await,
+        Err(error) => return refusal(&req, session, &caller, item, &address, intent.form(), typed, error).await,
     };
     let to = sell_list_href(&receipt).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?;
     let mut res = req.redirect(&to)?;
@@ -314,17 +321,22 @@ pub(crate) async fn add(
 }
 
 /// A write the API refused shows its reason on the rail; anything else is the API failing.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn refusal(
     req: &Req,
+    session: Option<&Session>,
     caller: &Caller<'_>,
     item: Item,
     address: &Address,
     form: SellForm,
     typed: String,
     error: ApiError,
-) -> corten::Result {
+) -> HtmlResult {
     match error.refusal() {
-        Some(message) => refused(req, caller, item, address, form, typed, message.to_owned()).await,
+        Some(message) => refused(req, session, caller, item, address, form, typed, message.to_owned()).await,
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }

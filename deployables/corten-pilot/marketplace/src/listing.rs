@@ -107,8 +107,8 @@ pub struct ShipFromInput {
 }
 
 /// May the viewer list at a price (`canUseListingFeatures`, `canSellOnItem`)?
-pub fn listing_features(req: &Req) -> bool {
-    match req.context::<Session>() {
+pub fn listing_features(session: Option<&Session>) -> bool {
+    match session {
         Some(Session::Account(viewer)) => viewer.actor.can("listings.view") && viewer.actor.can("listings.manage"),
         _ => false,
     }
@@ -165,9 +165,16 @@ async fn read_item(caller: &api::Caller<'_>, slug: &str) -> Result<Item, corten:
 }
 
 /// The page again on its Sell tab, saying in the form that sent it why nothing (more) was saved.
-async fn refused(req: &Req, caller: &api::Caller<'_>, item: Item, address: &Address, notice: BuyNotice) -> corten::Result {
-    let reads = items::sell_reads(req, caller, &item, address, false).await;
-    items::render(req, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
+async fn refused(
+    req: &Req,
+    session: Option<&Session>,
+    caller: &api::Caller<'_>,
+    item: Item,
+    address: &Address,
+    notice: BuyNotice,
+) -> HtmlResult {
+    let reads = items::sell_reads(req, session, caller, &item, address, false).await;
+    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
 }
 
 /// How a listing write's failure is answered.
@@ -188,7 +195,7 @@ fn failed(error: ApiError) -> Failed {
     }
 }
 
-fn sign_in(req: &Req, slug: &str) -> corten::Result {
+fn sign_in(req: &Req, slug: &str) -> HtmlResult {
     match sign_in_at(&format!("/items/{}?market=sell", segment(slug))) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
@@ -203,11 +210,13 @@ fn first(raw: &Raw, key: &str) -> String {
 /// List this product (the action's `list-at-price`).
 pub(crate) async fn list(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let input = ListInput {
         price: first(&raw, field::PRICE),
@@ -218,7 +227,6 @@ pub(crate) async fn list(
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
     let slug = item.slug.clone().unwrap_or(slug);
-    let session = req.context::<Session>();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
     }
@@ -231,19 +239,19 @@ pub(crate) async fn list(
     let product = first(&raw, field::PRODUCT);
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let notice = refuse(t.route_choose_options_to_list_matching_inventory().to_owned(), input, None);
-        return refused(&req, &caller, item, &address, notice).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     }
     let Some(amount) = buying::price(&input.price) else {
         let notice = refuse(t.route_validation_price_required().to_owned(), input, None);
-        return refused(&req, &caller, item, &address, notice).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     };
     let Some(quantity) = buying::quantity(&input.quantity) else {
         let notice = refuse(t.route_validation_quantity_required().to_owned(), input, None);
-        return refused(&req, &caller, item, &address, notice).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     };
     // No account sell list: a draft the guest registers to claim (a guest checkout's session too,
     // as marketplace's `canUseAccountSellList` says).
-    if !selling::account_sell_list(&req) {
+    if !selling::account_sell_list(session) {
         let draft = json!({
             "sourcePath": format!("/items/{slug}?market=sell"),
             "catalogItemId": item.catalog_item_id,
@@ -259,7 +267,9 @@ pub(crate) async fn list(
             Ok(intent) => intent,
             Err(error) => {
                 return match failed(error) {
-                    Failed::Refused(message) => refused(&req, &caller, item, &address, refuse(message, input, None)).await,
+                    Failed::Refused(message) => {
+                        refused(&req, session, &caller, item, &address, refuse(message, input, None)).await
+                    }
                     Failed::SignIn => sign_in(&req, &slug),
                     Failed::Error(error) => Err(error),
                 };
@@ -272,7 +282,7 @@ pub(crate) async fn list(
         res.headers_mut().append(header::SET_COOKIE, keep.header());
         return Ok(res);
     }
-    if !listing_features(&req) {
+    if !listing_features(session) {
         return Err(corten::Error::status(StatusCode::FORBIDDEN));
     }
     // One attempt for the form's three writes: the stock's ensure applies once per attempt, and
@@ -324,7 +334,7 @@ pub(crate) async fn list(
         Err((Failed::SignIn, ..)) => sign_in(&req, &slug),
         Err((Failed::Error(error), ..)) => Err(error),
         Err((Failed::Refused(message), input, draft)) => {
-            refused(&req, &caller, item, &address, refuse(message, input, draft)).await
+            refused(&req, session, &caller, item, &address, refuse(message, input, draft)).await
         }
     }
 }
@@ -333,11 +343,13 @@ pub(crate) async fn list(
 /// stock location, as one inventory attempt (the form's `SubmitKey`).
 pub(crate) async fn ship_from(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let input = ShipFromInput {
         name: first(&raw, field::NAME),
@@ -351,12 +363,12 @@ pub(crate) async fn ship_from(
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
     let slug = item.slug.clone().unwrap_or(slug);
-    match req.context::<Session>() {
+    match session {
         Some(Session::Unavailable) => return Err(corten::Error::status(StatusCode::BAD_GATEWAY)),
         Some(Session::Account(viewer)) if viewer.actor.can(GUEST_CHECKOUT) => {
             return Err(corten::Error::status(StatusCode::FORBIDDEN));
         }
-        Some(Session::Account(_)) if listing_features(&req) => {}
+        Some(Session::Account(_)) if listing_features(session) => {}
         Some(Session::Account(_)) => return Err(corten::Error::status(StatusCode::FORBIDDEN)),
         None => return sign_in(&req, &slug),
     }
@@ -365,7 +377,7 @@ pub(crate) async fn ship_from(
     let typed = [&input.name, &input.line1, &input.city, &input.state, &input.postal_code];
     if typed.iter().all(|v| v.is_empty()) {
         let notice = refuse(t.route_ship_from_setup_required().to_owned(), input);
-        return refused(&req, &caller, item, &address, notice).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     }
     let attempt = Some(first(&raw, field::ATTEMPT))
         .filter(|a| uuid::Uuid::parse_str(a).is_ok())
@@ -393,7 +405,7 @@ pub(crate) async fn ship_from(
         Err(error) => match failed(error) {
             Failed::SignIn => sign_in(&req, &slug),
             Failed::Error(error) => Err(error),
-            Failed::Refused(message) => refused(&req, &caller, item, &address, refuse(message, input)).await,
+            Failed::Refused(message) => refused(&req, session, &caller, item, &address, refuse(message, input)).await,
         },
     }
 }

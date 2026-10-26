@@ -27,3 +27,8 @@ time = { version = "0.3", default-features = false, features = ["std", "parsing"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+
+# Local only: Corten's unmerged feat/route-handlers (e07c1a3) merged with main (c7fc490), to port ahead of it.
+[patch."https://github.com/todd-skelton/corten"]
+corten = { path = "C:/Users/ToddS/AppData/Local/Temp/corten-rh/crates/corten" }
+corten-ui = { path = "C:/Users/ToddS/AppData/Local/Temp/corten-rh/crates/corten-ui" }

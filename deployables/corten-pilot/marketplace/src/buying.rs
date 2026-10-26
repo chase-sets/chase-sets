@@ -303,8 +303,8 @@ fn loading(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
 }
 
 /// The page as the form saw it, read again: the product must be the one it showed.
-fn screen_for(req: &Req, item: &Item, input: &BuyInput) -> Option<ItemScreen> {
-    let viewer = match req.context::<Session>() {
+fn screen_for(session: Option<&Session>, item: &Item, input: &BuyInput) -> Option<ItemScreen> {
+    let viewer = match session {
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
         _ => None,
     };
@@ -361,8 +361,8 @@ pub fn cart_line(t: ItemMsg, item: &Item, screen: &ItemScreen, input: &BuyInput)
 
 /// Whose cart a request writes: the account's (`None`), or a guest's, by the id the browser keeps
 /// or a new one (`ensureAnonymousCartId`). A guest checkout's session writes a guest cart too.
-fn guest_cart(req: &Req, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
-    match req.context::<Session>() {
+fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
+    match session {
         Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(None),
         Some(Session::Unavailable) => Err(corten::Error::status(StatusCode::BAD_GATEWAY)),
         _ => Ok(Some(
@@ -375,16 +375,16 @@ fn guest_cart(req: &Req, headers: &HeaderMap) -> Result<Option<String>, corten::
 }
 
 /// Is the request a guest's (no account cart)?
-fn is_guest(req: &Req) -> bool {
-    !matches!(req.context::<Session>(), Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
+fn is_guest(session: Option<&Session>) -> bool {
+    !matches!(session, Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
 }
 
 /// The buy cart after a write whose receipt is `receipt` (empty for none): the pilot's for an
 /// account, marketplace's for a guest, with the handoff marketplace's cart waits on
 /// (`ACCOUNT_CART_ADD_LINE_HANDOFF`).
-pub fn cart_href(req: &Req, receipt: &str) -> String {
+pub fn cart_href(session: Option<&Session>, receipt: &str) -> String {
     let receipt = (!receipt.is_empty()).then_some(receipt);
-    if !is_guest(req) {
+    if !is_guest(session) {
         return url::Cart { after: AfterWrite { after_write: receipt.map(str::to_owned) } }.href();
     }
     let mut path = String::from("/account/cart");
@@ -404,14 +404,14 @@ async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Erro
 }
 
 /// The page again, saying why nothing changed.
-fn refused(req: &Req, item: Item, input: BuyInput, message: String) -> corten::Result {
+fn refused(req: &Req, session: Option<&Session>, item: Item, input: BuyInput, message: String) -> HtmlResult {
     let address = input.address.clone();
     let notice = BuyNotice::Refused { message, input };
-    items::render(req, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, Default::default())
+    items::render(req, session, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, Default::default())
 }
 
 /// Marketplace's sign-in, back to the item: the session ended between the page and the post.
-fn sign_in(req: &Req, slug: &str) -> corten::Result {
+fn sign_in(req: &Req, slug: &str) -> HtmlResult {
     match sign_in_at(&url::Item { slug, state: Address::default() }.href()) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
@@ -421,23 +421,25 @@ fn sign_in(req: &Req, slug: &str) -> corten::Result {
 /// Add to cart and Buy best match (the action's `add-to-cart` and `buy-best-match`).
 pub(crate) async fn add(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.attempt = cart_attempt::attempt_id(&input.attempt);
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
-    let guest = guest_cart(&req, &headers)?;
-    let Some(screen) = screen_for(&req, &item, &input) else {
-        return refused(&req, item, input, t.route_add_to_cart_failed().to_owned());
+    let guest = guest_cart(session, &headers)?;
+    let Some(screen) = screen_for(session, &item, &input) else {
+        return refused(&req, session, item, input, t.route_add_to_cart_failed().to_owned());
     };
     let line = match cart_line(t, &item, &screen, &input) {
         Ok(line) => line,
-        Err(message) => return refused(&req, item, input, message),
+        Err(message) => return refused(&req, session, item, input, message),
     };
     let write = CartWrite::add_line(&line, guest.clone());
     let outcome = match cart_attempt::submit(&caller, &input.attempt, &write).await {
@@ -449,21 +451,21 @@ pub(crate) async fn add(
     let slug = item.slug.clone().unwrap_or(slug);
     let mut res = match outcome.state {
         Attempted::Succeeded if input.intent == Intent::BuyBestMatch => {
-            let to = cart_href(&req, &receipt);
+            let to = cart_href(session, &receipt);
             req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)?
         }
         Attempted::Succeeded => req.redirect(&url::ItemAdded { slug: &slug, state: input.address.clone(), added: &receipt })?,
         Attempted::Ambiguous => {
             let address = input.address.clone();
-            let notice = BuyNotice::Ambiguous { cart: cart_href(&req, ""), resend: input };
-            items::render(&req, item, &address, Some(&notice), StatusCode::CONFLICT, Default::default())?
+            let notice = BuyNotice::Ambiguous { cart: cart_href(session, ""), resend: input };
+            items::render(&req, session, item, &address, Some(&notice), StatusCode::CONFLICT, Default::default())?
         }
         Attempted::Partial | Attempted::FailedSafe => {
             let message = outcome
                 .message
                 .or_else(|| outcome.not_applied.into_iter().flatten().next())
                 .unwrap_or_else(|| t.route_add_to_cart_failed().to_owned());
-            refused(&req, item, input, message)?
+            refused(&req, session, item, input, message)?
         }
     };
     if let Some(id) = guest {
@@ -480,11 +482,13 @@ pub(crate) async fn add(
 /// listing, as marketplace sends one.
 pub(crate) async fn buy(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.intent = Intent::BuyNow;
@@ -492,18 +496,18 @@ pub(crate) async fn buy(
     let item = read_item(&caller, &slug).await?;
     let changed = t.route_buy_changed().to_owned();
     if cart_attempt::attempt_id(&input.attempt) != input.attempt {
-        return refused(&req, item, input, changed);
+        return refused(&req, session, item, input, changed);
     }
-    let Some(screen) = screen_for(&req, &item, &input) else { return refused(&req, item, input, changed) };
+    let Some(screen) = screen_for(session, &item, &input) else { return refused(&req, session, item, input, changed) };
     let Some(quantity) = quantity(&input.quantity) else {
-        return refused(&req, item, input, t.route_validation_quantity_required().to_owned());
+        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned());
     };
     let listing = if input.lock.is_empty() { lowest(&item, &input.product) } else { buyable(&item, &input.lock) };
     let Some(listing) = listing.cloned() else {
-        return refused(&req, item, input, t.route_validation_selected_listing_unavailable().to_owned());
+        return refused(&req, session, item, input, t.route_validation_selected_listing_unavailable().to_owned());
     };
     if let Err(message) = enough(t, &listing, quantity) {
-        return refused(&req, item, input, message);
+        return refused(&req, session, item, input, message);
     }
     let summary = screen.product_summary.clone();
     let source = json!({
@@ -519,7 +523,7 @@ pub(crate) async fn buy(
         "fulfillmentMode": "locked-listing",
         "lockedListingId": listing.listing_id,
     });
-    if is_guest(&req) {
+    if is_guest(session) {
         let available =
             t.route_inventory_option_label(summary.as_deref().unwrap_or(&item.title), available(&listing)).to_string();
         let to = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
@@ -536,11 +540,11 @@ pub(crate) async fn buy(
         Err(error) => match (error.status(), error.code()) {
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),
             (Some(StatusCode::FORBIDDEN), _) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
-            (_, Some("checkout_attempt_conflict")) => refused(&req, item, input, changed),
-            (_, Some("checkout_closed")) => refused(&req, item, input, t.route_checkout_closed().to_owned()),
+            (_, Some("checkout_attempt_conflict")) => refused(&req, session, item, input, changed),
+            (_, Some("checkout_closed")) => refused(&req, session, item, input, t.route_checkout_closed().to_owned()),
             (Some(status), _) if status.is_client_error() => {
                 let message = error.refusal().map(str::to_owned).unwrap_or(changed);
-                refused(&req, item, input, message)
+                refused(&req, session, item, input, message)
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -567,24 +571,26 @@ pub fn price(text: &str) -> Option<String> {
 /// here; the offer is placed there.
 pub(crate) async fn offer(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.intent = Intent::Offer;
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
     let Some(amount) = price(&input.price) else {
-        return refused(&req, item, input, t.route_validation_price_required().to_owned());
+        return refused(&req, session, item, input, t.route_validation_price_required().to_owned());
     };
     let Some(quantity) = quantity(&input.quantity) else {
-        return refused(&req, item, input, t.route_validation_quantity_required().to_owned());
+        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned());
     };
-    let Some(screen) = screen_for(&req, &item, &input) else {
-        return refused(&req, item, input, t.route_choose_options_to_make_an_offer().to_owned());
+    let Some(screen) = screen_for(session, &item, &input) else {
+        return refused(&req, session, item, input, t.route_choose_options_to_make_an_offer().to_owned());
     };
     let options = serde_json::to_string(&screen.product_options).unwrap_or_else(|_| "[]".to_owned());
     let pairs = [

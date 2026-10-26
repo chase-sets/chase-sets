@@ -8,19 +8,13 @@ use serde::Serialize;
 
 use crate::{
     api::{Decision, Inventory as _, Outcome},
-    app::{Config, Shared, read_failed, sign_in, url, viewer},
-    auth::Session,
+    app::{Config, Shared, read_failed, sign_in, url},
+    auth::{Seller, Viewer},
     form::DecisionInput,
     recovery::{self, Check, Failed, Family, Status, failed},
     text::{Msg, Pilot, Restock},
     views::{self, Decided, DecisionDraft, Layout, Posted},
 };
-
-pub fn routes(area: Area<Session, url::InventoryArea>, shared: &Shared) -> Area<Session, url::InventoryArea> {
-    area.route::<url::Restock>(get(list).with_state(shared.clone()))
-        .route::<url::Restocked>(post(restock).with_state(shared.clone()))
-        .route::<url::WrittenOff>(post(write_off).with_state(shared.clone()))
-}
 
 /// The screen's view model: what the page shows and what a data client gets.
 #[derive(Serialize, ToJson)]
@@ -32,8 +26,14 @@ pub struct RestockScreen {
 }
 
 /// The page for `query`, with a refused write's form in place of its default.
-async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, posted: Option<Posted>) -> corten::Result {
-    let viewer = viewer(req)?;
+async fn render(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    query: &Check,
+    posted: Option<Posted>,
+) -> HtmlResult {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let status = async {
@@ -55,42 +55,57 @@ async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &Check, 
         Ok(list) => (list.items, false),
         // marketplace's `onPending`: the page with a message and no decisions.
         Err(error) if receipt.is_some() && error.catching_up() => (Vec::new(), true),
-        Err(error) => return read_failed(req, error, receipt.is_some().then(|| req.t::<Restock>().unverified())),
+        Err(error) => return read_failed(req, Some(viewer), error, receipt.is_some().then(|| req.t::<Restock>().unverified())),
     };
     let screen = RestockScreen { decisions, pending, status };
     let t: Restock = req.t();
     let (title, head) = (t.route_title(), html! { <meta name="description" content={t.route_description()}> });
     let again = url::Restock { check: query.again() };
     let view = views::restock_page(t, req.t(), req.t(), viewer, &screen, &again, posted);
-    req.screen(&screen, html! { <Layout req={req} title={title} head={head}>{view}</Layout> })
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> })
 }
 
-async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<Check>) -> corten::Result {
-    render(&req, &config, &headers, &query, None).await
-}
-
-async fn restock(
+pub(crate) async fn list(
     req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<Check>,
+) -> HtmlResult {
+    render(&req, &viewer, &config, &headers, &query, None).await
+}
+
+pub(crate) async fn restock(
+    req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<DecisionInput>,
-) -> corten::Result {
-    decide(&req, &config, &headers, Decided::Restock(id), input).await
+) -> HtmlResult {
+    decide(&req, &viewer, &config, &headers, Decided::Restock(id), input).await
 }
 
-async fn write_off(
+pub(crate) async fn write_off(
     req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<DecisionInput>,
-) -> corten::Result {
-    decide(&req, &config, &headers, Decided::WriteOff(id), input).await
+) -> HtmlResult {
+    decide(&req, &viewer, &config, &headers, Decided::WriteOff(id), input).await
 }
 
 /// Records `which`: the list confirms an applied attempt; a refused one is its form again.
-async fn decide(req: &Req, config: &Config, headers: &HeaderMap, which: Decided, input: DecisionInput) -> corten::Result {
+async fn decide(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    which: Decided,
+    input: DecisionInput,
+) -> HtmlResult {
     let p: Pilot = req.t();
     let outcome = match which {
         Decided::Restock(_) => Outcome::Restocked,
@@ -121,7 +136,6 @@ async fn decide(req: &Req, config: &Config, headers: &HeaderMap, which: Decided,
     // Nothing was applied: the form again, drawn with a new attempt, and a status that settles
     // the posted one. Marketplace reads the list again after a refusal, so the form takes the
     // decision's version as it is now (a refusal for a stale version is then sent fresh).
-    let viewer = viewer(req)?;
     let status = Status::Refused(input.attempt.clone());
     let mut input = input;
     if let Ok(list) = caller.restock_decisions().await
@@ -134,5 +148,5 @@ async fn decide(req: &Req, config: &Config, headers: &HeaderMap, which: Decided,
     let patch = views::RefusedDecision { t, m, viewer, which: &which, draft: &draft, status: &status };
     let posted = Posted { status: status.clone(), which: which.clone(), draft: draft.clone() };
     let page = Check::default();
-    req.invalid(&draft.errors, patch, || render(req, config, headers, &page, Some(posted))).await
+    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, Some(posted))).await
 }

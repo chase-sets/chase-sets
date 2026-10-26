@@ -251,6 +251,28 @@ forward only on purpose, when a fix the pilot needs lands.
 | `c7fc490` | Corten `main` with [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86) closed ([todd-skelton/corten#87 A dialog the server draws open is modal: corten_ui::dialog::modal](https://github.com/todd-skelton/corten/pull/87)) and adopted: both apps' `modal` handlers are gone. No breaking change for the pilot |
 | `de6f039` | Corten `main` with [todd-skelton/corten#82 A view that is lets then one patch component is not a patch (One<F> never implements Patch)](https://github.com/todd-skelton/corten/issues/82) closed ([todd-skelton/corten#83 A view that is lets then one patch component is a patch](https://github.com/todd-skelton/corten/pull/83)) and adopted: the four `match () { () => { .. } }` blocks are gone. No breaking change for the pilot |
 
+**Ported ahead of Corten: `feat/route-handlers`.** Corten's next breaking change
+([todd-skelton/corten#81 A route names its handlers in its attribute](https://github.com/todd-skelton/corten/pull/81), with its local
+commit `e07c1a3`) replaces `App::context`, `App::guard` and `Area::guard` with a handler's `Caller<T>`
+and an area's `caller = T`. It also makes a handler's return type its route's answer (`HtmlResult`, `LiveResponse`),
+has every route name its handler in `#[route(..)]`, and turns `Failure` into an enum. The pilot is ported
+to it on the local branch `pilot/corten-route-handlers`, which builds against `e07c1a3` merged
+with `c7fc490` through a local `[patch]`. It is pushed and pinned once the change merges into
+Corten `main`. At that commit `corten check` passes (admin 61, marketplace 93, platform 6). Eight
+smokes pass against its release builds on the sandbox: Operations Attention, scopes, bulk,
+postage, storage locations, cart, item and Add to List. What changed:
+1. Every area is a `#[corten::routes(state = Shared, area = .., caller = ..)]` module whose routes
+   name their handlers. The catalog area is five such modules, one per screen. A prefix with no page
+   is a `link` route (`/items`, `/account/inventory`). Where a page shared the prefix's path (postage, Operations
+   Attention, the cart), that page is the area's route.
+2. The callers are `Identify` impls (`auth.rs`), so a request reads the session once, only where a handler asks for it.
+3. The layout takes `viewer` as a prop. 18 page helpers in admin and 30 in marketplace take the viewer, or
+   the item page's `Option<&Session>`, from their handler. Ten of them now take eight arguments and
+   say so to clippy (`#[expect(clippy::too_many_arguments)]`).
+4. Both error pages name every `Failure` case. Two gaps were filed:
+   [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)
+   and [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89).
+
 ## What lives where
 
 | Path | What |
@@ -297,14 +319,20 @@ forward only on purpose, when a fix the pilot needs lands.
    ([`read_failed`](marketplace/src/app.rs)). This is Chase Sets' consistency protocol, not Corten's.
 2. **Business rules stay in the API.** A refusal with a message becomes the form's message
    (`Errors::add_form`), so the pilot never restates a rule.
-3. **Guards.** marketplace has one guard (`App::guard`): sellers with `inventory.view` read and
-   those with `inventory.manage` write (`req.writes()`). admin's app guard lets any signed-in staff
-   member in, and each area asks for its own permission (`Area::guard`): postage
-   `postage-policies.view`, the catalog `catalog.view` to read and `catalog.manage` to write, as
-   the platform API asks for them. Anyone else with a session gets a 403, a session the API could
-   not look up gets a 502 (signing in again would loop while it is down), and no session signs in
-   at the React app. A write whose API call says the session ended meanwhile still signs in from
-   the handler.
+3. **Who may use each area is its caller type.** Each area's routes module says
+   `caller = ..`, so every handler there takes that `Caller` (Corten's `feat/route-handlers`; before
+   it, `App::guard` and `Area::guard`). admin's areas take `Staff<R>`, where the rule `R` names the
+   permission for the request's method: postage `postage-policies.view`, Operations Attention
+   `projection-operations.view`, and the catalog `catalog.view` to read and `catalog.manage` to
+   write (`CatalogAccess`), as the platform API asks for them. marketplace's inventory takes a
+   `Seller` (`inventory.view` to read, `inventory.manage` to write) and the cart a `Buyer` (an
+   account that is not a guest checkout). The item page is public: its handlers take
+   `Option<Caller<Session>>`. Anyone else with a session gets a 403. A session the API could not
+   look up gets a 503 (`Refused::unavailable`; it was a 502 before the port), because signing in
+   again would loop while the API is down. No session signs in at the React app. A write whose API
+   call says the session ended meanwhile still signs in from the handler. The layout shows the
+   viewer the handler passes it; the error page has none
+   ([todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)).
 4. **Every write is its own route** (`/revise`, `/archive`, ...) where the React apps post one
    form with an `intent`; admin's preview button posts the revise form to `/preview` with
    `formaction`.

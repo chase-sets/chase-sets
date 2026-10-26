@@ -1,21 +1,92 @@
 //! Who is asking, and what they may see: the staff session admin-web signed in, the color mode
 //! they chose, and admin-web's navigation filtered by the same rules as `resolveWebHostNavItems`.
-use std::sync::LazyLock;
+use std::{hash::Hash, marker::PhantomData, sync::LazyLock};
 
+use corten::{
+    Identify, Refused,
+    axum::http::{Method, request::Parts},
+};
+use platform::session;
 pub use platform::{
     nav::{self, NavItem},
     session::ColorMode,
 };
 
-use crate::api::{Caller, Identity};
+use crate::{api::Identity, app::Shared};
 
-/// `App::context`: present for a request with a session cookie.
+/// What an area asks of who is asking: the permission a request needs, by its method.
+pub trait Rule: Clone + Hash + Send + Sync + 'static {
+    fn permission(method: &Method) -> &'static str;
+}
+
+/// Signed-in staff with the permission `R` says the request needs. Each area's routes module
+/// says `caller = Staff<..>`, so every handler there takes one. Anyone else is sent to sign in at
+/// admin-web (no session), refused (403) or answered 503 (the API could not say whose the
+/// session is: signing in again would loop while it is down).
 #[derive(Clone, Debug, Hash)]
-pub enum Session {
-    Staff(Viewer),
-    /// The cookie is there but the API could not say whose it is. Not "signed out": sending the
-    /// user to sign in again would loop while the API is down.
-    Unavailable,
+pub struct Staff<R> {
+    pub viewer: Viewer,
+    rule: PhantomData<R>,
+}
+
+impl<R: Rule> Identify<Shared> for Staff<R> {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let viewer = viewer(parts, config).await?;
+        if !viewer.can(R::permission(&parts.method)) {
+            return Err(Refused::forbidden());
+        }
+        Ok(Staff { viewer, rule: PhantomData })
+    }
+}
+
+/// The signed-in staff member, or why there is none.
+async fn viewer(parts: &Parts, config: &Shared) -> Result<Viewer, Refused> {
+    let sign_in = || match crate::app::sign_in_at(parts.uri.path()) {
+        Some(to) => Refused::sign_in(&to),
+        None => Refused::unavailable("admin-web's sign-in address does not parse"),
+    };
+    let Some(forward) = session::forwarded(&parts.headers) else { return Err(sign_in()) };
+    let color_mode = ColorMode::from_headers(&parts.headers);
+    match config.platform.caller(&forward, config.proto, None).identify().await {
+        Identity::Actor(actor) => {
+            Ok(Viewer { user_id: actor.user_id, role_key: actor.role_key, permissions: actor.permissions, color_mode })
+        }
+        Identity::SignedOut => Err(sign_in()),
+        Identity::Unknown => Err(Refused::unavailable("the platform API could not say whose the session is")),
+    }
+}
+
+/// A rule of one permission, whatever the method.
+macro_rules! rules {
+    ($($(#[$doc:meta])* $name:ident => $permission:expr;)*) => {$(
+        $(#[$doc])*
+        #[derive(Clone, Debug, Hash)]
+        pub struct $name;
+
+        impl Rule for $name {
+            fn permission(_: &Method) -> &'static str {
+                $permission
+            }
+        }
+    )*};
+}
+
+rules! {
+    /// Commerce > Postage policies.
+    PostageView => "postage-policies.view";
+    /// Platform > Operations attention.
+    OperationsView => "projection-operations.view";
+}
+
+/// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's
+/// actions require it; the API checks both again).
+#[derive(Clone, Debug, Hash)]
+pub struct CatalogAccess;
+
+impl Rule for CatalogAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { crate::catalog::VIEW } else { crate::catalog::MANAGE }
+    }
 }
 
 #[derive(Clone, Debug, Hash)]
@@ -29,21 +100,6 @@ pub struct Viewer {
 impl Viewer {
     pub fn can(&self, permission: &str) -> bool {
         self.permissions.iter().any(|p| p == permission)
-    }
-}
-
-/// The session for a request: `None` without a session cookie or when the API says it is not
-/// signed in.
-pub async fn session(caller: Caller<'_>, color_mode: ColorMode) -> Option<Session> {
-    match caller.identify().await {
-        Identity::Actor(actor) => Some(Session::Staff(Viewer {
-            user_id: actor.user_id,
-            role_key: actor.role_key,
-            permissions: actor.permissions,
-            color_mode,
-        })),
-        Identity::SignedOut => None,
-        Identity::Unknown => Some(Session::Unavailable),
     }
 }
 

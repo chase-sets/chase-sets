@@ -38,13 +38,15 @@ use super::{
 use crate::{
     api::{ApiError, Caller, Method},
     app::{Shared, read_failed, refused},
+    auth::{CatalogAccess, Staff, Viewer},
     text::Cat,
 };
 
+/// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
+#[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use std::fmt;
 
-    use corten::Route;
     use serde::Deserialize;
 
     /// What a write did, for the page it redirects to: the toast, and the part it opens.
@@ -95,8 +97,7 @@ pub mod url {
     }
 
     /// The item's page, and the receipt and change of the write before.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/{id}")]
+    #[route("/catalog/catalog-items/{id}", get = page)]
     pub struct Item<'a> {
         pub id: &'a str,
         pub after_write: Option<String>,
@@ -118,8 +119,7 @@ pub mod url {
 
     /// The publish form: \`GET\` draws it with the readiness now (keeping the typed ids), \`POST\`
     /// publishes.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/{id}/publish")]
+    #[route("/catalog/catalog-items/{id}/publish", get = publish_form, post = publish)]
     pub struct Publish<'a> {
         pub id: &'a str,
     }
@@ -131,8 +131,7 @@ pub mod url {
     }
 
     /// Set Field Value: \`GET\` draws its dialog, \`POST\` sets.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/{id}/fields")]
+    #[route("/catalog/catalog-items/{id}/fields", get = field_dialog, post = set_field)]
     pub struct Fields<'a> {
         pub id: &'a str,
     }
@@ -144,8 +143,7 @@ pub mod url {
     }
 
     /// Add content line: \`GET\` draws its dialog, \`POST\` adds.
-    #[derive(Route)]
-    #[route("/catalog/catalog-items/{id}/contents")]
+    #[route("/catalog/catalog-items/{id}/contents", get = content_dialog, post = add_content)]
     pub struct Contents<'a> {
         pub id: &'a str,
     }
@@ -156,32 +154,82 @@ pub mod url {
         }
     }
 
-    macro_rules! writes {
-        ($($name:ident $path:tt { $($field:ident),* };)*) => {$(
-            #[derive(Route)]
-            #[route($path)]
-            pub struct $name<'a> {
-                $(pub $field: &'a str,)*
-            }
-        )*};
+    #[route("/catalog/catalog-items/{id}/lifecycle", post = lifecycle)]
+    pub struct Lifecycle<'a> {
+        pub id: &'a str,
     }
 
-    writes! {
-        Lifecycle "/catalog/catalog-items/{id}/lifecycle" { id };
-        Blueprint "/catalog/catalog-items/{id}/blueprint" { id };
-        FieldClear "/catalog/catalog-items/{id}/fields/{field_id}/clear" { id, field_id };
-        Categories "/catalog/catalog-items/{id}/categories" { id };
-        CategoryRemove "/catalog/catalog-items/{id}/categories/{category_id}/remove" { id, category_id };
-        Metadata "/catalog/catalog-items/{id}/metadata" { id };
-        Tags "/catalog/catalog-items/{id}/tags" { id };
-        ImageUrls "/catalog/catalog-items/{id}/image-urls" { id };
-        Fallback "/catalog/catalog-items/{id}/image-fallback" { id };
-        FallbackClear "/catalog/catalog-items/{id}/image-fallback/clear" { id };
-        CatalogRefs "/catalog/catalog-items/{id}/catalog-item-references" { id };
-        CatalogRefUnlink "/catalog/catalog-items/{id}/catalog-item-references/unlink" { id };
-        ProductRefs "/catalog/catalog-items/{id}/product-references" { id };
-        ProductRefUnlink "/catalog/catalog-items/{id}/product-references/unlink" { id };
-        ContentRemove "/catalog/catalog-items/{id}/contents/{line_id}/remove" { id, line_id };
+    #[route("/catalog/catalog-items/{id}/blueprint", post = blueprint)]
+    pub struct Blueprint<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/fields/{field_id}/clear", post = clear_field)]
+    pub struct FieldClear<'a> {
+        pub id: &'a str,
+        pub field_id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/categories", post = assign_category)]
+    pub struct Categories<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/categories/{category_id}/remove", post = remove_category)]
+    pub struct CategoryRemove<'a> {
+        pub id: &'a str,
+        pub category_id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/metadata", post = metadata)]
+    pub struct Metadata<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/tags", post = tags)]
+    pub struct Tags<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/image-urls", post = image_urls)]
+    pub struct ImageUrls<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/image-fallback", post = fallback)]
+    pub struct Fallback<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/image-fallback/clear", post = clear_fallback)]
+    pub struct FallbackClear<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/catalog-item-references", post = link_catalog_ref)]
+    pub struct CatalogRefs<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/catalog-item-references/unlink", post = unlink_catalog_ref)]
+    pub struct CatalogRefUnlink<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/product-references", post = link_product_ref)]
+    pub struct ProductRefs<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/product-references/unlink", post = unlink_product_ref)]
+    pub struct ProductRefUnlink<'a> {
+        pub id: &'a str,
+    }
+
+    #[route("/catalog/catalog-items/{id}/contents/{line_id}/remove", post = remove_content)]
+    pub struct ContentRemove<'a> {
+        pub id: &'a str,
+        pub line_id: &'a str,
     }
 }
 
@@ -223,31 +271,6 @@ impl Change {
             _ => None,
         }
     }
-}
-
-pub fn routes(
-    area: Area<crate::auth::Session, super::url::Catalog>,
-    shared: Shared,
-) -> Area<crate::auth::Session, super::url::Catalog> {
-    area.route::<url::Item>(get(page).with_state(shared.clone()))
-        .route::<url::Publish>(get(publish_form).post(publish).with_state(shared.clone()))
-        .route::<url::Lifecycle>(post(lifecycle).with_state(shared.clone()))
-        .route::<url::Blueprint>(post(blueprint).with_state(shared.clone()))
-        .route::<url::Fields>(get(field_dialog).post(set_field).with_state(shared.clone()))
-        .route::<url::FieldClear>(post(clear_field).with_state(shared.clone()))
-        .route::<url::Categories>(post(assign_category).with_state(shared.clone()))
-        .route::<url::CategoryRemove>(post(remove_category).with_state(shared.clone()))
-        .route::<url::Metadata>(post(metadata).with_state(shared.clone()))
-        .route::<url::Tags>(post(tags).with_state(shared.clone()))
-        .route::<url::ImageUrls>(post(image_urls).with_state(shared.clone()))
-        .route::<url::Fallback>(post(fallback).with_state(shared.clone()))
-        .route::<url::FallbackClear>(post(clear_fallback).with_state(shared.clone()))
-        .route::<url::CatalogRefs>(post(link_catalog_ref).with_state(shared.clone()))
-        .route::<url::CatalogRefUnlink>(post(unlink_catalog_ref).with_state(shared.clone()))
-        .route::<url::ProductRefs>(post(link_product_ref).with_state(shared.clone()))
-        .route::<url::ProductRefUnlink>(post(unlink_product_ref).with_state(shared.clone()))
-        .route::<url::Contents>(get(content_dialog).post(add_content).with_state(shared.clone()))
-        .route::<url::ContentRemove>(post(remove_content).with_state(shared))
 }
 
 /// A write's answer: the page after it, or the refusal (the form's errors), or a sign-in or an
@@ -342,16 +365,25 @@ async fn field_choices(caller: &Caller<'_>) -> FieldChoices {
 
 async fn page(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(after): Query<url::After>,
-) -> corten::Result {
-    render(&req, &config, &headers, &id, &after, ItemBack::Nothing).await
+) -> HtmlResult {
+    render(&req, &staff.viewer, &config, &headers, &id, &after, ItemBack::Nothing).await
 }
 
 /// The page, with \`back\` in place of a form's default.
-async fn render(req: &Req, config: &Shared, headers: &HeaderMap, id: &str, after: &url::After, back: ItemBack) -> corten::Result {
+async fn render(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    after: &url::After,
+    back: ItemBack,
+) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
     let screen = match screen(&caller, id).await {
@@ -361,34 +393,52 @@ async fn render(req: &Req, config: &Shared, headers: &HeaderMap, id: &str, after
     let t: Cat = req.t();
     let (notice, open) = (after.done.map(|done| done.notice(t)), after.done.and_then(Change::fold));
     let view = views::item_page(t, req.t(), &screen, notice, open, back);
-    req.screen(&screen, html! { <crate::views::Layout req={&req} title={t.route_item()} head="">{view}</crate::views::Layout> })
+    req.screen(
+        &screen,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_item()} head="">{view}</crate::views::Layout>
+        },
+    )
 }
 
 /// After a write to item \`id\`: its page, waiting for the write.
-fn to_item(req: &Req, id: &str, written: &Written, done: Change) -> corten::Result {
+fn to_item(req: &Req, id: &str, written: &Written, done: Change) -> HtmlResult {
     req.redirect(&url::Item { id, after_write: receipt(written), done: Some(done) })
 }
 
 /// A form that came back: the form as a patch (422), or the page with it in its open dialog.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn invalid(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     errors: &Errors,
     form: impl Patch,
     back: ItemBack,
-) -> corten::Result {
+) -> HtmlResult {
     let after = url::After::default();
-    req.invalid(errors, form, || render(req, config, headers, id, &after, back)).await
+    req.invalid(errors, form, || render(req, viewer, config, headers, id, &after, back)).await
 }
 
 /// A dialog the server draws when it is opened: the dialog as a patch, or the page with it open.
-async fn opened(req: &Req, config: &Shared, headers: &HeaderMap, id: &str, dialog: impl Patch, back: ItemBack) -> corten::Result {
+async fn opened(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    dialog: impl Patch,
+    back: ItemBack,
+) -> HtmlResult {
     if req.mode == Mode::Action {
         return req.patch(dialog);
     }
-    render(req, config, headers, id, &url::After::default(), back).await
+    render(req, viewer, config, headers, id, &url::After::default(), back).await
 }
 
 /// A command to the item: \`/api/catalog/items/{id}/{rest..}\`.
@@ -397,35 +447,41 @@ async fn item_command(caller: &Caller<'_>, method: Method, id: &str, rest: &[&st
 }
 
 /// A row's one-button write that came back: the row's form with the refusal.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn row_refused(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     (form, action, label): (String, String, &str),
     hidden: &[(FieldName, &str)],
     errors: Errors,
-) -> corten::Result {
+) -> HtmlResult {
     let refusal = (form.clone(), errors.clone());
     let view = views::RowForm { id: &form, action: &action, label, hidden, refused: Some(&refusal) };
-    invalid(req, config, headers, id, &errors, view, ItemBack::Row(form.clone(), errors.clone())).await
+    invalid(req, viewer, config, headers, id, &errors, view, ItemBack::Row(form.clone(), errors.clone())).await
 }
 
 // Publish and archive.
 
 async fn publish_form(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(input): Query<PublishInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let draft = Draft::new(input);
     if req.mode == Mode::Action {
         let readiness = readiness_now(&caller(&config, &headers, None), &id).await;
         return req.patch(views::PublishForm { t: req.t(), id: &id, form: &draft, readiness: &readiness });
     }
-    render(&req, &config, &headers, &id, &url::After::default(), ItemBack::Publish(draft)).await
+    render(&req, &staff.viewer, &config, &headers, &id, &url::After::default(), ItemBack::Publish(draft)).await
 }
 
 /// The item's display identity readiness as the API has it now (admin-web's Recheck); unavailable
@@ -437,27 +493,29 @@ async fn readiness_now(caller: &Caller<'_>, id: &str) -> Readiness {
 
 async fn publish(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<PublishInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::POST, &id, &["publish"], Some(&input.body())).await, Change::Published);
     let readiness = readiness_now(&caller, &id).await;
     let draft = Draft { input, errors };
     let form = views::PublishForm { t: req.t(), id: &id, form: &draft, readiness: &readiness };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Publish(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Publish(draft.clone())).await
 }
 
 async fn lifecycle(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ActionInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.of(&["archive"]) {
         Some(action) => {
             let caller = caller(&config, &headers, None);
@@ -476,18 +534,19 @@ async fn lifecycle(
         transitions: &steps,
         errors: &errors,
     };
-    invalid(&req, &config, &headers, &id, &errors, form, ItemBack::Lifecycle(errors.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &errors, form, ItemBack::Lifecycle(errors.clone())).await
 }
 
 // The item's values.
 
 async fn blueprint(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<IdInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.check(req.t()) {
         Ok(blueprint) => {
             let body = json!({ "blueprintId": blueprint });
@@ -506,16 +565,17 @@ async fn blueprint(
         submit: t.item_assign(),
         form: &draft,
     };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Blueprint(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Blueprint(draft.clone())).await
 }
 
 async fn metadata(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<MetadataInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     // The title and subtitle go back as the API holds them now, not as the page was drawn.
     let errors = match read!(req, caller.get::<ItemDetail>(Kind::Items, &id).await) {
@@ -529,16 +589,17 @@ async fn metadata(
     };
     let draft = Draft { input, errors };
     let form = views::MetadataForm { t: req.t(), id: &id, form: &draft };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Metadata(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Metadata(draft.clone())).await
 }
 
 async fn tags(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ListInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let body = json!({ "tags": parts(&input.text, ',') });
     let errors = sent!(req, id, item_command(&caller, Method::PUT, &id, &["tags"], Some(&body)).await, Change::TagsUpdated);
@@ -553,16 +614,17 @@ async fn tags(
         submit: t.item_save_2(),
         form: &draft,
     };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Tags(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Tags(draft.clone())).await
 }
 
 async fn image_urls(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ListInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let body = json!({ "imageUrls": parts(&input.text, '\n') });
     let errors =
@@ -578,16 +640,17 @@ async fn image_urls(
         submit: t.item_save_3(),
         form: &draft,
     };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Urls(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Urls(draft.clone())).await
 }
 
 async fn fallback(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<FallbackInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.body(req.t()) {
         Ok(body) => {
             let caller = caller(&config, &headers, None);
@@ -602,34 +665,47 @@ async fn fallback(
     };
     let draft = Draft { input, errors };
     let form = views::FallbackForm { t: req.t(), id: &id, form: &draft };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Fallback(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Fallback(draft.clone())).await
 }
 
-async fn clear_fallback(req: Req, State(config): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> corten::Result {
+async fn clear_fallback(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::DELETE, &id, &["image-fallback"], None).await, Change::FallbackCleared);
     let t: Cat = req.t();
     let row = (ids::FALLBACK_CLEAR.to_owned(), url::FallbackClear { id: &id }.href(), t.item_clear_image_fallback());
-    row_refused(&req, &config, &headers, &id, row, &[], errors).await
+    row_refused(&req, &staff.viewer, &config, &headers, &id, row, &[], errors).await
 }
 
 // Field values and categories.
 
-async fn field_dialog(req: Req, State(config): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> corten::Result {
+async fn field_dialog(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> HtmlResult {
     let choices = field_choices(&caller(&config, &headers, None)).await;
     let draft = Draft::new(FieldValueInput::default());
     let dialog = views::FieldDialog { t: req.t(), p: req.t(), id: &id, form: &draft, choices: &choices };
-    opened(&req, &config, &headers, &id, dialog, ItemBack::Field(draft.clone(), choices.clone())).await
+    opened(&req, &staff.viewer, &config, &headers, &id, dialog, ItemBack::Field(draft.clone(), choices.clone())).await
 }
 
 async fn set_field(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<FieldValueInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let field_id = input.field_id.trim().to_owned();
     // Whether the field takes a reference record is the field's own (admin-web reads it from the
@@ -645,30 +721,33 @@ async fn set_field(
     let choices = field_choices(&caller).await;
     let draft = Draft { input, errors };
     let form = views::FieldValueForm { t: req.t(), id: &id, form: &draft, choices: &choices };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Field(draft.clone(), choices.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Field(draft.clone(), choices.clone()))
+        .await
 }
 
 async fn clear_field(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path((id, field_id)): Path<(String, String)>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::DELETE, &id, &["fields", &field_id], None).await, Change::FieldCleared);
     let t: Cat = req.t();
     let row = (ids::row("field", &field_id), url::FieldClear { id: &id, field_id: &field_id }.href(), t.item_clear());
-    row_refused(&req, &config, &headers, &id, row, &[], errors).await
+    row_refused(&req, &staff.viewer, &config, &headers, &id, row, &[], errors).await
 }
 
 async fn assign_category(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<IdInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let errors = match input.check(req.t()) {
         Ok(category) => {
             let caller = caller(&config, &headers, None);
@@ -691,15 +770,16 @@ async fn assign_category(
         submit: t.item_assign_2(),
         form: &draft,
     };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Category(draft.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Category(draft.clone())).await
 }
 
 async fn remove_category(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path((id, category_id)): Path<(String, String)>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let errors = sent!(
         req,
@@ -710,7 +790,7 @@ async fn remove_category(
     let t: Cat = req.t();
     let row =
         (ids::row("category", &category_id), url::CategoryRemove { id: &id, category_id: &category_id }.href(), t.item_remove());
-    row_refused(&req, &config, &headers, &id, row, &[], errors).await
+    row_refused(&req, &staff.viewer, &config, &headers, &id, row, &[], errors).await
 }
 
 // External references.
@@ -731,7 +811,15 @@ impl Refs {
     }
 }
 
-async fn link(req: Req, config: Shared, headers: HeaderMap, id: String, input: ReferenceInput, refs: Refs) -> corten::Result {
+async fn link(
+    req: Req,
+    viewer: &Viewer,
+    config: Shared,
+    headers: HeaderMap,
+    id: String,
+    input: ReferenceInput,
+    refs: Refs,
+) -> HtmlResult {
     let errors = match input.check(req.t()) {
         Ok((provider, key)) => {
             let caller = caller(&config, &headers, None);
@@ -748,14 +836,22 @@ async fn link(req: Req, config: Shared, headers: HeaderMap, id: String, input: R
     let t = req.t();
     if product {
         let form = views::ReferenceForm { t, id: &id, form_id: ids::PRODUCT_REF, product, form: &draft };
-        invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::ProductRef(draft.clone())).await
+        invalid(&req, viewer, &config, &headers, &id, &draft.errors, form, ItemBack::ProductRef(draft.clone())).await
     } else {
         let form = views::ReferenceForm { t, id: &id, form_id: ids::CATALOG_REF, product, form: &draft };
-        invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::CatalogRef(draft.clone())).await
+        invalid(&req, viewer, &config, &headers, &id, &draft.errors, form, ItemBack::CatalogRef(draft.clone())).await
     }
 }
 
-async fn unlink(req: Req, config: Shared, headers: HeaderMap, id: String, input: ReferenceInput, refs: Refs) -> corten::Result {
+async fn unlink(
+    req: Req,
+    viewer: &Viewer,
+    config: Shared,
+    headers: HeaderMap,
+    id: String,
+    input: ReferenceInput,
+    refs: Refs,
+) -> HtmlResult {
     let (provider, key) = (input.provider_key.as_str(), input.external_key.as_str());
     let errors = if provider.is_empty() || key.is_empty() {
         not_offered(req.t())
@@ -771,52 +867,62 @@ async fn unlink(req: Req, config: Shared, headers: HeaderMap, id: String, input:
         Refs::Product => ("product-ref", url::ProductRefUnlink { id: &id }.href()),
     };
     let row = (ids::row(kind, &format!("{provider}\u{0}{key}")), action, t.item_unlink());
-    row_refused(&req, &config, &headers, &id, row, &[(f.provider_key, provider), (f.external_key, key)], errors).await
+    row_refused(&req, viewer, &config, &headers, &id, row, &[(f.provider_key, provider), (f.external_key, key)], errors).await
 }
 
 async fn link_catalog_ref(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ReferenceInput>,
-) -> corten::Result {
-    link(req, config, headers, id, input, Refs::CatalogItem).await
+) -> HtmlResult {
+    link(req, &staff.viewer, config, headers, id, input, Refs::CatalogItem).await
 }
 
 async fn unlink_catalog_ref(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ReferenceInput>,
-) -> corten::Result {
-    unlink(req, config, headers, id, input, Refs::CatalogItem).await
+) -> HtmlResult {
+    unlink(req, &staff.viewer, config, headers, id, input, Refs::CatalogItem).await
 }
 
 async fn link_product_ref(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ReferenceInput>,
-) -> corten::Result {
-    link(req, config, headers, id, input, Refs::Product).await
+) -> HtmlResult {
+    link(req, &staff.viewer, config, headers, id, input, Refs::Product).await
 }
 
 async fn unlink_product_ref(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ReferenceInput>,
-) -> corten::Result {
-    unlink(req, config, headers, id, input, Refs::Product).await
+) -> HtmlResult {
+    unlink(req, &staff.viewer, config, headers, id, input, Refs::Product).await
 }
 
 // Product contents.
 
-async fn content_dialog(req: Req, State(config): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> corten::Result {
+async fn content_dialog(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> HtmlResult {
     let choices = content_choices(&caller(&config, &headers, None)).await;
     // admin-web's dialog opens with the first type and policy chosen.
     let first = |list: &[ContentChoice]| list.first().map(|c| c.id.clone()).unwrap_or_default();
@@ -827,7 +933,7 @@ async fn content_dialog(req: Req, State(config): State<Shared>, headers: HeaderM
     };
     let draft = Draft::new(input);
     let dialog = views::ContentDialog { t: req.t(), p: req.t(), id: &id, form: &draft, choices: &choices };
-    opened(&req, &config, &headers, &id, dialog, ItemBack::Content(draft.clone(), choices.clone())).await
+    opened(&req, &staff.viewer, &config, &headers, &id, dialog, ItemBack::Content(draft.clone(), choices.clone())).await
 }
 
 /// Replaces the item's content lines with those the API holds now, changed by \`change\`.
@@ -843,11 +949,12 @@ async fn replace_lines(
 
 async fn add_content(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Form(input): Form<ContentLineInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let errors = match input.line(req.t()) {
         Ok(line) => {
@@ -862,15 +969,17 @@ async fn add_content(
     let choices = content_choices(&caller).await;
     let draft = Draft { input, errors };
     let form = views::ContentForm { t: req.t(), id: &id, form: &draft, choices: &choices };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::Content(draft.clone(), choices.clone())).await
+    invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, ItemBack::Content(draft.clone(), choices.clone()))
+        .await
 }
 
 async fn remove_content(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path((id, line_id)): Path<(String, String)>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = caller(&config, &headers, None);
     let replaced =
         replace_lines(&caller, &id, |lines| lines.into_iter().filter(|l| l.line_id != line_id).map(line_input).collect()).await;
@@ -880,5 +989,5 @@ async fn remove_content(
     };
     let t: Cat = req.t();
     let row = (ids::row("line", &line_id), url::ContentRemove { id: &id, line_id: &line_id }.href(), t.item_remove());
-    row_refused(&req, &config, &headers, &id, row, &[], errors).await
+    row_refused(&req, &staff.viewer, &config, &headers, &id, row, &[], errors).await
 }

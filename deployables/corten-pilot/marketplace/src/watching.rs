@@ -163,20 +163,30 @@ fn guest_owner(headers: &HeaderMap) -> String {
 }
 
 /// The page again on its Watch tab, saying in the form that sent it why nothing was saved.
-fn refused(req: &Req, item: Item, address: &Address, input: WatchInput, message: String, status: StatusCode) -> corten::Result {
+fn refused(
+    req: &Req,
+    session: Option<&Session>,
+    item: Item,
+    address: &Address,
+    input: WatchInput,
+    message: String,
+    status: StatusCode,
+) -> HtmlResult {
     let notice = BuyNotice::WatchRefused { message, input };
     let address = address.with_market(Market::Watch);
-    items::render(req, item, &address, Some(&notice), status, Default::default())
+    items::render(req, session, item, &address, Some(&notice), status, Default::default())
 }
 
 /// Watch listings and Watch offers (the action's `create-product-alert`).
 pub(crate) async fn watch(
     req: Req,
+    session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
-) -> corten::Result {
+) -> HtmlResult {
+    let session = session.as_ref().map(|corten::Caller(s)| s);
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
     let input = WatchInput {
@@ -191,7 +201,6 @@ pub(crate) async fn watch(
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     };
-    let session = req.context::<Session>();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
     }
@@ -203,11 +212,11 @@ pub(crate) async fn watch(
     let product = first(field::PRODUCT);
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let message = t.route_product_intent_choose_options_guidance().to_owned();
-        return refused(&req, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
     }
     let Some(amount) = threshold(&input.threshold) else {
         let message = t.route_validation_threshold_invalid().to_owned();
-        return refused(&req, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
     };
     // A price needs its currency; without a price the alert has no threshold, whatever the
     // currency field says (the API refuses one without the other).
@@ -217,7 +226,7 @@ pub(crate) async fn watch(
             Some(code) => Some(code),
             None => {
                 let message = t.route_validation_threshold_invalid().to_owned();
-                return refused(&req, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+                return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
             }
         },
     };
@@ -240,7 +249,7 @@ pub(crate) async fn watch(
         let owner = guest_owner(&headers);
         let intent = match caller.product_alert_intent(&owner, &alert).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, item, &address, input, error),
+            Err(error) => return refusal(&req, session, item, &address, input, error),
         };
         let to: Uri = register_href(&slug, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -251,7 +260,7 @@ pub(crate) async fn watch(
     };
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.route_account_cannot_create_product_alerts().to_owned();
-        return refused(&req, item, &address, input, message, StatusCode::FORBIDDEN);
+        return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN);
     }
     match caller.create_product_alert(&alert).await {
         Ok(receipt) => {
@@ -262,14 +271,21 @@ pub(crate) async fn watch(
             Some(to) => req.redirect(&to),
             None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
         },
-        Err(error) => refusal(&req, item, &address, input, error),
+        Err(error) => refusal(&req, session, item, &address, input, error),
     }
 }
 
 /// A write the API refused shows its reason in the form; anything else is the API failing.
-fn refusal(req: &Req, item: Item, address: &Address, input: WatchInput, error: ApiError) -> corten::Result {
+fn refusal(
+    req: &Req,
+    session: Option<&Session>,
+    item: Item,
+    address: &Address,
+    input: WatchInput,
+    error: ApiError,
+) -> HtmlResult {
     match error.refusal() {
-        Some(message) => refused(req, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
+        Some(message) => refused(req, session, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }

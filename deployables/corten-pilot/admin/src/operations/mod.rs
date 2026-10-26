@@ -1,7 +1,7 @@
 //! The Operations Attention queue (`/platform/operations-attention`, admin-web's
 //! `OperationsAttentionQueuePage` in the platform section): everything that needs an operator,
 //! most important first, read from `GET /api/platform/operations-attention` as the signed-in staff
-//! member. The area has its own stylesheet and guard: admin-web challenges the page for
+//! member. The area has its own stylesheet and caller: admin-web challenges the page for
 //! `projection-operations.view` (its nav entry's permission), and the API drops each source the
 //! caller may not see.
 //!
@@ -15,50 +15,37 @@
 //! admin-web revalidates its route. The platform does not register that topic yet, so the API
 //! refuses the stream and the page stays as it was drawn (admin-web's says Connecting);
 //! chase-sets/chase-sets#10607.
-use corten::{
-    LiveSince,
-    axum::{http::HeaderMap, response::IntoResponse},
-    prelude::*,
-};
+use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
 use serde::Serialize;
 
 pub mod api;
 pub mod views;
 
 use crate::{
-    app::{Shared, allow, live_rows, read_failed},
-    auth::{self, Session},
+    app::{Shared, live_rows, read_failed},
+    auth::{self, OperationsView, Staff},
     text::Ops,
 };
 use api::{DeepLink, Queue};
 
-pub const VIEW: &str = "projection-operations.view";
 /// The topic admin-web's page follows (`OPERATIONS_ATTENTION_REALTIME_TOPICS`).
 pub const TOPIC: &str = "platform-operations:admin:operations-attention";
 
+/// The queue's routes: the queue is the area's route. admin-web challenges the page for
+/// `projection-operations.view` (its nav entry's permission), so every handler takes staff with it.
+#[corten::routes(state = Shared, area = Attention, caller = Staff<OperationsView>)]
 pub mod url {
-    use corten::Route;
-
-    /// The queue's area: its routes, stylesheet and guard.
-    #[derive(Route)]
-    #[route("/platform/operations-attention")]
-    pub struct OperationsArea;
-
-    #[derive(Route)]
-    #[route("/platform/operations-attention")]
+    #[route("/platform/operations-attention", get = queue)]
     pub struct Attention;
 
     /// The queue, streamed again on each change.
-    #[derive(Route)]
-    #[route("/platform/operations-attention/live")]
+    #[route("/platform/operations-attention/live", get = live)]
     pub struct AttentionLive;
 }
 
-pub fn area(area: Area<Session, url::OperationsArea>, shared: Shared) -> Area<Session, url::OperationsArea> {
-    area.route::<url::Attention>(get(queue).with_state(shared.clone()))
-        .route::<url::AttentionLive>(get(live).with_state(shared))
-        .components(views::COMPONENTS)
-        .guard(|session, _| allow(session, VIEW))
+/// The area: its routes and its stylesheet.
+pub fn area(area: Area<url::Attention>, shared: Shared) -> Area<url::Attention> {
+    url::area(area, shared).components(views::COMPONENTS)
 }
 
 /// The page's view model: what it shows and what a data client gets.
@@ -67,7 +54,12 @@ pub struct Screen {
     pub queue: Queue,
 }
 
-async fn queue(req: Req, State(config): State<Shared>, headers: HeaderMap) -> corten::Result {
+async fn queue(
+    req: Req,
+    Caller(staff): Caller<Staff<OperationsView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let queue = match api::read(&caller).await {
         Ok(queue) => queue,
@@ -78,12 +70,22 @@ async fn queue(req: Req, State(config): State<Shared>, headers: HeaderMap) -> co
     let view = html! { <views::AttentionPage t={t} queue={&screen.queue} /> };
     req.screen(
         &screen,
-        html! { <crate::views::Layout req={&req} title={t.attention_meta_title()} head="">{view}</crate::views::Layout> },
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(&staff.viewer)} title={t.attention_meta_title()} head="">
+                {view}
+            </crate::views::Layout>
+        },
     )
 }
 
 /// The queue's counts, sources and items, drawn again on each change to the topic.
-async fn live(req: Req, State(config): State<Shared>, headers: HeaderMap, since: LiveSince) -> impl IntoResponse {
+async fn live(
+    req: Req,
+    _: Caller<Staff<OperationsView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: LiveSince,
+) -> LiveResponse {
     let t: Ops = req.t();
     live_rows(config, headers, since, TOPIC, move |config, headers| async move {
         let caller = config.platform.caller(&headers, config.proto, None);

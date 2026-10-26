@@ -25,8 +25,8 @@ use crate::{
         ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
         SellerOption, Snapshot, segment,
     },
-    app::{Config, Shared, read_failed, sign_in_at, url, viewer},
-    auth::Session,
+    app::{Config, Shared, read_failed, sign_in_at, url},
+    auth::{Buyer, Viewer},
     cart_attempt::{self, State as Attempted},
     text::CartMsg,
     views::{self, Layout},
@@ -35,14 +35,6 @@ use crate::{
 /// The guest cart a browser carries from before it signed in (marketplace's
 /// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
 pub const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
-
-pub fn routes(area: Area<Session, url::CartArea>, shared: &Shared) -> Area<Session, url::CartArea> {
-    area.route::<url::Cart>(get(page).with_state(shared.clone()))
-        .route::<url::CartQuantity>(post(quantity).with_state(shared.clone()))
-        .route::<url::CartRemove>(post(remove).with_state(shared.clone()))
-        .route::<url::CartLock>(post(lock).with_state(shared.clone()))
-        .route::<url::CartCheckout>(post(checkout).with_state(shared.clone()))
-}
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
 /// (marketplace's `afterWrite`).
@@ -468,9 +460,15 @@ fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
     lines
 }
 
-async fn page(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(after): Query<AfterWrite>) -> corten::Result {
+pub(crate) async fn page(
+    req: Req,
+    Caller(Buyer(viewer)): Caller<Buyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(after): Query<AfterWrite>,
+) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
-    render(&req, &config, &headers, receipt.as_ref(), None).await
+    render(&req, &viewer, &config, &headers, receipt.as_ref(), None).await
 }
 
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
@@ -478,12 +476,12 @@ async fn page(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(
 /// applied is 409.
 async fn render(
     req: &Req,
+    viewer: &Viewer,
     config: &Config,
     headers: &HeaderMap,
     receipt: Option<&Receipt>,
     notice: Option<Notice>,
-) -> corten::Result {
-    let viewer = viewer(req)?;
+) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt);
     let screen = match caller.cart().await {
         Ok(cart) => CartScreen::of(cart),
@@ -491,7 +489,7 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
+            return read_failed(req, Some(viewer), error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
         }
     };
     let t: CartMsg = req.t();
@@ -511,25 +509,54 @@ async fn render(
     };
     let view = views::cart_page(t, viewer, &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
-    req.screen_with_status(status, &screen, html! { <Layout req={&req} title={title} head={head}>{view}</Layout> })
+    req.screen_with_status(
+        status,
+        &screen,
+        html! { <Layout req={&req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> },
+    )
 }
 
-async fn quantity(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LineInput>) -> corten::Result {
-    write(&req, &config, &headers, Write::Quantity, input).await
+pub(crate) async fn quantity(
+    req: Req,
+    Caller(Buyer(viewer)): Caller<Buyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LineInput>,
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Quantity, input).await
 }
 
-async fn remove(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LineInput>) -> corten::Result {
-    write(&req, &config, &headers, Write::Remove, input).await
+pub(crate) async fn remove(
+    req: Req,
+    Caller(Buyer(viewer)): Caller<Buyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LineInput>,
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Remove, input).await
 }
 
-async fn lock(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<LineInput>) -> corten::Result {
-    write(&req, &config, &headers, Write::Lock, input).await
+pub(crate) async fn lock(
+    req: Req,
+    Caller(Buyer(viewer)): Caller<Buyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LineInput>,
+) -> HtmlResult {
+    write(&req, &viewer, &config, &headers, Write::Lock, input).await
 }
 
 /// A line write (marketplace's `submitAccountCartCommands`): one attempt, applied once however
 /// often it is sent. Succeeded is the cart again, read after the write; otherwise the cart with
 /// what did not apply, and for a write not known to have applied, the same write to send again.
-async fn write(req: &Req, config: &Config, headers: &HeaderMap, which: Write, mut input: LineInput) -> corten::Result {
+async fn write(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    which: Write,
+    mut input: LineInput,
+) -> HtmlResult {
     let t: CartMsg = req.t();
     input.attempt = cart_attempt::attempt_id(&input.attempt);
     let commands = match input.commands(t, which) {
@@ -541,7 +568,7 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, which: Write, mu
                 not_applied: Vec::new(),
                 resend: None,
             };
-            return render(req, config, headers, None, Some(Notice::Attempt(notice))).await;
+            return render(req, viewer, config, headers, None, Some(Notice::Attempt(notice))).await;
         }
     };
     let caller = config.platform.caller(headers, config.proto, None);
@@ -557,7 +584,7 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, which: Write, mu
     let resend = (outcome.state == Attempted::Ambiguous).then_some((which, input));
     let notice = AttemptNotice { state: outcome.state, message: outcome.message, not_applied: outcome.not_applied, resend };
     // What applied (a partial write's) is read back as the API has it now.
-    render(req, config, headers, outcome.receipt.as_ref(), Some(Notice::Attempt(notice))).await
+    render(req, viewer, config, headers, outcome.receipt.as_ref(), Some(Notice::Attempt(notice))).await
 }
 
 /// Check out (marketplace's `/checkout/buy/readiness` action for a signed-in cart): move a guest
@@ -566,12 +593,13 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, which: Write, mu
 /// the buyer to marketplace's checkout with the write's receipt, the guest cart forgotten. A
 /// session started again from the same readiness is the same session, so sending again is safe.
 /// A refusal is the cart again with the API's reason.
-async fn checkout(
+pub(crate) async fn checkout(
     req: Req,
+    Caller(Buyer(viewer)): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<CheckoutInput>,
-) -> corten::Result {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let guest = cookie::get(&headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"));
     if let Some(id) = guest
@@ -586,7 +614,7 @@ async fn checkout(
     };
     let (session, receipt) = match started.await {
         Ok(started) => started,
-        Err(error) => return refused(&req, &config, &headers, error).await,
+        Err(error) => return refused(&req, &viewer, &config, &headers, error).await,
     };
     let after_write = receipt.map(|r| format!("?afterWrite={}", segment(&r.param()))).unwrap_or_default();
     let Some(to) = views::marketplace(&format!("/checkout/buy/session/{}{after_write}", segment(&session.session_id))) else {
@@ -602,21 +630,21 @@ async fn checkout(
 }
 
 /// Checkout did not start: sign in again, the error page, or the cart with the API's reason.
-async fn refused(req: &Req, config: &Config, headers: &HeaderMap, error: ApiError) -> corten::Result {
+async fn refused(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in_to_cart(req),
         Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
         Some(status) if status.is_client_error() => {
             let t: CartMsg = req.t();
             let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
-            render(req, config, headers, None, Some(Notice::Checkout(reason))).await
+            render(req, viewer, config, headers, None, Some(Notice::Checkout(reason))).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }
 
 /// Marketplace's sign-in, back to the cart: a write's own path takes only a post.
-fn sign_in_to_cart(req: &Req) -> corten::Result {
+fn sign_in_to_cart(req: &Req) -> HtmlResult {
     match sign_in_at(url::Cart::PATH) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),

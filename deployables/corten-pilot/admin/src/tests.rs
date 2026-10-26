@@ -222,8 +222,10 @@ async fn staff_without_the_permission_are_refused_and_an_unreachable_session_is_
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get("/commerce/postage-policies", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    // Corten's `Refused::unavailable`: a 503, not a sign-in. Its page says "preparing your change"
+    // (the screen's own 503) until Corten tells the error page which it is: todd-skelton/corten#89.
     let (status, _, _) = pilot.send(get("/commerce/postage-policies", Some("down"))).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY, "a failed lookup must not send the user to sign in again");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a failed lookup must not send the user to sign in again");
     assert!(pilot.policy_calls().is_empty());
 }
 

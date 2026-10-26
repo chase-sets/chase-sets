@@ -1,5 +1,6 @@
-//! The app: who may come in, the shell, and two areas, each with its routes, stylesheet and guard:
-//! the seller's inventory screens (`locations`, `restock`) and the buyer's cart (`cart`).
+//! The app: three areas, each with its routes, stylesheet and the caller its handlers take: the
+//! seller's inventory screens (`locations`, `restock`), the buyer's cart (`cart`) and the public
+//! item page (`items`).
 //! Every write is its own typed route (marketplace posts one form with an `intent`). A write the
 //! input or the API refuses answers its form again, as a patch or the page (422); one the API
 //! applies redirects to its list, carrying the write's receipt and the attempt, which the list
@@ -29,15 +30,13 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    axum::http::{StatusCode, Uri},
     prelude::*,
 };
-use platform::session;
 
 use crate::{
     api::{ApiError, Platform, segment},
-    auth::{self, ColorMode, Session, Viewer},
-    cart, items, locations, restock,
+    auth::Viewer,
     text::Pilot,
     views,
 };
@@ -74,67 +73,29 @@ pub fn marketplace_origin() -> &'static str {
 
 pub type Shared = Arc<Config>;
 
-/// Every URL the pilot serves.
+/// Every URL the pilot serves, by area. Each area's routes module names each route's handler and
+/// the caller every handler there takes.
 pub mod url {
-    use corten::Route;
+    pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
+    pub use inventory::{Archive, InventoryArea, Location, Locations, Restock, Restocked, WrittenOff};
+    pub use items::{
+        Item, ItemAdded, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSaved, ItemSellList, ItemShipFrom,
+        ItemWatch, ItemWatched, ItemWritten, ItemsArea,
+    };
 
-    use crate::recovery::Check;
-
-    /// The seller's inventory screens: their routes, stylesheet and guard.
-    #[derive(Route)]
-    #[route("/account/inventory")]
-    pub struct InventoryArea;
-
-    /// The buyer's cart: its routes, stylesheet and guard.
-    #[derive(Route)]
-    #[route("/account/cart")]
-    pub struct CartArea;
-
-    /// The account's cart, after the write whose receipt it carries.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/account/cart")]
-    pub struct Cart {
-        #[route(query)]
-        pub after: crate::cart::AfterWrite,
-    }
-
-    /// A cart line's quantity, one step down or up.
-    #[derive(Route)]
-    #[route("/account/cart/quantity")]
-    pub struct CartQuantity;
-
-    /// Remove a cart line.
-    #[derive(Route)]
-    #[route("/account/cart/remove")]
-    pub struct CartRemove;
-
-    /// Lock a cart line to its preferred listing.
-    #[derive(Route)]
-    #[route("/account/cart/lock")]
-    pub struct CartLock;
-
-    /// Check out the account's cart: starts a checkout session and sends the buyer to it.
-    #[derive(Route)]
-    #[route("/account/cart/checkout")]
-    pub struct CartCheckout;
-
-    pub use items::*;
-
-    /// Marketplace's item pages, public with no guard: each route names its handler in
-    /// `items::Pages`, so a link from an item page cannot reach a route nobody serves.
-    #[corten::routes(area = ItemsArea)]
+    /// Marketplace's item pages, public: no caller is required (a handler that shows whose offers
+    /// are theirs reads `Option<Caller<Session>>`), and each route names its handler, so a link
+    /// from an item page cannot reach a route nobody serves.
+    #[corten::routes(state = crate::app::Shared, area = ItemsArea)]
     pub mod items {
-        use corten::Route;
-
-        /// The area: its routes and stylesheet.
-        #[derive(Route)]
-        #[route("/items")]
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/items", link)]
         pub struct ItemsArea;
 
         /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
         /// slug).
         #[derive(Clone, Debug)]
-        #[route("/items/{slug}")]
+        #[route("/items/{slug}", get = crate::items::page)]
         pub struct Item<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -143,7 +104,7 @@ pub mod url {
 
         /// The item page's market parts, drawn again on each change to the item
         /// (`<corten-live>`); `id` is the item's id, which names its realtime topic.
-        #[route("/items/{id}/live")]
+        #[route("/items/{id}/live", get = crate::items::live)]
         pub struct ItemLive<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -151,62 +112,61 @@ pub mod url {
         }
 
         /// Add the item's listing or product to the buy cart, or buy the best match.
-        #[route("/items/{slug}/cart")]
+        #[route("/items/{slug}/cart", post = crate::buying::add)]
         pub struct ItemCart<'a> {
             pub slug: &'a str,
         }
 
         /// Buy the listing the item page shows now.
-        #[route("/items/{slug}/buy")]
+        #[route("/items/{slug}/buy", post = crate::buying::buy)]
         pub struct ItemBuy<'a> {
             pub slug: &'a str,
         }
 
         /// Make an offer for the product the item page shows: checked, then marketplace's offer checkout.
-        #[route("/items/{slug}/offer")]
+        #[route("/items/{slug}/offer", post = crate::buying::offer)]
         pub struct ItemOffer<'a> {
             pub slug: &'a str,
         }
 
         /// Add the offer the item page shows (Accept offer, Add offer to Sell List), or its product,
         /// to the sell list.
-        #[route("/items/{slug}/sell-list")]
+        #[route("/items/{slug}/sell-list", post = crate::selling::add)]
         pub struct ItemSellList<'a> {
             pub slug: &'a str,
         }
 
         /// Set a Watch alert for the product the item page shows: an account's alert, or a guest's
         /// intent and then marketplace's registration.
-        #[route("/items/{slug}/watch")]
+        #[route("/items/{slug}/watch", post = crate::watching::watch)]
         pub struct ItemWatch<'a> {
             pub slug: &'a str,
         }
 
         /// Add the product the item page shows to a Saved List (Add to List): an account's
         /// addition, or a guest's intent and then marketplace's registration.
-        #[route("/items/{slug}/save")]
+        #[route("/items/{slug}/save", post = crate::saving::save)]
         pub struct ItemSave<'a> {
             pub slug: &'a str,
         }
 
         /// List the product the Sell tab shows at a price: an account's listing, published, or a
         /// guest's draft and then marketplace's registration.
-        #[route("/items/{slug}/list")]
+        #[route("/items/{slug}/list", post = crate::listing::list)]
         pub struct ItemList<'a> {
             pub slug: &'a str,
         }
 
         /// Save the ship-from address an account's quick listings ship from (its Listing stock
         /// location).
-        #[route("/items/{slug}/ship-from")]
+        #[route("/items/{slug}/ship-from", post = crate::listing::ship_from)]
         pub struct ItemShipFrom<'a> {
             pub slug: &'a str,
         }
 
         /// A link (the item's route serves it): the item after a seller's write (ship-from setup, a
         /// listing), whose reads wait for the write's receipt (empty for none).
-        #[derive(Route)]
-        #[route("/items/{slug}")]
+        #[route("/items/{slug}", link)]
         pub struct ItemWritten<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -216,8 +176,7 @@ pub mod url {
 
         /// A link (the item's route serves it): the item on its Watch tab after Set alert: the page says the alert was saved, with the
         /// write's receipt (empty for none).
-        #[derive(Route)]
-        #[route("/items/{slug}")]
+        #[route("/items/{slug}", link)]
         pub struct ItemWatched<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -228,8 +187,7 @@ pub mod url {
         /// A link (the item's route serves it): the item after Add to List's Add Product: the page
         /// says so, with the write's receipt (empty for none), the list, the quantity added and
         /// the line's status (`added` or `merged`).
-        #[derive(Route)]
-        #[route("/items/{slug}")]
+        #[route("/items/{slug}", link)]
         pub struct ItemSaved<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -241,8 +199,7 @@ pub mod url {
         }
 
         /// A link (the item's route serves it): the item after Add to cart: the page says so, with the write's receipt (empty for none).
-        #[derive(Route)]
-        #[route("/items/{slug}")]
+        #[route("/items/{slug}", link)]
         pub struct ItemAdded<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -251,44 +208,80 @@ pub mod url {
         }
     }
 
-    /// The storage locations, and the write to confirm.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/account/inventory/locations")]
-    pub struct Locations {
-        #[route(query)]
-        pub check: Check,
+    /// The seller's inventory screens: every handler takes a `Seller` (`inventory.view` to read,
+    /// `inventory.manage` to write).
+    #[corten::routes(state = crate::app::Shared, area = InventoryArea, caller = crate::auth::Seller)]
+    pub mod inventory {
+        use crate::recovery::Check;
+
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/account/inventory", link)]
+        pub struct InventoryArea;
+
+        /// The storage locations, and the write to confirm.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/inventory/locations", get = crate::locations::list, post = crate::locations::create)]
+        pub struct Locations {
+            #[route(query)]
+            pub check: Check,
+        }
+
+        #[route("/account/inventory/locations/{id}", post = crate::locations::update)]
+        pub struct Location<'a> {
+            pub id: &'a str,
+        }
+
+        #[route("/account/inventory/locations/{id}/archive", post = crate::locations::archive)]
+        pub struct Archive<'a> {
+            pub id: &'a str,
+        }
+
+        /// The pending restock decisions, and the write to confirm.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/inventory/restock-decisions", get = crate::restock::list)]
+        pub struct Restock {
+            #[route(query)]
+            pub check: Check,
+        }
+
+        #[route("/account/inventory/restock-decisions/{id}/restock", post = crate::restock::restock)]
+        pub struct Restocked<'a> {
+            pub id: &'a str,
+        }
+
+        #[route("/account/inventory/restock-decisions/{id}/write-off", post = crate::restock::write_off)]
+        pub struct WrittenOff<'a> {
+            pub id: &'a str,
+        }
     }
 
-    #[derive(Route)]
-    #[route("/account/inventory/locations/{id}")]
-    pub struct Location<'a> {
-        pub id: &'a str,
-    }
+    /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
+    /// account cart).
+    #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
+    pub mod cart {
+        /// The account's cart, after the write whose receipt it carries.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/cart", get = crate::cart::page)]
+        pub struct Cart {
+            #[route(query)]
+            pub after: crate::cart::AfterWrite,
+        }
 
-    #[derive(Route)]
-    #[route("/account/inventory/locations/{id}/archive")]
-    pub struct Archive<'a> {
-        pub id: &'a str,
-    }
+        /// A cart line's quantity, one step down or up.
+        #[route("/account/cart/quantity", post = crate::cart::quantity)]
+        pub struct CartQuantity;
 
-    /// The pending restock decisions, and the write to confirm.
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/account/inventory/restock-decisions")]
-    pub struct Restock {
-        #[route(query)]
-        pub check: Check,
-    }
+        /// Remove a cart line.
+        #[route("/account/cart/remove", post = crate::cart::remove)]
+        pub struct CartRemove;
 
-    #[derive(Route)]
-    #[route("/account/inventory/restock-decisions/{id}/restock")]
-    pub struct Restocked<'a> {
-        pub id: &'a str,
-    }
+        /// Lock a cart line to its preferred listing.
+        #[route("/account/cart/lock", post = crate::cart::lock)]
+        pub struct CartLock;
 
-    #[derive(Route)]
-    #[route("/account/inventory/restock-decisions/{id}/write-off")]
-    pub struct WrittenOff<'a> {
-        pub id: &'a str,
+        /// Check out the account's cart: starts a checkout session and sends the buyer to it.
+        #[route("/account/cart/checkout", post = crate::cart::checkout)]
+        pub struct CartCheckout;
     }
 }
 
@@ -301,74 +294,25 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
     views::marketplace(&format!("/sign-in?returnTo={}", segment(&page)))
 }
 
-pub fn app(config: Config) -> App<Session> {
+/// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
+/// sellers on the inventory screens, buyers on the cart, anyone on an item.
+pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
-    let context = shared.clone();
     App::new(Router::new())
-        .context(move |headers: &HeaderMap| {
-            let forward = session::forwarded(headers);
-            let color_mode = ColorMode::from_headers(headers);
-            let config = context.clone();
-            async move {
-                let forward = forward?;
-                auth::session(config.platform.caller(&forward, config.proto, None), color_mode).await
-            }
-        })
         // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
         // default policy takes any https image), and Check out redirects to its checkout.
         .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)
-        // Sellers who may see their inventory read the screens; writing needs inventory.manage, as
-        // marketplace's actions require. The API checks both again.
-        .area::<url::InventoryArea>(|area| {
-            restock::routes(locations::routes(area, &shared), &shared).components(views::INVENTORY).guard(|session, req| {
-                match session {
-                    Some(Session::Account(viewer)) if viewer.actor.can(if req.writes() { MANAGE } else { VIEW }) => Access::ALLOW,
-                    Some(Session::Account(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
-                    other => signed_out(other, req.uri().path()),
-                }
-            })
-        })
-        // Any signed-in account has a cart. The guest cart is not ported: a visitor without an
-        // account, or a guest checkout's session, is sent to marketplace's own cart, which reads it.
-        .area::<url::CartArea>(|area| {
-            cart::routes(area, &shared).components(views::CART).guard(|session, _| match session {
-                Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT) => Access::ALLOW,
-                Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
-                _ => match views::marketplace("/account/cart") {
-                    Some(to) => Access::sign_in(&to),
-                    None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-                },
-            })
-        })
-        // Anyone may read an item; a session only says whose offers are theirs.
-        .area::<url::ItemsArea>(|area| items::routes(area, &shared).components(views::ITEM))
+        .area::<url::InventoryArea>(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
+        .area::<url::Cart>(|area| url::cart::area(area, shared.clone()).components(views::CART))
+        .area::<url::ItemsArea>(|area| url::items::area(area, shared).components(views::ITEM))
         .error_page(views::error_page)
 }
 
-/// A guard's answer without an account: the API could not say whose the cookie is (signing in
-/// again would loop while it is down), or no one is signed in.
-fn signed_out(session: Option<&Session>, path: &str) -> Access {
-    match session {
-        Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
-        _ => match sign_in_at(path) {
-            Some(to) => Access::sign_in(&to),
-            None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-        },
-    }
-}
-
-/// The signed-in seller; the guard let only sellers in.
-pub fn viewer(req: &Req) -> Result<&Viewer, corten::Error> {
-    match req.context::<Session>() {
-        Some(Session::Account(viewer)) => Ok(viewer),
-        _ => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-    }
-}
-
-/// Marketplace's sign-in, for a session the API says has ended (the guard sends the rest there).
-pub fn sign_in(req: &Req) -> corten::Result {
+/// Marketplace's sign-in, for a session the API says has ended (the callers' `identify` sends the rest
+/// there).
+pub fn sign_in(req: &Req) -> HtmlResult {
     match sign_in_at(req.path()) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
@@ -378,7 +322,7 @@ pub fn sign_in(req: &Req) -> corten::Result {
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
-pub fn read_failed(req: &Req, error: ApiError, after_write: Option<&str>) -> corten::Result {
+pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
@@ -390,7 +334,7 @@ pub fn read_failed(req: &Req, error: ApiError, after_write: Option<&str>) -> cor
                 let head = html! { <meta name="robots" content="noindex"> };
                 return req.page_with_status(
                     StatusCode::CONFLICT,
-                    html! { <views::Layout req={req} title={title} head={head}>{view}</views::Layout> },
+                    html! { <views::Layout req={req} viewer={viewer} title={title} head={head}>{view}</views::Layout> },
                 );
             }
             None => StatusCode::BAD_GATEWAY,

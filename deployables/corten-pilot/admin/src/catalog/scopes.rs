@@ -27,9 +27,12 @@ use super::{
 use crate::{
     api::{ApiError, Caller},
     app::{Shared, read_failed},
+    auth::{CatalogAccess, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
+/// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
+#[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
     use serde::Deserialize;
@@ -73,8 +76,8 @@ pub mod url {
         pub parked: Option<String>,
     }
 
-    #[derive(Clone, Debug, Default, Route)]
-    #[route("/catalog/scopes")]
+    #[derive(Clone, Debug, Default)]
+    #[route("/catalog/scopes", get = scopes)]
     pub struct Scopes {
         #[route(query)]
         pub query: ScopeQuery,
@@ -107,13 +110,6 @@ pub fn product_domains() -> &'static [String] {
         serde_json::from_str(include_str!("../../scope-domains.json")).expect("scope-domains.json is the export's output")
     });
     &DOMAINS
-}
-
-pub fn routes(
-    area: Area<crate::auth::Session, super::url::Catalog>,
-    shared: Shared,
-) -> Area<crate::auth::Session, super::url::Catalog> {
-    super::attention::routes(area.route::<url::Scopes>(get(scopes).with_state(shared.clone())), shared)
 }
 
 /// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
@@ -219,24 +215,26 @@ pub async fn read_queue(caller: &Caller<'_>) -> Result<AttentionQueue, ApiError>
 
 async fn scopes(
     req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ScopeQuery>,
     Query(notice): Query<url::ScopeNotice>,
-) -> corten::Result {
-    render(&req, &config, &headers, &query, &notice, ScopeBack::None).await
+) -> HtmlResult {
+    render(&req, &staff.viewer, &config, &headers, &query, &notice, ScopeBack::None).await
 }
 
 /// The scopes page: the list and the attention queue, read together (after the write before, when
 /// there was one), and the sheet `back` opens.
 pub async fn render(
     req: &Req,
+    viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     query: &url::ScopeQuery,
     notice: &url::ScopeNotice,
     back: ScopeBack,
-) -> corten::Result {
+) -> HtmlResult {
     let receipt = Receipt::from_param(notice.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
@@ -266,11 +264,15 @@ pub async fn render(
         Err(_) => None,
     };
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let manage = super::manages(req);
+    let manage = super::manages(viewer);
     let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
     req.screen(
         &view,
-        html! { <crate::views::Layout req={&req} title={t.route_scopes()} head="">{page_view}</crate::views::Layout> },
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_scopes()} head="">
+                {page_view}
+            </crate::views::Layout>
+        },
     )
 }
 

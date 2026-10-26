@@ -911,7 +911,8 @@ async fn reading_needs_inventory_view_writing_needs_inventory_manage() {
     let (status, _, _) = pilot.send(post(SCREEN, "reader", &location_body(&new_attempt(), "Shelf"), true)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get(SCREEN, Some("down"))).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY, "a failed lookup must not send the user to sign in again");
+    // Corten's `Refused::unavailable`: a 503, not a sign-in.
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a failed lookup must not send the user to sign in again");
     assert!(pilot.writes().is_empty(), "the refused write reached nothing");
 }
 
@@ -1377,7 +1378,8 @@ async fn any_account_has_a_cart_and_a_guest_goes_to_marketplaces() {
     }
     assert!(cart_calls(&pilot).is_empty(), "nothing is read for a visitor without an account cart");
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("down"))).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY, "a failed lookup must not send the user away");
+    // Corten's `Refused::unavailable`: a 503, not a sign-in.
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a failed lookup must not send the user away");
     // A seller's inventory permission is not needed for the cart, and a buyer's is not enough for inventory.
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
     assert_eq!(status, StatusCode::OK);
