@@ -375,7 +375,7 @@ fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<S
 }
 
 /// Is the request a guest's (no account cart)?
-fn is_guest(session: Option<&Session>) -> bool {
+pub(crate) fn is_guest(session: Option<&Session>) -> bool {
     !matches!(session, Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
 }
 
@@ -614,7 +614,7 @@ pub(crate) async fn offer(
 
 /// Marketplace's guest checkout for one listing (`/checkout/buy/readiness`), with the query its
 /// item action builds.
-fn guest_checkout(source: &Value, listing: &Listing, available: &str, fulfillment: &str) -> String {
+pub(crate) fn guest_checkout(source: &Value, listing: &Listing, available: &str, fulfillment: &str) -> String {
     let text = |key: &str| match &source[key] {
         Value::String(s) => s.clone(),
         Value::Null => String::new(),

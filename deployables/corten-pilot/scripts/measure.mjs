@@ -1,14 +1,14 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
 // user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
 // list and a dimension, `screen=catalog`), admin's operations attention queue (`screen=attention`), marketplace's storage locations
-// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) or a set's page (`screen=set`, `/sets/{set}`), as the auth seed's collector, cold-cache loads on desktop and on a
+// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) a set's page (`screen=set`, `/sets/{set}`) or a listing's (`screen=listing`, `/listings/{listing}`), as the auth seed's collector, cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set] [q=search words] [runs=7] [state=..] [policy=id]
-//        [dimension=id] [slug=item slug] [set=set slug] [profiles=desktop,mobile] [out=file]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set|listing] [q=search words] [runs=7] [state=..] [policy=id]
+//        [dimension=id] [slug=item slug] [set=set slug] [listing=listing slug] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -16,7 +16,7 @@ import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
 const screen = named.screen ?? "admin";
-const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector" }[screen] ?? "admin";
+const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector" }[screen] ?? "admin";
 const {
   screen: _screen,
   runs: runsText = "7",
@@ -27,6 +27,7 @@ const {
   slug: _slug,
   q: _q,
   set: _set,
+  listing: _listing,
   out,
   ...apps
 } = named;
@@ -44,11 +45,14 @@ const screens = {
   search: { results: `/search?q=${encodeURIComponent(named.q ?? "charizard")}`, browse: "/search" },
   home: { home: "/" },
   set: { page: `/sets/${named.set ?? "base-set"}` },
+  listing: {
+    page: `/listings/${named.listing ?? "lugia-neo-genesis-9-111-holo-rare-form-graded-grading-company-bgs-grade-mint-9-5-lugia-neo-genesis-bgs-95-og22h"}`,
+  },
   item: { page: `/items/${named.slug ?? "charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"}` },
 };
 for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart, item, search, home or set`);
+if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart, item, search, home, set or listing`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));

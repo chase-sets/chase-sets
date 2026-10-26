@@ -13,6 +13,7 @@ mod form;
 mod items;
 mod listing;
 mod locations;
+mod public_listing;
 mod recovery;
 mod restock;
 mod saving;

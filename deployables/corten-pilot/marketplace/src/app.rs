@@ -89,6 +89,7 @@ pub mod url {
         Item, ItemAdded, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSaved, ItemSellList, ItemShipFrom,
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
+    pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
     pub use search::Search;
     pub use sets::{Set, Sets};
 
@@ -133,6 +134,37 @@ pub mod url {
             pub slug: &'a str,
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+    }
+
+    /// A listing's public page, public: a handler that shows who is signed in reads
+    /// `Option<Caller<Session>>`; Buy this listing and Report listing post to their own paths.
+    #[corten::routes(state = crate::app::Shared, area = ListingsArea)]
+    pub mod listings {
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/listings", link)]
+        pub struct ListingsArea;
+
+        /// The listing (`slug` is its slug, or an old one, which moves), and whether a report
+        /// of it was just received.
+        #[derive(Clone, Debug)]
+        #[route("/listings/{slug}", get = crate::public_listing::page)]
+        pub struct PublicListing<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub reported: crate::public_listing::Reported,
+        }
+
+        /// Buy the listing now.
+        #[route("/listings/{slug}/buy", post = crate::public_listing::buy)]
+        pub struct PublicListingBuy<'a> {
+            pub slug: &'a str,
+        }
+
+        /// Report the listing.
+        #[route("/listings/{slug}/report", post = crate::public_listing::report)]
+        pub struct PublicListingReport<'a> {
+            pub slug: &'a str,
         }
     }
 
@@ -381,7 +413,8 @@ pub fn app(config: Config) -> App {
         .components(views::SEARCH)
         .area::<url::Search>(|area| url::search::area(area, shared.clone()))
         .area::<url::Categories>(|area| url::categories::area(area, shared.clone()))
-        .area::<url::Sets>(|area| url::sets::area(area, shared).components(views::SET))
+        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SET))
+        .area::<url::ListingsArea>(|area| url::listings::area(area, shared).components(views::LISTING))
         .error_page(views::error_page)
 }
 

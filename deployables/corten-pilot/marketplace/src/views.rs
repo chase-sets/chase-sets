@@ -24,6 +24,7 @@ use crate::{
 mod cart_item;
 mod decision_card;
 mod item_detail;
+mod listing_page;
 mod location_card;
 mod market_nav;
 mod page_actions;
@@ -36,7 +37,8 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
-pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld};
+pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
+pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
@@ -64,6 +66,9 @@ pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT]
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), whose stylesheet every page has
 /// (`SEARCH`, todd-skelton/corten#93).
 pub const SET: &[Component] = &[SetPage];
+
+/// A listing's public page (`/listings`).
+pub const LISTING: &[Component] = &[ListingPage];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
@@ -99,9 +104,17 @@ pub fn marketplace(path: &str) -> Option<Uri> {
 }
 
 /// A site-relative address the API returns (a picture, a page) on marketplace's origin, where it
-/// resolves; an absolute one as it is.
+/// resolves, with its fragment (`#feedback`; a `Uri` has none); an absolute one as it is.
 pub fn on_marketplace(path: &str) -> String {
-    if path.starts_with('/') { marketplace(path).map(|u| u.to_string()).unwrap_or_default() } else { path.to_owned() }
+    if !path.starts_with('/') {
+        return path.to_owned();
+    }
+    let (path, fragment) = path.split_once('#').map_or((path, None), |(path, fragment)| (path, Some(fragment)));
+    match (marketplace(path), fragment) {
+        (Some(uri), Some(fragment)) => format!("{uri}#{fragment}"),
+        (Some(uri), None) => uri.to_string(),
+        (None, _) => String::new(),
+    }
 }
 
 /// A `srcset` whose addresses are each put on marketplace's origin (`on_marketplace`).

@@ -570,7 +570,22 @@ pub trait Marketplace {
     /// The public standard terms at `price` (`POST /terms/public-standard/listing-preview`),
     /// which anyone may read.
     async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError>;
+    /// Report a listing (`POST /listings/{id}/report`): as the account signed in, else as the
+    /// visitor `anonymous` (`anon_..`, marketplace's report cookie). A second report from the
+    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429.
+    async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
 }
+
+/// A listing report's body (`ReportListingRequest`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingReport<'a> {
+    pub reason: &'a str,
+    pub details: Option<&'a str>,
+    pub source_route_path: &'a str,
+}
+
+const ANONYMOUS_REPORT_HEADER: &str = "x-marketplace-anonymous-report-id";
 
 impl Marketplace for Caller<'_> {
     async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError> {
@@ -578,6 +593,14 @@ impl Marketplace for Caller<'_> {
             .request(Method::POST, "/api/marketplace/terms/public-standard/listing-preview", MARKETPLACE)
             .json(&serde_json::json!({ "priceAmount": price }));
         Ok(self.write(req).await?.0)
+    }
+
+    async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError> {
+        let req = self
+            .request(Method::POST, &format!("/api/marketplace/listings/{}/report", segment(listing)), MARKETPLACE)
+            .header(ANONYMOUS_REPORT_HEADER, anonymous)
+            .json(report);
+        self.write::<serde_json::Value>(req).await.map(|_| ())
     }
 }
 
@@ -1033,6 +1056,8 @@ pub trait Discovery {
     async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
     /// Items like the item, by its slug or its id (`GET /api/marketplace/items/{id}/similar`).
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
+    /// A listing's public page by its slug (or an old one); `None` when there is none.
+    async fn public_listing(&self, slug: &str) -> Result<Option<PublicListing>, ApiError>;
 }
 
 /// Pricing's market rollups for a product, which the Sales tab shows.
@@ -1192,6 +1217,33 @@ impl Discovery for Caller<'_> {
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError> {
         Ok(self.read::<SimilarItems>(&format!("{ITEMS}/{}/similar", segment(id)), DISCOVERY).await?.items)
     }
+
+    async fn public_listing(&self, slug: &str) -> Result<Option<PublicListing>, ApiError> {
+        match self.read(&format!("/api/marketplace/listings/{}", segment(slug)), DISCOVERY).await {
+            Ok(listing) => Ok(Some(listing)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// A listing's public page (`GET /api/marketplace/listings/{slug}`, `DiscoveryPublicListing`):
+/// the listing as the item page reads one, and what its own page adds.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PublicListing {
+    #[serde(flatten)]
+    pub listing: Listing,
+    pub listing_slug: String,
+    pub catalog_item_slug: Option<String>,
+    pub item_title: Option<String>,
+    pub item_subtitle: Option<String>,
+    pub ship_from_code: Option<String>,
+    #[serde(default)]
+    pub shipping_allowance_percentage_bps: u64,
+    /// `available` or `unavailable` (the seller is away).
+    pub seller_listing_availability_status: Option<String>,
+    /// When an away seller's listings return; `None` for an indefinite away.
+    pub seller_available_again_at: Option<String>,
 }
 
 /// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the

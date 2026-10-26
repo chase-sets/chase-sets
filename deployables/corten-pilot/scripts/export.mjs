@@ -27,8 +27,10 @@
 //   labels the details list uses, an item's display identity, and Collections' Add to List words,
 //   collections.features.savedLists.ui.addToList.* and .api.route.*).
 // - marketplace/locales/search.en.json: marketplace search's English catalog (discovery.features.search.ui.searchPage.*,
-//   discovery.routes.search.*, the home page's discovery.features.home.ui.homeMerchandising.*, and the listing
-//   card's, language labels' and display identity's words).
+//   discovery.routes.search.*, the home page's discovery.features.home.ui.homeMerchandising.*, a set's page's
+//   discovery.routes.set.*, and the listing card's, language labels' and display identity's words).
+// - marketplace/locales/listing.en.json: a listing's public page's English catalog (discovery.routes.publicListing.*,
+//   and the item page's words for a price without a currency).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -332,6 +334,16 @@ const outputs = [
         ["localization.displayIdentity.", "identity"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/listing.en.json",
+    json(
+      await catalog("discovery.ts", "discoveryEnglishTranslations", [
+        ["discovery.routes.publicListing.", "page"],
+        // A listing without a currency's price (the item page's words, which the listing page uses).
+        ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
+      ]),
+    ),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

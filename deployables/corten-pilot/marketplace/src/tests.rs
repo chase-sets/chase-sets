@@ -373,6 +373,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
     }
+    if let Some(answer) = public_listings(&method, uri.path(), &headers) {
+        return answer;
+    }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -855,6 +858,51 @@ fn set(slug: &str) -> Response {
         "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Set not found."),
     }
+}
+
+/// A listing's public page and its reports, as the stand-in answers them: `psa-8` (old slug
+/// `old-psa-8`) is a PSA 8 Charizard from Chase Sets in Chicago; `away` is the same, its seller
+/// away until a day; `down` fails; any other is unknown. A report is received, except from the
+/// visitor `anon_repeat` (reported already) and `anon_busy` (too many).
+fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+    const PUBLIC: &str = "/api/marketplace/listings/";
+    let rest = path.strip_prefix(PUBLIC)?;
+    if let Some(id) = rest.strip_suffix("/report") {
+        if *method != Method::POST || id != "lst_psa_8" {
+            return None;
+        }
+        let visitor = headers.get("x-marketplace-anonymous-report-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
+        return Some(match visitor {
+            "anon_repeat" => {
+                refusal(StatusCode::CONFLICT, "report_already_submitted", "This reporter has already reported this content.")
+            }
+            "anon_busy" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
+            _ => (StatusCode::CREATED, Json(json!({ "id": "rpt_1", "status": "submitted" }))).into_response(),
+        });
+    }
+    if *method != Method::GET {
+        return None;
+    }
+    let listing = |slug: &str, away: bool| {
+        json!({
+            "listing_id": "lst_psa_8", "listing_slug": slug, "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+            "catalog_item_slug": "charizard", "product_id": "cat_charizard::psa8", "item_title": "Charizard",
+            "item_subtitle": "Base Set 4/102 Holo Rare", "selected_options": [{ "dimensionId": "dim_grade", "optionId": "chc_8" }],
+            "product_summary": "Form: graded | Grading Company: psa | Grade: nm-mt-8", "ship_from_code": "CHI-ANNEX-2",
+            "price_amount": "749.00", "price_currency_code": "USD", "listing_stream_version": 1,
+            "shipping_allowance_percentage_bps": 500, "quantity_cap": 1, "visible_quantity": 1, "status": "active",
+            "seller_slug": "chase-sets", "seller_display_name": "Chase Sets", "seller_average_rating": "5.00", "seller_review_count": 1,
+            "seller_listing_availability_status": if away { "unavailable" } else { "available" },
+            "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
+            "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+        })
+    };
+    Some(match rest {
+        "psa-8" | "old-psa-8" => Json(listing("psa-8", false)).into_response(),
+        "away" => Json(listing("away", true)).into_response(),
+        "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Listing not found."),
+    })
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -3772,6 +3820,120 @@ async fn an_old_set_slug_moves_with_its_query_an_unknown_set_is_not_found_and_a_
     let (status, headers, html) = pilot.send(get("/sets/no-such-set", None)).await;
     assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()), "{html}");
     assert_eq!(pilot.send(get("/sets/down", None)).await.0, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Charizard | Marketplace</title>"), "{html}");
+    assert!(html.contains(r#"<meta name="description" content="$749.00 from Chase Sets." "#), "{html}");
+    assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/listings/psa-8" "#), "{html}");
+    assert!(html.contains(">Charizard</h1>") && html.contains(">Base Set 4/102 Holo Rare</p>"), "{html}");
+    for chip in ["graded", "psa", "nm-mt-8"] {
+        assert!(html.contains(&format!(">{chip}</span>")), "{chip}: {html}");
+    }
+    let page = text(&html);
+    for words in
+        ["$749.00 from Chase Sets", "Ready to buy this listing", "1 available", "Ships from Chicago, IL", "Order protected", "5%"]
+    {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(html.contains(r#"<form method="post" action="/listings/psa-8/buy">"#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard">Compare market</a>"#), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7753/accounts/chase-sets#feedback">View account</a>"#), "{html}");
+    assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
+    assert!(!html.contains(r#"role="status""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_old_listing_slug_moves_with_its_query_an_unknown_one_is_not_found_and_a_failed_read_a_bad_gateway() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/listings/old-psa-8?ref=x", None)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::MOVED_PERMANENTLY, "/listings/psa-8?ref=x"));
+    let (status, headers, _) = pilot.send(get("/listings/nope", None)).await;
+    assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()));
+    assert_eq!(pilot.send(get("/listings/down", None)).await.0, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn an_away_sellers_listing_shows_why_and_offers_no_buy() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/listings/away", None)).await;
+    assert!(
+        html.contains(">Seller is away</p>") && html.contains("This seller is away. Listings return November 8, 2026."),
+        "{html}"
+    );
+    assert!(!html.contains("/listings/away/buy"), "{html}");
+    assert!(html.contains(">Unavailable</span>"), "{html}");
+    let (status, _, html) = pilot.send(post("/listings/away/buy", "buyer", &format!("attempt={KEY}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>This seller is away. Listings return November 8, 2026.</p>"#), "{html}");
+}
+
+#[tokio::test]
+async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_guest_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post("/listings/psa-8/buy", "buyer", &format!("attempt={KEY}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(
+        headers["location"].to_str().unwrap().starts_with("http://localhost:7753/checkout/buy/session/chk_1?afterWrite="),
+        "{headers:?}"
+    );
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["entryAttemptKey"], KEY);
+    assert_eq!(
+        (&sent["source"]["type"], &sent["source"]["lockedListingId"], &sent["source"]["quantity"]),
+        (&json!("buy-now"), &json!("lst_psa_8"), &json!(1))
+    );
+    // A guest: marketplace's guest checkout with the listing.
+    let (status, headers, _) = pilot.send(post("/listings/psa-8/buy", "guest", &format!("attempt={KEY}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=buy-now&listingId=lst_psa_8"), "{to}");
+    assert!(to.contains("&availability=1%20available&fulfillment=Ships%20from%20Chicago%2C%20IL"), "{to}");
+    // An attempt that is not one is refused, and nothing is started.
+    let (status, _, _) = pilot.send(post("/listings/psa-8/buy", "buyer", "attempt=x", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 1);
+}
+
+#[tokio::test]
+async fn a_report_is_received_once_and_a_repeat_or_a_busy_reporter_is_told_so() {
+    let pilot = Pilot::new().await;
+    // A visitor's first report: a new reporter cookie, and the page says it was received.
+    let (status, headers, _) =
+        pilot.send(post("/listings/psa-8/report", "nobody", "reason=pricing-scam&details=Too+low", false)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/listings/psa-8?reported=1"));
+    let cookie = headers["set-cookie"].to_str().unwrap();
+    assert!(cookie.starts_with("chase_sets_anonymous_reports=anon_cmd_"), "{cookie}");
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/report")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent, json!({ "reason": "pricing-scam", "details": "Too low", "sourceRoutePath": "/listings/psa-8" }));
+    let (_, _, html) = pilot.send(get("/listings/psa-8?reported=1", None)).await;
+    assert!(html.contains(r#"role="status"><p>Thanks. We received your report"#) && !html.contains(r#"name="reason""#), "{html}");
+
+    // The same visitor again, and one who sent too many: the page, saying so.
+    let report = |visitor: &str| {
+        let mut req = post("/listings/psa-8/report", "nobody", "reason=other&details=", false);
+        req.headers_mut().insert(header::COOKIE, format!("chase_sets_anonymous_reports={visitor}").parse().unwrap());
+        req
+    };
+    let (status, headers, html) = pilot.send(report("anon_repeat")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(!headers.contains_key("set-cookie"), "the reporter keeps their cookie");
+    assert!(html.contains("You have already reported this listing."), "{html}");
+    let (status, _, html) = pilot.send(report("anon_busy")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    assert!(html.contains(r#"role="alert"><p>You have sent several reports"#) && html.contains(r#"name="reason""#), "{html}");
+
+    // A reason that is not one is refused here, with the details kept.
+    let (status, _, html) = pilot.send(post("/listings/psa-8/report", "nobody", "reason=spam&details=Keep+me", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 3);
 }
 
 #[tokio::test]

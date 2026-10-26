@@ -189,7 +189,7 @@ fn compact(summary: Option<&str>, described: &[(&str, &str)], fallback: &str) ->
 }
 
 /// The purchase limit a listing shows (`formatListingPurchaseLimit`; marketplace's own English).
-fn purchase_limit(l: &Listing) -> Option<String> {
+pub fn purchase_limit(l: &Listing) -> Option<String> {
     if let Some(n) = l.max_units_per_customer_account.filter(|n| *n > 0) {
         return Some(format!("Limit {n} per customer"));
     }
