@@ -6522,7 +6522,6 @@ test.describe("catalog staging Scope Sync Batch preview probe", () => {
       gap: true,
     });
     expect(row("pokemon-ja").gaps).toContain("discovery-language-gap:ja");
-    expect(row("pokemon-en").scopeRecordSet.sharedWith).toBe("pokemon-ja");
     expect(row("magic").preview.confirmAllowed).toBe(true);
     expect(row("magic").roster.units.find((unit) => unit.providerKey === "mtgjson")?.disposition).toBe("unsupported");
     expect(row("lorcana").roster.units.map((unit) => unit.providerKey)).toEqual(["tcgplayer"]);

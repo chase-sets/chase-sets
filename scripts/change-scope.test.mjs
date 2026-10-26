@@ -323,6 +323,48 @@ describe("rendered-copy real-provider selection corpus", () => {
   });
 });
 
+const googleMerchantProviderChangeCorpus = [
+  {
+    operation: "modified",
+    changedFiles: ["infrastructure/google-merchant/index.ts"],
+    reason: "provider workspace remains selected for a modified adapter path",
+  },
+  {
+    operation: "added",
+    changedFiles: ["infrastructure/google-merchant/config.ts"],
+    reason: "provider workspace remains selected for an added adapter path",
+  },
+  {
+    operation: "deleted",
+    changedFiles: ["infrastructure/google-merchant/auth.ts"],
+    reason: "provider workspace remains selected for a deleted adapter path",
+  },
+  {
+    operation: "renamed",
+    changedFiles: [
+      "deployables/platform-worker/src/google-merchant-client.ts",
+      "infrastructure/google-merchant/index.ts",
+    ],
+    reason: "both sides of the provider move remain in the selected scope",
+  },
+];
+
+it.each(googleMerchantProviderChangeCorpus)(
+  "keeps Google Merchant scope for $operation changes",
+  ({ changedFiles, reason }) => {
+    const scope = classifyChanges({ changedFiles });
+    expect(scope.affectedWorkspaces, reason).toContain("@chase-sets/google-merchant");
+    expect(scope.affectedWorkspaces, reason).toContain("@chase-sets/app-platform-worker");
+    expect(scope.unitTestsRequired, reason).toBe(true);
+    expect(scope.dbTestsRequired, reason).toBe(true);
+  },
+);
+
+it("does not select the Google Merchant workspace for an infrastructure path lookalike", () => {
+  const scope = classifyChanges({ changedFiles: ["infrastructure/google-merchant-notes/index.ts"] });
+  expect(scope.affectedWorkspaces).not.toContain("@chase-sets/google-merchant");
+});
+
 it.each(["sidecar-only", "renamed-source", "removed-source"])(
   "lost-update selection survives real Git %s changes",
   (kind) => {
@@ -487,6 +529,8 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/event-core-postgres",
   "@chase-sets/evidence-window-provider-write",
   "@chase-sets/fulfillment",
+  "@chase-sets/google-merchant",
+  "@chase-sets/google-shopping-export",
   "@chase-sets/http",
   "@chase-sets/identity",
   "@chase-sets/identity-seed",

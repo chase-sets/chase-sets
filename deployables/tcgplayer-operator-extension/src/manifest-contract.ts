@@ -11,7 +11,11 @@ export const operatorManifest = {
   externally_connectable: {
     matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
   },
-  host_permissions: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+  host_permissions: [
+    "https://admin.staging.chasesets.com/*",
+    "https://admin.chasesets.com/*",
+    "https://mpapi.tcgplayer.com/*",
+  ],
   background: { service_worker: "background.js", type: "module" },
   action: { default_popup: "popup.html" },
   sandbox: { pages: ["sandbox.html"] },

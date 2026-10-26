@@ -78,8 +78,8 @@ jobs:
       DEPLOYMENT_ENVIRONMENT: preview
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
-      VERIFICATION_SLUG: verify-${{ github.run_id }}-${{ github.run_attempt }}
-      PREVIEW_IDENTIFIER: verify-${{ github.run_id }}-${{ github.run_attempt }}
+      VERIFICATION_SLUG: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      PREVIEW_IDENTIFIER: gate-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_HELM_RELEASE: csv-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m

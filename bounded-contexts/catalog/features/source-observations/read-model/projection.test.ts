@@ -2,7 +2,7 @@ import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres
 import { describe, expect, it } from "vitest";
 import type { SourceObservationNormalized } from "../domain/domain";
 import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
-import { buildSourceObservationProjectionHandlers } from "./projection";
+import { buildSourceObservationProjectionHandlers, repairLegacyYgojsonSetNormalizedObservation } from "./projection";
 import { encodeSourceObservationPayloadChunks } from "../domain/source-observation-payload-chunks";
 
 type ObservationRow = Readonly<Record<string, unknown>>;
@@ -18,6 +18,31 @@ type ScopeSummaryRow = Readonly<{
   promoted_observations: number;
   rejected_observations: number;
 }>;
+
+describe("legacy YGOJSON set projection repair", () => {
+  it("derives setId only for legacy YGOJSON set-reference observations", () => {
+    const legacy = {
+      ...normalizedObservation(),
+      kind: "yugioh-set-reference",
+      ygojsonId: "000f0093-1847-4db7-a315-5bd07f055c7a",
+      setName: "Beginner's Edition 2",
+      setId: undefined,
+    } as unknown as SourceObservationNormalized;
+    expect(repairLegacyYgojsonSetNormalizedObservation("ygojson", legacy)).toMatchObject({
+      setId: "000f0093-1847-4db7-a315-5bd07f055c7a",
+    });
+    expect(
+      repairLegacyYgojsonSetNormalizedObservation(
+        "ygojson",
+        (({ setId: _setId, ...withoutSetId }) => ({
+          ...withoutSetId,
+          kind: "yugioh-sealed-product",
+        }))(legacy) as SourceObservationNormalized,
+      ),
+    ).not.toHaveProperty("setId");
+    expect(repairLegacyYgojsonSetNormalizedObservation("other", legacy)).toBe(legacy);
+  });
+});
 
 class SourceObservationProjectionDb implements PgQueryable {
   public readonly observations = new Map<string, ObservationRow>();

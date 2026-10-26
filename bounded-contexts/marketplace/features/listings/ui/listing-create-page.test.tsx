@@ -751,7 +751,12 @@ describe("listing create catalog picker", () => {
   });
 
   it.each([
-    { exact: "pasted ID candidate", startExact: () => editCatalogInput("cat_acerola") },
+    {
+      exact: "pasted ID candidate",
+      startExact: async () => {
+        editCatalogInput("cat_acerola");
+      },
+    },
     {
       exact: "explicit suggestion choice",
       startExact: async () => {

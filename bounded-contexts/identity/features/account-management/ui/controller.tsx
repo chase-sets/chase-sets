@@ -302,7 +302,7 @@ export function AccountMutationBoundary({
         if (result.state === "succeeded") {
           if (result.destination && result.destination !== location.pathname)
             await navigate(result.destination, { replace: true });
-          else revalidator.revalidate();
+          else void revalidator.revalidate();
         }
       } catch {
         if (generation.current !== currentGeneration) return;

@@ -10,6 +10,7 @@ import {
 } from "./protocol";
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
 import { createOperatorTransport } from "./transport";
+import { isSetNamesRequestResult, type SetNamesRequestResult } from "./set-names/probe";
 
 export type OperatorAdapters = {
   storage: {
@@ -19,6 +20,7 @@ export type OperatorAdapters = {
   };
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
+  setNames?: (productLineId: string) => Promise<SetNamesRequestResult>;
 };
 
 type Slot = { record: OperatorRecord; blocked: boolean; queue: Promise<unknown> };
@@ -110,6 +112,38 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     return status(environment);
   }
   return {
+    async receiveSetNames(
+      value: unknown,
+      sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
+      extensionId: string,
+    ) {
+      const setNames = adapters.setNames;
+      if (typeof setNames !== "function") return null;
+      const message = value as { action: unknown; productLineId: unknown };
+      const origin = `chrome-extension://${extensionId}`;
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        Array.isArray(value) ||
+        Object.keys(value).length !== 2 ||
+        !Object.hasOwn(value, "action") ||
+        !Object.hasOwn(value, "productLineId") ||
+        message.action !== "probe-set-names" ||
+        typeof message.productLineId !== "string" ||
+        !/^\d+$/.test(message.productLineId) ||
+        sender.id !== extensionId ||
+        sender.url !== `${origin}/popup.html` ||
+        sender.origin !== origin ||
+        sender.hasTab
+      )
+        return null;
+      try {
+        const result = await setNames(message.productLineId);
+        return isSetNamesRequestResult(result) ? result : null;
+      } catch {
+        return null;
+      }
+    },
     async receiveHandoff(
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; frameId?: number; hasTab: boolean },

@@ -20,6 +20,7 @@ import {
   isAgentOAuthScope,
   normalizeAgentOAuthScopes,
   resolveAgentOAuthScopedPermissions,
+  resolveRecentAuthenticationStatus,
   type AgentOAuthScope,
 } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -137,6 +138,7 @@ export const CIMD_FETCH_DEADLINE_MS = 5_000;
 export const CIMD_RESPONSE_MAX_BYTES = 32_768;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
+const OPERATOR_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function createAgentGrantRevocationContext(accountId: AccountId): EventStoreContext {
   return {
@@ -261,8 +263,10 @@ async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: Con
   return client?.responseTypes.includes("code") &&
     client.grantTypes.includes("authorization_code") &&
     client.redirectUris.includes(consent.redirect_uri) &&
-    isScopeSubset(consent.scopes, client.scopes) &&
-    !consent.scopes.some(isAgentOAuthOperatorScope)
+    isScopeSubset(
+      consent.scopes.filter((scope) => !isAgentOAuthOperatorScope(scope)),
+      client.scopes,
+    )
     ? client
     : null;
 }
@@ -418,12 +422,6 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!scopes) {
       return c.json({ error: "invalid_scope", error_description: "Requested scopes are not supported." }, 400);
     }
-    // No operator grant may exist until operator sign-in adds its own consent gate and capped lifetime, so the
-    // whole request is refused for every role before any client lookup, sign-in or consent page.
-    if (scopes.some(isAgentOAuthOperatorScope)) {
-      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
-    }
-
     if (
       responseType !== "code" ||
       !clientId ||
@@ -460,11 +458,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         400,
       );
     }
-    if (!isScopeSubset(scopes, client.scopes)) {
+    if (
+      !isScopeSubset(
+        scopes.filter((scope) => !isAgentOAuthOperatorScope(scope)),
+        client.scopes,
+      )
+    ) {
       return c.json(
         { error: "invalid_scope", error_description: "Requested scopes exceed the registered client metadata." },
         400,
       );
+    }
+
+    if (scopesContainOperatorScope(scopes) && !options.auth?.identity?.operatorAuthority) {
+      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
     }
 
     const actor = await options.resolveActor(c.req.raw);
@@ -472,6 +479,15 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     c.header("Referrer-Policy", "no-referrer");
     if (!isInteractiveSessionActor(actor)) {
       return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+    }
+    if (scopesContainOperatorScope(scopes)) {
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) {
+        return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
+      }
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+      }
     }
 
     const token = options.auth.auth.issueOpaqueToken("ucp_consent");
@@ -506,6 +522,14 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!consent) return c.json({ error: "invalid_request" }, 400);
     const client = await resolveConsentClient(options, consent);
     if (!client) return c.json({ error: "invalid_request" }, 400);
+    if (scopesContainOperatorScope(consent.scopes)) {
+      if (!options.auth?.identity?.operatorAuthority) return c.json({ error: "invalid_scope" }, 400);
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) return c.json({ error: "invalid_scope" }, 400);
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.json({ error: "login_required" }, 401);
+      }
+    }
     const memberships = await options.auth.db.query<{ accountId: string; accountName: string }>(
       `SELECT accounts.account_id AS "accountId", accounts.display_name AS "accountName"
        FROM auth_identity_user_memberships AS memberships
@@ -524,6 +548,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
           memberships.rows.find((membership) => membership.accountId === actor.accountId)?.accountName ??
           actor.accountId,
         scopes: consent.scopes,
+        operatorGrantExpiresAt: scopesContainOperatorScope(consent.scopes)
+          ? new Date(Date.now() + OPERATOR_GRANT_TTL_MS).toISOString()
+          : null,
         memberships: memberships.rows,
         authorizePath: consentAuthorizePath(consent),
       },
@@ -548,6 +575,16 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!consent) return c.json({ error: "invalid_request" }, 400);
     const client = await resolveConsentClient(options, consent);
     if (!client) return c.json({ error: "invalid_request" }, 400);
+    if (scopesContainOperatorScope(consent.scopes)) {
+      if (!options.auth?.identity?.operatorAuthority) return c.json({ error: "invalid_scope" }, 400);
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) {
+        return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
+      }
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: consentAuthorizePath(consent) })}`, 302);
+      }
+    }
     const consumed = await options.auth.db.query<ConsentRequestRow>(
       `UPDATE identity_ucp_oauth_consent_requests SET consumed_at = now()
        WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
@@ -646,24 +683,29 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     const tokenLifetimes = authSecurityLifetimesOf(options.auth);
     const accessTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpAccessTokenTtlMs).toISOString();
     const refreshTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpRefreshTokenTtlMs).toISOString();
-    await options.linkedPlatformAuthorizations.grant({
+    const scopes = normalizeScopes(codeRow.scopes);
+    const absoluteExpiresAt = scopesContainOperatorScope(scopes)
+      ? new Date(now.getTime() + OPERATOR_GRANT_TTL_MS).toISOString()
+      : null;
+    const authorization = await options.linkedPlatformAuthorizations.grant({
       authorizationId: createId("lpa"),
       platformProfileUrl: codeRow.platform_profile_url,
       clientId: codeRow.client_id,
       userId: codeRow.user_id,
       accountId: codeRow.account_id,
-      scopes: normalizeScopes(codeRow.scopes),
+      scopes,
       accessTokenHash: options.auth.auth.hashSecret(accessToken),
       refreshTokenHash: options.auth.auth.hashSecret(refreshToken),
       accessTokenExpiresAt,
       refreshTokenExpiresAt,
+      absoluteExpiresAt,
       grantedAt: now.toISOString(),
     });
 
     return c.json({
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
+      expires_in: expiresInSeconds(authorization.access_token_expires_at, now),
       refresh_token: refreshToken,
       scope: normalizeScopes(codeRow.scopes).join(" "),
     });
@@ -1305,7 +1347,7 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
   return c.json({
     access_token: accessToken,
     token_type: "Bearer",
-    expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
+    expires_in: expiresInSeconds(authorization.access_token_expires_at, now),
     refresh_token: newRefreshToken,
     scope: scopes.join(" "),
   });
@@ -1358,6 +1400,25 @@ async function readFormOrJson(request: Request) {
 
 function normalizeScopes(value: unknown): readonly string[] {
   return normalizeAgentOAuthScopes(value);
+}
+
+function scopesContainOperatorScope(scopes: readonly string[]) {
+  return scopes.some(isAgentOAuthOperatorScope);
+}
+
+async function resolveOperatorAuthority(options: UcpOAuthRoutesOptions, actor: ResolvedActor) {
+  const operatorAuthority = options.auth?.identity?.operatorAuthority;
+  if (!operatorAuthority) return { granted: false } as const;
+  try {
+    const decision = await operatorAuthority(actor);
+    return { granted: decision.kind === "granted" } as const;
+  } catch {
+    return { granted: false } as const;
+  }
+}
+
+function expiresInSeconds(expiresAt: string, now: Date) {
+  return Math.max(0, Math.floor((Date.parse(expiresAt) - now.getTime()) / 1_000));
 }
 
 function parseClientRegistrationMetadata(

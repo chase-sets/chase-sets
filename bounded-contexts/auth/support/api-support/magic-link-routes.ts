@@ -4,7 +4,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { insertCreatedAuthIdentityAccountMirror } from "../auth-support/identity-projection";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
@@ -172,7 +172,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
             accountId: identity.accountId,
             roleKey: "owner",
             status: "active",
-            rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+            rolePermissions: ROLE_PERMISSIONS.owner,
           },
         ],
       });

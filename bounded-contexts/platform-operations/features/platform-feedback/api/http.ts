@@ -16,7 +16,7 @@ export type ExperienceApiEnv = AuthenticatedApiEnv;
  * redaction commands require `manage`; the sensitive free-text comment export
  * is a *separate* grant so a view-only staff assignment cannot download the
  * comment corpus. All three are platform-staff only -- ordinary account roles
- * hold none of them (see Identity ROLE_PERMISSIONS / Auth AUTH_ROLE_PERMISSIONS).
+ * hold none of them (see ROLE_PERMISSIONS in @chase-sets/auth-context).
  */
 export type PlatformFeedbackOperatorCapability =
   | "platform-feedback.view"

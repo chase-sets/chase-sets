@@ -2,6 +2,15 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 40231214159,
+      "runAttempt": 1,
+      "jobId": 121283260152,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/google-merchant",
+      "script": "test",
+      "observedDurationMs": 1210
+    },
+    {
       "runId": 39337555863,
       "runAttempt": 1,
       "jobId": 118356396584,

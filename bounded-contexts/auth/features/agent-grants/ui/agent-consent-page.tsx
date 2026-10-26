@@ -44,6 +44,13 @@ export function AgentConsentPage({
             <List items={scopes.map((scope) => `${scope.label} - ${scope.description}`)} />
           </Stack>
         ))}
+        {consent.operatorGrantExpiresAt ? (
+          <Text>
+            {t("auth.features.agentGrants.ui.agentConsentPage.operatorExpiry", {
+              date: new Date(consent.operatorGrantExpiresAt).toLocaleDateString(),
+            })}
+          </Text>
+        ) : null}
       </Stack>
       <Inline gap={3}>
         {(["approve", "deny"] as const).map((decision) => (

@@ -2490,7 +2490,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       label: "retains the prior shipped three-unit capture without using it as current",
       current: false,
       fileName: "bootstrap-db-capture-40078269313.json",
-      fixtureSha256: "edd8d8c95dd0a6dd2989c75aa5e01350cdc6bc4d4d1ce2f989ebcad7998d7744",
+      fixtureSha256: "97060597b7ec253ef1057a8d8a690a4035c21f594a0eabee6fca97b91817c3b6",
       minimumUnitCount: 3,
       unitProjections: [321800, 263356, 237231],
       provenance: {
@@ -3482,7 +3482,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     // installs, so W4 refuses it as a paired reference. The lockfile control, the
     // only W5 input here, pairs with the checked-out lockfile under this
     // whole-file pin; the other controls keep the historical frozen source.
-    const checkedOutLockfileSha256 = "10be05e4eae18bd9a863ba70e4f2d1450cd215913a038c4bd1563b86ea678d3b";
+    const checkedOutLockfileSha256 = sha256Of(readFileSync(join(repositoryRoot, "pnpm-lock.yaml")));
     const controls = [
       {
         label: "an unrelated lockfile entry",
