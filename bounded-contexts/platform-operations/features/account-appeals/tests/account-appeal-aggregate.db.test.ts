@@ -24,6 +24,7 @@ import {
   type AccountId,
   type EnforcementActionId,
   type ListingEnforcementActionId,
+  type UserId,
 } from "@chase-sets/primitives/typed-ids";
 import { module as platformOperationsModule } from "../../../index";
 import {
@@ -50,14 +51,14 @@ const OCCURRED_AT = "2026-10-21T00:00:00.000Z";
 type Delivery = Readonly<{ type: string; streamId: string; streamVersion: number; data: Record<string, unknown> }>;
 
 type RuntimeAppealFixture = Readonly<{
-  actionId: string;
+  actionId: EnforcementActionId;
   appealId: string;
   streamId: string;
   eventStore: ReturnType<typeof createPostgresEventStore>;
   tenantId: string;
-  ownerAccountId: string;
-  sellerUserId: string;
-  operatorUserId: string;
+  ownerAccountId: AccountId;
+  sellerUserId: UserId;
+  operatorUserId: UserId;
 }>;
 
 function identityEnforcement(
@@ -166,8 +167,19 @@ describeDb("account appeal aggregate DB proof", () => {
 
   async function bootProjectionRuntime() {
     await bootstrapContextDatabase(platformOperationsModule, pool);
+    const accountAppealModule = {
+      ...platformOperationsModule,
+      buildSubscriptions: (services: Parameters<NonNullable<typeof platformOperationsModule.buildSubscriptions>>[0]) =>
+        platformOperationsModule.buildSubscriptions!(services).filter(
+          ({ projectionName, sourceContextName }) =>
+            projectionName === "account-appeal-projection" && sourceContextName === "platform-operations",
+        ),
+      projectionGroups: platformOperationsModule.projectionGroups?.filter(
+        ({ projectionName }) => projectionName === "account-appeal-projection",
+      ),
+    };
     const runtime = createMountedContextTestRuntime([
-      { contextName: "platform-operations", module: platformOperationsModule, pool, ports: {} },
+      { contextName: "platform-operations", module: accountAppealModule, pool, ports: {} },
     ]);
     await syncContextProjectionGroups(runtime, "platform-operations", { requiredOnly: true });
     return runtime;
