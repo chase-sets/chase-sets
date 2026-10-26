@@ -83,7 +83,7 @@ importers:
         version: 19.2.6(react@19.2.6)
       sharp:
         specifier: ^0.35.5
-        version: 0.35.5(@types/node@25.6.2)
+        version: 0.35.5(@types/node@24.19.2)
       tailwindcss:
         specifier: ^4.2.2
         version: 4.3.0
@@ -237,7 +237,7 @@ importers:
         version: 19.2.6(react@19.2.6)
       sharp:
         specifier: ^0.35.5
-        version: 0.35.5(@types/node@25.6.2)
+        version: 0.35.5(@types/node@24.19.2)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -773,6 +773,9 @@ importers:
       '@chase-sets/identity-seed':
         specifier: workspace:*
         version: link:../../contracts/identity-seed
+      '@chase-sets/inventory-draft-listing':
+        specifier: workspace:*
+        version: link:../../contracts/inventory-draft-listing
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization

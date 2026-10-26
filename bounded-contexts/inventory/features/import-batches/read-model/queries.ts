@@ -201,13 +201,16 @@ export async function getImportBatch(
        row_note,
        validation_errors,
        committed_inventory_item_id,
-       committed_listing_id,
+       CASE WHEN outbox.state IN ('pending', 'sending', 'accepted')
+            THEN import_row.committed_listing_id ELSE NULL END AS committed_listing_id,
        committed_at,
        created_at,
        updated_at
-     FROM inventory_import_batch_rows
-     WHERE batch_id = $1
-     ORDER BY row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
+     FROM inventory_import_batch_rows AS import_row
+     LEFT JOIN inventory_import_draft_listing_outbox AS outbox
+       ON outbox.message_id = import_row.row_id
+     WHERE import_row.batch_id = $1
+     ORDER BY import_row.row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
     page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
