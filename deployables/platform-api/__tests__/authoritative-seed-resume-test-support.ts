@@ -1493,9 +1493,15 @@ export function createHost(runtimeProfile: PlatformApiRuntimeProfile = "public")
   });
 }
 
-export const seedOptions: BcSeedOptions = {
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
+export const seedOptions: BcSeedOptions & { projectionGroupLeasePort: typeof testProjectionGroupLeasePort } = {
   enabledDataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"],
   environmentName: "test",
+  projectionGroupLeasePort: testProjectionGroupLeasePort,
 };
 
 export async function ordinaryBoot(runtime: ReturnType<typeof createHost>): Promise<void> {

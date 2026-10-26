@@ -161,6 +161,13 @@ export type ContextProjectionGroup = Readonly<{
   ) => Promise<void>;
 }>;
 
+/** Runs projection work while the caller-owned group lease is held. */
+export type ProjectionGroupLeaseRunner = <T>(
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  signal: AbortSignal | undefined,
+  work: (context: ProjectionRunContext) => Promise<T>,
+) => Promise<T>;
+
 type ProjectionResetOptions = Readonly<{
   db?: PgQueryable;
   ownedTablesAlreadyTruncated?: boolean;
@@ -1199,6 +1206,7 @@ async function resolveTruncateResetGroups(
 export async function syncLocalProjectionGroups(
   entry: MountedContextRuntimeEntry,
   context?: ProjectionRunContext,
+  runWithLease?: ProjectionGroupLeaseRunner,
 ): Promise<void> {
   const localNames = new Set(entry.projectionHandlerSets.map((set) => set.projectionName));
   const declaredGroups = entry.module.buildProjectionGroups?.(entry.services) ?? entry.module.projectionGroups ?? [];
@@ -1215,7 +1223,11 @@ export async function syncLocalProjectionGroups(
   };
   const runners = resolveModuleSubscriptions([localEntry]);
   for (const group of resolveModuleProjectionGroups([localEntry], runners)) {
-    await syncProjectionGroup(group, context);
+    if (runWithLease) {
+      await runWithLease(group, context?.signal, (leaseContext) => syncProjectionGroup(group, leaseContext));
+    } else {
+      await syncProjectionGroup(group, context);
+    }
   }
 }
 
@@ -1267,10 +1279,13 @@ export async function syncContextProjectionGroups(
   runtime: Readonly<{
     mountedContexts: readonly MountedContextRuntimeEntry[];
     projectionGroups: readonly ContextProjectionGroup[];
+    subscriptionRunners?: readonly ContextSubscriptionRunner[];
   }>,
   contextName: string,
   options: Readonly<{
     requiredOnly?: boolean;
+    context?: ProjectionRunContext;
+    runWithLease?: ProjectionGroupLeaseRunner;
   }> = {},
 ): Promise<void> {
   const targetContext = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
@@ -1285,17 +1300,85 @@ export async function syncContextProjectionGroups(
   );
 
   if (groups.length === 0) {
-    await drainContextProcesses({
-      subscriptionRunners: runtime.projectionGroups
-        .filter((group) => group.targetContextName === contextName)
-        .flatMap((group) => group.subscriptionRunners),
-    });
+    const allContextGroups = sortProjectionGroups(
+      runtime.projectionGroups.filter((group) => group.targetContextName === contextName),
+    );
+    if (options.runWithLease && allContextGroups.length === 0) {
+      const ungroupedRunners =
+        runtime.subscriptionRunners?.filter((runner) => runner.targetContextName === contextName) ?? [];
+      if (ungroupedRunners.length > 0) {
+        throw new Error(`Runtime has ungrouped subscriptions for '${contextName}'; refusing an unleased seed drain.`);
+      }
+    }
+    for (const group of allContextGroups) {
+      if (options.runWithLease) {
+        await options.runWithLease(group, options.context?.signal, (leaseContext) =>
+          drainContextProcesses(
+            { subscriptionRunners: group.subscriptionRunners },
+            mergeProjectionRunContexts(options.context, leaseContext),
+          ),
+        );
+      } else {
+        await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, options.context);
+      }
+    }
     return;
   }
 
   for (const group of groups) {
-    await syncProjectionGroup(group);
+    if (options.runWithLease) {
+      await options.runWithLease(group, options.context?.signal, (leaseContext) =>
+        syncProjectionGroup(group, leaseContext),
+      );
+    } else {
+      await syncProjectionGroup(group, options.context);
+    }
   }
+}
+
+/** Drain every declared projection group, optionally fencing each group. */
+export async function drainProjectionGroups(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+    subscriptionRunners?: readonly ContextSubscriptionRunner[];
+  }>,
+  context?: ProjectionRunContext,
+  runWithLease?: ProjectionGroupLeaseRunner,
+): Promise<void> {
+  if (runWithLease && runtime.subscriptionRunners) {
+    const groupedRunnerKeys = new Set(
+      runtime.projectionGroups.flatMap((group) => group.subscriptionRunners.map((runner) => runner.checkpointKey)),
+    );
+    const ungroupedRunners = runtime.subscriptionRunners.filter(
+      (runner) => !groupedRunnerKeys.has(runner.checkpointKey),
+    );
+    if (ungroupedRunners.length > 0) {
+      throw new Error("Runtime has ungrouped subscriptions; refusing an unleased seed drain.");
+    }
+  }
+  for (const group of sortProjectionGroups(runtime.projectionGroups)) {
+    const drain = (leaseContext: ProjectionRunContext) =>
+      drainContextProcesses(
+        { subscriptionRunners: group.subscriptionRunners },
+        mergeProjectionRunContexts(context, leaseContext),
+      );
+    if (runWithLease) {
+      await runWithLease(group, context?.signal, drain);
+    } else {
+      await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+    }
+  }
+}
+
+function mergeProjectionRunContexts(
+  outer: ProjectionRunContext | undefined,
+  leased: ProjectionRunContext,
+): ProjectionRunContext {
+  return {
+    ...outer,
+    ...leased,
+    settleIdleCheckpoints: outer?.settleIdleCheckpoints,
+  };
 }
 
 export function getProjectionGroup(
