@@ -11,7 +11,7 @@ use crate::{
     app::url,
     items::{Address, Market},
     search::{
-        Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsNames, category_href,
+        Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
     },
     text::{Pilot, SearchMsg},
 };
@@ -209,9 +209,9 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
         labels
     };
     let form = SearchFormId;
-    let f = TermsNames::FIELDS;
+    let f = TermsQuery::FIELDS;
     html! {
-        <div class={Page} on:connect={handlers::restore(target)} on:change={handlers::apply(event)}>
+        <div class={Page} on:change={handlers::apply(event)}>
             if focused {
                 <h1 class={VisuallyHidden}>{&heading}</h1>
                 <div class={Controls}>
@@ -287,7 +287,7 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
 /// The words box: in the form by its id, so Enter sends every choice.
 #[component(css = SearchPage)]
 fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Render {
-    let f = TermsNames::FIELDS;
+    let f = TermsQuery::FIELDS;
     html! {
         <search class={Words}>
             <label>
@@ -369,7 +369,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
     .flatten()
     .collect::<Vec<_>>()
     .join(", ");
-    let f = TermsNames::FIELDS;
+    let f = TermsQuery::FIELDS;
     html! {
         <dialog id={SearchFiltersId} class={Filters} aria-labelledby={FiltersTitleId}>
             <form

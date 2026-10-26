@@ -187,7 +187,7 @@ impl Terms {
                 filters.push(Filter { kind, id: id.to_owned(), value: value.clone() });
             }
         }
-        let f = TermsNames::FIELDS;
+        let f = TermsQuery::FIELDS;
         let more = first(MORE).and_then(|n| n.parse::<usize>().ok()).unwrap_or(0) / PAGE_SIZE * PAGE_SIZE;
         // A family's filters in the order the page writes them: dimensions, fields, references.
         filters.sort_by_key(|f: &Filter| f.kind);
@@ -347,15 +347,12 @@ fn encode(pairs: &[(String, String)]) -> String {
 
 /// The address's parameters as marketplace names them (camelCase, as serde reads the fields), in
 /// the order the page writes them: an empty one is left out, and the dynamic filters are their
-/// three families (`dimension.<id>=<option>`, `field.`, `reference.`).
-///
-/// It derives `Serialize` only so `#[serde(rename_all)]` is allowed: `Route` reads the attribute but
-/// does not declare it (todd-skelton/corten#99), and a struct that borrows its
-/// families cannot derive `Deserialize`.
-#[derive(Route, serde::Serialize)]
+/// three families (`dimension.<id>=<option>`, `field.`, `reference.`). Its `FIELDS` name the
+/// form's controls and `Terms::read`'s parameters, so the form and the links cannot differ.
+#[derive(Route, Fields)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
-struct TermsQuery<'a> {
+pub(crate) struct TermsQuery<'a> {
     q: Option<&'a str>,
     category: Option<&'a str>,
     tag: Option<&'a str>,
@@ -373,26 +370,6 @@ struct TermsQuery<'a> {
     references: &'a [(String, String)],
     interpreted: Option<&'a str>,
     more: Option<usize>,
-}
-
-/// `TermsQuery`'s names, for the form's controls and `Terms::read`: `#[derive(Fields)]` refuses a
-/// struct with a lifetime (todd-skelton/corten#98), so this owned copy has the same fields
-/// and rename, and a test checks every name is one `TermsQuery` writes.
-#[derive(Fields)]
-#[serde(rename_all = "camelCase")]
-#[expect(dead_code, reason = "only its names are read")]
-pub struct TermsNames {
-    q: (),
-    category: (),
-    tag: (),
-    language: (),
-    market_activity: (),
-    price_min: (),
-    price_max: (),
-    in_stock: (),
-    sort: (),
-    interpreted: (),
-    more: (),
 }
 
 impl corten::route::Params for Terms {

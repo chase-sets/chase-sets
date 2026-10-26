@@ -3906,7 +3906,7 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
 
 #[test]
 fn the_search_forms_names_are_the_ones_its_links_write() {
-    use crate::search::{Filter, Kind, Terms, TermsNames};
+    use crate::search::{Filter, Kind, Terms, TermsQuery};
     let terms = Terms {
         q: "q".into(),
         category: "c".into(),
@@ -3922,7 +3922,7 @@ fn the_search_forms_names_are_the_ones_its_links_write() {
         more: 24,
     };
     let written: Vec<String> = terms.pairs().into_iter().map(|(key, _)| key).collect();
-    let f = TermsNames::FIELDS;
+    let f = TermsQuery::FIELDS;
     let names = [
         f.q,
         f.category,
