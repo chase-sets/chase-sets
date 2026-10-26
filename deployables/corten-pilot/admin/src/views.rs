@@ -34,9 +34,13 @@ pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
 
-/// The components every page renders (the frame and the shared parts), tokens first, and the ones
-/// several areas render (a live stream's status): their stylesheets are `components.css`.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section, LiveStatus];
+/// The components every page renders (the frame and the shared parts), tokens first: their
+/// stylesheets are `components.css`.
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+
+/// A live stream's status, which the catalog and the Operations Attention queue render: both areas
+/// list it, so its stylesheet is one those two share.
+pub const LIVE: &[Component] = &[LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
 pub const POSTAGE: &[Component] = &[Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle];

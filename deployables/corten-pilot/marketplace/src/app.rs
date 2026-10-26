@@ -408,12 +408,13 @@ pub fn app(config: Config) -> App {
         .area::<url::InventoryArea>(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area::<url::Cart>(|area| url::cart::area(area, shared.clone()).components(views::CART))
         .area::<url::ItemsArea>(|area| url::items::area(area, shared.clone()).components(views::ITEM))
-        // Search is served under two prefixes, and a component's stylesheet is in one file, so its
-        // components are every page's (todd-skelton/corten#93).
-        .components(views::SEARCH)
-        .area::<url::Search>(|area| url::search::area(area, shared.clone()))
-        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()))
-        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SET))
+        // Search is at two prefixes and a set's page shows its cards, so its components are in a
+        // stylesheet those three areas share (`sections/search+categories+sets.css`). The home
+        // page is search too, outside every area, and links that file itself (`search::render`,
+        // todd-skelton/corten#95).
+        .area::<url::Search>(|area| url::search::area(area, shared.clone()).components(views::SEARCH))
+        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()).components(views::SEARCH))
+        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SEARCH).components(views::SET))
         .area::<url::ListingsArea>(|area| url::listings::area(area, shared).components(views::LISTING))
         .error_page(views::error_page)
 }

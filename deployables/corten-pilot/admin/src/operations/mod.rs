@@ -45,7 +45,7 @@ pub mod url {
 
 /// The area: its routes and its stylesheet.
 pub fn area(area: Area<url::Attention>, shared: Shared) -> Area<url::Attention> {
-    url::area(area, shared).components(views::COMPONENTS)
+    url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
 
 /// The page's view model: what it shows and what a data client gets.

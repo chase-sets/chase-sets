@@ -807,8 +807,16 @@ fn search(uri: &Uri) -> Option<Response> {
         json!({ "remainingQuery": "charizard", "applied": [{ "param": "dimension.dim_grade", "optionId": "chc_10", "label": "Gem Mint 10" }] })
     });
     let limit: usize = sent.get("limit").and_then(|l| l.parse().ok()).unwrap_or(24);
-    let shown = limit.min(30);
-    let items: Vec<Value> = (1..=shown)
+    // Thirty results. A cursor is the next page: `c1` the rows after the first 24, `gone` one the
+    // API no longer takes (a first page again, marked restarted), `broken` a failed read.
+    let cursor = sent.get("cursor").map(String::as_str);
+    if cursor == Some("broken") {
+        return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let from = if cursor == Some("c1") { 25 } else { 1 };
+    let shown = limit.min(31 - from);
+    let last = from + shown - 1;
+    let items: Vec<Value> = (from..=last)
         .map(|n| {
             let listed = n % 2 == 1;
             json!({
@@ -825,14 +833,16 @@ fn search(uri: &Uri) -> Option<Response> {
         { "id": "chc_10", "label": "Gem Mint 10", "count": 9, "selected": sent.get("dimension.dim_grade").map(String::as_str) == Some("chc_10") },
         { "id": "chc_9", "label": "Mint 9", "count": 4, "selected": false },
     ] }]);
-    Some(
-        Json(json!({
-            "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }], "total": 30,
-            "count": shown, "nextCursor": (shown < 30).then_some("c1"), "retrievalMode": "lexical",
-            "interpretation": interpretation, "resultSetKey": "k",
-        }))
-        .into_response(),
-    )
+    let mut page = json!({
+        "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }],
+        "total": cursor.is_none().then_some(30),
+        "count": shown, "nextCursor": (last < 30).then_some("c1"), "retrievalMode": "lexical",
+        "interpretation": interpretation, "resultSetKey": "k",
+    });
+    if cursor == Some("gone") {
+        page["cursorRestarted"] = json!(true);
+    }
+    Some(Json(page).into_response())
 }
 
 /// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
@@ -3722,20 +3732,128 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
         ),
         "the in-stock chip: {html}"
     );
-    // Load more: the same address with a page more, at the first result it adds.
-    let more = "/search?q=pika&amp;marketActivity=offers&amp;priceMin=12.5&amp;inStock=true&amp;sort=newest&amp;dimension.dim_grade=chc_10&amp;more=24#result-25";
-    assert!(html.contains(&format!(r#"href="{more}""#)), "{html}");
-    let (status, _, html) = pilot.send(get(&more.replace("&amp;", "&").replace("#result-25", ""), None)).await;
+    // Load more: a GET form with every choice, a page more and the API's cursor. Without
+    // JavaScript it is the address with a page more, at the first result it adds.
+    let form = r#"<form id="load-more" class="#;
+    assert!(html.contains(form) && html.contains(r#"action="/search#result-25" data-patch>"#), "{html}");
+    for field in [
+        r#"<input type="hidden" name="q" value="pika">"#,
+        r#"<input type="hidden" name="marketActivity" value="offers">"#,
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<input type="hidden" name="more" value="24">"#,
+        r#"<input type="hidden" name="cursor" value="c1">"#,
+    ] {
+        assert!(html.contains(field), "{field}: {html}");
+    }
+    let more = "/search?q=pika&marketActivity=offers&priceMin=12.5&inStock=true&sort=newest&dimension.dim_grade=chc_10&more=24&cursor=c1";
+    let (status, _, html) = pilot.send(get(more, None)).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(search_reads(&pilot).pop().unwrap().get("limit").map(String::as_str), Some("48"));
+    let read = search_reads(&pilot).pop().unwrap();
+    assert_eq!(read.get("limit").map(String::as_str), Some("48"), "{read:?}");
+    assert!(!read.contains_key("cursor"), "a whole page reads from the first result: {read:?}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 30);
-    assert!(!html.contains("Load more results"), "every result is shown");
+    assert!(
+        html.contains(r#"<form id="load-more" class="#) && html.contains(r#"data-patch hidden>"#),
+        "every result is shown: {html}"
+    );
     // The canonical address leaves Load more out.
     assert!(
         html.contains(r#"<link rel="canonical" href="http://localhost:7753/search?q=pika&amp;marketActivity=offers"#),
         "{html}"
     );
     assert!(!html.contains(r#"more=24" data-corten-head"#), "{html}");
+}
+
+/// A GET as the runtime sends a `data-patch` form's (`corten: action`).
+fn get_patch(uri: &str) -> Request<Body> {
+    let mut req = get(uri, None);
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    req
+}
+
+#[tokio::test]
+async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_failed() {
+    let pilot = Pilot::new().await;
+    let more = "/categories/singles-x1?q=pika&dimension.dim_grade=chc_10&more=24&cursor=c1";
+    let (status, headers, html) = pilot.send(get_patch(more)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    // One page read after the cursor, in the category, without the total.
+    let read = search_reads(&pilot).pop().unwrap();
+    for (key, value) in [("cursor", "c1"), ("limit", "24"), ("category", "singles-x1"), ("dimension.dim_grade", "chc_10")] {
+        assert_eq!(read.get(key).map(String::as_str), Some(value), "{key}: {read:?}");
+    }
+    assert!(!read.contains_key("includeTotal"), "{read:?}");
+    // Its six rows, numbered after the 24 the page has, added at the end of the list.
+    assert!(html.starts_with(r#"<template id="results" data-append>"#), "{html}");
+    assert_eq!(html.matches(r#"<li id="result-"#).count(), 6, "{html}");
+    assert!(html.contains(r#"<li id="result-25""#) && html.contains(r#"<li id="result-30""#), "{html}");
+    assert!(html.contains(r#"href="/items/card-25?dimension.dim_grade=chc_10""#), "{html}");
+    // Load more again, hidden: there is no page after it.
+    assert!(
+        html.contains(r#"<form id="load-more" class="#)
+            && html.contains(r#"action="/categories/singles-x1#result-31" data-patch hidden>"#),
+        "{html}"
+    );
+
+    // A cursor the API no longer takes: its first page replaces the rows.
+    let (status, _, html) = pilot.send(get_patch("/search?q=pika&more=24&cursor=gone")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-append"), "{html}");
+    assert!(html.contains(r#"<ol id="results" class="#), "{html}");
+    assert!(html.contains(r#"<li id="result-1""#) && html.contains(r#"<li id="result-24""#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="more" value="24">"#), "{html}");
+
+    // A failed read leaves the rows and offers Load more again, saying so.
+    let (status, _, html) = pilot.send(get_patch("/search?q=pika&more=24&cursor=broken")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"<li id="result-"#), "{html}");
+    assert!(html.contains("Could not load more results") && html.contains(">Retry loading results</button>"), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="cursor" value="broken">"#), "{html}");
+
+    // Without JavaScript the same form is the page with a page more.
+    let (status, headers, html) = pilot.send(get(more, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!headers.contains_key("corten-patch"), "{headers:?}");
+    assert_eq!(html.matches(r#"<li id="result-"#).count(), 30);
+}
+
+#[test]
+fn the_search_forms_names_are_the_ones_its_links_write() {
+    use crate::search::{Filter, Kind, Terms, TermsNames};
+    let terms = Terms {
+        q: "q".into(),
+        category: "c".into(),
+        tag: "t".into(),
+        language: "ja".into(),
+        activity: crate::search::Activity::Offers,
+        price_min: "1".into(),
+        price_max: "2".into(),
+        in_stock: true,
+        sort: "newest".into(),
+        filters: vec![Filter { kind: Kind::Field, id: "f".into(), value: "v".into() }],
+        interpreted: Some("field.f".into()),
+        more: 24,
+    };
+    let written: Vec<String> = terms.pairs().into_iter().map(|(key, _)| key).collect();
+    let f = TermsNames::FIELDS;
+    let names = [
+        f.q,
+        f.category,
+        f.tag,
+        f.language,
+        f.market_activity,
+        f.price_min,
+        f.price_max,
+        f.in_stock,
+        f.sort,
+        f.interpreted,
+        f.more,
+    ];
+    for name in names {
+        assert!(written.iter().any(|w| w == name.as_str()), "{name:?} is not written: {written:?}");
+    }
+    assert_eq!(written.len(), names.len() + 1, "and the field filter: {written:?}");
 }
 
 #[tokio::test]
@@ -3784,7 +3902,13 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert_eq!(search_reads(&pilot).len(), 3);
     assert!(!html.contains("Featured categories"), "{html}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
-    assert!(html.contains(r#"href="/?q=pika&amp;more=24#result-25""#), "Load more stays at the home page: {html}");
+    assert!(html.contains(r#"action="/#result-25" data-patch>"#), "Load more stays at the home page: {html}");
+    // Outside every area, the home page links search's stylesheet itself (todd-skelton/corten#95).
+    assert!(html.contains(r#"/sections/search+categories+sets.css" data-corten-style>"#), "{html}");
+    let (_, _, html) = pilot.send(get("/search?q=pika", None)).await;
+    assert_eq!(html.matches("/sections/search+categories+sets.css").count(), 1, "the area links it once: {html}");
+    let (_, _, html) = pilot.send(get("/items/charizard", None)).await;
+    assert!(!html.contains("search+categories+sets.css"), "an item page does not: {html}");
 }
 
 #[tokio::test]

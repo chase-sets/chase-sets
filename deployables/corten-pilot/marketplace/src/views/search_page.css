@@ -185,7 +185,8 @@
 .empty { display: grid; gap: var(--space-3); justify-items: start; padding: var(--space-6) 0; }
 .empty-title { margin: 0; font: 600 1.25rem/1.2 var(--font-display); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; }
-.more { display: flex; justify-content: center; margin: 0; }
+.more { display: grid; justify-items: center; gap: var(--space-3); margin: 0; }
+.more[hidden] { display: none; }
 
 /* A result: its picture beside its words, 124px wide, 164px from 48rem. */
 .grid { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }

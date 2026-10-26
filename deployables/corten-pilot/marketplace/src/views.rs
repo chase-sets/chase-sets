@@ -43,7 +43,7 @@ pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateF
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
-pub use search_page::SearchPage;
+pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use set_page::SetPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
@@ -59,12 +59,11 @@ pub const CART: &[Component] = &[CartItem];
 /// List's dialog modal when the server draws it open.
 pub const ITEM: &[Component] = &[ItemDetail, corten_ui::dialog::COMPONENT];
 
-/// Search's components (`/search`, `/categories`): its stylesheet and the script that applies a
-/// filter as it changes.
+/// Search's components (`/search`, `/categories`, and `/sets` for its cards): its stylesheet and
+/// the script that applies a filter as it changes.
 pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT];
 
-/// A set's page (`/sets`). Its cards are search's (`ItemCards`), whose stylesheet every page has
-/// (`SEARCH`, todd-skelton/corten#93).
+/// A set's page (`/sets`). Its cards are search's (`ItemCards`), so the area lists `SEARCH` too.
 pub const SET: &[Component] = &[SetPage];
 
 /// A listing's public page (`/listings`).

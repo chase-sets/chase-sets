@@ -9,6 +9,7 @@ publish.workspace = true
 corten.workspace = true
 corten-ui.workspace = true
 futures-util.workspace = true
+percent-encoding.workspace = true
 platform.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -22,6 +23,5 @@ uuid.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
-percent-encoding.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tower.workspace = true

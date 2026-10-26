@@ -336,7 +336,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scopes::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
-    item::url::area(area, shared).components(views::COMPONENTS)
+    item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
 
 /// admin-web's catalog layout opens on the dimensions.

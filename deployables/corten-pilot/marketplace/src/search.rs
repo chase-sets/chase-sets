@@ -12,15 +12,19 @@
 //! The home page (`/`) is the same route, as marketplace's index route is: with nothing asked it
 //! shows the four featured categories and the three newest items in place of the results.
 //!
-//! Not ported: Add to List and the bulk add to the buy cart
-//! from a result, the realtime market patches, the facet option search and the automatic load on
-//! scroll. Load more shows the address's results again with a page more, as Corten cannot add rows
-//! to a list (todd-skelton/corten#90), up to the 192 the API reads at once.
+//! Load more is a GET form (`LoadMore`). With JavaScript it is a patch: the API's next page after
+//! the cursor, added after the rows the page has (`view::Append`), however many pages that takes.
+//! Without it, the form loads the address with a page more (`more=24`), up to the 192 the API reads
+//! at once.
+//!
+//! Not ported: Add to List and the bulk add to the buy cart from a result, the realtime market
+//! patches, the facet option search and the automatic load on scroll.
 use std::collections::BTreeMap;
 
 use corten::{
     axum::http::{HeaderMap, StatusCode, Uri},
     prelude::*,
+    view::Append,
 };
 
 use crate::{
@@ -155,6 +159,8 @@ impl Default for Terms {
 pub const RELEVANCE: &str = "relevance";
 /// The parameter Load more adds: how many more results than a page to show.
 pub const MORE: &str = "more";
+/// The parameter Load more sends with JavaScript: the API's cursor for the next page.
+pub const CURSOR: &str = "cursor";
 
 /// A price filter's value (`readPriceFilter`): a whole number without leading zeros, with at most
 /// two decimals.
@@ -181,54 +187,47 @@ impl Terms {
                 filters.push(Filter { kind, id: id.to_owned(), value: value.clone() });
             }
         }
+        let f = TermsNames::FIELDS;
         let more = first(MORE).and_then(|n| n.parse::<usize>().ok()).unwrap_or(0) / PAGE_SIZE * PAGE_SIZE;
+        // A family's filters in the order the page writes them: dimensions, fields, references.
+        filters.sort_by_key(|f: &Filter| f.kind);
         Terms {
-            q: first("q").or_else(|| first("search")).unwrap_or("").to_owned(),
-            category: first("category").unwrap_or("").to_owned(),
-            tag: first("tag").unwrap_or("").to_owned(),
-            language: first("language").unwrap_or("").to_owned(),
-            activity: Activity::read(first("marketActivity").unwrap_or("")),
-            price_min: price(first("priceMin").unwrap_or("")),
-            price_max: price(first("priceMax").unwrap_or("")),
-            in_stock: first("inStock") == Some("true"),
-            sort: first("sort").filter(|s| !s.is_empty()).unwrap_or(RELEVANCE).to_owned(),
+            q: first(f.q.as_str()).or_else(|| first("search")).unwrap_or("").to_owned(),
+            category: first(f.category.as_str()).unwrap_or("").to_owned(),
+            tag: first(f.tag.as_str()).unwrap_or("").to_owned(),
+            language: first(f.language.as_str()).unwrap_or("").to_owned(),
+            activity: Activity::read(first(f.market_activity.as_str()).unwrap_or("")),
+            price_min: price(first(f.price_min.as_str()).unwrap_or("")),
+            price_max: price(first(f.price_max.as_str()).unwrap_or("")),
+            in_stock: first(f.in_stock.as_str()) == Some("true"),
+            sort: first(f.sort.as_str()).filter(|s| !s.is_empty()).unwrap_or(RELEVANCE).to_owned(),
             filters,
-            interpreted: first("interpreted").map(str::to_owned),
-            more: more.min(MOST_SHOWN - PAGE_SIZE),
+            interpreted: first(f.interpreted.as_str()).map(str::to_owned),
+            more,
         }
     }
 
-    /// The parameters, in a fixed order, as the page writes them into its links.
+    /// The parameters as the page writes them into its links (`TermsQuery`), as pairs: Load
+    /// more's form sends them as hidden fields.
     pub fn pairs(&self) -> Vec<(String, String)> {
-        let mut pairs = Vec::new();
-        let mut put = |key: &str, value: &str| {
-            if !value.is_empty() {
-                pairs.push((key.to_owned(), value.to_owned()));
-            }
-        };
-        put("q", &self.q);
-        put("category", &self.category);
-        put("tag", &self.tag);
-        put("language", &self.language);
-        put("marketActivity", self.activity.as_str());
-        put("priceMin", &self.price_min);
-        put("priceMax", &self.price_max);
-        put("inStock", if self.in_stock { "true" } else { "" });
-        put("sort", if self.sort == RELEVANCE { "" } else { &self.sort });
-        for filter in &self.filters {
-            put(&filter.key(), &filter.value);
-        }
-        if let Some(keys) = &self.interpreted {
-            pairs.push(("interpreted".to_owned(), keys.clone()));
-        }
-        if self.more > 0 {
-            pairs.push((MORE.to_owned(), self.more.to_string()));
-        }
-        pairs
+        let href = url::Search { terms: self.clone() }.href();
+        let decode = |text: &str| percent_encoding::percent_decode_str(text).decode_utf8_lossy().into_owned();
+        href.split_once('?')
+            .map_or("", |(_, query)| query)
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .map(|(key, value)| (decode(key), decode(value)))
+            .collect()
     }
 
     /// The API's query string for the first `limit` results (`buildSearchQuery`), in `category`.
     pub fn api_query(&self, category: &str, limit: usize) -> String {
+        self.api_query_from(category, limit, None)
+    }
+
+    /// The API's query string for the page after `cursor`, or the first `limit` results with
+    /// their total when there is none.
+    pub fn api_query_from(&self, category: &str, limit: usize, cursor: Option<&str>) -> String {
         let mut pairs: Vec<(String, String)> = Vec::new();
         let mut put = |key: &str, value: &str| {
             if !value.is_empty() {
@@ -245,7 +244,10 @@ impl Terms {
         put("inStock", if self.in_stock { "true" } else { "" });
         put("sort", &self.sort);
         put("limit", &limit.to_string());
-        put("includeTotal", "true");
+        match cursor {
+            Some(cursor) => put(CURSOR, cursor),
+            None => put("includeTotal", "true"),
+        }
         for filter in &self.filters {
             put(&filter.key(), &filter.value);
         }
@@ -343,23 +345,80 @@ fn encode(pairs: &[(String, String)]) -> String {
     pairs.iter().map(|(k, v)| format!("{}={}", segment(k), segment(v))).collect::<Vec<_>>().join("&")
 }
 
-/// Written by hand: `#[route(query)]` names a parameter by its field, and marketplace's are
-/// camelCase (`marketActivity`, `priceMin`) (todd-skelton/corten#91).
+/// The address's parameters as marketplace names them (camelCase, as serde reads the fields), in
+/// the order the page writes them: an empty one is left out, and the dynamic filters are their
+/// three families (`dimension.<id>=<option>`, `field.`, `reference.`).
+///
+/// It derives `Serialize` only so `#[serde(rename_all)]` is allowed: `Route` reads the attribute but
+/// does not declare it (todd-skelton/corten#99), and a struct that borrows its
+/// families cannot derive `Deserialize`.
+#[derive(Route, serde::Serialize)]
+#[route(query)]
+#[serde(rename_all = "camelCase")]
+struct TermsQuery<'a> {
+    q: Option<&'a str>,
+    category: Option<&'a str>,
+    tag: Option<&'a str>,
+    language: Option<&'a str>,
+    market_activity: Option<&'a str>,
+    price_min: Option<&'a str>,
+    price_max: Option<&'a str>,
+    in_stock: Option<&'a str>,
+    sort: Option<&'a str>,
+    #[route(prefix = "dimension.")]
+    dimensions: &'a [(String, String)],
+    #[route(prefix = "field.")]
+    fields: &'a [(String, String)],
+    #[route(prefix = "reference.")]
+    references: &'a [(String, String)],
+    interpreted: Option<&'a str>,
+    more: Option<usize>,
+}
+
+/// `TermsQuery`'s names, for the form's controls and `Terms::read`: `#[derive(Fields)]` refuses a
+/// struct with a lifetime (todd-skelton/corten#98), so this owned copy has the same fields
+/// and rename, and a test checks every name is one `TermsQuery` writes.
+#[derive(Fields)]
+#[serde(rename_all = "camelCase")]
+#[expect(dead_code, reason = "only its names are read")]
+pub struct TermsNames {
+    q: (),
+    category: (),
+    tag: (),
+    language: (),
+    market_activity: (),
+    price_min: (),
+    price_max: (),
+    in_stock: (),
+    sort: (),
+    interpreted: (),
+    more: (),
+}
+
 impl corten::route::Params for Terms {
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
-        for (key, value) in self.pairs() {
-            out.push_str(if *first {
-                "?"
-            } else if html {
-                "&amp;"
-            } else {
-                "&"
-            });
-            *first = false;
-            out.push_str(&segment(&key));
-            out.push('=');
-            out.push_str(&segment(&value));
+        let family = |kind: Kind| -> Vec<(String, String)> {
+            self.filters.iter().filter(|f| f.kind == kind).map(|f| (f.id.clone(), f.value.clone())).collect()
+        };
+        let given = |text: &str| -> bool { !text.is_empty() };
+        let (dimensions, fields, references) = (family(Kind::Dimension), family(Kind::Field), family(Kind::Reference));
+        TermsQuery {
+            q: Some(self.q.as_str()).filter(|t| given(t)),
+            category: Some(self.category.as_str()).filter(|t| given(t)),
+            tag: Some(self.tag.as_str()).filter(|t| given(t)),
+            language: Some(self.language.as_str()).filter(|t| given(t)),
+            market_activity: Some(self.activity.as_str()).filter(|t| given(t)),
+            price_min: Some(self.price_min.as_str()).filter(|t| given(t)),
+            price_max: Some(self.price_max.as_str()).filter(|t| given(t)),
+            in_stock: self.in_stock.then_some("true"),
+            sort: Some(self.sort.as_str()).filter(|s| *s != RELEVANCE && given(s)),
+            dimensions: &dimensions,
+            fields: &fields,
+            references: &references,
+            interpreted: self.interpreted.as_deref(),
+            more: (self.more > 0).then_some(self.more),
         }
+        .write_params(first, html, out)
     }
 }
 
@@ -382,6 +441,9 @@ impl Place<'_> {
         }
     }
 }
+
+/// The stylesheet the search, categories and sets areas share, which the home page links itself.
+const SEARCH_STYLESHEET: &str = "sections/search+categories+sets.css";
 
 /// Featured categories the home page shows (`HOME_FEATURED_CATEGORY_LIMIT`).
 const HOME_CATEGORIES: usize = 4;
@@ -474,6 +536,21 @@ async fn show(
     }
     let terms = Terms::read(&raw);
     let caller = config.platform.caller(&headers, config.proto, None);
+    // Load more with JavaScript: only the next page, after the rows the page has. The form is on
+    // a page whose category is already its slug's path, so nothing is resolved or moved.
+    if req.mode == corten::Mode::Action
+        && let Some(cursor) = raw.get(CURSOR).and_then(|v| v.all().first()).filter(|c| !c.is_empty())
+    {
+        let category = slug.unwrap_or_default();
+        let place = if !category.is_empty() {
+            Place::Category(&category)
+        } else if uri.path() == "/" {
+            Place::Home
+        } else {
+            Place::Search
+        };
+        return more(&req, &caller, place, &terms, cursor).await;
+    }
     let asked = slug.clone().unwrap_or_else(|| terms.category.clone());
     let (by_slug, all) = tokio::join!(
         async {
@@ -509,7 +586,7 @@ async fn show(
     }
     let home = uri.path() == "/";
     let landing = home && !terms.focused(&category);
-    let limit = PAGE_SIZE + terms.more;
+    let limit = PAGE_SIZE + terms.more.min(MOST_SHOWN - PAGE_SIZE);
     let query = terms.api_query(&category, limit);
     let newest = Terms { sort: "newest".to_owned(), ..Terms::default() }.api_query("", HOME_ARRIVALS);
     let (results, arrivals) = tokio::join!(caller.search(&query), async {
@@ -560,6 +637,52 @@ async fn show(
     render(&req, viewer, &screen, failed)
 }
 
+/// The page after `cursor`: its rows added after the ones the page has (`terms.more` of them),
+/// and Load more for the page after it. When the API restarts the cursor (the results changed),
+/// its first page replaces the rows instead. A failed read leaves the rows and offers Load more
+/// again, saying it failed.
+async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, cursor: &str) -> HtmlResult {
+    let t: SearchMsg = req.t();
+    let category = match place {
+        Place::Category(slug) => slug,
+        _ => "",
+    };
+    let shown = terms.more;
+    match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
+        Ok(page) if page.cursor_restarted => req.patch(html! {
+            <views::ResultRows t={t} items={&page.items} terms={terms} first={0} />
+            <views::LoadMore
+                t={t}
+                place={place}
+                terms={terms}
+                shown={page.items.len()}
+                cursor={page.next_cursor.as_deref()}
+                failed={false}
+            />
+        }),
+        Ok(page) => {
+            let items = &page.items;
+            req.patch(html! {
+                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} item={item} terms={terms} index={shown + n} /> } })}
+                <views::LoadMore
+                    t={t}
+                    place={place}
+                    terms={terms}
+                    shown={shown + items.len()}
+                    cursor={page.next_cursor.as_deref()}
+                    failed={false}
+                />
+            })
+        }
+        Err(error) => {
+            tracing::warn!("the next page's read failed: {error}");
+            req.patch(html! {
+                <views::LoadMore t={t} place={place} terms={terms} shown={shown} cursor={Some(cursor)} failed={true} />
+            })
+        }
+    }
+}
+
 fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen, failed: bool) -> HtmlResult {
     let t: SearchMsg = req.t();
     let terms = &screen.terms;
@@ -581,10 +704,18 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
     };
     let p: Pilot = req.t();
     let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
+    // The home page is outside every area, so Corten links no area's stylesheet from it; it links
+    // search's itself, which the runtime moves to the head and keeps across a client navigation
+    // (todd-skelton/corten#95). `corten dev` reports the page as rendering a component outside its
+    // area.
+    let stylesheet = screen.home.then(|| req.asset(SEARCH_STYLESHEET));
     req.page_with_status(
         status,
         html! {
             <views::Layout req={req} viewer={viewer} title={&title} head={head}>
+                if let Some(href) = &stylesheet {
+                    <link rel="stylesheet" href={href} data-corten-style>
+                }
                 <views::SearchPage t={t} p={p} screen={screen} failed={failed} />
             </views::Layout>
         },

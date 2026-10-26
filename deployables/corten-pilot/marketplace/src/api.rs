@@ -1260,6 +1260,9 @@ pub struct SearchResults {
     /// Asked for with `includeTotal` (a first page).
     pub total: Option<u64>,
     pub next_cursor: Option<String>,
+    /// A page after a cursor the API no longer takes (the results changed): this is a first page.
+    #[serde(default)]
+    pub cursor_restarted: bool,
     /// `lexical`, `corrected` (close spellings) or `rescue` (closest matches).
     pub retrieval_mode: Option<String>,
     pub lexical_count: Option<u64>,

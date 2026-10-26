@@ -10,7 +10,9 @@ use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
     items::{Address, Market},
-    search::{Activity, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, SearchScreen, Terms, category_href},
+    search::{
+        Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsNames, category_href,
+    },
     text::{Pilot, SearchMsg},
 };
 
@@ -27,9 +29,17 @@ pub struct SearchFiltersId;
 #[derive(Id)]
 pub struct FiltersTitleId;
 
-/// A result, so Load more can bring the browser to the first one it adds.
+/// A result, so Load more without JavaScript can bring the browser to the first one it adds.
 #[derive(Id)]
 pub struct ResultId<'a>(pub &'a str);
+
+/// The results' list, which Load more adds rows to.
+#[derive(Id)]
+pub struct ResultsId;
+
+/// Load more's form, which each page it loads replaces.
+#[derive(Id)]
+pub struct LoadMoreId;
 
 /// Results the landing shows a priority picture for (`PRIORITY_SEARCH_RESULT_IMAGE_COUNT`).
 const PRIORITY_IMAGES: usize = 3;
@@ -53,6 +63,7 @@ static NO_RESULTS: SearchResults = SearchResults {
     retrieval_mode: None,
     lexical_count: None,
     interpretation: None,
+    cursor_restarted: false,
 };
 
 /// The sorts the page offers, by value.
@@ -198,6 +209,7 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
         labels
     };
     let form = SearchFormId;
+    let f = TermsNames::FIELDS;
     html! {
         <div class={Page} on:connect={handlers::restore(target)} on:change={handlers::apply(event)}>
             if focused {
@@ -206,7 +218,7 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
                     <WordsBox t={t} terms={terms} placeholder={t.page_search_catalog_items()} />
                     <label class={Sort}>
                         <span class={VisuallyHidden}>{t.page_sort()}</span>
-                        <select name="sort" form={form}>
+                        <select name={f.sort} form={form}>
                             for (value, label) in sorts(t) {
                                 <option value={value} selected={terms.sort == value}>{label}</option>
                             }
@@ -275,13 +287,14 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
 /// The words box: in the form by its id, so Enter sends every choice.
 #[component(css = SearchPage)]
 fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Render {
+    let f = TermsNames::FIELDS;
     html! {
         <search class={Words}>
             <label>
                 <span class={VisuallyHidden}>{t.page_marketplace_search()}</span>
                 <input
                     type="search"
-                    name="q"
+                    name={f.q}
                     form={SearchFormId}
                     value={&terms.q}
                     placeholder={placeholder}
@@ -356,9 +369,17 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
     .flatten()
     .collect::<Vec<_>>()
     .join(", ");
+    let f = TermsNames::FIELDS;
     html! {
         <dialog id={SearchFiltersId} class={Filters} aria-labelledby={FiltersTitleId}>
-            <form id={SearchFormId} class={FilterForm} method="get" action={&action} on:formdata={handlers::tidy(event)}>
+            <form
+                id={SearchFormId}
+                class={FilterForm}
+                method="get"
+                action={&action}
+                data-keep-place
+                on:formdata={handlers::tidy(event)}
+            >
                 <div class={FiltersHead}>
                     <h2 id={FiltersTitleId} class={FiltersTitle}>{t.page_filters()}</h2>
                     <p class={Muted}>{t.page_mobile_filters_description()}</p>
@@ -370,7 +391,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                     </button>
                 </div>
                 if !terms.tag.is_empty() {
-                    <input type="hidden" name="tag" value={&terms.tag}>
+                    <input type="hidden" name={f.tag} value={&terms.tag}>
                 }
                 <details class={Facet} open>
                     <summary>
@@ -411,7 +432,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                             <span class={Money}>
                                 <span aria-hidden="true">"$"</span>
                                 <input
-                                    name="priceMin"
+                                    name={f.price_min}
                                     inputmode="decimal"
                                     value={&terms.price_min}
                                     pattern={PRICE_PATTERN}
@@ -424,7 +445,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                             <span class={Money}>
                                 <span aria-hidden="true">"$"</span>
                                 <input
-                                    name="priceMax"
+                                    name={f.price_max}
                                     inputmode="decimal"
                                     value={&terms.price_max}
                                     pattern={PRICE_PATTERN}
@@ -434,7 +455,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         </label>
                     </div>
                     <label class={Check}>
-                        <input type="checkbox" name="inStock" value="true" checked={terms.in_stock}>
+                        <input type="checkbox" name={f.in_stock} value="true" checked={terms.in_stock}>
                         <span>
                             <span class={Strong}>{t.page_in_stock()}</span>
                             <span class={Muted}>{t.page_in_stock_description()}</span>
@@ -452,12 +473,12 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         <legend class={VisuallyHidden}>{t.page_language()}</legend>
                         <p class={Muted}>{t.page_mobile_language_description()}</p>
                         <label class={Check}>
-                            <input type="radio" name="language" value="" checked={terms.language.is_empty()}>
+                            <input type="radio" name={f.language} value="" checked={terms.language.is_empty()}>
                             {t.page_all_languages()}
                         </label>
                         for (value, label) in languages(t) {
                             <label class={Check}>
-                                <input type="radio" name="language" value={value} checked={terms.language == value}>{label}
+                                <input type="radio" name={f.language} value={value} checked={terms.language == value}>{label}
                             </label>
                         }
                     </fieldset>
@@ -470,14 +491,14 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         <legend class={VisuallyHidden}>{t.page_market_activity()}</legend>
                         <p class={Muted}>{t.page_market_activity_description()}</p>
                         <label class={Check}>
-                            <input type="radio" name="marketActivity" value="" checked={terms.activity == Activity::Any}>
+                            <input type="radio" name={f.market_activity} value="" checked={terms.activity == Activity::Any}>
                             {t.page_any_market_activity()}
                         </label>
                         for (activity, label) in activities(t) {
                             <label class={Check}>
                                 <input
                                     type="radio"
-                                    name="marketActivity"
+                                    name={f.market_activity}
                                     value={activity.as_str()}
                                     checked={terms.activity == activity}
                                 >
@@ -718,11 +739,8 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
 fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults) -> impl Render {
     let terms = &screen.terms;
     let shown = results.items.len();
-    // Load more: the same results with a page more, at the first one it adds.
-    let more = (results.next_cursor.is_some() && shown >= PAGE_SIZE + terms.more && shown < MOST_SHOWN).then(|| {
-        let next = Terms { more: terms.more + PAGE_SIZE, ..terms.clone() };
-        format!("{}#result-{}", screen.place().href(&next), shown + 1)
-    });
+    // Load more, while the API has more and a page without JavaScript could still show them.
+    let cursor = results.next_cursor.as_deref().filter(|_| shown >= PAGE_SIZE + terms.more && shown < MOST_SHOWN);
     html! {
         if results.retrieval_mode.as_deref() == Some("corrected") {
             <div class={Banner} data-tone="info"><p class={BannerTitle}>{t.page_close_spellings(&terms.q)}</p></div>
@@ -738,11 +756,7 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
         } else {
             <h2 id="search-results-heading" class={ResultsTitle}>{t.page_results()}</h2>
         }
-        <ol class={Grid}>
-            for (index, item) in results.items.iter().enumerate() {
-                <ResultCard t={t} item={item} terms={terms} index={index} />
-            }
-        </ol>
+        <ResultRows t={t} items={&results.items} terms={terms} first={0} />
         if terms.focused(&screen.category) {
             <div class={Promo}>
                 <p class={BannerTitle}>{t.page_save_this_search()}</p>
@@ -750,9 +764,57 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
                 <a class={Secondary} href={&on_marketplace(SAVED_SEARCH)}>{t.page_save_search()}</a>
             </div>
         }
-        if let Some(href) = &more {
-            <p class={More}><a class={Secondary} href={href}>{t.page_load_more_results()}</a></p>
-        }
+        <LoadMore t={t} place={screen.place()} terms={terms} shown={shown} cursor={cursor} failed={false} />
+    }
+}
+
+/// The results' cards, numbered from `first`.
+#[component(css = SearchPage)]
+pub fn ResultRows<'a>(t: SearchMsg, items: &'a [SearchItem], terms: &'a Terms, first: usize) -> impl Patch {
+    html! {
+        <ol id={ResultsId} class={Grid}>
+            for (n, item) in items.iter().enumerate() {
+                <ResultCard t={t} item={item} terms={terms} index={first + n} />
+            }
+        </ol>
+    }
+}
+
+/// Load more, a GET form with every choice and the API's cursor. With JavaScript it is a patch
+/// that adds the next page's rows and draws this form again for the page after (`search::more`);
+/// without it, the address with a page more (`more=`), at the first result it adds. Hidden when
+/// there is no more, so a patch can still replace it. After a failed load it says so, and its
+/// button tries again.
+#[component(css = SearchPage)]
+pub fn LoadMore<'a>(
+    t: SearchMsg,
+    place: Place<'a>,
+    terms: &'a Terms,
+    shown: usize,
+    cursor: Option<&'a str>,
+    failed: bool,
+) -> impl Patch {
+    let next = Terms { more: shown, ..terms.clone() };
+    let action = format!("{}#result-{}", place.href(&Terms::default()), shown + 1);
+    let pairs = next.pairs();
+    html! {
+        <form id={LoadMoreId} class={More} method="get" action={&action} data-patch hidden={cursor.is_none()}>
+            for (key, value) in &pairs {
+                <input type="hidden" name={key} value={value}>
+            }
+            if let Some(cursor) = cursor {
+                <input type="hidden" name={CURSOR} value={cursor}>
+            }
+            if failed {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={BannerTitle}>{t.page_load_more_error_title()}</p>
+                    <p>{t.page_load_more_error_description()}</p>
+                </div>
+            }
+            <button class={Secondary}>
+                if failed { {t.page_retry_loading_results()} } else { {t.page_load_more_results()} }
+            </button>
+        </form>
     }
 }
 
@@ -760,7 +822,7 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
 /// subtitle, badges and language, its lowest price when it has listings, and the market intents:
 /// Buy first when it has listings, else Sell.
 #[component(css = SearchPage)]
-fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, index: usize) -> impl Render {
+pub fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, index: usize) -> impl Render {
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let options = terms.dimensions();
