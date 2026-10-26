@@ -352,7 +352,8 @@ jobs:
             sleep 10
           done
           # Release only this Job's owner/CAS pause; reclaim refuses a deleted Job.
-          if ! node ./scripts/platform-kubernetes-deployment.mjs scenario-seed-release \
+          scenario_seed_release_command="scenario-seed-release"
+          if ! node ./scripts/platform-kubernetes-deployment.mjs "$scenario_seed_release_command" \
             --job-name "$job" --namespace "$ns" --release "$CHASE_SETS_HELM_RELEASE" --reclaim true; then
             echo "::error::scenario-seed owner/CAS cleanup refused; advisory evidence is stale." >&2
             exit 1
