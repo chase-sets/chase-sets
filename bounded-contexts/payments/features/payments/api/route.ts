@@ -4,7 +4,7 @@ import {
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context, type TypedResponse } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
@@ -12,59 +12,121 @@ import { paymentWebhookErrorFromUnknown } from "./webhook-errors";
 import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
 import { ProviderWriteRefused } from "@chase-sets/evidence-window-provider-write";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
-function requirePaymentAccess(
-  c: {
-    get(key: "actor"): PaymentsApiEnv["Variables"]["actor"];
-  },
-  permission: "orders.view" | "orders.manage",
-  options: Readonly<{ allowGuestCheckout?: boolean }> = {},
-) {
-  const actor = c.get("actor");
+export type CreateAccountPaymentRequest = Readonly<{
+  orderIds: readonly string[];
+  currencyCode?: string;
+  sourceContext?: string | null;
+  sourceReferenceId?: string | null;
+  requestedBalanceCreditAmount?: string | null;
+  paymentMethodCategory?: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  savedCheckoutInstrumentId?: string | null;
+  savePaymentMethodForFuture?: boolean;
+  returnUrlPath?: string | null;
+  agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
+}>;
+
+/**
+ * One Saved Checkout Instrument Attempt: the loader's account and a canonical UUIDv4 minted per
+ * form before its first submit. Retrying with the same pair replays; it never re-sends.
+ */
+export type SavedPaymentMethodAttempt = Readonly<{ accountId: string; attemptId: string }>;
+
+export type CreateSavedPaymentSetupSessionRequest = SavedPaymentMethodAttempt &
+  Readonly<{ returnUrlPath?: string | null }>;
+
+/**
+ * Declares the JSON body a client sends so the route-typed payments client checks it, and returns the handler
+ * unchanged. Nothing is validated: handlers still parse `c.req.json()` leniently, after their access checks. It
+ * wraps the handler rather than adding a middleware, because a second handler on a route is a collision in the
+ * platform API route-table census. The wrapped handler cannot see its route's path, so a route that reads path
+ * params repeats that path as `P` to keep `c.req.param` typed.
+ */
+function jsonInput<T, P extends string = string>() {
+  return <R>(handler: (c: Context<PaymentsApiEnv, P, { in: { json: T }; out: {} }>) => R) => handler;
+}
+
+type PaymentsActor = NonNullable<PaymentsApiEnv["Variables"]["actor"]>;
+type PaymentPermission = "orders.view" | "orders.manage";
+type PaymentAccessOptions = Readonly<{ allowGuestCheckout?: boolean }>;
+type PaymentAccessDenial = Readonly<{
+  status: 401 | 403;
+  body: Readonly<{ error: Readonly<{ code: "authentication_required" | "authorization_forbidden"; message: string }> }>;
+}>;
+
+function paymentAccessDecision(
+  actor: PaymentsApiEnv["Variables"]["actor"],
+  permission: PaymentPermission,
+  options: PaymentAccessOptions,
+): Readonly<{ actor: PaymentsActor; denial: null }> | Readonly<{ actor: null; denial: PaymentAccessDenial }> {
   if (!actor) {
     return {
       actor: null,
-      response: new Response(
-        JSON.stringify({
+      denial: {
+        status: 401,
+        body: {
           error: {
             code: "authentication_required",
             message: t("payments.features.payments.api.route.authentication.required"),
           },
-        }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
         },
-      ),
+      },
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     if (options.allowGuestCheckout && actor.permissions.includes("guest-checkout.manage")) {
-      return { actor, response: null };
+      return { actor, denial: null };
     }
 
     return {
       actor: null,
-      response: new Response(
-        JSON.stringify({
+      denial: {
+        status: 403,
+        body: {
           error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") },
-        }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
         },
-      ),
+      },
     };
   }
 
-  return { actor, response: null };
+  return { actor, denial: null };
+}
+
+function requirePaymentAccess(
+  c: {
+    get(key: "actor"): PaymentsApiEnv["Variables"]["actor"];
+  },
+  permission: PaymentPermission,
+  options: PaymentAccessOptions = {},
+) {
+  const access = paymentAccessDecision(c.get("actor"), permission, options);
+  if (access.denial) {
+    return {
+      actor: null,
+      response: new Response(JSON.stringify(access.denial.body), {
+        status: access.denial.status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  return { actor: access.actor, response: null };
+}
+
+/** The handler form of `requirePaymentAccess`: a denial is a typed reply, so it keeps the route's response types. */
+function paymentAccess(c: Context<PaymentsApiEnv>, permission: PaymentPermission, options: PaymentAccessOptions = {}) {
+  const access = paymentAccessDecision(c.get("actor"), permission, options);
+  return access.denial
+    ? { actor: null, reply: c.json(access.denial.body, access.denial.status) }
+    : { actor: access.actor, reply: null };
 }
 
 function errorMessage(error: unknown) {
@@ -113,11 +175,8 @@ function errorCode(error: unknown) {
  * Reads a saved payment method command body. The form carries the loader's `accountId`; a
  * mismatch with the acting account is `account_changed` before any read or write.
  */
-async function readSavedCheckoutInstrumentCommand(
-  c: { req: { json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response },
-  accountId: string,
-) {
-  const body = await c.req.json().catch(() => ({}));
+async function readSavedCheckoutInstrumentCommand(c: Context<PaymentsApiEnv>, accountId: string) {
+  const body = await c.req.json<unknown>().catch(() => ({}));
   const fields = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   if (fields.accountId !== accountId) {
     return {
@@ -142,10 +201,7 @@ async function readSavedCheckoutInstrumentCommand(
  * caller retry with a fresh attempt id; any other failure is the closed unconfirmed outcome, never
  * reported as refused and never echoed or rethrown to the framework error handler.
  */
-function savedCheckoutInstrumentCommandFailure(
-  c: { json: (body: unknown, status?: number) => Response },
-  error: unknown,
-) {
+function savedCheckoutInstrumentCommandFailure(c: Context<PaymentsApiEnv>, error: unknown) {
   const code = errorCode(error);
   if (code === "attempt_conflict") {
     return c.json(
@@ -180,7 +236,7 @@ function requireEventStoreContext(c: { get(key: "context"): EventStoreContext | 
   return context;
 }
 
-function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+function staleFeeQuoteResponse(c: Context<PaymentsApiEnv>, error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (!message.startsWith("fee_quote_stale:")) {
     return null;
@@ -198,32 +254,24 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
   );
 }
 
-function paymentRateLimitResponse(error: unknown) {
+function paymentRateLimitResponse(c: Context<PaymentsApiEnv>, error: unknown) {
   if (error instanceof PaymentDeclineLimitUnavailableError) {
-    return new Response(JSON.stringify({ error: { code: error.code, message: error.message } }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" },
-    });
+    return c.json({ error: { code: error.code, message: error.message } }, 503);
   }
   if (!(error instanceof PaymentsRateLimitExceededError)) {
     return null;
   }
-  return new Response(
-    JSON.stringify({
+  return c.json(
+    {
       error: {
         code: "rate_limited",
         message: error.message,
         surface: error.surface,
         retryAfterSeconds: error.retryAfterSeconds,
       },
-    }),
-    {
-      status: 429,
-      headers: {
-        "Content-Type": "application/json",
-        "Retry-After": String(error.retryAfterSeconds),
-      },
     },
+    429,
+    { "Retry-After": String(error.retryAfterSeconds) },
   );
 }
 
@@ -280,6 +328,24 @@ export function preflightPaymentStart(
   if (access.response) return access;
   const response = enforcePaymentCreationLimit(request, access.actor.accountId);
   return response ? { actor: null, response } : access;
+}
+
+type PaymentCreationRateLimitedBody = Readonly<{
+  error: Readonly<{ code: "rate_limited"; message: string; surface: string; retryAfterSeconds: number }>;
+}>;
+
+/** The handler form of `preflightPaymentStart`, in the same check order, with every refusal a typed reply. */
+function paymentStartAccess(c: Context<PaymentsApiEnv>) {
+  const access = paymentAccess(c, "orders.manage", { allowGuestCheckout: true });
+  if (access.reply) return access;
+  const limited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
+  return limited
+    ? {
+        actor: null,
+        // The shared rate-limit helper owns this 429 body; naming its shape keeps the route's success type.
+        reply: limited as Response & TypedResponse<PaymentCreationRateLimitedBody, 429, "json">,
+      }
+    : access;
 }
 
 type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
@@ -356,506 +422,507 @@ function savedCheckoutInstrumentSnapshot(
 }
 
 export function createAccountPaymentRoutes(services: PaymentServices, publicConfig?: PaymentProcessorPublicConfig) {
-  const app = new Hono<PaymentsApiEnv>();
+  return new Hono<PaymentsApiEnv>()
+    .post(
+      "/payments",
+      jsonInput<CreateAccountPaymentRequest>()(async (c) => {
+        const access = paymentStartAccess(c);
+        if (access.reply) {
+          return access.reply;
+        }
 
-  app.post("/payments", async (c) => {
-    const access = preflightPaymentStart(c, c.req.raw);
-    if (access.response) {
-      return access.response;
-    }
+        const context = c.get("context");
+        if (!context) {
+          return c.json(
+            {
+              error: {
+                code: "authentication_required",
+                message: t("payments.features.payments.api.route.authentication.context.missing"),
+              },
+            },
+            401,
+          );
+        }
 
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("payments.features.payments.api.route.authentication.context.missing"),
-          },
-        },
-        401,
-      );
-    }
+        const body = await c.req.json();
+        const sourceContext =
+          body.sourceContext === null || body.sourceContext === undefined ? null : String(body.sourceContext);
+        const sourceReferenceId =
+          body.sourceReferenceId === null || body.sourceReferenceId === undefined
+            ? null
+            : String(body.sourceReferenceId);
 
-    const body = await c.req.json();
-    const sourceContext =
-      body.sourceContext === null || body.sourceContext === undefined ? null : String(body.sourceContext);
-    const sourceReferenceId =
-      body.sourceReferenceId === null || body.sourceReferenceId === undefined ? null : String(body.sourceReferenceId);
+        try {
+          const payment = await services.createAccountPayment(
+            {
+              accountId: access.actor.accountId as AccountId,
+              isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
+              orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
+              currencyCode: String(body.currencyCode ?? "usd"),
+              requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
+              paymentMethodCategory:
+                body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+                  ? null
+                  : String(body.paymentMethodCategory),
+              marketplaceCheckoutFeeQuoteFingerprint:
+                body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+                body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+                  ? null
+                  : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+              savedCheckoutInstrumentId:
+                body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+                  ? null
+                  : String(body.savedCheckoutInstrumentId),
+              savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
+                ? Boolean(body.savePaymentMethodForFuture)
+                : false,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
+              clientRiskContext: {
+                ipAddress: resolveClientAddress(c.req.raw),
+                userAgent: c.req.header("user-agent") ?? null,
+              },
+              ...(readAgenticPayment(body.agenticPayment)
+                ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+                : {}),
+              ...(sourceContext && sourceReferenceId ? { sourceContext, sourceReferenceId } : {}),
+            },
+            context,
+          );
 
-    try {
-      const payment = await services.createAccountPayment(
-        {
-          accountId: access.actor.accountId as AccountId,
-          isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
-          orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
-          currencyCode: String(body.currencyCode ?? "usd"),
-          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
-          paymentMethodCategory:
-            body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
-              ? null
-              : String(body.paymentMethodCategory),
-          marketplaceCheckoutFeeQuoteFingerprint:
-            body.marketplaceCheckoutFeeQuoteFingerprint === null ||
-            body.marketplaceCheckoutFeeQuoteFingerprint === undefined
-              ? null
-              : String(body.marketplaceCheckoutFeeQuoteFingerprint),
-          savedCheckoutInstrumentId:
-            body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
-              ? null
-              : String(body.savedCheckoutInstrumentId),
-          savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
-            ? Boolean(body.savePaymentMethodForFuture)
-            : false,
-          returnUrlBase: resolvePublicOrigin(c.req.raw),
-          returnUrlPath:
-            body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
-          clientRiskContext: {
-            ipAddress: resolveClientAddress(c.req.raw),
-            userAgent: c.req.header("user-agent") ?? null,
-          },
-          ...(readAgenticPayment(body.agenticPayment)
-            ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
-            : {}),
-          ...(sourceContext && sourceReferenceId ? { sourceContext, sourceReferenceId } : {}),
-        },
-        context,
-      );
-
-      return c.json(payment, 201);
-    } catch (error) {
-      const rateLimited = paymentRateLimitResponse(error);
-      if (rateLimited) {
-        return rateLimited;
+          return c.json(payment, 201);
+        } catch (error) {
+          const rateLimited = paymentRateLimitResponse(c, error);
+          if (rateLimited) {
+            return rateLimited;
+          }
+          const stale = staleFeeQuoteResponse(c, error);
+          if (stale) {
+            return stale;
+          }
+          return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+        }
+      }),
+    )
+    .get("/checkout/status", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
       }
-      const stale = staleFeeQuoteResponse(c, error);
-      if (stale) {
-        return stale;
+
+      try {
+        const orderIds =
+          c.req.queries("orderId") ??
+          c.req
+            .query("orderIds")
+            ?.split(",")
+            .map((value) => value.trim()) ??
+          [];
+        const status = await services.getCheckoutStatus({
+          accountId: access.actor.accountId as AccountId,
+          orderIds: orderIds.filter(Boolean) as OrderId[],
+          currencyCode: c.req.query("currencyCode") ?? "usd",
+          requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
+          paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+        });
+
+        return c.json(status);
+      } catch (error) {
+        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
       }
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
-    }
-  });
-
-  app.get("/checkout/status", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    try {
-      const orderIds =
-        c.req.queries("orderId") ??
-        c.req
-          .query("orderIds")
-          ?.split(",")
-          .map((value) => value.trim()) ??
-        [];
-      const status = await services.getCheckoutStatus({
-        accountId: access.actor.accountId as AccountId,
-        orderIds: orderIds.filter(Boolean) as OrderId[],
-        currencyCode: c.req.query("currencyCode") ?? "usd",
-        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
-        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+    })
+    .get("/order-inputs", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
       });
+      if (access.reply) {
+        return access.reply;
+      }
 
-      return c.json(status);
-    } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
-    }
-  });
-
-  app.get("/order-inputs", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    try {
-      const orderIds =
-        c.req.queries("orderId") ??
-        c.req
-          .query("orderIds")
-          ?.split(",")
-          .map((value) => value.trim()) ??
-        [];
-      const orders = await services.listAccountOrderInputs({
-        accountId: access.actor.accountId as AccountId,
-        orderIds: orderIds.filter(Boolean) as OrderId[],
-      });
-
-      return c.json({ orders: orders.map(accountOrderInputSnapshot) });
-    } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 404);
-    }
-  });
-
-  app.get("/checkout/preview-status", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    try {
-      const status = await services.previewCheckoutStatus({
-        accountId: access.actor.accountId as AccountId,
-        amount: String(c.req.query("amount") ?? "0.00"),
-        currencyCode: c.req.query("currencyCode") ?? "usd",
-        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
-        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
-      });
-
-      return c.json(status);
-    } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
-    }
-  });
-
-  app.get("/checkout/saved-instruments", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
-
-    return c.json({
-      items: instruments
-        .filter(
-          (instrument) =>
-            instrument.readiness === "ready" &&
-            Boolean(instrument.provider_customer_reference?.trim()) &&
-            Boolean(instrument.provider_reference?.trim()),
-        )
-        .map((instrument) => savedCheckoutInstrumentSnapshot(instrument)),
-    });
-  });
-
-  app.get("/payment-methods", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
-    if (access.response) {
-      return access.response;
-    }
-
-    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
-    return c.json({
-      items: instruments.map((instrument) =>
-        savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
-      ),
-    });
-  });
-
-  app.post("/payment-methods/setup-sessions", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
-    if (command.response) {
-      return command.response;
-    }
-    try {
-      const setup = await services.createSavedCheckoutSetupSession(
-        {
+      try {
+        const orderIds =
+          c.req.queries("orderId") ??
+          c.req
+            .query("orderIds")
+            ?.split(",")
+            .map((value) => value.trim()) ??
+          [];
+        const orders = await services.listAccountOrderInputs({
           accountId: access.actor.accountId as AccountId,
-          attemptId: command.attemptId,
-          agentGrantId: access.actor.agentGrant?.grantId ?? null,
-          returnUrlBase: resolvePublicOrigin(c.req.raw),
-          returnUrlPath:
-            command.fields.returnUrlPath === null || command.fields.returnUrlPath === undefined
-              ? "/account/payment-methods"
-              : String(command.fields.returnUrlPath),
-          // The authenticated account page always uses the embedded SetupIntent
-          // surface. Hosted setup remains available through the agent URL-
-          // elicitation MCP tool, which calls the runtime directly.
-          uiMode: "embedded",
-        },
-        requireEventStoreContext(c),
-      );
-      return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
-    } catch (error) {
-      return savedCheckoutInstrumentCommandFailure(c, error);
-    }
-  });
+          orderIds: orderIds.filter(Boolean) as OrderId[],
+        });
 
-  app.post("/payment-methods/setup-sessions/:processorSetupReference/reconcile", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-    try {
-      const instrument = await services.reconcileSavedCheckoutSetupSession(
-        {
+        return c.json({ orders: orders.map(accountOrderInputSnapshot) });
+      } catch (error) {
+        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 404);
+      }
+    })
+    .get("/checkout/preview-status", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
+
+      try {
+        const status = await services.previewCheckoutStatus({
           accountId: access.actor.accountId as AccountId,
-          setupReference: c.req.param("processorSetupReference"),
-        },
-        requireEventStoreContext(c),
-      );
+          amount: String(c.req.query("amount") ?? "0.00"),
+          currencyCode: c.req.query("currencyCode") ?? "usd",
+          requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
+          paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+        });
+
+        return c.json(status);
+      } catch (error) {
+        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+      }
+    })
+    .get("/checkout/saved-instruments", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
+
+      const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
+
       return c.json({
-        instrument: instrument ? savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }) : null,
+        items: instruments
+          .filter(
+            (instrument) =>
+              instrument.readiness === "ready" &&
+              Boolean(instrument.provider_customer_reference?.trim()) &&
+              Boolean(instrument.provider_reference?.trim()),
+          )
+          .map((instrument) => savedCheckoutInstrumentSnapshot(instrument)),
       });
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
+    })
+    .get("/payment-methods", async (c) => {
+      const access = paymentAccess(c, "orders.view");
+      if (access.reply) {
+        return access.reply;
+      }
 
-  app.post("/payment-methods/:instrumentId/default", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
-    if (command.response) {
-      return command.response;
-    }
-    let instrument: Awaited<ReturnType<PaymentServices["setSavedCheckoutInstrumentDefault"]>>;
-    try {
-      instrument = await services.setSavedCheckoutInstrumentDefault(
+      const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
+      return c.json({
+        items: instruments.map((instrument) =>
+          savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
+        ),
+      });
+    })
+    .post(
+      "/payment-methods/setup-sessions",
+      jsonInput<CreateSavedPaymentSetupSessionRequest>()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
+        try {
+          const setup = await services.createSavedCheckoutSetupSession(
+            {
+              accountId: access.actor.accountId as AccountId,
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                command.fields.returnUrlPath === null || command.fields.returnUrlPath === undefined
+                  ? "/account/payment-methods"
+                  : String(command.fields.returnUrlPath),
+              // The authenticated account page always uses the embedded SetupIntent
+              // surface. Hosted setup remains available through the agent URL-
+              // elicitation MCP tool, which calls the runtime directly.
+              uiMode: "embedded",
+            },
+            requireEventStoreContext(c),
+          );
+          return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
+        } catch (error) {
+          return savedCheckoutInstrumentCommandFailure(c, error);
+        }
+      }),
+    )
+    .post("/payment-methods/setup-sessions/:processorSetupReference/reconcile", async (c) => {
+      const access = paymentAccess(c, "orders.manage");
+      if (access.reply) {
+        return access.reply;
+      }
+      try {
+        const instrument = await services.reconcileSavedCheckoutSetupSession(
+          {
+            accountId: access.actor.accountId as AccountId,
+            setupReference: c.req.param("processorSetupReference"),
+          },
+          requireEventStoreContext(c),
+        );
+        return c.json({
+          instrument: instrument
+            ? savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true })
+            : null,
+        });
+      } catch (error) {
+        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      }
+    })
+    .post(
+      "/payment-methods/:instrumentId/default",
+      jsonInput<SavedPaymentMethodAttempt, "/payment-methods/:instrumentId/default">()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
+        let instrument: Awaited<ReturnType<PaymentServices["setSavedCheckoutInstrumentDefault"]>>;
+        try {
+          instrument = await services.setSavedCheckoutInstrumentDefault(
+            {
+              accountId: access.actor.accountId as AccountId,
+              instrumentId: c.req.param("instrumentId"),
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
+            },
+            requireEventStoreContext(c),
+          );
+        } catch (error) {
+          return savedCheckoutInstrumentCommandFailure(c, error);
+        }
+        if (!instrument) {
+          return c.json(
+            {
+              error: {
+                code: "not_found",
+                message: t("payments.features.payments.api.route.saved.payment.method.not.found"),
+              },
+            },
+            404,
+          );
+        }
+        return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
+      }),
+    )
+    .post(
+      "/payment-methods/:instrumentId/remove",
+      jsonInput<SavedPaymentMethodAttempt, "/payment-methods/:instrumentId/remove">()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
+        if (command.response) {
+          return command.response;
+        }
+        let instrument: Awaited<ReturnType<PaymentServices["removeSavedCheckoutInstrument"]>>;
+        try {
+          instrument = await services.removeSavedCheckoutInstrument(
+            {
+              accountId: access.actor.accountId as AccountId,
+              instrumentId: c.req.param("instrumentId"),
+              attemptId: command.attemptId,
+              agentGrantId: access.actor.agentGrant?.grantId ?? null,
+            },
+            requireEventStoreContext(c),
+          );
+        } catch (error) {
+          return savedCheckoutInstrumentCommandFailure(c, error);
+        }
+        if (!instrument) {
+          return c.json(
+            {
+              error: {
+                code: "not_found",
+                message: t("payments.features.payments.api.route.saved.payment.method.not.found.2"),
+              },
+            },
+            404,
+          );
+        }
+        return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
+      }),
+    )
+    .post("/payment-methods/reconcile", async (c) => {
+      const access = paymentAccess(c, "orders.manage");
+      if (access.reply) {
+        return access.reply;
+      }
+      const accountId = access.actor.accountId as AccountId;
+      const result = await services.reconcileSavedCheckoutInstruments(
         {
-          accountId: access.actor.accountId as AccountId,
-          instrumentId: c.req.param("instrumentId"),
-          attemptId: command.attemptId,
-          agentGrantId: access.actor.agentGrant?.grantId ?? null,
+          accountId,
         },
         requireEventStoreContext(c),
       );
-    } catch (error) {
-      return savedCheckoutInstrumentCommandFailure(c, error);
-    }
-    if (!instrument) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: t("payments.features.payments.api.route.saved.payment.method.not.found"),
-          },
-        },
-        404,
-      );
-    }
-    return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
-  });
-
-  app.post("/payment-methods/:instrumentId/remove", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const command = await readSavedCheckoutInstrumentCommand(c, access.actor.accountId);
-    if (command.response) {
-      return command.response;
-    }
-    let instrument: Awaited<ReturnType<PaymentServices["removeSavedCheckoutInstrument"]>>;
-    try {
-      instrument = await services.removeSavedCheckoutInstrument(
-        {
-          accountId: access.actor.accountId as AccountId,
-          instrumentId: c.req.param("instrumentId"),
-          attemptId: command.attemptId,
-          agentGrantId: access.actor.agentGrant?.grantId ?? null,
-        },
-        requireEventStoreContext(c),
-      );
-    } catch (error) {
-      return savedCheckoutInstrumentCommandFailure(c, error);
-    }
-    if (!instrument) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: t("payments.features.payments.api.route.saved.payment.method.not.found.2"),
-          },
-        },
-        404,
-      );
-    }
-    return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
-  });
-
-  app.post("/payment-methods/reconcile", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const accountId = access.actor.accountId as AccountId;
-    const result = await services.reconcileSavedCheckoutInstruments(
-      {
-        accountId,
-      },
-      requireEventStoreContext(c),
-    );
-    const instruments = await services.listSavedCheckoutInstruments(accountId);
-    return c.json({
-      ...result,
-      items: instruments.map((instrument) =>
-        savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
-      ),
-    });
-  });
-
-  app.get("/marketplace-checkout-fee-policy", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    return c.json(await services.getMarketplaceCheckoutFeePolicy());
-  });
-
-  app.post("/checkout/recover", async (c) => {
-    const access = preflightPaymentStart(c, c.req.raw);
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("payments.features.payments.api.route.authentication.context.missing.2"),
-          },
-        },
-        401,
-      );
-    }
-
-    const body = await c.req.json();
-    try {
-      const payment = await services.recoverCheckoutPayment(
-        {
-          accountId: access.actor.accountId as AccountId,
-          isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
-          orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
-          currencyCode: String(body.currencyCode ?? "usd"),
-          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
-          paymentMethodCategory:
-            body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
-              ? null
-              : String(body.paymentMethodCategory),
-          marketplaceCheckoutFeeQuoteFingerprint:
-            body.marketplaceCheckoutFeeQuoteFingerprint === null ||
-            body.marketplaceCheckoutFeeQuoteFingerprint === undefined
-              ? null
-              : String(body.marketplaceCheckoutFeeQuoteFingerprint),
-          savedCheckoutInstrumentId:
-            body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
-              ? null
-              : String(body.savedCheckoutInstrumentId),
-          savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
-            ? Boolean(body.savePaymentMethodForFuture)
-            : false,
-          returnUrlBase: resolvePublicOrigin(c.req.raw),
-          returnUrlPath:
-            body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
-          clientRiskContext: {
-            ipAddress: resolveClientAddress(c.req.raw),
-            userAgent: c.req.header("user-agent") ?? null,
-          },
-          ...(readAgenticPayment(body.agenticPayment)
-            ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
-            : {}),
-        },
-        context,
-      );
-
-      return c.json(payment, 201);
-    } catch (error) {
-      const rateLimited = paymentRateLimitResponse(error);
-      if (rateLimited) {
-        return rateLimited;
-      }
-      const stale = staleFeeQuoteResponse(c, error);
-      if (stale) {
-        return stale;
-      }
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
-
-  app.get("/checkout/recovery", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    try {
-      const orderIds =
-        c.req.queries("orderId") ??
-        c.req
-          .query("orderIds")
-          ?.split(",")
-          .map((value) => value.trim()) ??
-        [];
-      const recovery = await services.getCheckoutRecoveryOptions({
-        accountId: access.actor.accountId as AccountId,
-        orderIds: orderIds.filter(Boolean) as OrderId[],
-        currencyCode: c.req.query("currencyCode") ?? "usd",
-        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
-        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+      const instruments = await services.listSavedCheckoutInstruments(accountId);
+      return c.json({
+        ...result,
+        items: instruments.map((instrument) =>
+          savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
+        ),
       });
+    })
+    .get("/marketplace-checkout-fee-policy", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
 
-      return c.json(recovery);
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
+      return c.json(await services.getMarketplaceCheckoutFeePolicy());
+    })
+    .post(
+      "/checkout/recover",
+      jsonInput<CreateAccountPaymentRequest>()(async (c) => {
+        const access = paymentStartAccess(c);
+        if (access.reply) {
+          return access.reply;
+        }
 
-  app.get("/payments/:id", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
+        const context = c.get("context");
+        if (!context) {
+          return c.json(
+            {
+              error: {
+                code: "authentication_required",
+                message: t("payments.features.payments.api.route.authentication.context.missing.2"),
+              },
+            },
+            401,
+          );
+        }
+
+        const body = await c.req.json();
+        try {
+          const payment = await services.recoverCheckoutPayment(
+            {
+              accountId: access.actor.accountId as AccountId,
+              isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
+              orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
+              currencyCode: String(body.currencyCode ?? "usd"),
+              requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
+              paymentMethodCategory:
+                body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+                  ? null
+                  : String(body.paymentMethodCategory),
+              marketplaceCheckoutFeeQuoteFingerprint:
+                body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+                body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+                  ? null
+                  : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+              savedCheckoutInstrumentId:
+                body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+                  ? null
+                  : String(body.savedCheckoutInstrumentId),
+              savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
+                ? Boolean(body.savePaymentMethodForFuture)
+                : false,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
+              clientRiskContext: {
+                ipAddress: resolveClientAddress(c.req.raw),
+                userAgent: c.req.header("user-agent") ?? null,
+              },
+              ...(readAgenticPayment(body.agenticPayment)
+                ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+                : {}),
+            },
+            context,
+          );
+
+          return c.json(payment, 201);
+        } catch (error) {
+          const rateLimited = paymentRateLimitResponse(c, error);
+          if (rateLimited) {
+            return rateLimited;
+          }
+          const stale = staleFeeQuoteResponse(c, error);
+          if (stale) {
+            return stale;
+          }
+          return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+        }
+      }),
+    )
+    .get("/checkout/recovery", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
+
+      try {
+        const orderIds =
+          c.req.queries("orderId") ??
+          c.req
+            .query("orderIds")
+            ?.split(",")
+            .map((value) => value.trim()) ??
+          [];
+        const recovery = await services.getCheckoutRecoveryOptions({
+          accountId: access.actor.accountId as AccountId,
+          orderIds: orderIds.filter(Boolean) as OrderId[],
+          currencyCode: c.req.query("currencyCode") ?? "usd",
+          requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
+          paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+        });
+
+        return c.json(recovery);
+      } catch (error) {
+        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      }
+    })
+    .get("/payments/:id", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
+
+      const payment = await services.getAccountPayment(c.req.param("id"), access.actor.accountId);
+      if (!payment) {
+        return c.json(
+          { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } },
+          404,
+        );
+      }
+
+      return c.json(payment);
+    })
+    .get("/payments/:id/timeline", async (c) => {
+      const access = paymentAccess(c, "orders.view", {
+        allowGuestCheckout: true,
+      });
+      if (access.reply) {
+        return access.reply;
+      }
+
+      const timeline = await services.getPaymentMoneyTimeline({
+        paymentId: c.req.param("id"),
+        accountId: access.actor.accountId,
+      });
+      if (!timeline) {
+        return c.json(
+          { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found.2") } },
+          404,
+        );
+      }
+
+      return c.json(timeline);
     });
-    if (access.response) {
-      return access.response;
-    }
-
-    const payment = await services.getAccountPayment(c.req.param("id"), access.actor.accountId);
-    if (!payment) {
-      return c.json(
-        { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } },
-        404,
-      );
-    }
-
-    return c.json(payment);
-  });
-
-  app.get("/payments/:id/timeline", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view", {
-      allowGuestCheckout: true,
-    });
-    if (access.response) {
-      return access.response;
-    }
-
-    const timeline = await services.getPaymentMoneyTimeline({
-      paymentId: c.req.param("id"),
-      accountId: access.actor.accountId,
-    });
-    if (!timeline) {
-      return c.json(
-        { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found.2") } },
-        404,
-      );
-    }
-
-    return c.json(timeline);
-  });
-
-  return app;
 }
 
 /**
@@ -867,9 +934,7 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
  * to any mode, gateway kind or deployment environment.
  */
 export function createPaymentProviderModeRoutes(observation: ProviderModeObservation | undefined) {
-  const app = new Hono<PaymentsApiEnv>();
-
-  app.get("/payment-provider-mode", (c) => {
+  return new Hono<PaymentsApiEnv>().get("/payment-provider-mode", (c) => {
     const observed = parseProviderModeObservation(observation);
     if (!observed) {
       return c.json(
@@ -885,8 +950,6 @@ export function createPaymentProviderModeRoutes(observation: ProviderModeObserva
 
     return c.json({ ...observed, observedAt: new Date(Date.now()).toISOString() });
   });
-
-  return app;
 }
 
 export function createPaymentProcessorWebhookRoutes(services: PaymentServices) {

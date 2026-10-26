@@ -33,6 +33,7 @@
     "@chase-sets/easypost-postage": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/fulfillment": "workspace:*",
+    "@chase-sets/google-merchant": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",

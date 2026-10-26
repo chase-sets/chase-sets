@@ -40,6 +40,23 @@ Re-check and retire one PR by hand (destroys only if it is still an idle draft):
 gh workflow run platform-preview-cleanup.yml --ref main -f pr_number=<n> -f idle_draft_recheck=true
 ```
 
+## Kubernetes Version Changes
+
+Routine patch auto-upgrades are off. DigitalOcean may still force an unsupported-version upgrade or schedule a security patch upgrade, with notice, in the configured maintenance window. Staging uses Sunday at 09:00 UTC and production uses Wednesday at 09:00 UTC so staging is first for risk reduction, not a provider guarantee.
+
+### Planned Upgrade Sequence
+
+1. Read the live version, `auto_upgrade`, surge setting, maintenance policy, and capture time from the Foundation run's `pre-apply-cluster.json`. Read the candidate target from the same run's `get-upgrades` capture; do not infer a target from a local Terraform default.
+2. Dispatch `Platform DOKS Foundation Apply` for staging with `version_change=upgrade` and the listed target slug, at least 2 days before production. The preflight refuses a target absent from `get-upgrades`.
+3. Wait for the staging control plane, CoreDNS, konnectivity, and every workload to report Ready. Run the existing staging smoke and deploy evidence; the host gives a go before production.
+4. Dispatch the production apply with `version_change=upgrade` only after staging evidence and the host go-ahead. Record both workflow URLs and their artifacts against the upgrade notice.
+
+There is no downgrade path. Recovery from a bad version is provider escalation plus the existing Helm rollback or redeploy procedure; do not lower `kubernetes_version` or recreate a protected cluster.
+
+### Steady State And Notice Review
+
+Every DigitalOcean upgrade or end-of-life notice follows the planned sequence before its provider date. An unplanned upgrade is an incident: preserve the pre/post cluster artifacts, record the provider notice, and do not claim that `auto_upgrade=false` prevents provider-forced changes. Monthly, and before an end-of-life date, the host compares the last recorded cluster version with DigitalOcean's public supported-version list and starts a planned upgrade at least 30 days before end of life.
+
 ## Deploy And Status
 
 Routine deploys run through Platform Deploy. For local read-only inspection:

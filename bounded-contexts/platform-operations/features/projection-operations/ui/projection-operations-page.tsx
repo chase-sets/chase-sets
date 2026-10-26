@@ -26,18 +26,10 @@ import type {
   AttentionItem,
   ProjectionOperation,
   ProjectionOperationsFilters,
-  ProjectionOperationsSnapshot,
   ProjectionRepairQueueItem,
 } from "../read-model/contracts";
-import {
-  activeWorkerCount,
-  buildAttentionItems,
-  buildProjectionRepairQueue,
-  staleWorkerCount,
-  stateSeverity,
-} from "../read-model/contracts";
-import type { WakeStatusSnapshot } from "../read-model/wake-status-contracts";
-import { buildWakeAttentionItems } from "../read-model/wake-status-contracts";
+import type { ProjectionOperationsConsoleSnapshot, WakeStatusConsoleSnapshot } from "../api/client";
+import { stateSeverity } from "../read-model/contracts";
 import {
   ProjectionDetailDrawer,
   formatDecimalCount,
@@ -63,10 +55,10 @@ export function ProjectionOperationsPage({
   onSelectedDetailClose,
   connectionStaleAfterMs,
 }: Readonly<{
-  data: ProjectionOperationsSnapshot;
+  data: ProjectionOperationsConsoleSnapshot;
   filters: ProjectionOperationsFilters;
   actorPermissions?: readonly string[];
-  wakeStatus?: WakeStatusSnapshot | null;
+  wakeStatus?: WakeStatusConsoleSnapshot | null;
   onOperationTerminal?: () => void;
   onSelectedDetailClose?: () => void;
   connectionStaleAfterMs?: number;
@@ -128,8 +120,8 @@ export function ProjectionOperationsPage({
   const operationsConnection = useLiveConnectionStatus(!hasWatchedOperations || allOperationStreamsConnected, {
     staleAfterMs: connectionStaleAfterMs,
   });
-  const summaryItems = [...buildAttentionItems(liveData), ...buildWakeAttentionItems(wakeStatus)];
-  const repairItems = buildProjectionRepairQueue(liveData).filter((item) =>
+  const summaryItems = [...liveData.attentionItems, ...(wakeStatus?.attentionItems ?? [])];
+  const repairItems = liveData.repairQueue.filter((item) =>
     matchesProjectionFilters(
       {
         search: [item.label, item.detail, item.projectionKey, item.streamId].filter(Boolean).join(" "),
@@ -365,11 +357,11 @@ function OperationsSummary({
   attentionItems,
   connectionStatus,
 }: Readonly<{
-  data: ProjectionOperationsSnapshot;
+  data: ProjectionOperationsConsoleSnapshot;
   attentionItems: readonly AttentionItem[];
   connectionStatus?: ReactNode;
 }>) {
-  const status = resolveConsoleStatus(data, attentionItems, staleWorkerCount(data));
+  const status = resolveConsoleStatus(data, attentionItems, data.staleWorkerCount);
   return (
     <Surface elevation="tinted" data-elevation-role="furniture">
       <Stack gap={4}>
@@ -418,8 +410,8 @@ function OperationsSummary({
           <Stat
             label={t(`${routeKey}.activeWorkers`)}
             value={t(`${routeKey}.activeWorkerSummary`, {
-              active: activeWorkerCount(data),
-              stale: staleWorkerCount(data),
+              active: data.activeWorkerCount,
+              stale: data.staleWorkerCount,
             })}
           />
         </StatGrid>
@@ -434,7 +426,7 @@ function OperationsSummary({
 }
 
 function resolveConsoleStatus(
-  data: ProjectionOperationsSnapshot,
+  data: ProjectionOperationsConsoleSnapshot,
   attentionItems: readonly AttentionItem[],
   staleWorkers: number,
 ) {

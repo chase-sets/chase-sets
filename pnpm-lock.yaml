@@ -569,6 +569,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/google-shopping-export':
+        specifier: workspace:*
+        version: link:../../contracts/google-shopping-export
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -1110,6 +1113,9 @@ importers:
       hono:
         specifier: ^4.13.13
         version: 4.13.13
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@chase-sets/stripe-config':
         specifier: workspace:*
@@ -1488,6 +1494,8 @@ importers:
   contracts/event-core: {}
 
   contracts/evidence-window-provider-write: {}
+
+  contracts/google-shopping-export: {}
 
   contracts/http:
     dependencies:
@@ -2128,6 +2136,9 @@ importers:
       '@chase-sets/fulfillment':
         specifier: workspace:*
         version: link:../../bounded-contexts/fulfillment
+      '@chase-sets/google-merchant':
+        specifier: workspace:*
+        version: link:../../infrastructure/google-merchant
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../../bounded-contexts/identity
@@ -2405,6 +2416,16 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+
+  infrastructure/google-merchant:
+    dependencies:
+      '@chase-sets/google-shopping-export':
+        specifier: workspace:*
+        version: link:../../contracts/google-shopping-export
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.12)(jsdom@29.1.1)(vite@8.3.4(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   infrastructure/local-email-capture:
     dependencies:

@@ -141,7 +141,7 @@ function createSeat({
 }
 
 // encoding "buffer" keeps the helper's raw stream bytes for byte-exact checks.
-function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
+function runPwshRaw(args, { cwd, env, input = "", encoding = "utf8" }) {
   const result = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", ...args], {
     cwd,
     env,
@@ -153,6 +153,22 @@ function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
   });
   if (result.error) throw result.error;
   return result;
+}
+
+let pwshVersionChecked = false;
+function runPwsh(args, options) {
+  if (!pwshVersionChecked) {
+    const probe = runPwshRaw(["-Command", "$PSVersionTable.PSVersion.Major"], {
+      cwd: os.tmpdir(),
+      env: process.env,
+    });
+    if (probe.error) throw probe.error;
+    if (probe.status !== 0 || Number(probe.stdout.trim()) < 7) {
+      throw new Error("PowerShell 7 or newer is required");
+    }
+    pwshVersionChecked = true;
+  }
+  return runPwshRaw(args, options);
 }
 
 function runSeat(seat, script, args, env = {}, { encoding } = {}) {
@@ -330,7 +346,6 @@ afterAll(() => {
   if (privatePwshHome) rmSync(privatePwshHome, { recursive: true, force: true });
   rmSync(initializationEvidencePath, { force: true });
 });
-
 afterEach(() => {
   for (const root of seats.splice(0)) rmSync(root, { recursive: true, force: true });
 });
