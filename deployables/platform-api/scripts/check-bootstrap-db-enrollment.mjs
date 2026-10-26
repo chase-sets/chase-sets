@@ -153,7 +153,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "connector-mount-gate-isolation.db.test.ts": {
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "connector_composed_7993",
     bootBearingCases: "all",
     cases: [
@@ -247,7 +247,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "seed-command-full-pools.db.test.ts": {
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_seed_command_full_pools",
     bootBearingCases: "all",
     cases: [
@@ -474,7 +474,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
 
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
   "test:db:1": 36,
-  "test:db:2": 33,
+  "test:db:2": 45,
 });
 
 /**

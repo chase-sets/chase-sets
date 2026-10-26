@@ -650,14 +650,14 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 // The current schedule model's own minimum unit count for the current manifest.
 // Capture-derived: an enrollment refreshes it with the projected schedule pins.
 const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [355098, 337770];
+const currentProjectedMakespans = [300363, 392505];
 const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2">> = Object.freeze({
   "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
   "authoritative-seed-resume-core.db.test.ts": "test:db:1",
   "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
-  "connector-mount-gate-isolation.db.test.ts": "test:db:1",
+  "connector-mount-gate-isolation.db.test.ts": "test:db:2",
   "bootstrap-lock-contention.db.test.ts": "test:db:1",
-  "seed-command-full-pools.db.test.ts": "test:db:1",
+  "seed-command-full-pools.db.test.ts": "test:db:2",
   "bootstrap-scenario.db.test.ts": "test:db:2",
   "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
   "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
@@ -665,7 +665,7 @@ const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2
   "catalog-seed-interruption-resume.db.test.ts": "test:db:2",
   "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
 });
-const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 36, "test:db:2": 33 });
+const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 36, "test:db:2": 45 });
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
   return (
@@ -4130,8 +4130,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       currentProjectedMakespans.map((makespanMs, index) => [`test:db:${index + 1}`, makespanMs]),
     );
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [36, 36],
-      [33, 33],
+      [24, 36],
+      [45, 45],
     ]);
     expect(schedule.aggregateMs).toBe(692868);
     expect(schedule.aggregateWithOverheadMs).toBe(750266);
