@@ -888,6 +888,30 @@ pub trait Discovery {
     async fn item(&self, id: &str) -> Result<Option<Item>, ApiError>;
     /// What the page shows a seller who may list (`SellerOverlay`).
     async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
+    /// Items like the item, by its slug or its id (`GET /api/marketplace/items/{id}/similar`).
+    async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
+}
+
+/// An item like the page's (`DiscoverySimilarItem`), the fields its card shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SimilarItem {
+    pub catalog_item_id: String,
+    #[serde(default)]
+    pub slug: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+    #[serde(default)]
+    pub product_asset_sets: Vec<AssetSet>,
+    pub image_fallback: Option<ImageFallback>,
+}
+
+/// `DiscoverySimilarItemsResponse`, the part the page reads.
+#[derive(Deserialize)]
+struct SimilarItems {
+    #[serde(default)]
+    items: Vec<SimilarItem>,
 }
 
 impl Discovery for Caller<'_> {
@@ -901,6 +925,10 @@ impl Discovery for Caller<'_> {
 
     async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError> {
         self.read(&format!("{ITEMS}/{}/seller-overlay", segment(id)), DISCOVERY).await
+    }
+
+    async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError> {
+        Ok(self.read::<SimilarItems>(&format!("{ITEMS}/{}/similar", segment(id)), DISCOVERY).await?.items)
     }
 }
 

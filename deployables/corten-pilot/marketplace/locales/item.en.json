@@ -1,5 +1,7 @@
 {
   "route.checkout.closed": "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+  "similar.title": "More like this",
+  "similar.view_item": "View item",
   "page.1.matching.listing": "1 matching listing",
   "page.action": "Action",
   "page.active.listing": "active listing",
@@ -490,5 +492,7 @@
   "route.reference_info.grading_cert.title": "Grading cert registry match",
   "route.reference_info.grading_cert.trigger": "What this means",
   "language.en": "English",
-  "language.ja": "Japanese"
+  "language.ja": "Japanese",
+  "identity.title": "{title}",
+  "identity.title.and.subtitle": "{title} — {subtitle}"
 }

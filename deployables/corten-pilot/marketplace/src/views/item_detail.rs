@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::on_marketplace;
 use crate::{
-    api::{FieldValue, Item, Listing, Offer, Reference, segment},
+    api::{FieldValue, Item, Listing, Offer, Reference, SimilarItem, segment},
     app::url,
     buying::{BuyFields, BuyNotice, RailForm, field},
     items::{
@@ -392,6 +392,9 @@ pub fn ItemDetail<'a>(
             </div>
             <div class={Below}>
                 <MarketBook t={t} screen={screen} address={address} slug={slug} />
+                if !screen.similar.is_empty() {
+                    <Similar t={t} items={&screen.similar} />
+                }
             </div>
         </div>
         <Dock t={t} screen={screen} address={address} slug={slug} />
@@ -462,6 +465,97 @@ fn Gallery<'a>(shots: &'a [Shot]) -> impl Render {
             }
         </div>
     }
+}
+
+/// Marketplace's similar items (`ItemDetailSimilarItems`): a card for each, one column, two from
+/// 64rem. Each card is the search result's `ListingCard` without its parts that do nothing here:
+/// its Save button has no action in marketplace, and the card back drawn behind a picture is
+/// decoration. Below the market book, so each picture is `loading="lazy"`.
+#[component(css = ItemDetail)]
+fn Similar<'a>(t: ItemMsg, items: &'a [SimilarItem]) -> impl Render {
+    html! {
+        <section class={SimilarSection} aria-labelledby="similar-items">
+            <h2 class={CardTitle} id="similar-items">{t.similar_title()}</h2>
+            <ul class={SimilarGrid}>
+                for item in items {
+                    <SimilarCard t={t} item={item} />
+                }
+            </ul>
+        </section>
+    }
+}
+
+/// A similar item's card: its picture (`similar_image`), its title and subtitle, and View item,
+/// which names the card it is in.
+#[component(css = ItemDetail)]
+fn SimilarCard<'a>(t: ItemMsg, item: &'a SimilarItem) -> impl Render {
+    let slug = if item.slug.is_empty() { item.catalog_item_id.as_str() } else { item.slug.as_str() };
+    let href = url::Item { slug, state: Address::default() }.href();
+    let alt = match item.subtitle.as_deref().filter(|s| !s.is_empty()) {
+        Some(subtitle) => t.identity_title_and_subtitle(&item.title, subtitle).to_string(),
+        None => t.identity_title(&item.title).to_string(),
+    };
+    let title_id = format!("similar-{}", item.catalog_item_id);
+    let image = similar_image(item);
+    html! {
+        <li class={SimilarCard}>
+            <div class={SimilarMedia}>
+                match &image {
+                    Some(image) => {
+                        <img
+                            src={&image.src}
+                            srcset={image.srcset.as_deref()}
+                            sizes={image.srcset.as_ref().filter(|s| s.ends_with('w')).map(|_| "(min-width: 768px) 164px, 124px")}
+                            width={image.width}
+                            height={image.height}
+                            loading="lazy"
+                            decoding="async"
+                            alt={&alt}
+                        >
+                    }
+                    None => { <span class={SimilarNoImage} role="img" aria-label={&alt}></span> }
+                }
+            </div>
+            <div class={SimilarText}>
+                <h3 class={SimilarTitle} id={&title_id}>{&item.title}</h3>
+                if let Some(subtitle) = item.subtitle.as_deref().filter(|s| !s.is_empty()) {
+                    <p class={SimilarSubtitle}>{subtitle}</p>
+                }
+                <a class={Button} href={&href} aria-describedby={&title_id}>{t.similar_view_item()}</a>
+            </div>
+        </li>
+    }
+}
+
+/// A similar item's card picture (`buildDiscoveryProductAssetImage(.., "search-card", ..)`, then
+/// the first image, then the card back when it stays, at its card size).
+pub fn similar_image(item: &SimilarItem) -> Option<Image> {
+    for set in &item.product_asset_sets {
+        let mut variants: Vec<_> = set.variants.iter().filter(|v| v.role == "search-card").collect();
+        variants.sort_by_key(|v| v.width);
+        if let Some(one) = variants.iter().find(|v| v.density == 1).or(variants.first()) {
+            let srcset = variants.iter().map(|v| format!("{} {}w", on_marketplace(&v.public_url), v.width)).collect::<Vec<_>>();
+            return Some(Image {
+                src: on_marketplace(&one.public_url),
+                srcset: Some(srcset.join(", ")),
+                width: Some(one.width),
+                height: Some(one.height),
+            });
+        }
+    }
+    if let Some(url) = item.image_urls.first() {
+        return Some(Image { src: on_marketplace(url), srcset: None, width: None, height: None });
+    }
+    let fallback = item.image_fallback.as_ref().filter(|f| f.usage == "permanent")?;
+    let card = fallback.variants.get("card");
+    let srcset = card.map(|v| {
+        [(v.one_x.as_deref(), "1x"), (v.two_x.as_deref(), "2x")]
+            .into_iter()
+            .filter_map(|(url, density)| url.map(|url| format!("{} {density}", on_marketplace(url))))
+            .collect::<Vec<_>>()
+            .join(", ")
+    });
+    Some(Image { src: on_marketplace(&fallback.url), srcset: srcset.filter(|s| !s.is_empty()), width: None, height: None })
 }
 
 /// A listing or offer the address chose that the market no longer has.

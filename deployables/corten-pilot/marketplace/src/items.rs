@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{
         ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
-        SellerOverlay, StandardTerms,
+        SellerOverlay, SimilarItem, StandardTerms,
     },
     app::{Shared, marketplace_origin, url},
     auth::Session,
@@ -514,6 +514,8 @@ pub struct ItemScreen {
     pub listing_pending: Option<String>,
     /// Whether a seller who may list has their ship-from setup.
     pub listing_setup: ListingSetup,
+    /// Items like this one, under the market book; none when the read failed.
+    pub similar: Vec<SimilarItem>,
 }
 
 impl ItemScreen {
@@ -635,6 +637,7 @@ impl ItemScreen {
             guest_listing_draft: false,
             listing_pending: None,
             listing_setup: ListingSetup::NotApplicable,
+            similar: Vec::new(),
             picks,
             item,
         }
@@ -752,9 +755,12 @@ async fn page(
     let receipt = first(listing::WRITTEN).and_then(|r| Receipt::from_param(Some(r)));
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let address = Address::read(&raw);
-    // The item and the seller overlay at once: with a receipt, each may wait on the API for the
-    // write's projection (2.5 s at most), and one after the other would wait twice.
-    let (read, overlay) = tokio::join!(caller.item(&id), read_overlay(&req, &caller, &id, &address));
+    // The item, the seller overlay and the similar items at once: with a receipt, the first two
+    // may wait on the API for the write's projection (2.5 s at most), and one after the other
+    // would wait twice. The similar items wait for no write, so they read without the receipt.
+    let unwaited = config.platform.caller(&headers, config.proto, None);
+    let (read, overlay, similar) =
+        tokio::join!(caller.item(&id), read_overlay(&req, &caller, &id, &address), similar_items(&unwaited, &id));
     let (item, behind) = match read {
         Ok(Some(item)) => (Some(item), false),
         Ok(None) if receipt.is_none() => (None, false),
@@ -766,7 +772,7 @@ async fn page(
     let item = match item {
         Some(item) => item,
         None if !behind => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        None => match config.platform.caller(&headers, config.proto, None).item(&id).await {
+        None => match unwaited.item(&id).await {
             Ok(Some(item)) => item,
             Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
             Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
@@ -791,15 +797,27 @@ async fn page(
     let setup = listing_setup(&req, overlay, receipt.is_some());
     // The listing the address names was just published and the item's read is behind it.
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
-    let reads = SellReads { terms, behind: behind || setup == ListingSetup::Recovering, setup, listing_pending };
+    let behind = behind || setup == ListingSetup::Recovering;
+    let reads = PageReads { terms, behind, setup, listing_pending, similar };
     render(&req, item, &address, notice.as_ref(), StatusCode::OK, reads)
 }
 
-/// What the Sell tab reads beyond the item: a guest's offer terms (`offer_terms`), and for a
-/// seller who may list, their ship-from setup (the seller overlay). `after_write`: the read
-/// carries a write's receipt, so a read that is not caught up is the setup still updating.
+/// Items like item `id` (a slug or an id). Marketplace's loader reads a failure as none, and so
+/// does the pilot: the section is left out.
+async fn similar_items(caller: &Caller<'_>, id: &str) -> Vec<SimilarItem> {
+    caller.similar(id).await.unwrap_or_else(|error| {
+        tracing::warn!("the similar items' read failed: {error}");
+        Vec::new()
+    })
+}
+
+/// What the page reads beyond the item: the Sell tab's, a guest's offer terms (`offer_terms`)
+/// and for a seller who may list their ship-from setup (the seller overlay); and the similar
+/// items, which only the page's own read has (a refused form's page leaves them out).
+/// `after_write`: the read carries a write's receipt, so a read that is not caught up is the
+/// setup still updating.
 #[derive(Default)]
-pub struct SellReads {
+pub struct PageReads {
     pub terms: Option<StandardTerms>,
     pub setup: ListingSetup,
     /// A read is behind the write the address carries: the page asks to be read again.
@@ -807,6 +825,7 @@ pub struct SellReads {
     /// The listing the address names was just published and the item's read has not caught up:
     /// the page says so instead of offering to list again. Its id.
     pub listing_pending: Option<String>,
+    pub similar: Vec<SimilarItem>,
 }
 
 /// Whether a seller who may list can list now (marketplace's `ListingSetupLoadState`): their
@@ -828,11 +847,11 @@ pub enum ListingSetup {
 
 /// The Sell tab's reads for `item` at `address` (`sell_reads` without a receipt for a
 /// refused form).
-pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address, after_write: bool) -> SellReads {
+pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address, after_write: bool) -> PageReads {
     let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
     let (terms, overlay) = tokio::join!(offer_terms(req, caller, item, address), read_overlay(req, caller, id, address));
     let setup = listing_setup(req, overlay, after_write);
-    SellReads { terms, behind: setup == ListingSetup::Recovering, setup, listing_pending: None }
+    PageReads { terms, behind: setup == ListingSetup::Recovering, setup, listing_pending: None, similar: Vec::new() }
 }
 
 /// The seller overlay of item `id` (a slug or an id), when the page shows it: on the Sell tab,
@@ -886,7 +905,7 @@ pub fn render(
     address: &Address,
     notice: Option<&BuyNotice>,
     status: StatusCode,
-    reads: SellReads,
+    reads: PageReads,
 ) -> corten::Result {
     let viewer = match req.context::<Session>() {
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
@@ -901,6 +920,7 @@ pub fn render(
     // A listing still catching up is not "unavailable": the rail says it is on its way.
     screen.stale_listing &= reads.listing_pending.is_none();
     screen.listing_pending = reads.listing_pending;
+    screen.similar = reads.similar;
     let behind = reads.behind;
     let t: ItemMsg = req.t();
     let item = &screen.item;

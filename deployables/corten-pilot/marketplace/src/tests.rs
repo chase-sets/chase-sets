@@ -1735,9 +1735,30 @@ fn item() -> Value {
 
 /// The Discovery API's item read: `charizard` (or its id), with the listings published here as
 /// the seller's; `unlisted` is the same item with no listings or offers; `down` fails, anything
-/// else is unknown.
+/// else is unknown. `charizard` has three similar items, one with its search card, one with only
+/// its card back and one with no picture; `unlisted`'s similar items fail.
 fn discovery_item(stand: &Stand, id: &str) -> Response {
     match id {
+        "charizard/similar" => Json(json!({ "mode": "category", "count": 3, "items": [
+            {
+                "catalog_item_id": "cat_blastoise", "slug": "blastoise", "title": "Blastoise", "subtitle": "Base Set 2/102",
+                "image_urls": ["/fake-cdn/blastoise.png"], "image_fallback": null,
+                "product_asset_sets": [{ "variants": [
+                    { "role": "search-card", "density": 2, "width": 328, "height": 458, "publicUrl": "/fake-cdn/blastoise-328.webp" },
+                    { "role": "search-card", "density": 1, "width": 164, "height": 229, "publicUrl": "/fake-cdn/blastoise-164.webp" },
+                    { "role": "thumbnail", "density": 1, "width": 64, "height": 89, "publicUrl": "/fake-cdn/blastoise-64.webp" },
+                ] }],
+            },
+            {
+                "catalog_item_id": "cat_bulbasaur", "slug": "bulbasaur", "title": "Bulbasaur", "subtitle": "Base Set 44/102",
+                "image_urls": [], "product_asset_sets": [],
+                "image_fallback": { "url": "/fake-cdn/assets/back.png", "alt": "Card back", "usage": "permanent",
+                    "variants": { "card": { "oneX": "/fake-cdn/assets/back-card.png", "twoX": "/fake-cdn/assets/back-card@2x.png" } } },
+            },
+            { "catalog_item_id": "cat_mew", "slug": "", "title": "Mew", "subtitle": null, "image_urls": [], "product_asset_sets": [], "image_fallback": null },
+        ] }))
+        .into_response(),
+        "unlisted/similar" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         "pictured" => {
             let mut item = item();
             item["slug"] = json!("pictured");
@@ -2732,7 +2753,7 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         .unwrap()
         .iter()
         .rev()
-        .find(|c| c.path.starts_with("/api/marketplace/items/charizard") && c.path != OVERLAY)
+        .find(|c| c.path.starts_with("/api/marketplace/items/charizard") && c.path != OVERLAY && !c.path.ends_with("/similar"))
         .cloned()
         .unwrap();
     assert_eq!(waits_for(&item_read.headers).as_deref(), Some("31"), "the item waits for the publication");
@@ -2780,6 +2801,43 @@ async fn an_item_with_more_than_one_picture_shows_one_at_a_time_picked_by_its_th
     // One picture: just the picture.
     let (_, _, html) = pilot.send(get("/items/charizard", None)).await;
     assert!(!html.contains("item-detail__gallery") && html.contains(r#"fetchpriority="high""#), "{html}");
+}
+
+#[tokio::test]
+async fn similar_items_are_cards_under_the_market_book_and_a_failed_read_leaves_them_out() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let at = html.find(r#"aria-labelledby="similar-items""#).expect("the similar items");
+    assert!(html.find(r#"id="market-book""#).unwrap() < at, "under the market book: {html}");
+    let section = &html[at..at + html[at..].find("</section>").unwrap()];
+    assert!(section.contains(r#"id="similar-items">More like this</h2>"#), "{section}");
+    assert_eq!(section.matches("<li").count(), 3, "{section}");
+    // Each card's View item is the item's page here, by its slug or else its id, and names its card.
+    assert_eq!(hrefs(section, "View item"), ["/items/blastoise", "/items/bulbasaur", "/items/cat_mew"]);
+    assert!(section.contains(r#"aria-describedby="similar-cat_blastoise""#) && section.contains(r#"id="similar-cat_blastoise""#));
+    // The search card's rendition with its widths; else the card back at its card size; else none.
+    assert!(
+        section.contains(concat!(
+            r#"src="http://localhost:7753/fake-cdn/blastoise-164.webp" "#,
+            r#"srcset="http://localhost:7753/fake-cdn/blastoise-164.webp 164w, http://localhost:7753/fake-cdn/blastoise-328.webp 328w" "#,
+            r#"sizes="(min-width: 768px) 164px, 124px" width="164" height="229" loading="lazy""#,
+        )),
+        "{section}"
+    );
+    assert!(section.contains(r#"alt="Blastoise — Base Set 2/102""#), "{section}");
+    assert!(
+        section.contains(concat!(
+            r#"src="http://localhost:7753/fake-cdn/assets/back.png" "#,
+            r#"srcset="http://localhost:7753/fake-cdn/assets/back-card.png 1x, http://localhost:7753/fake-cdn/assets/back-card@2x.png 2x" loading="lazy""#,
+        )),
+        "{section}"
+    );
+    assert!(section.contains(r#"role="img" aria-label="Mew""#), "{section}");
+    // A failed read: the page without them.
+    let (status, _, html) = pilot.send(get("/items/unlisted", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("similar-items"), "{html}");
 }
 
 #[tokio::test]
