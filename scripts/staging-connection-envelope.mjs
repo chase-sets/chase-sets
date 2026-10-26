@@ -136,7 +136,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
 
 export function enforceStagingConnectionEnvelope(input) {
   if (!input.advisoryAwaitsSeedJobTermination || !input.advisoryResumesWorkerBeforeRbacRemoval) {
-    throw new Error("Advisory scenario seed must await its Job termination and owner-fenced release before RBAC removal.");
+    throw new Error(
+      "Advisory scenario seed must await its Job termination and owner-fenced release before RBAC removal.",
+    );
   }
   if (input.directUrls !== input.contextCount || input.directUrls < 1) {
     throw new Error("Staging bootstrap direct URL inventory does not match the context/control budget.");
@@ -154,7 +156,9 @@ export function enforceStagingConnectionEnvelope(input) {
     input.serializedGroups[0] !== "platform-staging-advisory-evidence" ||
     input.serializedGroups.slice(1).some((group) => group !== stagingGroup)
   ) {
-    throw new Error("Staging bootstrap, advisory owner-fenced seed yield, and rollout must retain their enforced phases.");
+    throw new Error(
+      "Staging bootstrap, advisory owner-fenced seed yield, and rollout must retain their enforced phases.",
+    );
   }
   if (
     !Number.isInteger(input.bootstrapPoolMax) ||

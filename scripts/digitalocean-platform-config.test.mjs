@@ -1,5 +1,15 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -228,6 +238,234 @@ function executeAdvisoryEvaluator(mode, overrides = {}, fixture = null) {
       encoding: "utf8",
     });
     return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "" };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function executeAdvisoryWait({
+  token = true,
+  dispatcherDoneAfter = 0,
+  memberActive = false,
+  anchorMinutesAgo = 0,
+  source = null,
+} = {}) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-wait-"));
+  const script = join(root, "advisory-window.mjs");
+  const output = join(root, "output");
+  let workflowSource = source ?? extractAdvisoryEvaluator();
+  workflowSource = workflowSource
+    .replace(
+      '(await execFileAsync("helm", ["get", "values", "chase-sets-platform", "--namespace", "chase-sets-platform", "--output", "json"])).stdout',
+      "process.env.HELM_STUB_JSON",
+    )
+    .replace(
+      'const helmCensus = await readHelmOperationCensus({ release: "chase-sets-platform", namespace: "chase-sets-platform" });',
+      "const helmCensus = { activeOperations: [] };",
+    );
+  writeFileSync(script, workflowSource);
+  const commandSuffix = process.platform === "win32" ? ".cmd" : "";
+  const helm = join(root, `helm${commandSuffix}`);
+  const kubectl = join(root, `kubectl${commandSuffix}`);
+  const image = JSON.stringify({
+    global: {
+      image: {
+        registry: "registry.digitalocean.com",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: "a".repeat(40),
+        digest: `sha256:${"b".repeat(64)}`,
+      },
+    },
+  });
+  const writeStub = (path, body) => {
+    writeFileSync(
+      path,
+      process.platform === "win32" ? `@echo off\necho ${body}\n` : `#!/bin/sh\nprintf '%s\\n' '${body}'\n`,
+    );
+    if (process.platform !== "win32") chmodSync(path, 0o755);
+  };
+  writeStub(helm, image);
+  writeStub(kubectl, JSON.stringify({ items: [] }));
+  let jobReads = 0;
+  const activeRun = (
+    id,
+    path,
+    name,
+    status = "in_progress",
+    createdAt = new Date(Date.now() - 60_000).toISOString(),
+  ) => ({
+    id,
+    name,
+    path: `.github/workflows/${path}`,
+    status,
+    run_attempt: 1,
+    created_at: createdAt,
+    updated_at: new Date().toISOString(),
+  });
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const route = `${url.pathname}${url.search}`.replace("/repos/synthetic/chase-sets/", "");
+    const send = (body, status = 200) => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(body));
+    };
+    const runs = route.match(/^actions\/runs\?status=([^&]+)/u);
+    if (runs) {
+      if (runs[1] !== "in_progress") return send({ total_count: 0, workflow_runs: [] });
+      return send({
+        total_count: 2,
+        workflow_runs: [
+          activeRun(999, "platform-staging-advisory-evidence.yml", "Platform Staging Advisory Evidence"),
+          activeRun(1001, "platform-production.yml", "Platform Deploy"),
+        ],
+      });
+    }
+    if (route === "actions/runs/999")
+      return send(activeRun(999, "platform-staging-advisory-evidence.yml", "Platform Staging Advisory Evidence"));
+    const jobs = route.match(/^actions\/runs\/(\d+)\/attempts\/\d+\/jobs/u);
+    if (jobs) {
+      if (jobs[1] === "1001") {
+        jobReads += 1;
+        const done = jobReads > dispatcherDoneAfter;
+        return send({
+          total_count: 2,
+          jobs: [
+            {
+              name: "Deploy Staging",
+              status: done ? "completed" : "in_progress",
+              conclusion: done ? "success" : null,
+              started_at: new Date(Date.now() - 20_000).toISOString(),
+              completed_at: done ? new Date(Date.now() - 1_000).toISOString() : null,
+            },
+            {
+              name: "Deploy Production",
+              status: "in_progress",
+              conclusion: null,
+              started_at: new Date(Date.now() - 10_000).toISOString(),
+              completed_at: null,
+            },
+          ],
+        });
+      }
+      if (memberActive && jobs[1] === "2001") {
+        return send({
+          total_count: 1,
+          jobs: [
+            {
+              name: "evidence",
+              status: "in_progress",
+              conclusion: null,
+              started_at: new Date().toISOString(),
+              completed_at: null,
+            },
+          ],
+        });
+      }
+      return send({ total_count: 0, jobs: [] });
+    }
+    if (route.startsWith("actions/workflows/") && route.includes("/runs?")) {
+      if (!memberActive) return send({ total_count: 0, workflow_runs: [] });
+      const created = new URL(`http://127.0.0.1${route}`).searchParams.get("created") ?? "";
+      const createdAt = Date.now() - 60 * 60_000;
+      const requestedAt = Date.parse(created.replace(/^>=/u, ""));
+      if (Number.isFinite(requestedAt) && requestedAt > createdAt) return send({ total_count: 0, workflow_runs: [] });
+      return send({
+        total_count: 1,
+        workflow_runs: [
+          activeRun(
+            2001,
+            "platform-staging-evidence-window.yml",
+            "Staging Evidence Window",
+            "in_progress",
+            new Date(createdAt).toISOString(),
+          ),
+        ],
+      });
+    }
+    return send({ total_count: 0, workflow_runs: [] });
+  });
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const apiUrl = `http://127.0.0.1:${server.address().port}`;
+  const anchor = new Date(Date.now() - anchorMinutesAgo * 60_000).toISOString();
+  const env = {
+    PATH: `${root}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+    ...(process.platform === "win32" ? { Path: `${root};${process.env.Path ?? process.env.PATH ?? ""}` } : {}),
+    ...(process.platform === "win32" ? { PATHEXT: process.env.PATHEXT } : {}),
+    ...(process.platform === "win32" ? { SystemRoot: process.env.SystemRoot } : {}),
+    GITHUB_WORKSPACE: resolve("."),
+    GITHUB_API_URL: apiUrl,
+    GITHUB_REPOSITORY: "synthetic/chase-sets",
+    GITHUB_RUN_ID: "999",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_WORKFLOW: "Platform Staging Advisory Evidence",
+    GITHUB_OUTPUT: output,
+    GH_TOKEN: "synthetic-token",
+    PLATFORM_IMAGE: "registry.digitalocean.com/chase-sets/chase-sets-platform:" + "a".repeat(40),
+    PLATFORM_IMAGE_DIGEST: "sha256:" + "b".repeat(64),
+    ADVISORY_WAIT_POLL_MS: "1",
+    ADVISORY_JOB_STARTED_AT: anchor,
+    HELM_STUB_JSON: image,
+    ...(token ? { GITHUB_TOKEN: "synthetic-token" } : {}),
+  };
+  try {
+    const result = await new Promise((resolveChild, rejectChild) => {
+      const child = spawn(process.execPath, [script, "wait-admit"], { cwd: resolve("."), env });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      child.on("error", rejectChild);
+      child.on("close", (status) => resolveChild({ status, stdout, stderr }));
+    });
+    return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "", jobReads };
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function executeAdvisoryAwait({ mode = "complete", cancelled = false, source = null } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-await-"));
+  const output = join(root, "output");
+  const trace = join(root, "trace");
+  const kubectl = join(root, "kubectl");
+  const node = join(root, "node");
+  const step = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Await staging scenario-seed Job termination");
+  const run = (source ?? step).match(/\n\s+run: \|\n([\s\S]*)$/u)?.[1];
+  if (!run) throw new Error("Missing Await staging scenario-seed run block");
+  const script = run
+    .split("\n")
+    .map((line) => line.replace(/^\s{10}/u, ""))
+    .join("\n");
+  writeFileSync(
+    kubectl,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$TRACE"\nif [ "$1" = get ] && [ "$2" = job ]; then\n  if [ "$MODE" = deleted ]; then exit 0; fi\n  printf '%s\\n' '{"status":{"succeeded":1}}'\n  exit 0\nfi\nif [ "$1" = get ] && [ "$2" = pods ]; then exit 0; fi\nif [ "$1" = get ] && [ "$2" = scaledobject ]; then\n  if [ "$MODE" = owned ]; then printf '%s\\n' 'scenario-seed:chase-sets-platform-scenario-seed-123-1'; fi\n  exit 0\nfi\nif [ "$1" = delete ]; then exit 0; fi\nexit 1\n`,
+  );
+  writeFileSync(node, `#!/bin/sh\nprintf 'node %s\\n' "$*" >> "$TRACE"\nexit 0\n`);
+  chmodSync(kubectl, 0o755);
+  chmodSync(node, 0o755);
+  try {
+    const result = spawnSync(operatorBash, ["-c", script], {
+      cwd: resolve("."),
+      env: {
+        PATH: `${root}:${process.env.PATH ?? ""}`,
+        TRACE: trace,
+        MODE: mode,
+        GITHUB_OUTPUT: output,
+        GITHUB_RUN_ID: "123",
+        GITHUB_RUN_ATTEMPT: "1",
+        CHASE_SETS_HELM_RELEASE: "chase-sets-platform",
+        CHASE_SETS_KUBERNETES_NAMESPACE: "chase-sets-platform",
+        ADVISORY_CANCELLED: cancelled ? "true" : "false",
+      },
+      encoding: "utf8",
+    });
+    return {
+      ...result,
+      trace: existsSync(trace) ? readFileSync(trace, "utf8") : "",
+      evidence: existsSync(output) ? readFileSync(output, "utf8") : "",
+    };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -4544,6 +4782,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("readGitHubProductionWriterCensus");
     expect(advisoryEvidenceJob).toContain("platform-staging-rollback-drill.yml");
     expect(advisoryEvidenceJob).toContain("freshness_status");
+    expect(advisoryEvidenceJob).toContain("GITHUB_TOKEN: ${{ github.token }}");
+    expect(advisoryEvidenceJob).not.toContain("github.run_started_at");
+    expect(advisoryEvidenceJob).not.toContain("post-window evaluator");
+    expect(advisoryEvidenceJob).not.toContain('mode === "test-output"');
+    expect(advisoryEvidenceJob).not.toContain('mode === "test-census"');
+    expect(advisoryEvidenceJob).not.toContain('mode === "post-window"');
     expect(advisoryEvidenceJob).toContain("if: steps.advisory_preflight.outcome == 'success'");
     expect(advisoryEvidenceJob).toContain("scenario-seed-release");
     expect(advisoryEvidenceJob).toContain("--reclaim true");
@@ -4569,6 +4813,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(advisoryEvidenceJob).toContain("Fail scenario-seed advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail marketplace E2E advisory signal");
+    expect(advisoryEvidenceJob).toContain("Fail interim advisory freshness signal");
+    expect(advisoryEvidenceJob).toContain("post-window advisory qualification is owned by Slice B");
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
@@ -4816,37 +5062,54 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
-  it("executes the advisory output writer and preserves bounded census controls", () => {
-    const baseline = executeAdvisoryEvaluator("test-output");
-    expect(baseline.status, baseline.stderr).toBe(0);
-    const records = baseline.evidence.trimEnd().split("\n");
-    expect(records).toEqual(["freshness_status=fresh", "freshness_reason=test reason", "error="]);
-    expect(records.every((record) => /^[^=]+=.*$/.test(record))).toBe(true);
+  it("executes real advisory admission, bounded wait and declared-token controls", async () => {
+    const missingToken = await executeAdvisoryWait({ token: false });
+    expect(missingToken.status, missingToken.stderr).not.toBe(0);
+    expect(missingToken.evidence).toContain("freshness_status=unknown");
+    expect(missingToken.evidence).toContain("admission_outcome=unknown");
 
-    const emptyRuns = Object.fromEntries([
-      "platform-preview-wildcard-tls.yml",
-      "platform-production.yml",
-      "platform-staging-admin-qa-actor-fixtures.yml",
-      "platform-staging-bootstrap-hook-drill.yml",
-      "platform-staging-cluster-addons.yml",
-      "platform-staging-evidence-window.yml",
-      "platform-staging-helm-recovery.yml",
-      "platform-staging-representative-commerce-state.yml",
-      "platform-staging-reset.yml",
-      "platform-staging-rollback-drill.yml",
-    ].map((workflow) => [workflow, []]));
-    const historical = executeAdvisoryEvaluator("test-census", {}, { runs: emptyRuns, totals: { "platform-production.yml": 0 } });
-    expect(historical.status, historical.stderr).toBe(0);
-    expect(historical.evidence).toContain("census_result=clear");
+    const admitted = await executeAdvisoryWait({ dispatcherDoneAfter: 1 });
+    expect(admitted.status, admitted.stderr).toBe(0);
+    expect(admitted.evidence).toContain("admission_outcome=admitted");
+    expect(admitted.evidence).toContain("freshness_status=unknown");
+    expect(admitted.evidence).not.toContain("freshness_status=fresh");
 
-    const capped = { ...emptyRuns, "platform-production.yml": Array.from({ length: 101 }, (_, index) => ({ id: index + 1 })) };
-    const overCap = executeAdvisoryEvaluator("test-census", {}, { runs: capped, totals: { "platform-production.yml": 101 } });
-    expect(overCap.status).not.toBe(0);
-    expect(`${overCap.stdout}${overCap.stderr}`).toContain("incomplete for platform-production.yml");
+    const overlap = await executeAdvisoryWait({ memberActive: true });
+    expect(overlap.status, overlap.stderr).not.toBe(0);
+    expect(overlap.evidence).toContain("freshness_status=stale");
+    expect(overlap.evidence).toContain("admission_outcome=refused");
+    // M1 post-admission overlap refusal and M3 created-bound mutants must not admit.
+    expect(overlap.evidence).toContain("staging member platform-preview-wildcard-tls.yml run 2001");
 
-    const evaluator = extractAdvisoryEvaluator();
-    const newlineMutant = evaluator.replace("replaceAll(/[\\r\\n]+/g", "replaceAll(/$^/g");
-    expect(() => expect(newlineMutant).toContain("replaceAll(/[\\r\\n]+/g")).toThrow();
+    const timeout = await executeAdvisoryWait({ dispatcherDoneAfter: Number.POSITIVE_INFINITY, anchorMinutesAgo: 46 });
+    expect(timeout.status, timeout.stderr).not.toBe(0);
+    expect(timeout.evidence).toContain("freshness_status=stale");
+    expect(timeout.evidence).toContain("staging member wait timed out");
+    // M7 wait-gate removal would admit instead of reaching this stale refusal.
+  });
+
+  it("executes Await cleanup modes and preserves cancellation, owner and deleted-job refusals", () => {
+    const noOwner = executeAdvisoryAwait();
+    expect(noOwner.status, noOwner.stderr).toBe(0);
+    expect(noOwner.trace).toContain("delete rolebinding,role,serviceaccount");
+    expect(noOwner.trace).not.toContain("node ");
+
+    const owned = executeAdvisoryAwait({ mode: "owned" });
+    expect(owned.status, owned.stderr).toBe(0);
+    expect(owned.trace).toContain("node ./scripts/platform-kubernetes-deployment.mjs scenario-seed-release");
+    expect(owned.trace).toContain("delete rolebinding,role,serviceaccount");
+
+    const deleted = executeAdvisoryAwait({ mode: "deleted" });
+    expect(deleted.status).not.toBe(0);
+    expect(`${deleted.stdout}${deleted.stderr}`).toContain("scenario-seed Job was deleted");
+    expect(deleted.trace).toContain("delete rolebinding,role,serviceaccount");
+
+    const cancelled = executeAdvisoryAwait({ cancelled: true });
+    expect(cancelled.status, cancelled.stderr).toBe(0);
+    expect(cancelled.trace).toContain("delete job");
+    // M5 cancelled-check removal would omit the guaranteed deletion.
+    expect(cancelled.trace).toContain("--cascade=foreground");
+    expect(owned.trace).toContain("scenario-seed-release");
   });
 
   it("carries the scenario seed bootstrap error into the advisory step summary and incident comment", () => {
