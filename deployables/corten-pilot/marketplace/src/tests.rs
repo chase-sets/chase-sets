@@ -365,6 +365,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "shopper" => actor(&["orders.view", "orders.manage"]),
             "merchant" => actor(&["orders.view", "orders.manage", "listings.view"]),
             "looker" => actor(&["orders.view"]),
+            // The account's shipments, as a buyer and as the seller who sends them.
+            "shipper" => actor(&["fulfillment.view", "fulfillment.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -385,6 +387,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = notification_center(session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    // Before Ordering's, whose sales path is a prefix of the seller's shipments.
+    if let Some(answer) = fulfillment(&method, &uri) {
         return answer;
     }
     if let Some(answer) = ordering(&method, &uri, &headers) {
@@ -4452,7 +4458,8 @@ async fn the_feed_shows_each_notification_its_source_and_time_and_open_stays_her
     {
         assert!(page.contains(words), "{words}: {page}");
     }
-    assert!(html.contains(r#"href="http://localhost:7753/account/purchases/ord_1">Open</a>"#), "{html}");
+    // Both pages are the pilot's (the orders since their port).
+    assert!(html.contains(r#"href="/account/purchases/ord_1">Open</a>"#), "{html}");
     assert!(html.contains(r#"href="/items/charizard">Open</a>"#), "{html}");
     // Mark read only for the unread one, each a form naming its delivery.
     assert_eq!(html.matches(r#"name="delivery""#).count(), 1, "{html}");
@@ -4926,4 +4933,217 @@ async fn a_cancellable_sale_asks_in_a_dialog_before_it_posts() {
     let (status, headers, _) = pilot.send(post("/account/sales/ord_open/cancel", "merchant", "", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers["location"].to_str().unwrap().starts_with("/account/sales/ord_open?after_write="));
+}
+
+const BUYER_SHIPMENTS: &str = "/api/marketplace/account/shipments";
+const SELLER_SHIPMENTS: &str = "/api/marketplace/account/sales/shipments";
+
+/// A shipment as Fulfillment's reads send it: delivered with its tracking, or awaiting its package.
+fn shipment(id: &str, status: &str, tracking: Option<&str>) -> Value {
+    json!({
+        "shipment_id": id, "order_id": "ord_01M5P0SQE5TQGRJCTMD116ACF7", "display_reference": id,
+        "buyer_account_id": "acc_buyer", "buyer_display_name": "Collector Zero",
+        "seller_account_id": "acc_seller", "seller_display_name": "Chase Sets",
+        "status": status, "package_status": "packed", "package_count": 1,
+        "tracking_identifier": tracking, "carrier_name": tracking.map(|_| "UPS"),
+        "shipping_option": "standard", "shipping_method": "standard", "postage_service_level": null,
+        "postage_provider_name": null, "postage_provider_mode": null,
+        "postage_amount_cents": 599, "postage_currency": "USD",
+        "label_status": "purchased", "label_reference": "lbl_1", "label_document_url": null,
+        "label_error_code": null, "label_error_message": null, "label_refund_status": null, "label_refund_reference": null,
+        "delivered_at": (status == "delivered").then_some("2026-03-22T12:00:00.000Z"),
+        "shipping_plan_snapshot": {}, "line_count": 2, "total_quantity": 2, "conflicts": [],
+        "lines": [
+            { "line_id": "spl_1", "item_title": "Twilight Masquerade Elite Trainer Box", "item_subtitle": "Sealed Elite Trainer Box",
+              "product_summary": null, "quantity": 1 },
+            { "line_id": "spl_2", "item_title": "Charizard", "item_subtitle": null, "product_summary": "Raw / Near Mint", "quantity": 1 },
+        ],
+        "exceptions": [], "postage_label_operations": [], "postage_provider_events": [],
+    })
+}
+
+/// The stand-in Fulfillment API: the buyer's and seller's shipments, `shp_gone` unknown and
+/// `shp_down` failing.
+fn fulfillment(method: &Method, uri: &Uri) -> Option<Response> {
+    let path = uri.path();
+    let (seller, rest) = match (path.strip_prefix(SELLER_SHIPMENTS), path.strip_prefix(BUYER_SHIPMENTS)) {
+        (Some(rest), _) => (true, rest),
+        (_, Some(rest)) => (false, rest),
+        _ => return None,
+    };
+    if *method != Method::GET {
+        return Some(StatusCode::METHOD_NOT_ALLOWED.into_response());
+    }
+    if rest.is_empty() {
+        let items = [shipment("shp_done", "delivered", Some("1ZDONE")), shipment("SHP-TEE49CFY", "awaiting-package", None)];
+        return Some(Json(json!({ "items": items, "total": 2, "count": 2 })).into_response());
+    }
+    let mut detail = match rest.strip_prefix('/')? {
+        "shp_gone" => return Some(refusal(StatusCode::NOT_FOUND, "shipment_not_found", "Shipment not found.")),
+        "shp_down" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        "shp_done" => shipment("shp_done", "delivered", Some("1ZDONE")),
+        _ => return Some(refusal(StatusCode::NOT_FOUND, "shipment_not_found", "Shipment not found.")),
+    };
+    if seller {
+        detail["label_status"] = json!("failed");
+        detail["label_error_code"] = json!("rate_unavailable");
+        detail["label_error_message"] = json!("No rate for this package.");
+        detail["label_refund_status"] = json!("requested");
+        detail["label_refund_reference"] = json!("rfd_9");
+        detail["shipping_plan_snapshot"] = json!({ "postagePolicySnapshot": {
+            "policyVersion": "default-postage-policy-v2", "parcelRequired": true,
+            "parcelReasons": ["too-heavy-for-letter"], "signatureRequired": false, "signatureReasons": [],
+            "insuranceRequired": false, "insuranceReasons": [], "insuredValueAmount": null, "shippingEvidenceTier": "tracked-parcel",
+        } });
+        detail["postage_label_operations"] = json!([{
+            "operation_key": "op_1", "operation_kind": "purchase", "status": "failed",
+            "requested_service_level": "USPS_GROUND_ADVANTAGE", "requested_delivery_confirmation": null,
+            "requested_insurance_amount": null, "requested_mailpiece_class": "parcel", "policy_version": "default-postage-policy-v2",
+            "parcel_required": "true", "signature_required": "false", "insurance_required": null, "insured_value_amount": null,
+            "shipping_evidence_tier": "tracked-parcel", "address_override_changed_side": "recipient",
+            "address_override_reason": "Buyer asked for suite", "error_message": "Rate unavailable.",
+        }]);
+        detail["postage_provider_events"] = json!([{
+            "provider_event_id": "evt_1", "provider_name": "easypost", "provider_mode": "test", "event_kind": "tracker.updated",
+            "status": "in_transit", "tracking_identifier": "1ZDONE", "processing_result": "applied", "status_detail": null,
+        }]);
+        detail["exceptions"] =
+            json!([{ "raised_at": "2026-03-21T09:00:00.000Z", "exception_type": "carrier-delay", "notes": "Missed scan." }]);
+    }
+    Some(Json(detail).into_response())
+}
+
+/// The calls the pilot made to Fulfillment.
+fn shipment_calls(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(BUYER_SHIPMENTS) || c.path.starts_with(SELLER_SHIPMENTS)).cloned().collect()
+}
+
+#[tokio::test]
+async fn the_shipments_sign_in_and_need_fulfillment_view() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/account/shipments/shp_done", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "http://localhost:7753/sign-in?returnTo=%2Faccount%2Fshipments%2Fshp_done");
+    for page in ["/account/shipments", "/account/sales/shipments/shp_done"] {
+        let (status, _, _) = pilot.send(get(page, Some("seller"))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{page}: an account without fulfillment.view");
+    }
+    assert!(shipment_calls(&pilot).is_empty(), "nothing is read for who may not see it");
+}
+
+#[tokio::test]
+async fn the_buyers_shipments_are_cards_with_tracking_or_their_reference() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipments Track the post-payment shipping workflow"), "{shown}");
+    assert!(shown.contains("Tracking 1ZDONE delivered Quantity: 2 across 2 lines Open shipment"), "{shown}");
+    assert!(
+        shown.contains(
+            "Shipment SHP-TEE49CFY awaiting-package Quantity: 2 across 2 lines Tracking: Not attached yet Open shipment"
+        ),
+        "{shown}"
+    );
+    assert!(html.contains(r#"href="/account/shipments/shp_done">Open shipment</a>"#), "{html}");
+    let paths: Vec<_> = shipment_calls(&pilot).into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, [format!("{BUYER_SHIPMENTS}?limit=100&offset=0")], "the first 100, as marketplace reads them");
+    // A data client gets the list.
+    let mut req = get("/account/shipments", Some("shipper"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["shipments"]["items"][1]["status"], "awaiting-package", "{body}");
+}
+
+#[tokio::test]
+async fn a_buyers_shipment_shows_its_progress_facts_cover_lines_and_exceptions() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/shipments/shp_done", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Buyer Shipment shp_done Order ORD-D116ACF7 with Chase Sets Back"), "{shown}");
+    assert!(shown.contains("delivered Package state: packed Tracking: 1ZDONE Carrier: UPS"), "{shown}");
+    assert!(shown.contains("Delivered at Mar 22, 2026, 12:00 PM UTC Shipping option: standard"), "{shown}");
+    assert!(shown.contains("Label reference lbl_1 Postage provider: Not selected yet Package count: 1"), "{shown}");
+    assert!(shown.contains("Tracking: 1ZDONE Label status: purchased Postage: $5.99"), "{shown}");
+    assert!(shown.contains("Twilight Masquerade Elite Trainer Box Sealed Elite Trainer Box Standard Quantity: 1"), "{shown}");
+    assert!(shown.contains("Charizard Raw Near Mint Quantity: 1"), "{shown}");
+    assert!(shown.contains("Exceptions No shipment exceptions recorded."), "{shown}");
+    assert!(html.contains(r#"href="/account/shipments">Back</a>"#), "{html}");
+    for seller_only in ["Print packing slip", "Postage diagnostics", "Actions"] {
+        assert!(!shown.contains(seller_only), "a buyer sees no {seller_only}: {shown}");
+    }
+    assert!(html.contains(r#"data-state="complete""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_marketplace() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Seller Shipment shp_done Order ORD-D116ACF7 with Collector Zero Print packing slip Back"), "{shown}");
+    assert!(
+        html.contains(
+            r#"href="http://localhost:7753/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#
+        ),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back</a>"#), "{html}");
+    assert!(!shown.contains("Delivered at"), "the seller's facts have no delivery time, as marketplace's: {shown}");
+    // The order's postage policy, then the diagnostics.
+    assert!(shown.contains("Postage policy Committed requirements from the order package plan snapshot. Policy version default-postage-policy-v2 Parcel required Required Parcel reasons too-heavy-for-letter"), "{shown}");
+    assert!(shown.contains("Label status: No rate for this package."), "{shown}");
+    assert!(shown.contains("Refund: requested (rfd_9)"), "{shown}");
+    assert!(
+        shown.contains(
+            "Postage diagnostics Postage diagnostics Buyer shipping option standard Policy version default-postage-policy-v2"
+        ),
+        "{shown}"
+    );
+    assert!(shown.contains("Label status: failed (rate_unavailable) Provider outcome Not selected yet"), "{shown}");
+    assert!(
+        shown.contains("purchase / failed op_1 USPS service USPS_GROUND_ADVANTAGE Delivery confirmation Not recorded yet"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("Parcel required Required Signature required Not required Insurance required Not recorded yet"),
+        "{shown}"
+    );
+    assert!(shown.contains("Address override: recipient: Buyer asked for suite Label status: Rate unavailable."), "{shown}");
+    assert!(
+        shown.contains("Provider events tracker.updated / in_transit Postage provider: easypost / test Tracking: 1ZDONE"),
+        "{shown}"
+    );
+    assert!(shown.contains("carrier-delay Raised at 2026-03-21T09:00:00.000Z Missed scan."), "{shown}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments/shp_done">Open on marketplace</a>"#), "{html}");
+}
+
+#[tokio::test]
+async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_marketplaces() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/account/shipments/shp_gone", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get("/account/sales/shipments/shp_down", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    // The seller's list is marketplace's (chase-sets/chase-sets#10638), not a sale named "shipments".
+    let (status, headers, _) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "http://localhost:7753/account/sales/shipments");
+    assert!(
+        order_calls(&pilot).iter().all(|c| c.path.starts_with(SELLER_SHIPMENTS)),
+        "Ordering is not asked for a sale called shipments"
+    );
+}
+
+#[tokio::test]
+async fn an_orders_view_fulfillment_opens_the_buyers_shipments_here_and_the_sellers_on_marketplace() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("shopper"))).await;
+    assert!(html.contains(r#"href="/account/shipments">View fulfillment</a>"#), "{html}");
+    let (_, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
+    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }

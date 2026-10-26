@@ -79,5 +79,11 @@
     "purchase_unverified": "Purchase handoff is no longer valid.",
     "sale_unverified": "Sale handoff is no longer valid.",
     "evidence_alt": "{title} evidence"
+  },
+  "shipments": {
+    "line": "{count} line",
+    "lines": "{count} lines",
+    "actions_on_marketplace": "Packing, labels and the shipment's other actions are on marketplace for now.",
+    "open_on_marketplace": "Open on marketplace"
   }
 }

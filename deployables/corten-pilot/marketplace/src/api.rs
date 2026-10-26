@@ -2024,3 +2024,170 @@ impl Orders for Caller<'_> {
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 }
+
+const FULFILLMENT: &str = "fulfillment";
+
+impl Side {
+    /// The side's shipments (Fulfillment's `account/shipments` and `account/sales/shipments`).
+    fn shipments(self) -> &'static str {
+        match self {
+            Side::Buyer => "/api/marketplace/account/shipments",
+            Side::Seller => "/api/marketplace/account/sales/shipments",
+        }
+    }
+}
+
+/// The account's shipments (Fulfillment's `account/shipments` and `account/sales/shipments`).
+pub trait Shipments {
+    /// The first 100, as marketplace reads them (`limit=100&offset=0`).
+    async fn shipments(&self, side: Side) -> Result<ShipmentList, ApiError>;
+    /// One shipment, as `side` sees it.
+    async fn shipment(&self, side: Side, id: &str) -> Result<ShipmentDetail, ApiError>;
+}
+
+impl Shipments for Caller<'_> {
+    async fn shipments(&self, side: Side) -> Result<ShipmentList, ApiError> {
+        self.read(&format!("{}?limit=100&offset=0", side.shipments()), FULFILLMENT).await
+    }
+
+    async fn shipment(&self, side: Side, id: &str) -> Result<ShipmentDetail, ApiError> {
+        self.read(&format!("{}/{}", side.shipments(), segment(id)), FULFILLMENT).await
+    }
+}
+
+/// A page of shipments (`ListResponse<FulfillmentShipmentListItem>`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShipmentList {
+    pub items: Vec<ShipmentCard>,
+}
+
+/// A shipment as the list shows it (`FulfillmentShipmentListItem`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShipmentCard {
+    pub shipment_id: String,
+    pub display_reference: String,
+    pub tracking_identifier: Option<String>,
+    pub status: String,
+    pub total_quantity: u64,
+    pub line_count: u64,
+}
+
+/// A shipment (`FulfillmentShipmentDetail`, the fields the page shows).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShipmentDetail {
+    pub shipment_id: String,
+    pub order_id: String,
+    pub buyer_account_id: String,
+    pub buyer_display_name: Option<String>,
+    pub seller_account_id: String,
+    pub seller_display_name: Option<String>,
+    pub display_reference: String,
+    pub status: String,
+    pub package_status: String,
+    pub package_count: Option<u64>,
+    pub tracking_identifier: Option<String>,
+    pub carrier_name: Option<String>,
+    pub shipping_option: String,
+    pub shipping_method: Option<String>,
+    pub postage_service_level: Option<String>,
+    pub postage_provider_name: Option<String>,
+    pub postage_provider_mode: Option<String>,
+    pub postage_amount_cents: Option<i64>,
+    pub postage_currency: Option<String>,
+    pub label_status: String,
+    pub label_reference: Option<String>,
+    pub label_document_url: Option<String>,
+    pub label_error_code: Option<String>,
+    pub label_error_message: Option<String>,
+    pub label_refund_status: Option<String>,
+    pub label_refund_reference: Option<String>,
+    pub delivered_at: Option<String>,
+    pub shipping_plan_snapshot: Option<PackagePlanSnapshot>,
+    pub lines: Vec<ShipmentLine>,
+    pub exceptions: Vec<ShipmentException>,
+    pub postage_label_operations: Vec<PostageOperation>,
+    pub postage_provider_events: Vec<PostageProviderEvent>,
+}
+
+/// The order's package plan, the part the page shows (`PackagePlan`): its postage policy.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PackagePlanSnapshot {
+    pub postage_policy_snapshot: Option<PostagePolicySnapshot>,
+}
+
+/// What the postage policy required when the order was placed.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PostagePolicySnapshot {
+    pub policy_version: String,
+    pub parcel_required: bool,
+    pub parcel_reasons: Vec<String>,
+    pub signature_required: bool,
+    pub signature_reasons: Vec<String>,
+    pub insurance_required: bool,
+    pub insurance_reasons: Vec<String>,
+    pub insured_value_amount: Option<String>,
+    pub shipping_evidence_tier: String,
+}
+
+/// A line of the shipment (`FulfillmentShipmentLine`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShipmentLine {
+    pub line_id: String,
+    pub item_title: String,
+    pub item_subtitle: Option<String>,
+    pub product_summary: Option<String>,
+    pub quantity: u64,
+}
+
+/// An exception raised on the shipment.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShipmentException {
+    pub raised_at: String,
+    pub exception_type: String,
+    pub notes: Option<String>,
+}
+
+/// A postage label operation, for the seller's diagnostics
+/// (`FulfillmentPostageLabelOperationDiagnostic`, the fields shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PostageOperation {
+    pub operation_key: String,
+    pub operation_kind: String,
+    pub status: String,
+    pub requested_service_level: Option<String>,
+    pub requested_delivery_confirmation: Option<String>,
+    pub requested_insurance_amount: Option<String>,
+    pub requested_mailpiece_class: Option<String>,
+    pub policy_version: Option<String>,
+    pub parcel_required: Option<String>,
+    pub signature_required: Option<String>,
+    pub insurance_required: Option<String>,
+    pub insured_value_amount: Option<String>,
+    pub shipping_evidence_tier: Option<String>,
+    pub address_override_changed_side: Option<String>,
+    pub address_override_reason: Option<String>,
+    pub error_message: Option<String>,
+}
+
+/// An event the postage provider sent (`FulfillmentPostageProviderEventDiagnostic`, the fields
+/// shown).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PostageProviderEvent {
+    pub provider_event_id: String,
+    pub provider_name: String,
+    pub provider_mode: String,
+    pub event_kind: String,
+    pub status: String,
+    pub tracking_identifier: Option<String>,
+    pub processing_result: Option<String>,
+    pub status_detail: Option<String>,
+}

@@ -15,7 +15,10 @@ pub use platform::{
 
 use crate::{
     api::Identity,
-    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at},
+    app::{
+        ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE, ORDERS_MANAGE, ORDERS_VIEW,
+        Shared, VIEW, sign_in_at,
+    },
     views,
 };
 
@@ -157,6 +160,23 @@ impl Identify<Shared> for OrderSeller {
         };
         match find(parts, config).await {
             Found::Account(viewer) if may(&viewer.actor) => Ok(OrderSeller(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A buyer or seller on their shipments: reading needs `fulfillment.view`, a shipment's actions
+/// `fulfillment.manage`, as Fulfillment's loaders and actions require (the API checks both again).
+#[derive(Clone, Debug, Hash)]
+pub struct Shipper(pub Viewer);
+
+impl Identify<Shared> for Shipper {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { FULFILLMENT_VIEW } else { FULFILLMENT_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(Shipper(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

@@ -39,6 +39,9 @@
 // - marketplace/locales/orders.en.json: the account's order pages' English catalog
 //   (ordering.features.orders.ui.orderListPage.*, .orderDetailPage.*, .moneyTimeline.*, .orderOutcome.* and
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
+// - marketplace/locales/shipments.en.json: the shipment pages' English catalog
+//   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
+//   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
@@ -395,6 +398,18 @@ const outputs = [
         ["ordering.routes.accountPurchase.", "purchase"],
         ["ordering.routes.accountSales.", "sales"],
         ["ordering.routes.accountSale.", "sale"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/shipments.en.json",
+    json(
+      await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
+        ["fulfillment.features.shipments.ui.shipmentListPage.", "list"],
+        ["fulfillment.features.shipments.ui.shipmentDetailPage.", "detail"],
+        ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
+        ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
+        ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
       ]),
     ),
   ],

@@ -25,6 +25,7 @@
 //! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
+//! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
@@ -58,6 +59,9 @@ pub const ORDERS_VIEW: &str = "orders.view";
 pub const ORDERS_MANAGE: &str = "orders.manage";
 /// A sale's pages need it too (marketplace's `account-sale` and `account-sales` loaders).
 pub const LISTINGS_VIEW: &str = "listings.view";
+/// The account's shipments (Fulfillment's marketplace loaders and actions).
+pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
+pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
 
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
@@ -101,9 +105,11 @@ pub mod url {
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
+    pub use sale_shipments::SaleShipments;
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use sets::{Set, Sets};
+    pub use shipments::{Shipment, Shipments};
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
     /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
@@ -458,9 +464,8 @@ pub mod url {
     }
 
     /// The account's sales (Ordering's `account-sales` and `account-sale`): the list is the area's
-    /// route, and every handler takes an `OrderSeller`. Marketplace's `/account/sales/shipments`
-    /// (Fulfillment's) is not ported; this area would read it as a sale, which the API does not
-    /// find.
+    /// route, and every handler takes an `OrderSeller`. `/account/sales/shipments` is Fulfillment's,
+    /// an area of its own (`sale_shipments`).
     #[corten::routes(state = crate::app::Shared, area = Sales, caller = crate::auth::OrderSeller)]
     pub mod sales {
         /// A page of the sales.
@@ -482,6 +487,38 @@ pub mod url {
         /// Cancel the sale.
         #[route("/account/sales/{id}/cancel", post = crate::orders::cancel_sale)]
         pub struct SaleCancel<'a> {
+            pub id: &'a str,
+        }
+    }
+
+    /// The buyer's shipments (Fulfillment's `account-shipments` and `account-shipment`): the list
+    /// is the area's route, and every handler takes a `Shipper`.
+    #[corten::routes(state = crate::app::Shared, area = Shipments, caller = crate::auth::Shipper)]
+    pub mod shipments {
+        /// The buyer's shipments.
+        #[route("/account/shipments", get = crate::shipments::purchases)]
+        pub struct Shipments;
+
+        /// A shipment the buyer is sent.
+        #[route("/account/shipments/{id}", get = crate::shipments::purchase)]
+        pub struct Shipment<'a> {
+            pub id: &'a str,
+        }
+    }
+
+    /// The seller's shipments (Fulfillment's `account-sale-shipments` and
+    /// `account-sale-shipment`), an area inside the sales'. The list is marketplace's command
+    /// center, which the API does not serve yet (chase-sets/chase-sets#10638), so the pilot sends
+    /// it there; a shipment's page is the pilot's.
+    #[corten::routes(state = crate::app::Shared, area = SaleShipments, caller = crate::auth::Shipper)]
+    pub mod sale_shipments {
+        /// The command center, on marketplace.
+        #[route("/account/sales/shipments", get = crate::shipments::command_center)]
+        pub struct SaleShipments;
+
+        /// A shipment the seller sends.
+        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
+        pub struct SaleShipment<'a> {
             pub id: &'a str,
         }
     }
@@ -549,6 +586,8 @@ pub fn app(config: Config) -> App {
         .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
         .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
         .area::<url::Sales>(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
+        .area::<url::Shipments>(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
+        .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SHIPMENTS))
         .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .error_page(views::error_page, shared)
 }

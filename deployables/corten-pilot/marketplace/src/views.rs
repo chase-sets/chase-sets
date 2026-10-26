@@ -34,6 +34,7 @@ mod page_actions;
 mod recovery;
 mod search_page;
 mod set_page;
+mod shipment_page;
 
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use cart_item::{
@@ -51,6 +52,7 @@ pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use set_page::SetPage;
+pub use shipment_page::{ShipmentList, ShipmentPage};
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
@@ -81,6 +83,8 @@ pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];
+/// The shipment pages' (Fulfillment's), for both sides' areas.
+pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

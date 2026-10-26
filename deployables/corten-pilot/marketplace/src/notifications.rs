@@ -120,7 +120,16 @@ pub enum Screen {
 /// A notification's Open: a path the pilot serves stays here, any other site path goes to
 /// marketplace, and anything else (another site, a scheme) is no link.
 pub fn open_href(href: &str) -> Option<String> {
-    const HERE: [&str; 9] = [
+    if !href.starts_with('/') || href.starts_with("//") {
+        return None;
+    }
+    if served_here(href) { Some(href.to_owned()) } else { Some(views::on_marketplace(href)) }
+}
+
+/// Whether the pilot serves the page at `href`. Of the seller's shipments only a shipment's own
+/// page is the pilot's: the list, the packing slips and the packing flow are marketplace's.
+fn served_here(href: &str) -> bool {
+    const HERE: [&str; 12] = [
         "/items/",
         "/listings/",
         "/accounts/",
@@ -130,11 +139,15 @@ pub fn open_href(href: &str) -> Option<String> {
         "/account/cart",
         "/account/inventory/",
         "/account/notifications",
+        "/account/purchases",
+        "/account/sales",
+        "/account/shipments",
     ];
-    if !href.starts_with('/') || href.starts_with("//") {
-        return None;
+    let path = href.split(['?', '#']).next().unwrap_or_default();
+    if let Some(rest) = path.strip_prefix("/account/sales/shipments") {
+        return rest.strip_prefix('/').is_some_and(|id| !id.is_empty() && !id.contains('/') && id != "packing-slips");
     }
-    if HERE.iter().any(|p| href.starts_with(p)) { Some(href.to_owned()) } else { Some(views::on_marketplace(href)) }
+    HERE.iter().any(|p| path.starts_with(p))
 }
 
 /// The feed's form: the notification's delivery.
@@ -398,7 +411,17 @@ mod tests {
     #[test]
     fn open_stays_here_for_a_ported_page_goes_to_marketplace_for_another_and_is_no_link_off_site() {
         assert_eq!(open_href("/items/charizard").as_deref(), Some("/items/charizard"));
-        assert_eq!(open_href("/account/purchases/ord_1").as_deref(), Some("http://localhost:7753/account/purchases/ord_1"));
+        assert_eq!(open_href("/account/purchases/ord_1").as_deref(), Some("/account/purchases/ord_1"));
+        assert_eq!(open_href("/account/shipments/shp_1").as_deref(), Some("/account/shipments/shp_1"));
+        assert_eq!(open_href("/account/sales/shipments/shp_1").as_deref(), Some("/account/sales/shipments/shp_1"));
+        for marketplaces in [
+            "/account/sales/shipments",
+            "/account/sales/shipments/shp_1/packing",
+            "/account/sales/shipments/packing-slips?shipmentIds=shp_1",
+            "/account/offers",
+        ] {
+            assert_eq!(open_href(marketplaces), Some(format!("http://localhost:7753{marketplaces}")), "{marketplaces}");
+        }
         assert_eq!(open_href("https://example.com/x"), None);
         assert_eq!(open_href("//example.com/x"), None);
     }

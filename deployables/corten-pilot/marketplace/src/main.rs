@@ -3,7 +3,8 @@
 //! `/account/inventory/restock-decisions`), the buyer's cart (`/account/cart`), which read and
 //! write through the platform API as the signed-in account, and the public item page
 //! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`), and the account's orders
-//! (`/account/purchases`, `/account/sales`). See README.md.
+//! (`/account/purchases`, `/account/sales`) and shipments (`/account/shipments`,
+//! `/account/sales/shipments/{id}`). See README.md.
 mod accounts;
 mod api;
 mod app;
@@ -24,6 +25,7 @@ mod saving;
 mod search;
 mod selling;
 mod sets;
+mod shipments;
 mod text;
 mod views;
 mod watching;

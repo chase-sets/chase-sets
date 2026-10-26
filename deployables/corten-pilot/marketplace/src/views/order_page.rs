@@ -518,7 +518,8 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
     let support = !(facts.fully_delivered && facts.fulfillment_started());
     let support_label = if facts.fulfillment_started() { t.detail_ask_to_cancel() } else { t.detail_open_support() };
     let fulfillment = (!matches!(order.status.as_str(), "pending-payment" | "pending-reservation")).then(|| match facts.side {
-        Side::Buyer => market_href("/account/shipments"),
+        Side::Buyer => crate::app::url::Shipments.href(),
+        // The seller's command center is marketplace's (chase-sets/chase-sets#10638).
         Side::Seller => market_href("/account/sales/shipments"),
     });
     let cancel = t.detail_cancel_projection(&lower).to_string();
