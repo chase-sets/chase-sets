@@ -572,16 +572,17 @@ pub fn app(config: Config) -> App {
         .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)
+        // Search is the home page too, outside every area, and at two prefixes, and a set's page
+        // shows its cards: its components are in `components.css`, about 2.2 KB brotli, which a
+        // stylesheet for `/` alone would trade for a blocking request on the most visited page
+        // (todd-skelton/corten#95, measured there).
+        .components(views::SEARCH)
         .area::<url::InventoryArea>(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area::<url::Cart>(|area| url::cart::area(area, shared.clone()).components(views::CART))
         .area::<url::ItemsArea>(|area| url::items::area(area, shared.clone()).components(views::ITEM))
-        // Search is at two prefixes and a set's page shows its cards, so its components are in a
-        // stylesheet those three areas share (`sections/search+categories+sets.css`). The home
-        // page is search too, outside every area, and links that file itself (`search::render`,
-        // todd-skelton/corten#95).
-        .area::<url::Search>(|area| url::search::area(area, shared.clone()).components(views::SEARCH))
-        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()).components(views::SEARCH))
-        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SEARCH).components(views::SET))
+        .area::<url::Search>(|area| url::search::area(area, shared.clone()))
+        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()))
+        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SET))
         .area::<url::ListingsArea>(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
         .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
         .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))

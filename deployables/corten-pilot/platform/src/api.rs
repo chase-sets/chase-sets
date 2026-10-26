@@ -76,6 +76,14 @@ impl Caller<'_> {
         Ok(check(res).await?.json().await?)
     }
 
+    /// A `GET`'s JSON answer and its headers: what the API says about the answer itself (how long
+    /// a cache may keep it, say).
+    pub async fn read_with_headers<T: DeserializeOwned>(&self, path: &str, context: &str) -> Result<(T, HeaderMap), ApiError> {
+        let res = check(self.request(Method::GET, path, context).send().await?).await?;
+        let headers = res.headers().clone();
+        Ok((res.json().await?, headers))
+    }
+
     /// A write's JSON answer and the receipt the next read waits for.
     pub async fn write<T: DeserializeOwned>(&self, req: RequestBuilder) -> Result<(T, Option<Receipt>), ApiError> {
         let res = check(req.send().await?).await?;

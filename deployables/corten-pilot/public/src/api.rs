@@ -1,5 +1,8 @@
 //! The Pricing API's public market pages (`features/public-market-pages/api/route.ts`), called
 //! with no session: an item's page data and the slugs of the pages worth indexing.
+use std::time::Duration;
+
+use corten::axum::http::{HeaderMap, header};
 use serde::Deserialize;
 
 pub use platform::api::{ApiError, Caller, Platform, segment};
@@ -22,6 +25,24 @@ pub struct MarketPage {
     pub live_asks: Vec<LiveAsk>,
     #[serde(default)]
     pub unpriced_buyable_listing_count: u64,
+    /// How long a shared cache may keep the page: the `s-maxage` Pricing sets on this answer from
+    /// its display policy's `publicPageCacheTtlSeconds`, when it sets one.
+    #[serde(skip)]
+    pub shared: Option<Duration>,
+}
+
+/// The display policy's bounds for `publicPageCacheTtlSeconds` (`display-policy.ts`): a minute
+/// to a week.
+const SHARED_BOUNDS: (u64, u64) = (60, 604_800);
+
+/// The `s-maxage` in an answer's `Cache-Control`, within the display policy's bounds.
+pub fn shared_lifetime(headers: &HeaderMap) -> Option<Duration> {
+    let control = headers.get(header::CACHE_CONTROL)?.to_str().ok()?;
+    let seconds = control.split(',').find_map(|directive| {
+        let (name, value) = directive.trim().split_once('=')?;
+        name.eq_ignore_ascii_case("s-maxage").then(|| value.trim().parse::<u64>().ok()).flatten()
+    })?;
+    Some(Duration::from_secs(seconds.clamp(SHARED_BOUNDS.0, SHARED_BOUNDS.1)))
 }
 
 /// A day of the product's trades (`ProductRollupSeriesPoint`).
@@ -92,8 +113,12 @@ pub trait Pricing {
 
 impl Pricing for Caller<'_> {
     async fn market_page(&self, slug: &str) -> Result<Option<MarketPage>, ApiError> {
-        match self.read(&format!("/api/marketplace/public/market-pages/{}", segment(slug)), "pricing").await {
-            Ok(page) => Ok(Some(page)),
+        let path = format!("/api/marketplace/public/market-pages/{}", segment(slug));
+        match self.read_with_headers::<MarketPage>(&path, "pricing").await {
+            Ok((mut page, headers)) => {
+                page.shared = shared_lifetime(&headers);
+                Ok(Some(page))
+            }
             Err(error) if error.status() == Some(corten::axum::http::StatusCode::NOT_FOUND) => Ok(None),
             Err(error) => Err(error),
         }

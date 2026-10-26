@@ -1,11 +1,11 @@
 //! The market page and the crawler files. Each is the same for everyone (`Public`): the handler
 //! reads no session, cookie or header, and calls the API with none.
 //!
-//! public-web sends `public, max-age=60, s-maxage=86400, stale-while-revalidate=3600` for the
-//! page (the API's display policy's `publicPageCacheTtlSeconds` for shared caches, a minute for
-//! the browser). `Public` has one lifetime for both (todd-skelton/corten#106), so the page keeps
-//! the browser's minute and a shared cache keeps it a minute too, then serves it stale for up to
-//! an hour while it fetches a new one.
+//! The page is `public, max-age=60, s-maxage={ttl}, stale-while-revalidate=3600`: a browser keeps
+//! it a minute, a shared cache (a CDN) for the `s-maxage` Pricing's own answer carries (its display
+//! policy's `publicPageCacheTtlSeconds`, a day by default), and either may serve it stale for up to
+//! an hour while it fetches a new one. public-web writes the default day as a literal, so a revised
+//! policy reaches its JSON API but not its page; here it reaches both.
 use std::time::Duration;
 
 use corten::{axum::http::StatusCode, prelude::*, seo};
@@ -18,8 +18,11 @@ use crate::{
     views::{self, Layout, Screen},
 };
 
-/// How long the browser, and for now a shared cache, keeps a market page.
+/// How long the browser keeps a market page.
 const FRESH: Duration = Duration::from_secs(60);
+/// How long a shared cache keeps one when Pricing's answer sets no `s-maxage` (a not-found page,
+/// a read that failed): the display policy's default, as public-web writes it.
+const SHARED: Duration = Duration::from_secs(86_400);
 /// How long after that a shared cache may serve it while it fetches a new one.
 const STALE: Duration = Duration::from_secs(3600);
 /// The host Chase Sets' production public site answers on: only its pages get structured data.
@@ -28,18 +31,29 @@ const PRODUCTION_HOST: &str = "chasesets.com";
 /// An item's market page. Pricing's 404 is the not-found page; a failed read is a 502, which no
 /// cache keeps.
 pub(crate) async fn page(req: Req, State(config): State<Shared>, Path(slug): Path<String>) -> Public<HtmlResult> {
-    Public::new(FRESH, render(req, &config, slug.trim()).await).stale_while_revalidate(STALE)
+    let (page, shared) = match read(&config, slug.trim()).await {
+        Ok(page) => {
+            let shared = page.shared.unwrap_or(SHARED);
+            (render(req, &config, page), shared)
+        }
+        Err(error) => (Err(error), SHARED),
+    };
+    Public::new(FRESH, page).shared(shared).stale_while_revalidate(STALE)
 }
 
-async fn render(req: Req, config: &Shared, slug: &str) -> HtmlResult {
+/// Pricing's page for `slug`: not found when it has none, 502 when the read failed.
+async fn read(config: &Shared, slug: &str) -> Result<MarketPage, corten::Error> {
     if slug.is_empty() {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
     }
-    let page = match config.api().market_page(slug).await {
-        Ok(Some(page)) => page,
-        Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-    };
+    match config.api().market_page(slug).await {
+        Ok(Some(page)) => Ok(page),
+        Ok(None) => Err(corten::Error::status(StatusCode::NOT_FOUND)),
+        Err(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    }
+}
+
+fn render(req: Req, config: &Shared, page: MarketPage) -> HtmlResult {
     let t: MarketMsg = req.t();
     let p: Pilot = req.t();
     let canonical = format!("{}{}", config.origin, url::MarketPage { slug: &page.slug }.href());
@@ -142,6 +156,7 @@ mod tests {
             market_state: Some(MarketState { active_listing_count: count, min_ask_amount: low.map(Into::into) }),
             live_asks: vec![],
             unpriced_buyable_listing_count: 0,
+            shared: None,
         }
     }
 

@@ -3,19 +3,21 @@
 //   (each label and value), the lowest asks, the sell-through and the three marketplace links read
 //   as public-web's do; the page's headings are the title and its three sections
 //   (public-web's stat values are headings too: chase-sets/chase-sets#10629).
-// - What caches may keep: shared for a minute and an hour stale without a cookie (public-web says
-//   a day for a CDN: todd-skelton/corten#106), private with one; the API is not sent the cookie.
+// - What caches may keep: without a cookie a browser keeps it a minute and a shared cache for the
+//   s-maxage Pricing's own answer carries (a day by default), an hour stale; private with one; the
+//   API is not sent the cookie.
 // - An unknown slug is a 404 with public-web's words and Go home; robots.txt and the sitemap.
 // - At 1280 and 390 px nothing scrolls sideways, every link is at least 40 px tall, and no
 //   console errors. With JavaScript off the page is the same.
 // Only reads.
-// Usage: node scripts/smoke-public-market.mjs [pilot-url] [public-web-url] [slug]
+// Usage: node scripts/smoke-public-market.mjs [pilot-url] [public-web-url] [slug] [api-url]
 import { chromium } from "@playwright/test";
 
 const [
   base = "http://localhost:7797",
   reference = "http://localhost:7754",
   slug = "twilight-masquerade-elite-trainer-box-sealed-elite-trainer-box-uerade-elite-trainer-box-1804cgp",
+  api = "http://localhost:7762",
 ] = process.argv.slice(2);
 let failures = 0;
 
@@ -82,10 +84,15 @@ console.log(`note public-web (dev) console errors: ${theirs.errors.length}`);
 
 // What caches may keep.
 const anonymous = await fetch(base + path);
-check(anonymous.headers.get("cache-control") === "public, max-age=60, stale-while-revalidate=3600", `signed out, shared: ${anonymous.headers.get("cache-control")}`);
+// A browser keeps it a minute, a shared cache for the s-maxage Pricing's own answer carries.
+const apiCache = (await fetch(`${api}/api/marketplace/public/market-pages/${slug}`)).headers.get("cache-control") ?? "";
+const apiShared = /s-maxage=(\d+)/.exec(apiCache)?.[1] ?? "86400";
+check(anonymous.headers.get("cache-control") === `public, max-age=60, s-maxage=${apiShared}, stale-while-revalidate=3600`, `signed out, shared: ${anonymous.headers.get("cache-control")} (Pricing: ${apiCache})`);
 check((anonymous.headers.get("vary") ?? "").includes("cookie"), "and it varies on the cookie");
 const referenceCache = (await fetch(reference + path)).headers.get("cache-control");
-console.log(`note public-web sends ${referenceCache} (s-maxage: todd-skelton/corten#106)`);
+// public-web writes the default day as a literal, so it differs only under a revised policy.
+if (apiShared === "86400") check(referenceCache === anonymous.headers.get("cache-control"), `the same as public-web's (${referenceCache})`);
+else console.log(`note public-web sends ${referenceCache}, its literal day, where Pricing says ${apiShared} s`);
 const withCookie = await fetch(base + path, { headers: { cookie: "chase_sets_session=smoke" } });
 check(withCookie.status === 200 && withCookie.headers.get("cache-control") === "private, no-cache", `with a cookie, private: ${withCookie.headers.get("cache-control")}`);
 

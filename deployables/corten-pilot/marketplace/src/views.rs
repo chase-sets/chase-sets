@@ -67,11 +67,12 @@ pub const CART: &[Component] = &[CartItem];
 /// handler that makes Add to List's dialog modal when the server draws it open.
 pub const ITEM: &[Component] = &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT];
 
-/// Search's components (`/search`, `/categories`, and `/sets` for its cards): its stylesheet and
-/// the script that applies a filter as it changes.
+/// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
+/// stylesheet and the script that applies a filter as it changes. In `App::components`, since the
+/// home page is outside every area.
 pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT];
 
-/// A set's page (`/sets`). Its cards are search's (`ItemCards`), so the area lists `SEARCH` too.
+/// A set's page (`/sets`). Its cards are search's (`ItemCards`), in `App::components`.
 pub const SET: &[Component] = &[SetPage];
 
 /// An account's public page (`/accounts`): its stylesheet, and corten-ui's handler that makes a

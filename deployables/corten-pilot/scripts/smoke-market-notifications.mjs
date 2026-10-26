@@ -5,9 +5,9 @@
 // - A channel's switch, with and without JavaScript: Email notifications off then on again, each
 //   time the API agreeing (two writes that leave it as it was).
 // - An alert made through the API for the smoke: Pause, Resume and Delete with JavaScript, each
-//   drawn in place, or while the list's read catches up sent to the settings with the write's
-//   receipt (the todd-skelton/corten#104 workaround), the list read after each write (it deletes
-//   the alert).
+//   drawn in place with no navigation: while the list's read catches up the section says so and
+//   is read again from the settings' address with the write's receipt (`ReadAgain::from`), the
+//   list read after each write (it deletes the alert).
 // - Mark read, with JavaScript, on the oldest unread notification when there is one (one write a
 //   run, which marks it read for good).
 // - At 1280 and 390 px nothing scrolls sideways, every control is at least 40 px tall, and no
@@ -89,6 +89,9 @@ try {
   await page.waitForFunction(() => window.__hydratedAt);
   const navigations = [];
   page.on("framenavigated", (f) => f === page.mainFrame() && navigations.push(f.url()));
+  // The section's reads again: GETs of the settings with a receipt, as a patch.
+  let readsAgain = 0;
+  page.on("request", (r) => r.method() === "GET" && r.url().includes("afterWrite=") && r.headers()["corten"] === "action" && (readsAgain += 1));
   const email = page.getByRole("switch", { name: "Email notifications" });
   const was = (await email.getAttribute("aria-checked")) === "true";
   await email.click();
@@ -126,13 +129,10 @@ try {
   await page.waitForFunction(() => ![...document.querySelectorAll("#product-alerts article")].some((a) => a.textContent.includes("Corten pilot smoke alert")));
   check(true, "Delete takes it out of the list in place");
   made = null;
-  // A write whose read has not caught up navigates to the settings with its receipt instead of
-  // drawing in place (the todd-skelton/corten#104 workaround), so a navigation is only wrong when
-  // it goes anywhere else.
-  const fallbacks = navigations.slice(before);
-  const stray = fallbacks.filter((u) => !(u.includes("view=settings") && u.includes("afterWrite=")));
-  check(stray.length === 0, `the alert's writes stay in place or fall back to the settings with a receipt (${stray.join(", ") || "none stray"})`);
-  console.log(`note ${fallbacks.length} of 3 alert writes fell back to a navigation while the read caught up (corten#104)`);
+  // A write whose read has not caught up is read again in place, so no write navigates.
+  const moved = navigations.slice(before);
+  check(moved.length === 0, `the alert's three writes stay on the page (${moved.join(", ") || "no navigation"})`);
+  console.log(`note the section was read again ${readsAgain} times while the writes' reads caught up`);
 
   // Mark read, on the oldest unread notification.
   await page.goto(`${base}/account/notifications`);

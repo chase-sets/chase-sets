@@ -419,9 +419,6 @@ impl Place<'_> {
     }
 }
 
-/// The stylesheet the search, categories and sets areas share, which the home page links itself.
-const SEARCH_STYLESHEET: &str = "sections/search+categories+sets.css";
-
 /// Featured categories the home page shows (`HOME_FEATURED_CATEGORY_LIMIT`).
 const HOME_CATEGORIES: usize = 4;
 /// New arrivals the home page shows (`HOME_NEW_ARRIVALS_LIMIT`).
@@ -681,18 +678,10 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
     };
     let p: Pilot = req.t();
     let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
-    // The home page is outside every area, so Corten links no area's stylesheet from it; it links
-    // search's itself, which the runtime moves to the head and keeps across a client navigation
-    // (todd-skelton/corten#95). `corten dev` reports the page as rendering a component outside its
-    // area.
-    let stylesheet = screen.home.then(|| req.asset(SEARCH_STYLESHEET));
     req.page_with_status(
         status,
         html! {
             <views::Layout req={req} viewer={viewer} title={&title} head={head}>
-                if let Some(href) = &stylesheet {
-                    <link rel="stylesheet" href={href} data-corten-style>
-                }
                 <views::SearchPage t={t} p={p} screen={screen} failed={failed} />
             </views::Layout>
         },

@@ -21,22 +21,26 @@ use crate::{
 /// What the stand-in received: each call's path and headers.
 type Calls = Arc<Mutex<Vec<(String, HeaderMap)>>>;
 
-/// Pricing's public market pages: `twilight` has a last sale and asks, `charizard` a series in
-/// two currencies, `down` fails, anything else is not found.
+/// Pricing's public market pages: `twilight` has a last sale and asks, and a revised display
+/// policy's `s-maxage` (an hour), `charizard` a series in two currencies and no cache header,
+/// `down` fails, anything else is not found.
 async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap) -> Response {
     calls.lock().unwrap().push((uri.path().to_owned(), headers));
     let point = |currency: &str, day: &str, median: Option<&str>, last: &str, low: &str, high: &str| json!({ "currencyCode": currency, "day": day, "firstPriceAmount": last, "lastPriceAmount": last, "minPriceAmount": low, "maxPriceAmount": high, "medianPriceAmount": median, "unitVolume": 1 });
     let aggregate = |currency: &str, last: &str, median: Option<&str>, trades: u64, rate: &str| json!({ "currencyCode": currency, "lastSoldAt": "2026-03-20T11:35:00.000Z", "lastSoldPriceAmount": last, "medianPrice30d": median, "volume30d": trades, "tradeCount30d": trades, "medianPrice90d": median, "volume90d": trades, "tradeCount90d": trades, "sellThroughRate": rate });
     match uri.path() {
-        "/api/marketplace/public/market-pages/twilight" => Json(json!({
+        "/api/marketplace/public/market-pages/twilight" => (
+            [(header::CACHE_CONTROL, "public, max-age=60, s-maxage=3600, stale-while-revalidate=3600")],
+            Json(json!({
             "catalogItemId": "cat_twilight", "title": "Twilight Masquerade Elite Trainer Box", "subtitle": "Sealed Elite Trainer Box",
             "slug": "twilight", "productId": "cat_twilight::", "series": [],
             "aggregates": [aggregate("USD", "44.50", None, 0, "0.0000")],
             "marketState": { "day": "2026-10-26", "activeListingCount": 3, "minAskAmount": "43.25", "openOfferCount": 2, "maxBidAmount": "42.25", "spreadAmount": "1.00" },
             "liveAsks": [{ "currencyCode": "USD", "minAskAmount": "43.25", "buyableListingCount": 3 }],
             "unpricedBuyableListingCount": 0,
-        }))
-        .into_response(),
+            })),
+        )
+            .into_response(),
         "/api/marketplace/public/market-pages/charizard" => Json(json!({
             "catalogItemId": "cat_charizard", "title": "Charizard", "subtitle": null, "slug": "charizard", "productId": "p",
             "series": [
@@ -101,7 +105,8 @@ async fn a_market_page_draws_the_items_stats_and_links_and_any_cache_may_keep_it
     let site = Site::new(true, "https://chasesets.com").await;
     let (status, headers, page) = site.get("/market/twilight", None).await;
     assert_eq!(status, StatusCode::OK, "{page}");
-    assert_eq!(cache(&headers), "public, max-age=60, stale-while-revalidate=3600");
+    // A browser keeps it a minute; a shared cache for the s-maxage Pricing's answer carries.
+    assert_eq!(cache(&headers), "public, max-age=60, s-maxage=3600, stale-while-revalidate=3600");
     assert!(headers.get_all(header::VARY).iter().any(|v| v.to_str().unwrap().contains("cookie")), "{headers:?}");
     assert!(page.contains("<title>Twilight Masquerade Elite Trainer Box Price History | Chase Sets</title>"), "{page}");
     assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/market/twilight""#), "{page}");
@@ -154,7 +159,9 @@ async fn a_visitor_with_a_cookie_gets_the_same_page_kept_by_their_browser_only()
 #[tokio::test]
 async fn each_currency_has_its_chart_and_stats_and_a_single_day_is_not_a_trend() {
     let site = Site::new(true, "https://chasesets.com").await;
-    let (status, _, page) = site.get("/market/charizard", None).await;
+    let (status, headers, page) = site.get("/market/charizard", None).await;
+    // Pricing set no s-maxage: a shared cache keeps the display policy's default day.
+    assert_eq!(cache(&headers), "public, max-age=60, s-maxage=86400, stale-while-revalidate=3600");
     assert_eq!(status, StatusCode::OK, "{page}");
     for text in [
         "Price history (USD)",

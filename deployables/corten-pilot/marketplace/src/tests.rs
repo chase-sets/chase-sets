@@ -4107,12 +4107,13 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert!(!html.contains("Featured categories"), "{html}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
     assert!(html.contains(r#"action="/#result-25" data-patch>"#), "Load more stays at the home page: {html}");
-    // Outside every area, the home page links search's stylesheet itself (todd-skelton/corten#95).
-    assert!(html.contains(r#"/sections/search+categories+sets.css" data-corten-style>"#), "{html}");
-    let (_, _, html) = pilot.send(get("/search?q=pika", None)).await;
-    assert_eq!(html.matches("/sections/search+categories+sets.css").count(), 1, "the area links it once: {html}");
-    let (_, _, html) = pilot.send(get("/items/charizard", None)).await;
-    assert!(!html.contains("search+categories+sets.css"), "an item page does not: {html}");
+    // Search's rules are in components.css, which every page links once, the home page too
+    // (todd-skelton/corten#95): no section stylesheet of its own, none in the page's body.
+    for uri in ["/?q=pika", "/search?q=pika", "/items/charizard"] {
+        let (_, _, html) = pilot.send(get(uri, None)).await;
+        assert_eq!(html.matches("/components.css\"").count(), 1, "{uri}: {html}");
+        assert!(!html.contains("search+categories"), "{uri}: {html}");
+    }
 }
 
 #[tokio::test]
@@ -4584,6 +4585,36 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"role="status"><p>Saved. Your Product alerts will show the change in a moment.</p>"#), "{html}");
     assert!(html.contains("<corten-read-again") || html.contains("read-again"), "the page reads again: {html}");
+    // With a script the same write answers in place, and the section asks to be read again from
+    // the settings' address with the write's receipt (todd-skelton/corten#104).
+    let (status, headers, html) =
+        pilot.send(post("/account/notifications/product-alerts/pal_lag", "watcher", "action=delete", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch") && !headers.contains_key("corten-location"), "{headers:?}");
+    assert!(html.contains(r#"<section id="product-alerts""#), "{html}");
+    assert!(html.contains(r#"role="status"><p>Saved. Your Product alerts will show the change in a moment.</p>"#), "{html}");
+    let from = html
+        .split(r#"<template data-corten-read-again="2" data-from=""#)
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("a read-again template")
+        .replace("&amp;", "&");
+    assert!(from.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite="), "{from}");
+    // That address answers the section again while the read is behind, as a patch to the runtime
+    // and as the page without it.
+    let mut again = get(&from, Some("watcher"));
+    again.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(again).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.starts_with(r#"<section id="product-alerts""#) && html.contains("data-corten-read-again"), "{html}");
+    let (_, headers, html) = pilot.send(get(&from, Some("watcher"))).await;
+    assert!(!headers.contains_key("corten-patch") && html.contains("<!DOCTYPE html>"), "{html}");
+    // Once the read is in, the section stops asking.
+    let mut settled = get("/account/notifications?view=settings&section=product-alerts", Some("watcher"));
+    settled.headers_mut().insert("corten", "action".parse().unwrap());
+    let (_, _, html) = pilot.send(settled).await;
+    assert!(html.contains(r#"/product-alerts/pal_1" data-patch>"#) && !html.contains("data-corten-read-again"), "{html}");
     // A refusal and an action that is not one: the settings, saying so, 422.
     let (status, _, html) =
         pilot.send(post("/account/notifications/product-alerts/pal_gone", "watcher", "action=delete", false)).await;

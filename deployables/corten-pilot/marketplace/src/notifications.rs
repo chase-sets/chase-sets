@@ -185,6 +185,15 @@ pub(crate) async fn page(
             Ok(feed) => render(&req, &viewer, &Screen::Feed(Some(feed)), None, StatusCode::OK),
             Err(error) => failed(&req, &viewer, Screen::Feed(None), error),
         },
+        // An alert write's read again (`ReadAgain::from` in its patch): the section alone. A read
+        // that fails answers the page's error, which the runtime does not apply, so it stops.
+        View::Settings if req.mode == corten::Mode::Action && place.section() == Section::ProductAlerts => {
+            let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+            match alerts(&waiting, receipt.is_some()).await {
+                Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place: place.clone() }),
+                Err(error) => failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error),
+            }
+        }
         View::Settings => {
             let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
             match settings(&caller, &waiting, receipt.is_some()).await {
@@ -346,14 +355,12 @@ pub(crate) async fn set_preference(
     }
 }
 
-/// Pause, resume or delete an alert, then the alerts read after the write: with a script, in
-/// place (or, while the read catches up, the settings' address, which says so and reads again);
-/// without one, the settings at the alerts with the write's receipt.
-///
-/// The redirect while the read catches up is the workaround for todd-skelton/corten#104: a
-/// patch answer cannot ask to be read again, so the settings page reads with the receipt and
-/// says the change is pending. Remove the fallback once #104 lands. Carrying the receipt in the
-/// redirect is what marketplace does not do (chase-sets/chase-sets#10627).
+/// Pause, resume or delete an alert, then the alerts read after the write. With a script, in
+/// place: while the read catches up the section says the change is saved and asks to be read again
+/// from the settings' address with the write's receipt (`ReadAgain::from`), which answers the
+/// section the same way until the read is in. Without one, or when the read after the write
+/// fails, the settings at the alerts with the receipt, which say the same and read themselves
+/// again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
 pub(crate) async fn change_alert(
     req: Req,
     Caller(Member(viewer)): Caller<Member>,
@@ -382,13 +389,22 @@ pub(crate) async fn change_alert(
     let to = url::Notifications { place: Place::settings(Section::ProductAlerts, receipt.as_ref()) };
     if req.mode == corten::Mode::Action {
         let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
-        if let Ok(Alerts::Listed(alerts)) = alerts(&waiting, receipt.is_some()).await {
-            let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
-            let alerts = Alerts::Listed(alerts);
-            return req.patch(html! { <views::AlertsSection t={t} p={p} alerts={&alerts} notice={None} focus={false} /> });
+        if let Ok(alerts) = alerts(&waiting, receipt.is_some()).await {
+            return alerts_patch(&req, &alerts, &to);
         }
     }
     req.redirect(&to.at(views::ProductAlertsId))
+}
+
+/// The alerts' section as a patch; while the read is catching up with a write it asks to be read
+/// again from `from`, the settings' address with the write's receipt, which answers this again.
+fn alerts_patch(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult {
+    let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
+    let again = matches!(alerts, Alerts::CatchingUp).then(|| ReadAgain { after: Duration::from_secs(2) }.from(from));
+    req.patch(html! {
+        <views::AlertsSection t={t} p={p} alerts={alerts} notice={None} focus={false} />
+        {again}
+    })
 }
 
 #[cfg(test)]
