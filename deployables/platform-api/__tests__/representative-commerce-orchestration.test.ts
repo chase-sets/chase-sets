@@ -1,20 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drainContextRuntime, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
-import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  createProjectionGroupLeasePort,
+  representativeCommerceStateDataProfiles,
+  seedApiHostIfEmpty,
+} from "@chase-sets/platform-runtime/api";
+import { createPostgresPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { publishRepresentativeListings } from "@chase-sets/catalog-seed";
 import {
   runRepresentativeCommerceState,
   type RepresentativeCommerceStateRunOptions,
 } from "../src/representative-commerce-state";
 
-vi.mock("@chase-sets/platform-runtime/control-plane", () => ({
-  bootstrapPlatformControlPlane: vi.fn(),
-  createPostgresPlatformControlPlane: vi.fn(() => ({})),
-}));
-vi.mock("@chase-sets/platform-runtime/api", async (original) => ({
-  ...(await original<object>()),
-  seedApiHostIfEmpty: vi.fn(),
-}));
+vi.mock("@chase-sets/platform-runtime/control-plane", async (original) => {
+  const actual = await original<typeof import("@chase-sets/platform-runtime/control-plane")>();
+  return {
+    ...actual,
+    bootstrapPlatformControlPlane: vi.fn(),
+    createPostgresPlatformControlPlane: vi.fn(actual.createPostgresPlatformControlPlane),
+  };
+});
+vi.mock("@chase-sets/platform-runtime/api", async (original) => {
+  const actual = await original<typeof import("@chase-sets/platform-runtime/api")>();
+  return {
+    ...actual,
+    seedApiHostIfEmpty: vi.fn(),
+    createProjectionGroupLeasePort: vi.fn(actual.createProjectionGroupLeasePort),
+  };
+});
 vi.mock("@chase-sets/bounded-context-runtime", async (original) => ({
   ...(await original<object>()),
   getProjectionGroup: (_runtime: unknown, context: string, projection: string) => `${context}.${projection}`,
@@ -121,7 +134,7 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
   };
   const completed: string[] = [];
   const options = {
-    pools: {},
+    pools: { control: { query: vi.fn(async () => ({ rows: [] })), connect: vi.fn() } },
     runtime: { services, mountedContexts: [] },
     execution: { deploymentEnvironment: "staging", confirmation: "seed staging commerce" },
     evidenceOutPath: null,
@@ -190,13 +203,18 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
   it("ensures every fresh data profile before creating the canary and preserves rerun idempotence", async () => {
     const state = harness(null, 0, true);
     await runRepresentativeCommerceState(state.options);
+    expect(createPostgresPlatformControlPlane).toHaveBeenCalledExactlyOnceWith(state.options.pools?.control);
+    const controlPlane = vi.mocked(createPostgresPlatformControlPlane).mock.results[0]!.value;
+    expect(createProjectionGroupLeasePort).toHaveBeenCalledExactlyOnceWith(controlPlane, "platform-api");
     expect(seedApiHostIfEmpty).toHaveBeenCalledWith(
       expect.anything(),
       "platform-api",
       expect.anything(),
       expect.objectContaining({
         enabledDataProfiles: representativeCommerceStateDataProfiles,
-        projectionGroupLeasePort: expect.objectContaining({ runWithLease: expect.any(Function) }),
+        projectionGroupLeasePort: vi.mocked(createProjectionGroupLeasePort).mock.results[0]!.value,
+        substepTimeoutMs: 600_000,
+        seedContextDrain: true,
       }),
     );
     expect(state.completed.indexOf("seed data profiles")).toBeLessThan(

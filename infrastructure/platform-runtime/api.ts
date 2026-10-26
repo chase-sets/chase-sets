@@ -475,7 +475,7 @@ export type ApiHostSeedOptions = BcSeedOptions &
     fullBootstrapDrain?: boolean;
     /** Converge seed owners before/after reconciliation; the caller owns the remaining runtime drain. */
     seedContextDrain?: boolean;
-    /** Required fencing boundary for every seed projection sync and drain. */
+    /** Fencing boundary for every seed projection sync and drain; seedApiHostIfEmpty requires it. */
     projectionGroupLeasePort?: ProjectionGroupLeasePort;
   }>;
 
@@ -552,11 +552,9 @@ export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
-  options: ApiHostSeedOptions = {
-    enabledDataProfiles: nonProductionDataProfiles,
-    environmentName: null,
-  },
+  options: ApiHostSeedOptions & Readonly<{ projectionGroupLeasePort: ProjectionGroupLeasePort }>,
 ): Promise<void> {
+  // Untyped callers can still omit the port; refuse before any bootstrap or seed work.
   if (!options.projectionGroupLeasePort) {
     throw new Error("API host seed requires a ProjectionGroupLeasePort; unleased seed drains are not allowed.");
   }
@@ -567,6 +565,7 @@ export async function seedApiHostIfEmpty(
       runtime,
       options,
       options.schemaBootstrapLockAcquisition,
+      options.projectionGroupLeasePort.runWithLease,
     );
   }
   const bootstrapLockContext = runtime.mountedContexts[0];
@@ -577,7 +576,15 @@ export async function seedApiHostIfEmpty(
   await withSchemaBootstrapLock(
     options.schemaBootstrapLockPool ?? bootstrapLockContext.pool,
     options.schemaBootstrap,
-    (lockAcquisition) => seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
+    (lockAcquisition) =>
+      seedApiHostIfEmptyWithHeldBootstrapLock(
+        registry,
+        hostName,
+        runtime,
+        options,
+        lockAcquisition,
+        options.projectionGroupLeasePort.runWithLease,
+      ),
   );
 }
 
@@ -587,12 +594,12 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   runtime: ApiHostRuntime,
   options: ApiHostSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
+  runWithLease: ProjectionGroupLeaseRunner,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runBootstrapDrain = shouldRunBootstrapDrain(options);
   const seedContextDrain = options.seedContextDrain === true;
   const substepTimeoutMs = options.substepTimeoutMs;
-  const runWithLease = options.projectionGroupLeasePort!.runWithLease;
   const schemaBootstrap: SchemaBootstrapOptions = {
     ...options.schemaBootstrap,
     advisoryLockMode: "held-by-caller",
@@ -692,8 +699,8 @@ async function seedApiModuleForHostBootstrap(
   context: MountedContextRuntimeEntry,
   options: BcSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
-  runWithLease?: ProjectionGroupLeaseRunner,
-  signal?: AbortSignal,
+  runWithLease: ProjectionGroupLeaseRunner,
+  signal: AbortSignal,
 ): Promise<void> {
   // A queued twin must not re-enter an active context's general seed against
   // events whose projections the predecessor may not have drained. Event
@@ -733,8 +740,8 @@ async function seedApiModuleForHostBootstrap(
 async function reconcileRequiredBootstrapState(
   context: MountedContextRuntimeEntry,
   options: BcSeedOptions,
-  runWithLease?: ProjectionGroupLeaseRunner,
-  signal?: AbortSignal,
+  runWithLease: ProjectionGroupLeaseRunner,
+  signal: AbortSignal,
 ) {
   const reconcile = context.module.reconcileBootstrapState;
   if (!reconcile) {

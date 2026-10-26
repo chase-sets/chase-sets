@@ -6,7 +6,6 @@ import {
   nonProductionDataProfiles,
   productionLikeDataProfiles,
   seedApiHostIfEmpty,
-  type ApiHostSeedOptions,
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
@@ -91,7 +90,7 @@ export function catalogServices(runtime: ReturnType<typeof createCatalogSeedHost
   return runtime.services.catalog as CatalogServices;
 }
 
-export function bootstrapOptions(profile: (typeof profileShapes)[number]): ApiHostSeedOptions {
+export function bootstrapOptions(profile: (typeof profileShapes)[number]): Parameters<typeof seedApiHostIfEmpty>[3] {
   return {
     enabledDataProfiles: profile.profiles,
     environmentName: profile.environmentName,

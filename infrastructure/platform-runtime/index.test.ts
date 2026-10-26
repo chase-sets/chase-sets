@@ -1721,6 +1721,7 @@ describe("platform host api registry", () => {
     const runtime = createApiHost(registry, "platform-api", { pools: { catalog: createPool() as never } });
 
     await expect(
+      // @ts-expect-error The port is required; this models an untyped caller that omits it.
       seedApiHostIfEmpty(registry, "platform-api", runtime, {
         enabledDataProfiles: productionLikeDataProfiles,
         environmentName: "test",
