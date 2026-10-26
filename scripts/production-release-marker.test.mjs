@@ -202,6 +202,15 @@ describe("publication interruption and unknown response", () => {
     });
     expect(io.publishGit).toHaveBeenCalledTimes(3);
   });
+  it("lets a registry GC gate refusal escape the authoritative publication catch", async () => {
+    const { io } = publication();
+    const refusal = new Error("registry GC active");
+    refusal.code = "registry-gc-read-only";
+    io.assertRegistryWritable = vi.fn().mockRejectedValue(refusal);
+    await expect(publishReleaseMarker(identity, io)).rejects.toMatchObject({ code: "registry-gc-read-only" });
+    expect(io.assertRegistryWritable).toHaveBeenCalledOnce();
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+  });
   it.each(["fetch", "registry", "ancestry", "freshness"])("refuses %s failure before mutation", async (failure) => {
     const { io } = publication();
     if (failure === "fetch") io.readRefs.mockRejectedValue(new Error("fetch failed"));

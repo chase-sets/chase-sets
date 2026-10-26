@@ -17,6 +17,7 @@ import {
   selectStableDeployedHelmSource,
 } from "./platform-kubernetes-deployment.mjs";
 import { runReleaseLockCheck } from "./release-lock.mjs";
+import { assertRegistryWritable as assertDigitalOceanRegistryWritable } from "./digitalocean-registry-gc-gate.mjs";
 
 const execute = promisify(execFile);
 const sha = /^[0-9a-f]{40}$/;
@@ -231,9 +232,13 @@ export async function publishReleaseMarker(identity, io) {
       registry = await io.readRegistry();
       if (registry === null) {
         operation = "registry-publication";
+        if (io.assertRegistryWritable) await io.assertRegistryWritable();
         try {
           await io.publishRegistry();
-        } catch {
+        } catch (error) {
+          if (error?.code === "registry-gc-read-only" || error?.registryGcGate?.rootCauseCode === "registry-gc-read-only") {
+            throw error;
+          }
           /* The authoritative read, not the response, decides. */
         }
         registry = await io.readRegistry();
@@ -710,7 +715,7 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       .slice(0, 300);
     return new Error(`registry identity unavailable${excerpt ? `: ${excerpt}` : ""}`);
   };
-  return {
+  const io = {
     readRefs: () => gitRefs(identity, runCommand),
     isAncestor: async (from, to) => {
       try {
@@ -799,6 +804,23 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       ]);
     },
   };
+  if (env.DIGITALOCEAN_ACCESS_TOKEN) {
+    io.assertRegistryWritable = async () => {
+      const result = await assertDigitalOceanRegistryWritable(identity.image.split("/")[1], {
+        commandOutput: async (program, args) => (await runCommand(program, args, { env: { ...env, DIGITALOCEAN_ACCESS_TOKEN: env.DIGITALOCEAN_ACCESS_TOKEN } })).stdout,
+      });
+      if (env.REGISTRY_GC_GATE_OUT) {
+        await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
+      }
+      if (result.result !== "writable") {
+        const error = new Error(`Registry mutation refused: ${result.reason}`);
+        error.code = result.rootCauseCode || "registry-gc-gate-unknown";
+        error.registryGcGate = result;
+        throw error;
+      }
+    };
+  }
+  return io;
 }
 
 async function main(action, env) {

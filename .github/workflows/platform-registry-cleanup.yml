@@ -57,7 +57,7 @@ jobs:
   cleanup:
     name: Cleanup DOCR Images
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 135
     environment: staging
     needs: refuse-unconfirmed-apply
     if: ${{ !cancelled() && (needs.refuse-unconfirmed-apply.result == 'skipped' || needs.refuse-unconfirmed-apply.result == 'success') }}
@@ -195,6 +195,31 @@ jobs:
             --retain-recent-sha-tree-tags=25 \
             --dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_RESOLVED_DRY_RUN}" \
             --out artifacts/release-health/digitalocean-registry-cleanup.json
+
+      - name: Record cancelled registry cleanup
+        if: ${{ cancelled() }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = "artifacts/release-health/digitalocean-registry-cleanup.json";
+          if (!fs.existsSync(path)) {
+            fs.writeFileSync(path, `${JSON.stringify({
+              schemaVersion: "digitalocean-registry-cleanup/v1",
+              checkedAt: new Date().toISOString(),
+              mode: process.env.DIGITALOCEAN_REGISTRY_CLEANUP_RESOLVED_DRY_RUN === "true" ? "dry-run" : "apply",
+              requestedMode: process.env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN === "true" ? "dry-run" : "apply",
+              repository: process.env.PLATFORM_IMAGE_REPOSITORY,
+              retentionDays: 7,
+              retainRecentShaTreeTags: 25,
+              protectedTags: [], protectedDigests: [], retainedRecentShaTreeTags: [], selectedDeletionTags: [],
+              deletedTags: [], failedTags: [],
+              garbageCollection: { status: "cancelled", reason: "workflow-cancelled", errors: [] },
+              result: "failure", errors: ["Registry cleanup workflow was cancelled before terminal GC observation."],
+            }, null, 2)}\n`);
+          }
+          NODE
 
       - name: Validate canonical registry cleanup record
         if: ${{ always() }}

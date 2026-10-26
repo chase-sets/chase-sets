@@ -11,6 +11,11 @@ import {
   selectTagsForDeletion,
   validateDigitalOceanRegistryCleanupRecord,
 } from "./digitalocean-registry-cleanup.mjs";
+import {
+  ACTIVE_GC_NOT_FOUND_PHRASE,
+  assertRegistryWritable,
+  waitForRegistryGarbageCollection,
+} from "./digitalocean-registry-gc-gate.mjs";
 
 const observedProviderManagedGarbageCollectionRefusal = () => {
   const error = new Error("raw-exception-secret-marker must not escape");
@@ -31,6 +36,46 @@ const providerFailure = (status, message, { code = 1 } = {}) => {
 };
 
 describe("digitalocean-registry-cleanup", () => {
+  it("fails closed for active, malformed, unknown, timeout, and cancellation observations", async () => {
+    const uuid = "c5cf2bde-b606-4663-b6ec-7320b0f8b262";
+    const active = JSON.stringify({ UUID: uuid, RegistryName: "chase-sets-platform", Status: "scanning for unreferenced blobs" });
+    let calls = 0;
+    await expect(
+      waitForRegistryGarbageCollection(
+        { repository: "chase-sets-platform", uuid, maxWaitMs: 1, pollIntervalMs: 0 },
+        { commandOutput: async () => active, now: () => ++calls, sleep: async () => {} },
+      ),
+    ).resolves.toMatchObject({ result: "refused", reason: "wait-timeout" });
+
+    await expect(
+      assertRegistryWritable("chase-sets-platform", {
+        commandOutput: async () => JSON.stringify({ UUID: uuid, Status: "mystery" }),
+      }),
+    ).resolves.toMatchObject({ result: "refused", reason: "active-garbage-collection", active: true });
+
+    await expect(
+      assertRegistryWritable("chase-sets-platform", {
+        commandOutput: async () => JSON.stringify({ Status: "scanning for unreferenced blobs" }),
+      }),
+    ).resolves.toMatchObject({ result: "refused", reason: "malformed", active: false });
+
+    await expect(
+      waitForRegistryGarbageCollection(
+        { repository: "chase-sets-platform", uuid, maxWaitMs: 10, pollIntervalMs: 0 },
+        { commandOutput: async () => active, now: () => 0, sleep: async () => {}, isCancelled: () => true },
+      ),
+    ).resolves.toMatchObject({ result: "refused", reason: "cancelled" });
+
+    await expect(
+      assertRegistryWritable("chase-sets-platform", {
+        commandOutput: async () => {
+          const error = new Error("provider error");
+          error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+          throw error;
+        },
+      }),
+    ).resolves.toMatchObject({ result: "writable", reason: "no-active-garbage-collection" });
+  });
   it("keeps release tags, protected digests, and the latest SHA/tree tags", () => {
     const now = new Date("2026-05-15T12:00:00.000Z");
 
@@ -314,7 +359,15 @@ describe("digitalocean-registry-cleanup", () => {
             return "";
           }
           if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "start") {
-            return "";
+            return JSON.stringify({ UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", Status: "started" });
+          }
+          if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "get-active") {
+            const error = new Error("none");
+            error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+            throw error;
+          }
+          if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "list") {
+            return JSON.stringify([{ UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", RegistryName: "chase-sets-platform", Status: "succeeded" }]);
           }
           throw new Error(`Unexpected command: ${args.join(" ")}`);
         },
@@ -325,7 +378,7 @@ describe("digitalocean-registry-cleanup", () => {
     expect(result.record.deletedTags).toEqual([
       { name: "old-main", digest: null, updatedAt: "2026-03-01T00:00:00.000Z" },
     ]);
-    expect(result.record.garbageCollection).toEqual({ status: "started", reason: "cleanup-applied" });
+    expect(result.record.garbageCollection).toMatchObject({ status: "succeeded", reason: "terminal-succeeded", uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262" });
     expect(calls).toContainEqual([
       "registry",
       "repository",
@@ -334,7 +387,7 @@ describe("digitalocean-registry-cleanup", () => {
       "old-main",
       "--force",
     ]);
-    expect(calls).toContainEqual(["registry", "garbage-collection", "start", "--force"]);
+    expect(calls).toContainEqual(["registry", "garbage-collection", "start", "--force", "--output", "json"]);
   });
 
   it("accepts the sanitized real-run godo 412 shape at the cleanup client seam and writes the canonical record", async () => {

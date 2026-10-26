@@ -22,6 +22,23 @@ const temporaryDirectories = [];
 const ambientPath = process.env.PATH ?? process.env.Path ?? "";
 const shellPath = process.platform === "win32" ? `${dirname(bashLauncher)}${delimiter}${ambientPath}` : ambientPath;
 
+it("census includes every DOCR writer and the shared fail-closed gate", () => {
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+  const marker = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
+  expect(registrySource).toContain("timeout-minutes: 135");
+  expect(production).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
+  expect(production).toContain('docker buildx imagetools create --tag "$image" "$tree_image"');
+  expect(production).toContain('docker push "$RELEASE_IMAGE"');
+  expect(pullRequest).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
+  expect(pullRequest).toContain('docker push "$image" | tee "$push_output"');
+  expect(pullRequest).toContain("docker buildx build");
+  expect(production).toContain("doctl registry create");
+  expect(pullRequest).toContain("doctl registry create");
+  expect(marker).toContain("assertRegistryWritable");
+  expect(marker).toContain("registry-gc-read-only");
+});
+
 afterEach(() => {
   while (temporaryDirectories.length > 0) {
     rmSync(temporaryDirectories.pop(), { recursive: true, force: true });

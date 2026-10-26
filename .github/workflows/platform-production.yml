@@ -538,10 +538,15 @@ jobs:
       - name: Reconcile retained production marker
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          REGISTRY_GC_GATE_OUT: artifacts/release-health/registry-gc-gate.json
           RELEASE_IMAGE: ${{ env.RELEASE_IMAGE }}
           RELEASE_COMMIT: 0000000000000000000000000000000000000000
           RELEASE_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
-        run: node ./scripts/production-release-marker.mjs marker-only
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          node ./scripts/production-release-marker.mjs marker-only
 
   deployment-contract-preflight:
     name: Preflight Deployment Contract (${{ matrix.environment }})
@@ -645,6 +650,13 @@ jobs:
     outputs:
       platform_image: ${{ steps.release_image_identity.outputs.image }}
       platform_image_digest: ${{ steps.release_image_identity.outputs.digest }}
+      root_cause_code: ${{ steps.build_image_failure_classification.outputs.root_cause_code || 'unknown' }}
+      root_cause_summary: ${{ steps.build_image_failure_classification.outputs.root_cause_summary || 'The image build failed without a known safe classification.' }}
+      affected_component: ${{ steps.build_image_failure_classification.outputs.affected_component || 'unknown' }}
+      root_cause_phase: ${{ steps.build_image_failure_classification.outputs.phase || 'unknown' }}
+      root_cause_remediation: ${{ steps.build_image_failure_classification.outputs.remediation || 'Inspect the redacted provider reason and diagnostic artifacts before retrying or recovering.' }}
+      root_cause_provider_reason: ${{ steps.build_image_failure_classification.outputs.provider_reason || 'No provider reason was captured.' }}
+      root_cause_signature: ${{ steps.build_image_failure_classification.outputs.root_cause_signature }}
     env:
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -670,9 +682,11 @@ jobs:
         id: release_image
         run: |
           set -euo pipefail
+          mkdir -p artifacts/release-health
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
           if [ -z "$registry_name" ]; then
+            echo "DigitalOcean registry is absent; create-only fallback is not a registry image write and remains covered by the writer census."
             doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
             registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
           fi
@@ -690,6 +704,9 @@ jobs:
           tree_image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:tree-${release_tree}"
           if docker buildx imagetools inspect "$tree_image" >/dev/null 2>&1; then
             tree_digest="$(docker buildx imagetools inspect "$tree_image" --format '{{.Manifest.Digest}}')"
+            node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+              --repository="$registry_name" \
+              --out=artifacts/release-health/registry-gc-gate.json
             docker buildx imagetools create --tag "$image" "$tree_image"
             release_digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
             if [ "$release_digest" != "$tree_digest" ]; then
@@ -774,6 +791,12 @@ jobs:
           RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
         run: |
           set -euo pipefail
+          mkdir -p artifacts/release-health
+          registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
+          registry_name="${registry_name%%/*}"
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --repository="$registry_name" \
+            --out=artifacts/release-health/registry-gc-gate.json
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
 
@@ -793,6 +816,30 @@ jobs:
             echo "digest=${digest}"
           } >> "$GITHUB_OUTPUT"
           echo "Pinned candidate ${RELEASE_IMAGE}@${digest}."
+
+      - name: Classify build-image failure
+        if: failure()
+        id: build_image_failure_classification
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          registry_name="${RELEASE_IMAGE:-}"
+          if [ -n "$registry_name" ]; then
+            registry_name="${registry_name#registry.digitalocean.com/}"
+            registry_name="${registry_name%%/*}"
+          else
+            registry_name="${DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK}"
+          fi
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --repository="$registry_name" \
+            --out=artifacts/release-health/registry-gc-gate.json || true
+          node ./scripts/platform-deploy-incident.mjs \
+            --command classify-root-cause \
+            --phase build-image \
+            --diagnostics artifacts/release-health/registry-gc-gate.json \
+            --out artifacts/release-health/build-image-root-cause.json \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            --format github-output >> "$GITHUB_OUTPUT"
 
   reconcile-managed-postgres-ca-staging:
     name: Reconcile Managed Postgres CA (staging)
@@ -3755,6 +3802,7 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          REGISTRY_GC_GATE_OUT: artifacts/release-health/registry-gc-gate.json
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
@@ -4556,6 +4604,8 @@ jobs:
       - name: Mark production release
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          REGISTRY_GC_GATE_OUT: artifacts/release-health/registry-gc-gate.json
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -4564,7 +4614,10 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         id: production_marker
         if: env.SHOULD_DEPLOY != 'false'
-        run: node ./scripts/production-release-marker.mjs publish
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          node ./scripts/production-release-marker.mjs publish
 
       - name: Write promoted release handoff
         if: steps.production_marker.outputs.marker_updated == 'true'
@@ -4783,10 +4836,16 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DEPLOY_ROOT_CAUSE_PHASE: ${{ steps.agent_grant_revocation_activation.outcome == 'failure' && 'agent-grant-revocation-activation' || 'production-deploy' }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
         if: failure()
         id: production_failure_classification
         run: |
           set -euo pipefail
+          registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
+          registry_name="${registry_name%%/*}"
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --repository="$registry_name" \
+            --out artifacts/release-health/registry-gc-gate.json || true
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase "$DEPLOY_ROOT_CAUSE_PHASE" \
@@ -4797,6 +4856,7 @@ jobs:
             --diagnostics artifacts/release-health/production-readiness-gate.json \
             --diagnostics artifacts/release-health/production-rollback.json \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-attempts.json \
+            --diagnostics artifacts/release-health/registry-gc-gate.json \
             --out artifacts/release-health/production-deploy-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
@@ -4986,17 +5046,18 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}
           BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
+          BUILD_ROOT_CAUSE_CODE: ${{ needs.build-image.outputs.root_cause_code || 'unknown' }}
           DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
           STAGING_ROOT_CAUSE_CODE: ${{ needs.deploy-staging.outputs.root_cause_code || 'unknown' }}
           PRODUCTION_ROOT_CAUSE_CODE: ${{ needs.deploy-production.outputs.root_cause_code || 'unknown' }}
-          ROOT_CAUSE_SUMMARY: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_summary || needs.deploy-production.outputs.root_cause_summary }}
-          AFFECTED_COMPONENT: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.affected_component || needs.deploy-production.outputs.affected_component }}
-          ROOT_CAUSE_PHASE: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_phase || needs.deploy-production.outputs.root_cause_phase }}
-          ROOT_CAUSE_REMEDIATION: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_remediation || needs.deploy-production.outputs.root_cause_remediation }}
-          ROOT_CAUSE_PROVIDER_REASON: ${{ needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_provider_reason || needs.deploy-production.outputs.root_cause_provider_reason }}
+          ROOT_CAUSE_SUMMARY: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.root_cause_summary || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_summary || needs.deploy-production.outputs.root_cause_summary }}
+          AFFECTED_COMPONENT: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.affected_component || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.affected_component || needs.deploy-production.outputs.affected_component }}
+          ROOT_CAUSE_PHASE: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.root_cause_phase || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_phase || needs.deploy-production.outputs.root_cause_phase }}
+          ROOT_CAUSE_REMEDIATION: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.root_cause_remediation || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_remediation || needs.deploy-production.outputs.root_cause_remediation }}
+          ROOT_CAUSE_PROVIDER_REASON: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.root_cause_provider_reason || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_provider_reason || needs.deploy-production.outputs.root_cause_provider_reason }}
           STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
           PRODUCTION_SUPERSEDED: "false"
