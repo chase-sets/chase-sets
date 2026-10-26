@@ -34,6 +34,8 @@
 // - marketplace/locales/account.en.json: an account's public page's English catalog (discovery.routes.publicAccount.*,
 //   the account badges' words, and Reputation's review report and scoring context,
 //   reputation.features.reviews.ui.reviewReportAction.* and .reviewScoringContext.*).
+// - marketplace/locales/notifications.en.json: the notification center's English catalog
+//   (notifications.features.notificationCenter.ui.page.* and .shell.*, and notifications.routes.accountNotifications.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -364,6 +366,16 @@ const outputs = [
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/notifications.en.json",
+    json(
+      await catalog("notifications.ts", "notificationsEnglishTranslations", [
+        ["notifications.features.notificationCenter.ui.page.", "page"],
+        ["notifications.features.notificationCenter.ui.shell.", "shell"],
+        ["notifications.routes.accountNotifications.", "route"],
+      ]),
+    ),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

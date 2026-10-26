@@ -135,14 +135,15 @@ fn currency(text: &str) -> Option<String> {
     (code.len() == 3 && code.bytes().all(|b| b.is_ascii_uppercase())).then_some(code)
 }
 
-/// The alerts' settings on marketplace (`/account/notifications`, section `product-alerts`), after
-/// the write whose receipt is `receipt` (empty for none).
+/// The alerts' settings (the pilot's notification center, section `product-alerts`), read after
+/// the write whose receipt is `receipt` (empty for none), at the alerts.
 pub fn alerts_href(receipt: &str) -> String {
-    let mut path = String::from("/account/notifications?view=settings&section=product-alerts");
-    if !receipt.is_empty() {
-        path.push_str(&format!("&afterWrite={}", segment(receipt)));
-    }
-    views::marketplace(&path).map(|u| u.to_string()).unwrap_or(path)
+    let place = crate::notifications::Place {
+        view: Some("settings".into()),
+        section: Some(crate::notifications::ALERTS.into()),
+        after_write: (!receipt.is_empty()).then(|| receipt.to_owned()),
+    };
+    format!("{}#{}", url::Notifications { place }.href(), crate::notifications::ALERTS)
 }
 
 /// Marketplace's registration, back to the item's Watch tab with the intent to claim

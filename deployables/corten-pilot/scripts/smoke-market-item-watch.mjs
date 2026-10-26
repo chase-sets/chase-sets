@@ -4,7 +4,7 @@
 //   in its return address.
 // - As the auth seed's collector, with JavaScript: Set offer alert saves the account's alert with
 //   the catalog's words, the page comes back on its Watch tab saying so, and Manage alerts opens
-//   marketplace's alert settings.
+//   the pilot's notification center at the alerts, read after the write, with the new alert.
 // - A threshold with a third decimal is held by the field's step, and the server refuses one too.
 // - At 390 px with both folds open, nothing scrolls sideways and every control is at least 40 px.
 // It writes a guest intent (which expires on its own) and an account alert, which it deletes.
@@ -126,8 +126,11 @@ try {
     );
     check(alert?.catalog_catalog_item_id === read.catalog_item_id && alert?.product_summary === "Raw / Near Mint", `with the catalog's product and words (${alert?.product_summary})`);
     await banner.getByRole("link", { name: "Manage alerts" }).click();
-    await page.waitForURL((u) => u.href.startsWith(`${web}/account/notifications`));
-    check(new URL(page.url()).searchParams.get("section") === "product-alerts", "Manage alerts opens marketplace's alert settings");
+    await page.waitForURL((u) => u.href.startsWith(`${base}/account/notifications`));
+    const settings = new URL(page.url());
+    check(settings.searchParams.get("section") === "product-alerts" && settings.hash === "#product-alerts", `Manage alerts opens the pilot's alert settings at the alerts (${settings.search}${settings.hash})`);
+    const listed = await page.locator("#product-alerts").innerText();
+    check(listed.includes("Raw / Near Mint") && listed.includes("Offers - at or above $15.00"), "and lists the new alert");
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);
     await ctx.close();
   }

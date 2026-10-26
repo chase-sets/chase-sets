@@ -23,7 +23,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{Caller, Discovery as _, ListingReport, Marketplace as _, MetricsChips, PublicAccount},
-    app::{Shared, marketplace_origin, sign_in_at, url},
+    app::{At, Shared, marketplace_origin, sign_in_at, url},
     auth::Session,
     items::Raw,
     text::{AccountMsg, Pilot},
@@ -238,16 +238,6 @@ fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: 
 /// The value a form sent as `name`, trimmed.
 fn field<'a>(raw: &'a Raw, name: &str) -> &'a str {
     raw.get(name).and_then(|v| v.all().first()).map_or("", |v| v.trim())
-}
-
-/// A typed route with a fragment, for a redirect to a place on the page: `Href` for a route has
-/// none, and `http::Uri` drops it (todd-skelton/corten#100).
-struct At<'a, R>(&'a R, &'a str);
-
-impl<R: Route> corten::route::Href for At<'_, R> {
-    fn with_href<T>(&self, f: impl FnOnce(&str) -> T) -> T {
-        f(&format!("{}#{}", self.0.href(), self.1))
-    }
 }
 
 /// Report review: as the account signed in (a visitor goes to sign in, as the API answers 401),

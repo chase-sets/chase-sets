@@ -50,6 +50,18 @@ pub const VIEW: &str = "inventory.view";
 pub const MANAGE: &str = "inventory.manage";
 /// A guest checkout's session (marketplace's `canUseAccountCart`): it has no account cart.
 pub const GUEST_CHECKOUT: &str = "guest-checkout.manage";
+/// An account's own pages (the notification center), as marketplace's loaders require.
+pub const ACCOUNTS_VIEW: &str = "accounts.view";
+
+/// A typed route with a fragment, for a redirect or a link to a place on the page: `Href` for a
+/// route has none, and `http::Uri` drops it (todd-skelton/corten#100).
+pub struct At<'a, R>(pub &'a R, pub &'a str);
+
+impl<R: Route> corten::route::Href for At<'_, R> {
+    fn with_href<T>(&self, f: impl FnOnce(&str) -> T) -> T {
+        f(&format!("{}#{}", self.0.href(), self.1))
+    }
+}
 
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
@@ -91,6 +103,7 @@ pub mod url {
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
+    pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use search::Search;
     pub use sets::{Set, Sets};
 
@@ -384,6 +397,41 @@ pub mod url {
         }
     }
 
+    /// The account's notification center (Notifications' `routes/account-notifications.tsx`): the
+    /// feed, the delivery settings and the account's Product alerts. Every handler takes a `Member`
+    /// (`accounts.view`).
+    #[corten::routes(state = crate::app::Shared, area = Notifications, caller = crate::auth::Member)]
+    pub mod notifications {
+        /// The feed, or the settings (`view=settings`, at `section`), read after the write whose
+        /// receipt it carries.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/notifications", get = crate::notifications::page)]
+        pub struct Notifications {
+            #[route(query)]
+            pub place: crate::notifications::Place,
+        }
+
+        /// Mark a notification read (the form names its delivery).
+        #[route("/account/notifications/read", post = crate::notifications::mark_read)]
+        pub struct NotificationRead;
+
+        /// Mark every notification read.
+        #[route("/account/notifications/read-all", post = crate::notifications::mark_all_read)]
+        pub struct NotificationReadAll;
+
+        /// Turn a delivery channel on or off.
+        #[route("/account/notifications/preferences/{key}", post = crate::notifications::set_preference)]
+        pub struct NotificationPreference<'a> {
+            pub key: &'a str,
+        }
+
+        /// Pause, resume or delete a Product alert (Discovery's).
+        #[route("/account/notifications/product-alerts/{id}", post = crate::notifications::change_alert)]
+        pub struct ProductAlertChange<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
     /// account cart).
     #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
@@ -444,7 +492,8 @@ pub fn app(config: Config) -> App {
         .area::<url::Categories>(|area| url::categories::area(area, shared.clone()).components(views::SEARCH))
         .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SEARCH).components(views::SET))
         .area::<url::ListingsArea>(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
-        .area::<url::AccountsArea>(|area| url::accounts::area(area, shared).components(views::ACCOUNT))
+        .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
+        .area::<url::Notifications>(|area| url::notifications::area(area, shared).components(views::NOTIFICATIONS))
         .error_page(views::error_page)
 }
 

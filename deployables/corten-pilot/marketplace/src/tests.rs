@@ -356,7 +356,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
-            "watcher" => actor(&["accounts.view"]),
+            "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
             // none until its ship-from setup is saved.
             "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
@@ -377,6 +377,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = public_accounts(&method, uri.path(), session) {
+        return answer;
+    }
+    if let Some(answer) = notification_center(session, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
@@ -999,6 +1002,90 @@ fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Respons
         "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Account not found."),
     })
+}
+
+/// The notification center's calls, as the stand-in answers them for `watcher` (`notices_down`'s
+/// reads fail): two notifications, `dlv_1` unread (marking `dlv_broken` fails), five channels
+/// (`sms` and `rcs` too, as the API lists them; `nope` is refused), and two Product alerts.
+/// Pausing `pal_1` commits at 22, and a read after it has it paused; `pal_lag`'s write commits
+/// at 43, which the read has not caught up with; `pal_gone` is refused.
+fn notification_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let item = |id: &str, title: &str, kind: &str, href: &str, read: bool| {
+        json!({
+            "deliveryId": id, "messageType": kind, "criticality": "commerce", "title": title, "body": format!("{title}, in words."),
+            "actionHref": href, "readAt": if read { json!("2026-10-25T16:00:00.000Z") } else { Value::Null },
+            "createdAt": "2026-10-25T15:10:26.601Z",
+        })
+    };
+    let feed = |all_read: bool| {
+        json!({
+            "items": [
+                item("dlv_1", "Order ORD-1 cancelled", "ordering.order.cancelled", "/account/purchases/ord_1", all_read),
+                item("dlv_2", "A Charizard matched your alert", "discovery.product-alert.matched", "/items/charizard", true),
+            ],
+            "count": 2, "unread": if all_read { 0 } else { 1 },
+        })
+    };
+    let down = session == "notices_down";
+    match (method, path) {
+        (&Method::GET, "/api/notifications/center") if down => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        (&Method::GET, "/api/notifications/center") => Some(Json(feed(false)).into_response()),
+        (&Method::POST, "/api/notifications/center/read-all") => {
+            Some(Json(json!({ "status": "read", "feed": feed(true) })).into_response())
+        }
+        (&Method::POST, "/api/notifications/center/dlv_broken/read") => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        (&Method::POST, p) if p.starts_with("/api/notifications/center/") && p.ends_with("/read") => {
+            Some(Json(json!({ "status": "read", "feed": feed(true) })).into_response())
+        }
+        (&Method::GET, "/api/notifications/preferences") if down => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        (&Method::GET, "/api/notifications/preferences") => Some(
+            Json(json!({ "items": [
+                { "key": "web", "enabled": true }, { "key": "email", "enabled": true }, { "key": "sms", "enabled": false },
+                { "key": "rcs", "enabled": false }, { "key": "product-alerts", "enabled": true },
+            ] }))
+            .into_response(),
+        ),
+        (&Method::POST, p) if p.starts_with("/api/notifications/preferences/") => {
+            let key = &p["/api/notifications/preferences/".len()..];
+            if key == "nope" {
+                return Some(refusal(StatusCode::BAD_REQUEST, "invalid_preference", "Choose a notification channel."));
+            }
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            Some(Json(json!({ "item": { "key": key, "enabled": sent["enabled"] == true } })).into_response())
+        }
+        (&Method::GET, ACCOUNT_ALERTS) => {
+            if waits_for(headers).as_deref() == Some("43") {
+                return Some(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_freshness_timeout",
+                    "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+                ));
+            }
+            let paused = waits_for(headers).as_deref() == Some("22");
+            let alert = |id: &str, side: &str, threshold: Value, status: &str| {
+                json!({
+                    "alert_id": id, "catalog_catalog_item_id": "cat_charizard", "product_id": "cat_charizard::psa8",
+                    "product_summary": "Charizard, PSA 8", "market_side": side, "threshold_amount": threshold, "status": status,
+                })
+            };
+            Some(
+                Json(json!({ "items": [
+                    alert("pal_1", "listing", json!("25.00"), if paused { "paused" } else { "active" }),
+                    alert("pal_2", "offer", Value::Null, "paused"),
+                ], "total": 2, "count": 2 }))
+                .into_response(),
+            )
+        }
+        (&Method::POST, p) if p.starts_with("/api/marketplace/account/product-alerts/pal_") => {
+            let (id, action) = p["/api/marketplace/account/product-alerts/".len()..].split_once('/')?;
+            Some(match id {
+                "pal_gone" => refusal(StatusCode::BAD_REQUEST, "validation_failed", "Product alert not found."),
+                "pal_lag" => committed(StatusCode::OK, "discovery", "43", json!({ "id": id, "version": 2, "status": action })),
+                _ => committed(StatusCode::OK, "discovery", "22", json!({ "id": id, "version": 2, "status": action })),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -2967,9 +3054,7 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         "{html}"
     );
     assert!(
-        html.contains(
-            r#"href="http://localhost:7753/account/notifications?view=settings&amp;section=product-alerts&amp;afterWrite=%7B"#
-        ),
+        html.contains(r#"href="/account/notifications?view=settings&amp;section=product-alerts&amp;afterWrite=%7B"#),
         "{html}"
     );
     assert!(!text(&html).contains("Alerts are created after account registration"), "an account is not told to register: {html}");
@@ -4315,4 +4400,179 @@ async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor
     let to = headers["location"].to_str().unwrap();
     assert!(to.starts_with("http://localhost:7753/sign-in?") && to.contains("%2Faccounts%2Fchase-sets"), "{to}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 5);
+}
+
+/// The notification center's calls to the API (the session lookups left out).
+fn notice_calls(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with("/api/notifications/") || c.path.starts_with(ACCOUNT_ALERTS)).cloned().collect()
+}
+
+#[tokio::test]
+async fn the_feed_shows_each_notification_its_source_and_time_and_open_stays_here_or_goes_to_marketplace() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/notifications", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(
+        notice_calls(&pilot).iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        ["/api/notifications/center?limit=25&includeRead=true"]
+    );
+    assert!(html.contains("<title>Notifications | Marketplace</title>"), "{html}");
+    assert!(html.contains(r#"href="/account/notifications" aria-current="page""#), "{html}");
+    let page = text(&html);
+    for words in
+        ["Recent updates", "1 unread", "Order ORD-1 cancelled", "New", "Orders", "Product alerts", "Read", "Oct 25, 2026"]
+    {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(html.contains(r#"href="http://localhost:7753/account/purchases/ord_1">Open</a>"#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard">Open</a>"#), "{html}");
+    // Mark read only for the unread one, each a form naming its delivery.
+    assert_eq!(html.matches(r#"name="delivery""#).count(), 1, "{html}");
+    assert!(html.contains(r#"name="delivery" value="dlv_1""#), "{html}");
+    assert!(html.contains(r#"action="/account/notifications/read-all" data-patch><button type="submit" class="#), "{html}");
+    assert!(html.contains(">Mark all read</button>") && !html.contains(" disabled>Mark all read</button>"), "{html}");
+}
+
+#[tokio::test]
+async fn mark_read_draws_the_feed_the_api_answered_with_and_without_a_script_redirects_to_it() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/account/notifications/read", "watcher", "delivery=dlv_1", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<section id="feed""#) && text(&html).contains("0 unread"), "{html}");
+    assert!(html.contains(" disabled>Mark all read</button>"), "{html}");
+    // The API's answer is the feed after the write, so nothing is read again.
+    assert_eq!(
+        notice_calls(&pilot).iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        ["/api/notifications/center/dlv_1/read"]
+    );
+    let (status, headers, _) = pilot.send(post("/account/notifications/read-all", "watcher", "", false)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/notifications"));
+    // A write the API did not answer: the feed as it is, saying so, 502.
+    let (status, _, html) = pilot.send(post("/account/notifications/read", "watcher", "delivery=dlv_broken", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>Try again in a moment.</p>"#) && text(&html).contains("1 unread"), "{html}");
+}
+
+#[tokio::test]
+async fn the_settings_show_the_channels_the_page_has_words_for_and_the_accounts_alerts() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/notifications?view=settings", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"href="/account/notifications?view=settings" aria-current="page""#), "{html}");
+    for key in ["web", "email", "product-alerts"] {
+        assert!(html.contains(&format!(r#"<form id="preference-{key}""#)), "{key}: {html}");
+    }
+    assert!(!html.contains(r#"id="preference-sms""#) && !html.contains(r#"id="preference-rcs""#), "{html}");
+    assert_eq!(html.matches(r#"role="switch" aria-checked="true""#).count(), 3, "{html}");
+    assert!(
+        html.contains(
+            r#"action="/account/notifications/preferences/email" data-patch><input type="hidden" name="enabled" value="false">"#
+        ),
+        "{html}"
+    );
+    let page = text(&html);
+    for words in [
+        "Delivery settings",
+        "In-app notifications",
+        "Email notifications",
+        "Charizard, PSA 8",
+        "Listings - at or below $25.00",
+        "Offers - all new matches",
+        "active",
+        "paused",
+    ] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(html.contains(r#"<section id="product-alerts""#), "{html}");
+    assert!(
+        html.contains(
+            r#"action="/account/notifications/product-alerts/pal_1" data-patch><input type="hidden" name="action" value="pause">"#
+        ),
+        "{html}"
+    );
+    assert!(html.contains(r#"action="/account/notifications/product-alerts/pal_2" data-patch><input type="hidden" name="action" value="resume">"#), "{html}");
+    assert!(html.contains(r#"href="/items/cat_charizard">View product</a>"#), "{html}");
+    assert!(!html.contains("autofocus"), "only the alerts' section takes focus: {html}");
+    let (_, _, html) = pilot.send(get("/account/notifications?view=settings&section=product-alerts", Some("watcher"))).await;
+    assert!(html.contains(r#"tabindex="-1" autofocus>Product alerts</h2>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_channels_switch_turns_it_the_other_way_and_draws_the_switch_the_api_answered_with() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/account/notifications/preferences/email", "watcher", "enabled=false", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<form id="preference-email""#) && html.contains(r#"aria-checked="false""#), "{html}");
+    assert!(html.contains(r#"name="enabled" value="true""#), "the switch now turns it back on: {html}");
+    let call = notice_calls(&pilot).into_iter().find(|c| c.method == Method::POST).unwrap();
+    assert_eq!((call.path.as_str(), call.body.as_str()), ("/api/notifications/preferences/email", r#"{"enabled":false}"#));
+    let (status, headers, _) = pilot.send(post("/account/notifications/preferences/web", "watcher", "enabled=true", false)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/notifications?view=settings"));
+    let (status, _, html) = pilot.send(post("/account/notifications/preferences/nope", "watcher", "enabled=true", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>Choose a notification channel.</p>"#), "{html}");
+}
+
+#[tokio::test]
+async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_read_is_catching_up() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=pause", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<section id="product-alerts""#), "{html}");
+    assert!(
+        html.contains(r#"/product-alerts/pal_1" data-patch><input type="hidden" name="action" value="resume">"#),
+        "pal_1 is paused now: {html}"
+    );
+    let calls = notice_calls(&pilot);
+    assert_eq!(calls[0].path, "/api/marketplace/account/product-alerts/pal_1/pause");
+    assert_eq!(waits_for(&calls[1].headers).as_deref(), Some("22"), "the read waits for the write");
+    // Without a script: the settings at the alerts, with the receipt, which the read waits for.
+    let (status, headers, _) =
+        pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=pause", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(
+        to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite=")
+            && to.ends_with("#product-alerts"),
+        "{to}"
+    );
+    let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("watcher"))).await;
+    assert!(html.contains(r#"/product-alerts/pal_1" data-patch><input type="hidden" name="action" value="resume">"#), "{html}");
+    // A read that has not caught up: saved, reading again.
+    let (status, headers, _) =
+        pilot.send(post("/account/notifications/product-alerts/pal_lag", "watcher", "action=delete", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().split('#').next().unwrap().to_owned();
+    let (status, _, html) = pilot.send(get(&to, Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status"><p>Saved. Your Product alerts will show the change in a moment.</p>"#), "{html}");
+    assert!(html.contains("<corten-read-again") || html.contains("read-again"), "the page reads again: {html}");
+    // A refusal and an action that is not one: the settings, saying so, 422.
+    let (status, _, html) =
+        pilot.send(post("/account/notifications/product-alerts/pal_gone", "watcher", "action=delete", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>Product alert not found.</p>"#), "{html}");
+    let (status, _, _) =
+        pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=explode", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_failed_read_is_a_banner_answered_502_and_a_visitor_signs_in() {
+    let pilot = Pilot::new().await;
+    for uri in ["/account/notifications", "/account/notifications?view=settings"] {
+        let (status, _, html) = pilot.send(get(uri, Some("notices_down"))).await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{uri}: {html}");
+        assert!(text(&html).contains("Notifications could not load") && html.contains(">Try again</a>"), "{html}");
+        assert!(
+            !text(&html).contains("No notifications") && !html.contains(r#"role="switch""#),
+            "a failed read is not an empty one: {html}"
+        );
+    }
+    let (status, headers, _) = pilot.send(get("/account/notifications", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "http://localhost:7753/sign-in?returnTo=%2Faccount%2Fnotifications");
+    assert_eq!(pilot.send(get("/account/notifications", Some("other"))).await.0, StatusCode::FORBIDDEN);
 }

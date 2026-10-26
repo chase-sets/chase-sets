@@ -15,7 +15,7 @@ pub use platform::{
 
 use crate::{
     api::Identity,
-    app::{GUEST_CHECKOUT, MANAGE, Shared, VIEW, sign_in_at},
+    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, MANAGE, Shared, VIEW, sign_in_at},
     views,
 };
 
@@ -105,6 +105,23 @@ impl Identify<Shared> for Buyer {
             Found::Account(viewer) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(Buyer(viewer)),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
             Found::Account(_) | Found::SignedOut => Err(sign_in(views::marketplace("/account/cart"))),
+        }
+    }
+}
+
+/// An account on its own pages (the notification center): `accounts.view`, as marketplace's
+/// loaders and actions require (the API checks again). Anyone not signed in is sent to
+/// marketplace's sign-in, back to the notification center.
+#[derive(Clone, Debug, Hash)]
+pub struct Member(pub Viewer);
+
+impl Identify<Shared> for Member {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(ACCOUNTS_VIEW) => Ok(Member(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at("/account/notifications"))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
 }

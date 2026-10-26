@@ -1637,3 +1637,154 @@ impl Listings for Caller<'_> {
         Ok(self.write(req).await?.0)
     }
 }
+
+const NOTIFICATIONS: &str = "notifications";
+const CENTER: &str = "/api/notifications/center";
+const PREFERENCES: &str = "/api/notifications/preferences";
+const PRODUCT_ALERTS: &str = "/api/marketplace/account/product-alerts";
+
+/// The notification center's calls (`notifications/client.ts`), and the account's Product alerts,
+/// which Discovery owns (its `/account/product-alerts` routes).
+pub trait Notifications {
+    /// The newest 25 web notifications, read ones too, as marketplace's loader reads them.
+    async fn feed(&self) -> Result<Feed, ApiError>;
+    /// Mark one read; the API answers with the feed after it.
+    async fn mark_read(&self, delivery: &str) -> Result<Feed, ApiError>;
+    /// Mark every one read; the API answers with the feed after it.
+    async fn mark_all_read(&self) -> Result<Feed, ApiError>;
+    async fn preferences(&self) -> Result<Vec<Preference>, ApiError>;
+    /// Turn a delivery channel on or off; the API answers with it.
+    async fn set_preference(&self, key: &str, enabled: bool) -> Result<Preference, ApiError>;
+    async fn product_alerts(&self) -> Result<Vec<ProductAlert>, ApiError>;
+    /// Pause, resume or delete an alert, with the write's receipt.
+    async fn change_alert(&self, alert: &str, change: AlertChange) -> Result<Option<Receipt>, ApiError>;
+}
+
+/// The feed (`NotificationCenterFeedResponse`): its items and how many are unread in all.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Feed {
+    pub items: Vec<FeedItem>,
+    pub unread: u64,
+}
+
+/// A notification (`NotificationCenterFeedItem`), the fields shown.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FeedItem {
+    pub delivery_id: String,
+    pub message_type: String,
+    pub title: String,
+    pub body: String,
+    pub action_href: Option<String>,
+    pub read_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+struct FeedAfter {
+    feed: Feed,
+}
+
+/// A delivery channel and whether it is on (`NotificationPreference`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Preference {
+    pub key: String,
+    pub enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct Preferences {
+    items: Vec<Preference>,
+}
+
+#[derive(Deserialize)]
+struct PreferenceAfter {
+    item: Preference,
+}
+
+/// A Product alert as the settings list it (`NotificationCenterProductAlert`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ProductAlert {
+    pub alert_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub product_summary: Option<String>,
+    /// `listing` or `offer`.
+    pub market_side: String,
+    pub threshold_amount: Option<String>,
+    /// `active` or `paused`.
+    pub status: String,
+}
+
+#[derive(Deserialize)]
+struct AlertList {
+    items: Vec<ProductAlert>,
+}
+
+/// What a Product alert's form asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlertChange {
+    Pause,
+    Resume,
+    Delete,
+}
+
+impl AlertChange {
+    pub fn read(text: &str) -> Option<Self> {
+        match text {
+            "pause" => Some(AlertChange::Pause),
+            "resume" => Some(AlertChange::Resume),
+            "delete" => Some(AlertChange::Delete),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlertChange::Pause => "pause",
+            AlertChange::Resume => "resume",
+            AlertChange::Delete => "delete",
+        }
+    }
+}
+
+impl Notifications for Caller<'_> {
+    async fn feed(&self) -> Result<Feed, ApiError> {
+        self.read(&format!("{CENTER}?limit=25&includeRead=true"), NOTIFICATIONS).await
+    }
+
+    async fn mark_read(&self, delivery: &str) -> Result<Feed, ApiError> {
+        let req = self
+            .request(Method::POST, &format!("{CENTER}/{}/read", segment(delivery)), NOTIFICATIONS)
+            .json(&serde_json::json!({}));
+        Ok(self.write::<FeedAfter>(req).await?.0.feed)
+    }
+
+    async fn mark_all_read(&self) -> Result<Feed, ApiError> {
+        let req = self.request(Method::POST, &format!("{CENTER}/read-all"), NOTIFICATIONS).json(&serde_json::json!({}));
+        Ok(self.write::<FeedAfter>(req).await?.0.feed)
+    }
+
+    async fn preferences(&self) -> Result<Vec<Preference>, ApiError> {
+        Ok(self.read::<Preferences>(PREFERENCES, NOTIFICATIONS).await?.items)
+    }
+
+    async fn set_preference(&self, key: &str, enabled: bool) -> Result<Preference, ApiError> {
+        let req = self
+            .request(Method::POST, &format!("{PREFERENCES}/{}", segment(key)), NOTIFICATIONS)
+            .json(&serde_json::json!({ "enabled": enabled }));
+        Ok(self.write::<PreferenceAfter>(req).await?.0.item)
+    }
+
+    async fn product_alerts(&self) -> Result<Vec<ProductAlert>, ApiError> {
+        Ok(self.read::<AlertList>(PRODUCT_ALERTS, DISCOVERY).await?.items)
+    }
+
+    async fn change_alert(&self, alert: &str, change: AlertChange) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{PRODUCT_ALERTS}/{}/{}", segment(alert), change.as_str());
+        let req = self.request(Method::POST, &path, DISCOVERY).json(&serde_json::json!({}));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}

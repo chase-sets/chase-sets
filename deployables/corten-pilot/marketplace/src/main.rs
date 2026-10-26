@@ -14,6 +14,7 @@ mod form;
 mod items;
 mod listing;
 mod locations;
+mod notifications;
 mod public_listing;
 mod recovery;
 mod restock;

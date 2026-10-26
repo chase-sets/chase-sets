@@ -62,5 +62,8 @@
     "report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
     "report_refused": "The report could not be sent. Check it and try again.",
     "report_close": "Close"
+  },
+  "notifications": {
+    "pending": "Saved. Your Product alerts will show the change in a moment."
   }
 }
