@@ -24,11 +24,13 @@ import {
   type AccountId,
   type EnforcementActionId,
   type ListingEnforcementActionId,
+  type TenantId,
   type UserId,
 } from "@chase-sets/primitives/typed-ids";
 import { module as platformOperationsModule } from "../../../index";
 import {
   ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES,
+  ACCOUNT_APPEAL_PROJECTION_NAME,
   ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS,
   ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS,
   APPEALABLE_ACTION_INDETERMINATE,
@@ -55,7 +57,7 @@ type RuntimeAppealFixture = Readonly<{
   appealId: string;
   streamId: string;
   eventStore: ReturnType<typeof createPostgresEventStore>;
-  tenantId: string;
+  tenantId: TenantId;
   ownerAccountId: AccountId;
   sellerUserId: UserId;
   operatorUserId: UserId;
@@ -169,13 +171,24 @@ describeDb("account appeal aggregate DB proof", () => {
     await bootstrapContextDatabase(platformOperationsModule, pool);
     const accountAppealModule = {
       ...platformOperationsModule,
+      eventSubscriptions: platformOperationsModule.eventSubscriptions!.filter(
+        ({ projectionName, sourceContextName }) =>
+          projectionName === ACCOUNT_APPEAL_PROJECTION_NAME && sourceContextName === "platform-operations",
+      ),
+      eventReactions: [],
+      projectionHandlerSets: (
+        services: Parameters<NonNullable<typeof platformOperationsModule.projectionHandlerSets>>[0],
+      ) =>
+        platformOperationsModule.projectionHandlerSets!(services).filter(
+          (set) => set.projectionName === ACCOUNT_APPEAL_PROJECTION_NAME,
+        ),
       buildSubscriptions: (services: Parameters<NonNullable<typeof platformOperationsModule.buildSubscriptions>>[0]) =>
         platformOperationsModule.buildSubscriptions!(services).filter(
           ({ projectionName, sourceContextName }) =>
-            projectionName === "account-appeal-projection" && sourceContextName === "platform-operations",
+            projectionName === ACCOUNT_APPEAL_PROJECTION_NAME && sourceContextName === "platform-operations",
         ),
       projectionGroups: platformOperationsModule.projectionGroups?.filter(
-        ({ projectionName }) => projectionName === "account-appeal-projection",
+        ({ projectionName }) => projectionName === ACCOUNT_APPEAL_PROJECTION_NAME,
       ),
     };
     const runtime = createMountedContextTestRuntime([
@@ -540,7 +553,15 @@ describeDb("account appeal aggregate DB proof", () => {
         ({ projectionName, sourceContextName }) =>
           projectionName === "account-appeal-projection" && sourceContextName === "platform-operations",
       );
-      expect(appealSubscription?.eventTypes).toEqual([...ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES]);
+      expect(appealSubscription?.eventTypes).toEqual([
+        "platform-operations.account-appeal.filed",
+        "platform-operations.account-appeal.review-started",
+        "platform-operations.account-appeal.outcome-recorded",
+        "platform-operations.account-appeal.withdrawn",
+      ]);
+      expect(Object.keys(appealSubscription?.handlers ?? {})).not.toContain(
+        "platform-operations.account-appeal.synthetic-unknown",
+      );
       const unknown = await fixture.eventStore.appendToStream({
         streamId: fixture.streamId,
         expectedVersion: 3,
@@ -552,7 +573,9 @@ describeDb("account appeal aggregate DB proof", () => {
       });
       expect(unknown[0]?.streamVersion).toBe(4);
 
-      await drainContextRuntime({ subscriptionRunners: group.subscriptionRunners });
+      expect(group.subscriptionRunners).toHaveLength(1);
+      const settled = await group.subscriptionRunners[0]!.runOnce({ settleIdleCheckpoints: true });
+      expect(settled).toMatchObject({ processed: 0, blockedStreams: 0, poisonEvents: 0 });
       expect(await projectionRows(fixture.appealId)).toEqual(before);
       const checkpoint = await pool.query<{ last_global_position: string }>(
         `SELECT last_global_position::text
@@ -640,6 +663,7 @@ describeDb("account appeal aggregate DB proof", () => {
         expect((await registryRows()).filter((row) => row.appealable_action_id === fixture.actionId)).toEqual(
           sourceRows,
         );
+        const projectionBefore = await projectionRows(fixture.appealId);
         const appealRuntime = createAccountAppealRuntime(pool, fixture.eventStore);
         await expect(
           withAccountAppealSellerAccess(
@@ -664,7 +688,8 @@ describeDb("account appeal aggregate DB proof", () => {
               );
             },
           ),
-        ).rejects.toThrow();
+        ).rejects.toThrow("A terminal or withdrawn appeal cannot be filed.");
+        expect(await projectionRows(fixture.appealId)).toEqual(projectionBefore);
       }
     });
 
