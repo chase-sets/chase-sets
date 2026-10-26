@@ -94,7 +94,7 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
     await expect(page.getByTestId("pricing-health-what-if")).toBeVisible();
     await expect(page.getByText("Horizon value curve", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Hurdle sweep", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("No product line", { exact: true })).toBeVisible();
+    await expect(page.getByText("Overall portfolio", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 360, height: 800 });
     expect(
       await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
