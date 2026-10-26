@@ -402,6 +402,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = product_alerts(&method, uri.path(), &headers, &body) {
         return answer;
     }
+    if let Some(answer) = saved_lists(&stand, session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if uri.path() == CART {
         return match waits_for(&headers).as_deref() {
             Some("43") => refusal(
@@ -695,6 +698,69 @@ fn product_alerts(method: &Method, path: &str, headers: &HeaderMap, body: &str) 
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "21".to_owned()), ("chase-sets-commit-receipt", receipt)];
     Some((StatusCode::CREATED, headers, Json(json!({ "id": "pal_new", "version": 1, "status": "active" }))).into_response())
+}
+
+const RECENT_SAVED_LISTS: &str = "/api/marketplace/account/saved-lists/recent";
+const LIST_ADDITIONS: &str = "/api/collections/account/list-additions";
+const GUEST_SAVED_LIST_INTENTS: &str = "/api/collections/guest/saved-list-intents";
+
+/// Add to List's calls, as the stand-in answers them. `watcher`'s recent lists are "Binder"
+/// (`svl_binder`), and, for a read that waits for the addition at 31, the list it made. An
+/// addition of 13 is refused as Collections refuses one it cannot apply; the rest apply at 31, to a
+/// new list as `added` and to Binder as `merged`. A guest's intent (which needs its owner) is
+/// `sli_1`.
+fn saved_lists(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if path == RECENT_SAVED_LISTS {
+        if session != "watcher" {
+            return Some(refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "This account cannot manage Saved Lists."));
+        }
+        let mut items = vec![json!({
+            "listId": "svl_binder", "title": "Binder", "lineCount": 4, "trackedUnitCount": 9, "version": 3,
+            "changedAt": "2026-10-24T00:00:00.000Z",
+        })];
+        if waits_for(headers).as_deref() == Some("31")
+            && let Some(made) = stand.kept.lock().unwrap().get("saved_list")
+        {
+            items.insert(0, made.clone());
+        }
+        return Some(Json(json!({ "items": items, "total": items.len(), "count": items.len() })).into_response());
+    }
+    if *method != Method::POST || (path != LIST_ADDITIONS && path != GUEST_SAVED_LIST_INTENTS) {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if path == GUEST_SAVED_LIST_INTENTS {
+        let owner = headers.get("x-collections-anonymous-saved-list-id").and_then(|v| v.to_str().ok());
+        if !owner.is_some_and(|o| o.starts_with("anon_")) {
+            return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_saved_list_required", "Save the Product again."));
+        }
+        return Some(
+            (StatusCode::CREATED, Json(json!({ "intent": { "intentId": "sli_1", "status": "active" }, "analyticsLabel": "x" })))
+                .into_response(),
+        );
+    }
+    if sent["trackedQuantity"] == 13 {
+        return Some(refusal(
+            StatusCode::CONFLICT,
+            "list-unavailable",
+            "This Product could not be added to the Saved List. Review the List and try again.",
+        ));
+    }
+    let destination = &sent["destination"];
+    let (list, title, line) = if destination["kind"] == "new" {
+        let list = destination["listId"].as_str().unwrap_or_default().to_owned();
+        let title = destination["title"].as_str().unwrap_or_default().to_owned();
+        let made = json!({ "listId": list, "title": title, "lineCount": 1, "trackedUnitCount": 1, "version": 1, "changedAt": "2026-10-25T00:00:00.000Z" });
+        stand.kept.lock().unwrap().insert("saved_list".into(), made);
+        (list, title, "added")
+    } else {
+        (destination["listId"].as_str().unwrap_or_default().to_owned(), "Binder".to_owned(), "merged")
+    };
+    let receipt = r#"[{"sourceContextName":"collections","maxGlobalPosition":"31","eventIds":["evt_saved"]}]"#;
+    let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "31".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    let answer = json!({ "command": {}, "listId": list, "title": title, "lineStatus": line, "alreadyClaimed": false, "analyticsLabel": "x" });
+    Some((headers, Json(answer)).into_response())
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -2732,6 +2798,220 @@ async fn a_guest_saves_a_watch_alert_as_an_intent_and_registers_to_claim_it() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::SET_COOKIE].to_str().unwrap().starts_with(&format!("chase_sets_anonymous_product_alerts={owner};")));
     assert_eq!(alert_calls(&pilot)[1].headers["x-discovery-anonymous-product-alert-id"], owner.as_str());
+}
+
+const SAVE_PAGE: &str = "/items/charizard?dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
+const SAVE: &str = "/items/charizard/save";
+
+/// The value of the hidden input `name` in the first form that has one.
+fn hidden(html: &str, name: &str) -> String {
+    let marker = format!(r#"name="{name}" value=""#);
+    let at = html.find(&marker).unwrap_or_else(|| panic!("no {name} in {html}")) + marker.len();
+    html[at..].split('"').next().unwrap().to_owned()
+}
+
+/// Add to List's form's body as the page drew it for `session`: its address, the product, its ids,
+/// and the list, title and quantity chosen.
+async fn save_body(pilot: &Pilot, session: &str, list: &str, title: &str, quantity: &str) -> String {
+    let (_, _, html) = pilot.send(get(SAVE_PAGE, Some(session))).await;
+    let ids: Vec<String> = ["add_command", "line", "new_list", "new_list_command"]
+        .iter()
+        .map(|name| format!("{name}={}", hidden(&html, name)))
+        .collect();
+    format!(
+        "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&product={}&{}&list={list}&title={title}&quantity={quantity}",
+        crate::api::segment(OFFERED),
+        ids.join("&")
+    )
+}
+
+/// The calls to the Saved List APIs, in order.
+fn saved_list_calls(pilot: &Pilot) -> Vec<Call> {
+    let paths = [RECENT_SAVED_LISTS, LIST_ADDITIONS, GUEST_SAVED_LIST_INTENTS];
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| paths.contains(&c.path.as_str())).cloned().collect()
+}
+
+#[tokio::test]
+async fn add_to_list_opens_a_dialog_the_page_drew_with_the_accounts_recent_lists() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SAVE_PAGE, Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The button opens the dialog with no script; the dialog is drawn closed.
+    assert!(
+        html.contains(r#"<button type="button" class="item-detail__button" command="show-modal" commandfor="save-to-list" aria-label="Add Charizard · Raw / Near Mint to a Saved List">Add to List</button>"#),
+        "{html}"
+    );
+    let dialog = html.split(r#"id="save-to-list""#).nth(1).expect("the dialog").split("</dialog>").next().unwrap();
+    assert!(!html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "drawn closed: {html}");
+    assert!(dialog.contains(r#"action="/items/charizard/save""#), "{dialog}");
+    // The most recent list is chosen, then a new list; the title field is there for a new one.
+    assert!(dialog.contains(r#"name="list" value="svl_binder" checked>"#), "{dialog}");
+    assert!(dialog.contains(r#"name="list" value="new">"#), "{dialog}");
+    assert!(text(dialog).contains("Binder 4 lines · 9 tracked"), "{dialog}");
+    assert!(dialog.contains(r#"name="title" maxlength="120""#), "{dialog}");
+    assert!(dialog.contains(r#"name="quantity" min="1" max="1000000" step="1""#), "{dialog}");
+    // The ids the addition is made with, drawn with the form, each new.
+    let ids: Vec<String> = ["add_command", "line", "new_list", "new_list_command"].iter().map(|n| hidden(dialog, n)).collect();
+    assert!(
+        ids[0].starts_with("slc_") && ids[1].starts_with("sll_") && ids[2].starts_with("svl_") && ids[3].starts_with("slc_"),
+        "{ids:?}"
+    );
+    assert_ne!(ids[0], ids[3]);
+    let calls = saved_list_calls(&pilot);
+    assert_eq!(calls.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), [RECENT_SAVED_LISTS], "{calls:?}");
+    assert!(!calls[0].headers.contains_key("chase-sets-read-after-write"), "no write to wait for");
+
+    // A guest's button posts the product; nothing is read for them.
+    let (_, _, html) = pilot.send(get(SAVE_PAGE, None)).await;
+    assert!(!html.contains(r#"id="save-to-list""#), "{html}");
+    let form = html
+        .split(r#"<form class="item-detail__save" method="post" action="/items/charizard/save">"#)
+        .nth(1)
+        .expect("the guest's form");
+    assert!(form.split("</form>").next().unwrap().contains(r#"<button type="submit" class="item-detail__button""#), "{form}");
+    // An account that cannot manage Saved Lists is told so in the dialog, without a read.
+    let (_, _, html) = pilot.send(get(SAVE_PAGE, Some("buyer"))).await;
+    assert!(text(&html).contains("This account cannot manage Saved Lists."), "{html}");
+    assert_eq!(saved_list_calls(&pilot).len(), 1, "only watcher's page read the lists");
+}
+
+#[tokio::test]
+async fn add_product_adds_to_a_new_or_a_recent_list_and_the_page_says_where_it_went() {
+    let pilot = Pilot::new().await;
+    let body = save_body(&pilot, "watcher", "new", "Chase+cards", "2").await;
+    let (status, headers, html) = pilot.send(post(SAVE, "watcher", &format!("{body}&productSummary=SPOOFED"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let q = query(to);
+    assert!(to.starts_with("/items/charizard?dimension.dim_condition=chc_nm&dimension.dim_form=chc_raw&saved=%7B"), "{to}");
+    assert!(q["saved_list"].starts_with("svl_") && q["saved_quantity"] == "2" && q["saved_line"] == "added", "{q:?}");
+    let sent = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).collect::<Vec<_>>();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let posted = |name: &str| query(&format!("?{body}"))[name].clone();
+    let sent: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "destination": { "kind": "new", "listId": posted("new_list"), "createCommandId": posted("new_list_command"), "title": "Chase cards" },
+            "addCommandId": posted("add_command"), "lineId": posted("line"),
+            "product": {
+                "catalogItemId": "cat_charizard", "productId": OFFERED,
+                "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            },
+            "trackedQuantity": 2, "sourceSurface": "item-detail",
+        })
+    );
+    assert_eq!(q["saved_list"], posted("new_list"));
+    // The page after it reads the lists with the write's receipt, so the new list is there.
+    let (_, _, html) = pilot.send(get(to, Some("watcher"))).await;
+    assert!(
+        text(&html)
+            .contains("Added to Chase cards The exact Product was added with a Tracked Quantity of 2. View in My Collection"),
+        "{html}"
+    );
+    assert!(
+        html.contains(&format!(
+            r#"href="http://localhost:7753/account/collection?section=lists&amp;list={}&amp;afterWrite=%7B"#,
+            posted("new_list")
+        )),
+        "{html}"
+    );
+    let reads: Vec<Call> = saved_list_calls(&pilot).into_iter().filter(|c| c.path == RECENT_SAVED_LISTS).collect();
+    let last = &reads[reads.len() - 2..];
+    assert_eq!(waits_for(&last[0].headers), None, "first without the receipt: {reads:?}");
+    assert_eq!(waits_for(&last[1].headers).as_deref(), Some("31"), "then, the new list not there, with it: {reads:?}");
+
+    // A recent list: the product was on it, so its quantity grew.
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "3").await;
+    let (status, headers, _) = pilot.send(post(SAVE, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), Some("watcher"))).await;
+    assert!(
+        text(&html).contains("Added to Binder This Product was already on the List, so its Tracked Quantity increased by 3."),
+        "{html}"
+    );
+    // Binder is there without the receipt, so nothing waits for it.
+    let reads: Vec<Call> = saved_list_calls(&pilot).into_iter().filter(|c| c.path == RECENT_SAVED_LISTS).collect();
+    assert_eq!(waits_for(&reads.last().unwrap().headers), None, "{reads:?}");
+    let additions: Vec<Call> = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).collect();
+    let sent: Value = serde_json::from_str(&additions[1].body).unwrap();
+    assert_eq!(sent["destination"], json!({ "kind": "existing", "listId": "svl_binder" }));
+}
+
+#[tokio::test]
+async fn a_refused_add_product_draws_the_dialog_open_with_what_was_chosen_and_the_same_ids() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("new", "", "1", "Enter a title of 1 to 120 characters for the new Saved List."),
+        ("svl_binder", "", "0", "Enter a Tracked Quantity: a whole number from 1 to 1,000,000."),
+        ("svl_binder", "", "1.5", "Enter a Tracked Quantity: a whole number from 1 to 1,000,000."),
+        ("", "", "1", "Choose a Saved List, or create a new one."),
+        ("svl_binder", "", "13", "This Product could not be added to the Saved List. Review the List and try again."),
+    ];
+    for (list, title, quantity, message) in cases {
+        let body = save_body(&pilot, "watcher", list, title, quantity).await;
+        let (status, _, html) = pilot.send(post(SAVE, "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{list} {quantity}");
+        assert!(text(&html).contains(&format!("Could not add this Product {message}")), "{message}: {html}");
+        // Open, so it is in front of the buyer without a script; its script makes it modal.
+        assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+        assert!(html.contains(&format!(r#"value="{quantity}""#)), "{html}");
+        // The same ids, so trying again is the same addition.
+        let posted = query(&format!("?{body}"));
+        assert_eq!(hidden(&html, "add_command"), posted["add_command"]);
+        assert_eq!(hidden(&html, "new_list"), posted["new_list"]);
+    }
+    // A form without its ids, or for a product the page no longer shows, sends nothing.
+    let no_ids = format!(
+        "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&product={}&list=svl_binder&quantity=1",
+        crate::api::segment(OFFERED)
+    );
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", &no_ids, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("This form is out of date. Reload the page and try again."), "{html}");
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "1")
+        .await
+        .replace(&crate::api::segment(OFFERED), "cat_charizard%3A%3Aother");
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose an exact Product and Options before adding it to a Saved List."), "{html}");
+    // An account that cannot manage Saved Lists is told so.
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "1").await;
+    let (status, _, html) = pilot.send(post(SAVE, "buyer", &body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot manage Saved Lists."), "{html}");
+    let additions = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).count();
+    assert_eq!(additions, 1, "only the stand-in's refusal reached the API");
+}
+
+#[tokio::test]
+async fn a_guests_add_to_list_is_an_intent_they_register_to_claim() {
+    let pilot = Pilot::new().await;
+    let body = format!("dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&product={}", crate::api::segment(OFFERED));
+    let (status, headers, html) = pilot.send(post_signed_out(SAVE, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Fitems%2Fcharizard%3Fdimension.dim_condition%3Dchc_nm%26dimension.dim_form%3Dchc_raw%26claimSavedListIntent%3Dsli_1"
+    );
+    let set = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(set.starts_with("chase_sets_anonymous_saved_lists=anon_cmd_") && set.contains("Max-Age=2592000"), "{set}");
+    let owner = set.split(';').next().unwrap().split_once('=').unwrap().1.to_owned();
+    let calls = saved_list_calls(&pilot);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0].headers["x-collections-anonymous-saved-list-id"], owner.as_str());
+    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "sourcePath": "/items/charizard?dimension.dim_condition=chc_nm&dimension.dim_form=chc_raw", "sourceSurface": "item-detail",
+            "product": {
+                "catalogItemId": "cat_charizard", "productId": OFFERED,
+                "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            },
+            "productSummary": "Charizard · Raw / Near Mint",
+        })
+    );
 }
 
 const LIST: &str = "/items/charizard/list";

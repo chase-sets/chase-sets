@@ -21,6 +21,7 @@
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
+//! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
@@ -181,6 +182,13 @@ pub mod url {
             pub slug: &'a str,
         }
 
+        /// Add the product the item page shows to a Saved List (Add to List): an account's
+        /// addition, or a guest's intent and then marketplace's registration.
+        #[route("/items/{slug}/save")]
+        pub struct ItemSave<'a> {
+            pub slug: &'a str,
+        }
+
         /// List the product the Sell tab shows at a price: an account's listing, published, or a
         /// guest's draft and then marketplace's registration.
         #[route("/items/{slug}/list")]
@@ -215,6 +223,21 @@ pub mod url {
             #[route(query)]
             pub state: crate::items::Address,
             pub watched: &'a str,
+        }
+
+        /// A link (the item's route serves it): the item after Add to List's Add Product: the page
+        /// says so, with the write's receipt (empty for none), the list, the quantity added and
+        /// the line's status (`added` or `merged`).
+        #[derive(Route)]
+        #[route("/items/{slug}")]
+        pub struct ItemSaved<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+            pub saved: &'a str,
+            pub saved_list: &'a str,
+            pub saved_quantity: &'a str,
+            pub saved_line: &'a str,
         }
 
         /// A link (the item's route serves it): the item after Add to cart: the page says so, with the write's receipt (empty for none).

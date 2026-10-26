@@ -194,6 +194,10 @@ pub enum BuyNotice {
     SellRefused { message: String, form: crate::selling::SellForm, quantity: String },
     /// A Watch alert was saved; the alerts' settings, which wait for the write.
     Watched(String),
+    /// Add to List added the product (`saving`).
+    Saved(crate::saving::Saved),
+    /// Add to List did not, for this reason (`saving`); `input` is what was chosen and typed.
+    SaveRefused { message: String, input: crate::saving::SaveInput },
     /// A Watch form's alert was not saved, for this reason (`watching`); `input` is what was typed.
     WatchRefused { message: String, input: crate::watching::WatchInput },
     /// List this product did not list, for this reason (`listing`); `draft` is the listing it

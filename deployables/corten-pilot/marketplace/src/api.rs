@@ -480,6 +480,80 @@ impl ProductAlerts for Caller<'_> {
     }
 }
 
+/// The header a guest's Saved List intent names its owner in (the anonymous saved-list cookie's
+/// value, `x-collections-anonymous-saved-list-id`).
+pub const ANONYMOUS_SAVED_LIST_HEADER: &str = "x-collections-anonymous-saved-list-id";
+const COLLECTIONS: &str = "collections";
+
+/// One of the account's recent Saved Lists (`DiscoveryRecentSavedList`, Discovery's own picker
+/// projection of Collections' lists), the fields shown.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSavedList {
+    pub list_id: String,
+    pub title: String,
+    pub line_count: u64,
+    pub tracked_unit_count: u64,
+}
+
+#[derive(Deserialize)]
+struct RecentSavedLists {
+    items: Vec<RecentSavedList>,
+}
+
+/// What adding a product to a Saved List did (`SavedListAdditionResponse`), the fields shown.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedListAddition {
+    pub list_id: String,
+    /// `added`, or `merged` when the product was on the list already.
+    pub line_status: String,
+}
+
+/// A guest's saved addition (`AnonymousSavedListIntent`), which an account claims after
+/// registering; the pilot reads only its id.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedListIntent {
+    pub intent_id: String,
+}
+
+#[derive(Deserialize)]
+struct SavedListIntentBody {
+    intent: SavedListIntent,
+}
+
+/// The Saved List calls the item page's Add to List makes: Discovery's picker read, and
+/// Collections' addition and guest intent.
+pub trait SavedLists {
+    /// The account's recent Saved Lists, newest change first (at most 8).
+    async fn recent_saved_lists(&self) -> Result<Vec<RecentSavedList>, ApiError>;
+    /// Adds a product to a list, or to a new list (`AddProductToSavedListRequest`). Its command
+    /// and line ids make it one addition however often it is sent. The answer and its receipt.
+    async fn add_to_saved_list(&self, addition: &impl Serialize) -> Result<(SavedListAddition, Option<Receipt>), ApiError>;
+    /// Saves a guest's addition as an intent owned by `guest` (`CreateAnonymousSavedListIntentRequest`).
+    async fn saved_list_intent(&self, guest: &str, intent: &impl Serialize) -> Result<SavedListIntent, ApiError>;
+}
+
+impl SavedLists for Caller<'_> {
+    async fn recent_saved_lists(&self) -> Result<Vec<RecentSavedList>, ApiError> {
+        Ok(self.read::<RecentSavedLists>("/api/marketplace/account/saved-lists/recent", DISCOVERY).await?.items)
+    }
+
+    async fn add_to_saved_list(&self, addition: &impl Serialize) -> Result<(SavedListAddition, Option<Receipt>), ApiError> {
+        let req = self.request(Method::POST, "/api/collections/account/list-additions", COLLECTIONS).json(addition);
+        self.write::<SavedListAddition>(req).await
+    }
+
+    async fn saved_list_intent(&self, guest: &str, intent: &impl Serialize) -> Result<SavedListIntent, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/collections/guest/saved-list-intents", COLLECTIONS)
+            .header(ANONYMOUS_SAVED_LIST_HEADER, guest)
+            .json(intent);
+        Ok(self.write::<SavedListIntentBody>(req).await?.0.intent)
+    }
+}
+
 /// What a seller would be paid for a sale at a price under the public standard seller terms
 /// (`MarketplacePublicStandardTermsPreview`): the fee and the net, each for one unit.
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -163,6 +163,7 @@ node scripts/smoke-market-item.mjs    # an item's page beside the API and market
 node scripts/smoke-market-item-buy.mjs http://localhost:7793  # the rail's buy forms: listing, product, Buy best match (a refusal too), Buy this listing, Make an offer (a price past the field's step, then marketplace's offer checkout), a guest's cart and checkout, 390 px with every fold open (writes cart lines and removes them; starts checkout sessions)
 node scripts/smoke-market-item-sell.mjs http://localhost:7793  # the rail's sell forms: a guest's payout and adds, a seller's Sell now, a collector refused, 390 px (writes sell-list lines and removes them; marketplace's own Sell List, where a guest's add lands, sometimes answers 500 while a checkout projection is behind: [chase-sets/chase-sets#10600 [checkout] Sell List page answers 500 after a guest add when the offer-reviews read is behind](https://github.com/chase-sets/chase-sets/issues/10600))
 node scripts/smoke-market-item-watch.mjs http://localhost:7793  # the Watch tab: a guest's intent and marketplace's registration, the collector's alert with the catalog's words and the saved notice, a threshold past the field's step, 390 px (writes an alert and deletes it; a guest intent expires on its own)
+node scripts/smoke-market-item-save.mjs http://localhost:7793  # Add to List: a guest's intent and marketplace's registration, the collector's dialog with no script and Add Product to a recent or new list with the page saying where it went, a refusal reopened as a modal, the sheet at 390 px (adds to the collector's list "Corten pilot smoke"; a guest intent expires on its own)
 node scripts/smoke-market-item-list.mjs http://localhost:7793  # List this product as the seed seller: the post, the page while Discovery catches up and after, the same form again, the API's waits with the receipt, 390 px (lists below 250.00 and withdraws each listing)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
@@ -245,6 +246,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
 | `marketplace/src/items.rs`, `views/item_detail.*` | an item's page: the read, the address (its choices, read and written), marketplace's selection rules, and the page's parts |
 | `marketplace/src/cart_attempt.rs` | a cart write (`api::CartWrite`: the cart's commands or an item page's new line, for an account or a guest) as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
+| `marketplace/src/saving.rs` | the item page's Add to List: the recent lists read with the page, the ids drawn with the form, an account's addition or a guest's intent, the quantity's and title's checks, and what the page says after each |
 | `marketplace/src/watching.rs` | the item page's Watch writes: an account's alert or a guest's intent for the product the page showed, the threshold's checks, and what the page says after each |
 | `marketplace/src/selling.rs` | the item page's sell writes: the sell-list line built from the item read again (an offer or a product), the guest sell list, the payout terms, and what the page says after each |
 | `marketplace/src/listing.rs` | the item page's List this product writes: the ship-from setup, the stock, the listing and its publication as one attempt, a guest's draft, and what the page says after each |
@@ -744,12 +746,46 @@ forward only on purpose, when a fix the pilot needs lands.
     ([todd-skelton/corten#84 A patch or live fragment closes a <dialog> the user opened and folds a <details> they unfolded](https://github.com/todd-skelton/corten/issues/84)).
     With the dialog open, a listing published and withdrawn redrew the book twice and the dialog
     stayed open. They are drawn only on the Details tab, the one with their triggers.
+43. **Add to List is a dialog the page draws, with its lists and its ids.** Marketplace's
+    button posts `prepare-saved-list`, which reads the account's recent Saved Lists and makes
+    the ids the addition is written with, and then opens its sheet. The pilot reads the recent
+    lists with the page, beside the item read, so the page waits no longer for them (Discovery's
+    own picker projection; only for an account with `accounts.view`), and draws the four ids
+    (`slc_`, `sll_`, `svl_`, `slc_` ULIDs, as `createSavedListAdditionTokens` makes them) as
+    hidden fields. So Add to List opens with no request and no script
+    (`command="show-modal"`), and the same form sent twice is one addition. The new list's
+    title is shown only while a new list is chosen, by CSS (`:has(input[value="new"]:checked)`).
+    Add Product checks the quantity (a whole number, 1 to 1,000,000) and the title (1 to 120
+    UTF-16 units) as the API does, posts `AddProductToSavedListRequest` with the product's
+    options from the page it was drawn as, and redirects (303) back with `saved=<receipt>`,
+    `saved_list`, `saved_quantity` and `saved_line`. The page then says "Added to {list}"
+    with "added" or "merged" copy and View in My Collection (marketplace's collection, after
+    the write). It reads the recent lists without the receipt and again with it only when the
+    list is not there yet (a list it just made). Measured in the sandbox against the release
+    build: with the receipt on every read, the picker read after an addition to a list it
+    already had took 1.5 s once and timed out at 2.6 s once, and the page after it 1.9 and
+    2.4 s (two runs); with the second read only when needed, that page loaded in 246, 288 and
+    314 ms (three runs), and the page after a new list in 1.8 s (one run).
+    A refused form (the pilot's checks or the API's) comes back 422 with the dialog drawn
+    `open`, what was chosen and typed, and the same ids, so trying again is the same addition;
+    its script reopens it as a modal
+    ([todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86)).
+    An account without `accounts.view` (a guest checkout's session) gets the dialog with
+    "This account cannot manage Saved Lists." and no read. A guest's button posts the product:
+    an anonymous intent (its owner in marketplace's `chase_sets_anonymous_saved_lists`
+    cookie, 30 days), then marketplace's `/register`, back to the item with
+    `claimSavedListIntent`, which marketplace's item page claims. On a phone the dialog is a
+    sheet at the bottom of the screen, like marketplace's. A page that answers another rail
+    form's refusal leaves Add to List out rather than add a read to each of them. The list
+    summary says "1 lines", as marketplace's does
+    ([chase-sets/chase-sets#10604 [collections] Say 1 line, not 1 lines, for a Saved List in Add to List](https://github.com/chase-sets/chase-sets/issues/10604)).
 
 ## Corten gaps
 
 Open, filed in Corten (one gap each), at the `de6f039` pin:
 
 1. [todd-skelton/corten#84 A patch or live fragment closes a <dialog> the user opened and folds a <details> they unfolded](https://github.com/todd-skelton/corten/issues/84). `keep()` carries over edited fields and the focus, not open state, so a `<corten-live>` redraw closes a dialog the user opened inside the redrawn element. Workaround: the item page's reference dialogs (`RefDialogs` in `marketplace/src/views/item_detail.rs`) are drawn outside the redrawn market book, with a comment naming the issue. Once it lands they can go back into the Details tab.
+2. [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86). `open` is the non-modal state and the platform has no declarative modal open, so a refused form's dialog does not hold focus or make the page inert. Workaround: the same six-line `modal` handler in `admin/src/catalog/views/dialog.js` and `marketplace/src/views/save_dialog.js`, each naming the issue. Both go once it lands.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

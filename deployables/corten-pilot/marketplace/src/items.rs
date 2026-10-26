@@ -44,7 +44,7 @@ use crate::{
     app::{Shared, marketplace_origin, url},
     auth::Session,
     buying::{self, ADDED, BuyNotice},
-    listing, selling,
+    listing, saving, selling,
     text::ItemMsg,
     views, watching,
 };
@@ -83,6 +83,10 @@ impl url::items::Handlers for Pages {
 
     fn item_watch(&self) -> MethodRouter {
         post(watching::watch).with_state(self.0.clone())
+    }
+
+    fn item_save(&self) -> MethodRouter {
+        post(saving::save).with_state(self.0.clone())
     }
 
     fn item_list(&self) -> MethodRouter {
@@ -585,6 +589,8 @@ pub struct ItemScreen {
     pub similar: Vec<SimilarItem>,
     /// The Sales tab's market history, read only when it is the tab shown.
     pub history: Option<History>,
+    /// What Add to List can do for the viewer, with an account's recent lists.
+    pub save: saving::SaveState,
 }
 
 impl ItemScreen {
@@ -708,6 +714,7 @@ impl ItemScreen {
             listing_setup: ListingSetup::NotApplicable,
             similar: Vec::new(),
             history: None,
+            save: saving::SaveState::Unread,
             picks,
             item,
         }
@@ -829,8 +836,16 @@ async fn page(
     // may wait on the API for the write's projection (2.5 s at most), and one after the other
     // would wait twice. The similar items wait for no write, so they read without the receipt.
     let unwaited = config.platform.caller(&headers, config.proto, None);
-    let (read, overlay, similar) =
-        tokio::join!(caller.item(&id), read_overlay(&req, &caller, &id, &address), similar_items(&unwaited, &id));
+    // Add to List's recent lists wait for Add Product's receipt only when its list is not there.
+    let saved = first(saving::SAVED).and_then(|r| Receipt::from_param(Some(r)));
+    let waited = config.platform.caller(&headers, config.proto, saved.as_ref());
+    let saved_list = first(saving::SAVED_LIST).map_or("", String::as_str);
+    let (read, overlay, similar, save) = tokio::join!(
+        caller.item(&id),
+        read_overlay(&req, &caller, &id, &address),
+        similar_items(&unwaited, &id),
+        saving::state_after(&req, &unwaited, &waited, saved_list)
+    );
     let (item, behind) = match read {
         Ok(Some(item)) => (Some(item), false),
         Ok(None) if receipt.is_none() => (None, false),
@@ -862,13 +877,14 @@ async fn page(
     // After Set alert, the page says so; the alerts' settings wait for the write's receipt.
     let notice = first(ADDED)
         .map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)))
-        .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))));
+        .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))))
+        .or_else(|| saving::saved(|key| first(key).cloned(), &save).map(BuyNotice::Saved));
     let (terms, history) = tokio::join!(offer_terms(&req, &caller, &item, &address), market_history(&unwaited, &item, &address));
     let setup = listing_setup(&req, overlay, receipt.is_some());
     // The listing the address names was just published and the item's read is behind it.
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
     let behind = behind || setup == ListingSetup::Recovering;
-    let reads = PageReads { terms, behind, setup, listing_pending, similar, history };
+    let reads = PageReads { terms, behind, setup, listing_pending, similar, history, save };
     render(&req, item, &address, notice.as_ref(), StatusCode::OK, reads)
 }
 
@@ -944,6 +960,8 @@ pub struct PageReads {
     pub listing_pending: Option<String>,
     pub similar: Vec<SimilarItem>,
     pub history: Option<History>,
+    /// Add to List's state; a page that answers another form leaves it unread.
+    pub save: saving::SaveState,
 }
 
 /// Whether a seller who may list can list now (marketplace's `ListingSetupLoadState`): their
@@ -976,6 +994,7 @@ pub async fn sell_reads(req: &Req, caller: &Caller<'_>, item: &Item, address: &A
         listing_pending: None,
         similar: Vec::new(),
         history: None,
+        save: saving::SaveState::Unread,
     }
 }
 
@@ -1128,6 +1147,7 @@ pub fn render(
     screen.listing_pending = reads.listing_pending;
     screen.similar = reads.similar;
     screen.history = reads.history;
+    screen.save = reads.save;
     let behind = reads.behind;
     let t: ItemMsg = req.t();
     let item = &screen.item;

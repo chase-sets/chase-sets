@@ -22,7 +22,11 @@
     "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up.",
     "sales_again": "Show sales history",
     "chart_summary": "{name}: {count} points, from {min} to {max}.",
-    "chart_marker": "{name} marker: {label}."
+    "chart_marker": "{name} marker: {label}.",
+    "saved_to_list": "Added to your Saved List",
+    "saved_choose_list": "Choose a Saved List, or create a new one.",
+    "saved_title_required": "Enter a title of 1 to 120 characters for the new Saved List.",
+    "saved_quantity_invalid": "Enter a Tracked Quantity: a whole number from 1 to 1,000,000."
   },
   "error": {
     "forbidden_title": "Not allowed",

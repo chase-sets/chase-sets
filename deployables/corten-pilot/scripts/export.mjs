@@ -22,7 +22,8 @@
 //   language labels a line's badge uses).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
 //   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
-//   labels the details list uses, and an item's display identity).
+//   labels the details list uses, an item's display identity, and Collections' Add to List words,
+//   collections.features.savedLists.ui.addToList.* and .api.route.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -292,6 +293,11 @@ const outputs = [
         ["localization.languageCode.", "language"],
         // A similar item's picture's words (`formatDisplayIdentity`).
         ["localization.displayIdentity.", "identity"],
+      ])),
+      // Add to List (`AddToSavedListControl`) and the Collections API's refusals.
+      ...(await catalog("collections.ts", "collectionsEnglishTranslations", [
+        ["collections.features.savedLists.ui.addToList.", "saved"],
+        ["collections.features.savedLists.api.route.", "saved_api"],
       ])),
     }),
   ],

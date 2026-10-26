@@ -34,7 +34,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
-pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld};
+pub use item_detail::{ItemDetail, SaveDialog, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
@@ -49,8 +49,8 @@ pub const INVENTORY: &[Component] = &[PageActions, Recovery, handlers::COMPONENT
 /// The cart's components (`/account/cart`).
 pub const CART: &[Component] = &[CartItem];
 
-/// The item page's components (`/items`).
-pub const ITEM: &[Component] = &[ItemDetail];
+/// The item page's components (`/items`): its stylesheet, and Add to List's dialog's script.
+pub const ITEM: &[Component] = &[ItemDetail, SaveDialog];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
