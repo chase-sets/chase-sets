@@ -309,6 +309,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeLifecycle,
     hostPorts: {
       inventoryDraftListingConsumer,
+      draftListingDelivery: inventoryDraftListingConsumer,
       ...identityHostPorts,
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
@@ -1504,27 +1505,35 @@ function createInventoryJobRunners(
   const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
   const processNextProductResolutionMaintenanceJob =
     inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
+  const processNextImportDraftListingDelivery = inventory?.importBatches?.processNextImportDraftListingDelivery;
 
-  if (!processNextImportBatchJob && !processNextProductResolutionMaintenanceJob) {
+  if (
+    !processNextImportBatchJob &&
+    !processNextProductResolutionMaintenanceJob &&
+    !processNextImportDraftListingDelivery
+  ) {
     return [];
   }
 
   const runners: WorkerRunner[] = [];
-  if (processNextImportBatchJob) {
+  if (processNextImportBatchJob || processNextImportDraftListingDelivery) {
     runners.push(
       ...createDurableJobLaneRunners({
         workflowName: "inventory.import-batch-jobs",
         laneCount: input.inventoryImportBatchJobLaneCount,
         runLane: async (lane) => ({
-          processed: await processNextImportBatchJob({
-            claimOwnerId: `${input.workerId}:${lane.laneName}`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-            jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-            laneName: lane.laneName,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }),
+          processed:
+            (processNextImportBatchJob
+              ? await processNextImportBatchJob({
+                  claimOwnerId: `${input.workerId}:${lane.laneName}`,
+                  claimTtlMs: input.leaseTtlMs * 4,
+                  workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
+                  jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
+                  laneName: lane.laneName,
+                  signal: lane.runnerContext?.signal,
+                  throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+                })
+              : 0) + (processNextImportDraftListingDelivery ? await processNextImportDraftListingDelivery() : 0),
           lastGlobalPosition: "0" as never,
         }),
       }),
