@@ -24,13 +24,6 @@
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Configure staging Kubernetes context#9",
-      "secretName": "GITHUB_TOKEN",
-      "purpose": "release-evidence"
-    },
-    {
-      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
-      "jobId": "staging-advisory-evidence",
       "stepAnchor": "name:Seed staging Kubernetes scenario data#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
