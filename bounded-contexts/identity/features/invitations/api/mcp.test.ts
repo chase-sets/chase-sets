@@ -4,6 +4,9 @@ import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { InvitationServices } from "./runtime";
 import { createInvitationMcpHandlers } from "./mcp";
 
+const requestInvitationAcceptanceLink = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("../integrations/request-invitation-acceptance-link", () => ({ requestInvitationAcceptanceLink }));
+
 const actor = {
   sessionId: "sess_1",
   tenantId: "tnt_1",
@@ -73,6 +76,40 @@ describe("identity invitation MCP handlers", () => {
       expect(Object.keys(tool.inputSchema.properties)).toEqual(fields);
       expect(tool.inputSchema.required).toEqual(fields);
     }
+  });
+
+  it("commits before requesting delivery and names the saved invitation on delivery failure", async () => {
+    const f = services();
+    const handlers = createInvitationMcpHandlers(f.services, f.accounts as never).toolHandlers;
+    const events: string[] = [];
+    f.commandHandler.mockImplementationOnce(async () => {
+      events.push("commit");
+      return { version: 1, state: { status: "pending" } };
+    });
+    requestInvitationAcceptanceLink.mockImplementationOnce(async () => {
+      events.push("delivery");
+      throw new Error("The invitation was saved, but its acceptance email could not be sent.");
+    });
+    await expect(
+      handlers["identity.create-and-send-invitation"]!(
+        request({ accountId: "acc_1", email: "invitee@example.test", roleKey: "viewer" }),
+      ),
+    ).rejects.toThrow("invitation was saved");
+    expect(events).toEqual(["commit", "delivery"]);
+    expect(requestInvitationAcceptanceLink).toHaveBeenCalledWith(expect.any(Request), expect.stringMatching(/^ivt_/), expect.anything());
+  });
+
+  it("MCP source-call contract coverage: invitations map reads and delivery", async () => {
+    const f = services();
+    const listInvitations = vi.fn(async () => ({ items: [invitation], total: 1 }));
+    const handlers = createInvitationMcpHandlers({ ...f.services, listInvitations } as never, f.accounts as never).toolHandlers;
+    await expect(handlers["identity.list-invitations"]!(request({ status: "pending", limit: 10, offset: 2 }))).resolves.toEqual({
+      items: [invitation],
+      total: 1,
+      count: 1,
+    });
+    expect(listInvitations).toHaveBeenCalledWith({ search: "acc_1", status: "pending", limit: 10, offset: 2 });
+    await expect(handlers["identity.get-invitation"]!(request({ invitationId: "ivt_1" }))).resolves.toEqual(invitation);
   });
 
   it("creates with the source seven-day expiry and never invokes delivery", async () => {

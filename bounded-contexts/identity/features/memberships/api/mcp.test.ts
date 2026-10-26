@@ -11,7 +11,7 @@ const actor = {
   accountId: "acc_1",
   membershipId: "mbr_admin",
   roleKey: "owner",
-  permissions: ["memberships.manage"],
+  permissions: ["memberships.manage", "memberships.view"],
 } satisfies ResolvedActor;
 
 const membership: Record<string, unknown> = {
@@ -72,6 +72,25 @@ describe("identity membership MCP handlers", () => {
         requiredPermissions: ["memberships.manage"],
       });
     }
+    expect(findMcpTool("identity.get-membership")?.inputSchema.required).toEqual(["membershipId"]);
+    expect(findMcpTool("identity.list-memberships")?.inputSchema.required).toEqual([]);
+  });
+
+  it("MCP source-call contract coverage: memberships preserve read predicates", async () => {
+    const f = services();
+    const listMemberships = vi.fn(async () => ({ items: [membership], total: 1 }));
+    const handlers = createMembershipMcpHandlers({ ...f.services, listMemberships } as never, f.accounts as never).toolHandlers;
+    await expect(handlers["identity.list-memberships"]!(request({ search: "platform-admin", limit: 3 }))).resolves.toMatchObject({
+      total: 1,
+    });
+    expect(listMemberships).toHaveBeenCalledWith({ search: "acc_1", status: undefined, limit: 3, offset: undefined });
+    f.getMembership.mockResolvedValueOnce({ ...membership, account_id: "acc_other", role_key: "platform-admin" });
+    await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }))).rejects.toThrow("cannot view");
+    const platformActor = { ...actor, roleKey: "platform-admin", permissions: ["memberships.view", "memberships.manage"] } as ResolvedActor;
+    f.getMembership.mockResolvedValueOnce({ ...membership, account_id: "acc_other", role_key: "platform-admin" });
+    await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }, platformActor))).resolves.toMatchObject({
+      role_key: "platform-admin",
+    });
   });
 
   it("executes role, revoke, and reinstate commands with the operator actor context", async () => {

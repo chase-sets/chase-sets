@@ -1740,10 +1740,41 @@
     },
     "api-keys": { "pending": "#9238" },
     "api-keys-detail": { "pending": "#9238" },
-    "invitations": { "pending": "#9238" },
-    "invitations-detail": { "pending": "#9238" },
-    "memberships": { "pending": "#9238" },
-    "memberships-detail": { "pending": "#9238" },
+    "invitations": {
+      "tools": [
+        "identity.create-and-send-invitation",
+        "identity.list-invitations",
+        "identity.list-accounts",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "invitations-detail": {
+      "tools": [
+        "identity.get-invitation",
+        "identity.resend-and-send-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "memberships": {
+      "tools": [
+        "identity.create-and-send-invitation",
+        "identity.list-memberships",
+        "identity.list-invitations",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
+    "memberships-detail": {
+      "tools": [
+        "identity.get-membership",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
     "users": { "tools": ["identity.list-users"] },
     "users-detail": {
       "tools": [
