@@ -382,6 +382,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/realtime/public/events" {
         return realtime();
     }
+    if let Some(answer) = search(&uri) {
+        return answer;
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         // Discovery has not caught up with a listing published at 44.
         if waits_for(&headers).as_deref() == Some("44") {
@@ -761,6 +764,66 @@ fn saved_lists(stand: &Stand, session: &str, method: &Method, path: &str, header
     let headers = [("chase-sets-commit-position", "31".to_owned()), ("chase-sets-commit-receipt", receipt)];
     let answer = json!({ "command": {}, "listId": list, "title": title, "lineStatus": line, "alreadyClaimed": false, "analyticsLabel": "x" });
     Some((headers, Json(answer)).into_response())
+}
+
+/// The search's category, as Discovery has it.
+fn singles() -> Value {
+    json!({ "category_id": "ctg_singles", "key": "singles", "slug": "singles-x1", "name": "Singles", "display_order": 0 })
+}
+
+/// Search's reads, as the stand-in answers them: one category, `singles-x1`; 30 results, the first
+/// `limit` sent with a next page while there are more; `charizard psa 10` read as a grade (until
+/// the address is marked `interpreted`); `broken` failing.
+fn search(uri: &Uri) -> Option<Response> {
+    let path = uri.path();
+    if path == "/api/marketplace/categories" {
+        return Some(Json(json!({ "items": [singles()], "total": 1, "count": 1 })).into_response());
+    }
+    if let Some(slug) = path.strip_prefix("/api/marketplace/categories/") {
+        return Some(if slug == "singles-x1" {
+            Json(singles()).into_response()
+        } else {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Category not found.")
+        });
+    }
+    if path != "/api/marketplace/items" {
+        return None;
+    }
+    let sent = query(&uri.to_string());
+    let words = sent.get("search").map_or("", String::as_str);
+    if words == "broken" {
+        return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let interpretation = (words == "charizard psa 10" && !sent.contains_key("interpreted")).then(|| {
+        json!({ "remainingQuery": "charizard", "applied": [{ "param": "dimension.dim_grade", "optionId": "chc_10", "label": "Gem Mint 10" }] })
+    });
+    let limit: usize = sent.get("limit").and_then(|l| l.parse().ok()).unwrap_or(24);
+    let shown = limit.min(30);
+    let items: Vec<Value> = (1..=shown)
+        .map(|n| {
+            let listed = n % 2 == 1;
+            json!({
+                "catalog_item_id": format!("cat_{n}"), "slug": format!("card-{n}"), "title": format!("Card {n}"),
+                "subtitle": "Base Set", "language_code": if n == 2 { "ja" } else { "en" }, "image_urls": [],
+                "product_asset_sets": [], "image_fallback": null, "display_badges": [{ "kind": "rarity", "label": "Holo" }],
+                "market_summary": listed.then(|| json!({
+                    "lowest_price_amount": "389.00", "lowest_price_currency_code": "USD", "active_listing_count": 2,
+                })),
+            })
+        })
+        .collect();
+    let facets = json!([{ "id": "dim_grade", "kind": "dimension", "label": "Grade", "values": [
+        { "id": "chc_10", "label": "Gem Mint 10", "count": 9, "selected": sent.get("dimension.dim_grade").map(String::as_str) == Some("chc_10") },
+        { "id": "chc_9", "label": "Mint 9", "count": 4, "selected": false },
+    ] }]);
+    Some(
+        Json(json!({
+            "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }], "total": 30,
+            "count": shown, "nextCursor": (shown < 30).then_some("c1"), "retrievalMode": "lexical",
+            "interpretation": interpretation, "resultSetKey": "k",
+        }))
+        .into_response(),
+    )
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -3496,4 +3559,128 @@ async fn an_account_that_may_not_list_is_sent_to_registration_and_cannot_post() 
     let (status, _, _) = pilot.send(post(LIST, "watcher", &list_body(ATTEMPT, "10", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(listing_calls(&pilot).is_empty());
+}
+
+/// The search reads the pilot sent, as their parameters.
+fn search_reads(pilot: &Pilot) -> Vec<HashMap<String, String>> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with("/api/marketplace/items?")).map(|c| query(&c.path)).collect()
+}
+
+#[tokio::test]
+async fn search_moves_old_addresses_for_good_and_applies_the_filters_its_words_name() {
+    let pilot = Pilot::new().await;
+    for (from, to) in [
+        // `page` is gone, the rest as sent.
+        ("/search?page=2&q=x", "/search?q=x"),
+        // A category asked for as a parameter, or by its id or key, is at its slug's path.
+        ("/search?category=singles&sort=newest", "/categories/singles-x1?sort=newest"),
+        ("/categories/ctg_singles?inStock=true", "/categories/singles-x1?inStock=true"),
+    ] {
+        let (status, headers, _) = pilot.send(get(from, None)).await;
+        assert_eq!(status, StatusCode::MOVED_PERMANENTLY, "{from}");
+        assert_eq!(headers[header::LOCATION], to, "{from}");
+    }
+    // The words the API reads a filter from: the address with it applied and the words left,
+    // marked so they are not read again.
+    let (status, headers, _) = pilot.send(get("/search?q=charizard%20psa%2010", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/search?q=charizard&dimension.dim_grade=chc_10&interpreted=dimension.dim_grade");
+    let (status, _, html) = pilot.send(get(&to, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Filters applied from your search: Grade: Gem Mint 10"), "{html}");
+    let read = search_reads(&pilot).pop().unwrap();
+    assert_eq!(read.get("interpreted").map(String::as_str), Some("dimension.dim_grade"));
+    // Removing the applied filter keeps the mark (the words are still not read again); another
+    // change drops it.
+    assert!(html.contains(r#"href="/search?q=charizard&amp;interpreted=dimension.dim_grade""#), "{html}");
+    assert!(html.contains(r#"href="/search?dimension.dim_grade=chc_10""#), "the words' chip: {html}");
+}
+
+#[tokio::test]
+async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
+    let pilot = Pilot::new().await;
+    let address =
+        "/search?q=pika&priceMin=12.5&priceMax=01&inStock=true&marketActivity=offers&dimension.dim_grade=chc_10&sort=newest";
+    let (status, _, html) = pilot.send(get(address, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = search_reads(&pilot).pop().unwrap();
+    for (key, value) in [
+        ("search", "pika"),
+        ("priceMin", "12.5"),
+        ("inStock", "true"),
+        ("marketActivity", "offers"),
+        ("sort", "newest"),
+        ("limit", "24"),
+        ("includeTotal", "true"),
+        ("dimension.dim_grade", "chc_10"),
+    ] {
+        assert_eq!(read.get(key).map(String::as_str), Some(value), "{key}: {read:?}");
+    }
+    assert!(!read.contains_key("priceMax"), "a price with a leading zero is no price: {read:?}");
+    assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
+    assert!(html.contains("Showing 24 of 30 results in All Categories"), "{html}");
+    // A result links to its item with the dimension filter, Buy first when it has listings.
+    assert!(html.contains(r#"href="/items/card-1?dimension.dim_grade=chc_10""#), "{html}");
+    // A result without listings offers Sell first.
+    let sell =
+        html.find(r#"href="/items/card-2?market=sell&amp;dimension.dim_grade=chc_10" aria-label="Add product to Sell List""#);
+    let buy = html.find(r#"href="/items/card-2?dimension.dim_grade=chc_10" aria-label="Add product to Buy Cart""#);
+    assert!(sell.is_some() && buy.is_some() && sell < buy, "{html}");
+    assert!(html.contains("From"), "{html}");
+    assert!(html.contains(">Japanese<"), "a result's language: {html}");
+    // The filters are one GET form; the words box and the sort are in it by its id.
+    assert!(html.contains(r#"<form id="search-form""#), "{html}");
+    assert!(html.contains(r#"<input type="search" name="q" form="search-form" value="pika""#), "{html}");
+    assert!(html.contains(r#"<select name="sort" form="search-form">"#), "{html}");
+    assert!(html.contains(r#"<input type="checkbox" name="dimension.dim_grade" value="chc_10" checked>"#), "{html}");
+    // Each chip is the address without its filter.
+    assert!(html.contains("Minimum price: $12.50"), "{html}");
+    assert!(
+        html.contains(
+            r#"href="/search?q=pika&amp;marketActivity=offers&amp;priceMin=12.5&amp;sort=newest&amp;dimension.dim_grade=chc_10""#
+        ),
+        "the in-stock chip: {html}"
+    );
+    // Load more: the same address with a page more, at the first result it adds.
+    let more = "/search?q=pika&amp;marketActivity=offers&amp;priceMin=12.5&amp;inStock=true&amp;sort=newest&amp;dimension.dim_grade=chc_10&amp;more=24#result-25";
+    assert!(html.contains(&format!(r#"href="{more}""#)), "{html}");
+    let (status, _, html) = pilot.send(get(&more.replace("&amp;", "&").replace("#result-25", ""), None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(search_reads(&pilot).pop().unwrap().get("limit").map(String::as_str), Some("48"));
+    assert_eq!(html.matches(r#"<li id="result-"#).count(), 30);
+    assert!(!html.contains("Load more results"), "every result is shown");
+    // The canonical address leaves Load more out.
+    assert!(
+        html.contains(r#"<link rel="canonical" href="http://localhost:7753/search?q=pika&amp;marketActivity=offers"#),
+        "{html}"
+    );
+    assert!(!html.contains(r#"more=24" data-corten-head"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_category_page_searches_in_it_and_the_landing_offers_categories() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/categories/singles-x1", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(search_reads(&pilot).pop().unwrap().get("category").map(String::as_str), Some("singles-x1"));
+    assert!(html.contains("Search results in Singles"), "{html}");
+    assert!(html.contains(r#"<form id="search-form" class="#) && html.contains(r#"action="/categories/singles-x1""#), "{html}");
+    assert!(html.contains(r#"aria-current="page">Singles (7)"#), "{html}");
+    // `/search` with nothing asked is the landing: the headline, and the categories as chips.
+    let (status, _, html) = pilot.send(get("/search", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Find trading cards worth "), "{html}");
+    assert!(html.contains(r#"href="/categories/singles-x1">Singles</a>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_failed_search_says_so_with_a_502_and_keeps_the_filters() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/search?q=broken", None)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(html.contains("The platform API did not answer."), "{html}");
+    assert!(html.contains(r#"<form id="search-form""#), "{html}");
+    assert!(!html.contains("No items found"), "a failed read is not an empty one: {html}");
 }

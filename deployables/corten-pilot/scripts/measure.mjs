@@ -1,13 +1,13 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
 // user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
 // list and a dimension, `screen=catalog`), admin's operations attention queue (`screen=attention`), marketplace's storage locations
-// (`screen=marketplace`), its cart (`screen=cart`) or an item page (`screen=item`), as the auth seed's collector, cold-cache loads on desktop and on a
+// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`) or search (`screen=search`, `/search?q=` and `/search`), as the auth seed's collector, cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item] [runs=7] [state=..] [policy=id]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search] [q=search words] [runs=7] [state=..] [policy=id]
 //        [dimension=id] [slug=item slug] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
@@ -16,7 +16,7 @@ import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
 const screen = named.screen ?? "admin";
-const login = { marketplace: "marketplace", cart: "collector", item: "collector" }[screen] ?? "admin";
+const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector" }[screen] ?? "admin";
 const {
   screen: _screen,
   runs: runsText = "7",
@@ -25,6 +25,7 @@ const {
   dimension = "",
   profiles: only,
   slug: _slug,
+  q: _q,
   out,
   ...apps
 } = named;
@@ -39,11 +40,12 @@ const screens = {
   attention: { queue: "/platform/operations-attention" },
   marketplace: { list: "/account/inventory/locations" },
   cart: { list: "/account/cart" },
+  search: { results: `/search?q=${encodeURIComponent(named.q ?? "charizard")}`, browse: "/search" },
   item: { page: `/items/${named.slug ?? "charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"}` },
 };
 for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart or item`);
+if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart, item or search`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));

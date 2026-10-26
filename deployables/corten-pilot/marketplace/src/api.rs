@@ -1194,6 +1194,146 @@ impl Discovery for Caller<'_> {
     }
 }
 
+/// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the
+/// fields the search page reads.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    #[serde(default)]
+    pub items: Vec<SearchItem>,
+    #[serde(default)]
+    pub facets: Vec<Facet>,
+    #[serde(default, rename = "category_counts")]
+    pub category_counts: Vec<CategoryCount>,
+    /// Asked for with `includeTotal` (a first page).
+    pub total: Option<u64>,
+    pub next_cursor: Option<String>,
+    /// `lexical`, `corrected` (close spellings) or `rescue` (closest matches).
+    pub retrieval_mode: Option<String>,
+    pub lexical_count: Option<u64>,
+    /// Filters the API read from the words, which the page applies with a redirect.
+    pub interpretation: Option<Interpretation>,
+}
+
+/// A result (`DiscoverySearchItem`): its card's fields, its language, badges and market.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SearchItem {
+    #[serde(flatten)]
+    pub card: SimilarItem,
+    pub language_code: Option<String>,
+    #[serde(default)]
+    pub display_badges: Vec<DisplayBadge>,
+    pub market_summary: Option<SearchMarket>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DisplayBadge {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+/// A result's market: its lowest listed price and how many listings are active.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SearchMarket {
+    pub lowest_price_amount: Option<String>,
+    pub lowest_price_currency_code: Option<String>,
+    #[serde(default)]
+    pub active_listing_count: u64,
+}
+
+/// A filter the results can be narrowed by (`DiscoveryFacetGroup`): a field, a reference or a
+/// product dimension, and its values with their counts.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Facet {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(default)]
+    pub values: Vec<FacetValue>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FacetValue {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub count: u64,
+    #[serde(default)]
+    pub selected: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CategoryCount {
+    pub slug: String,
+    #[serde(default)]
+    pub count: u64,
+}
+
+/// What the API read from the search's words (`DiscoverySearchInterpretation`): the words left,
+/// and each filter it applied.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Interpretation {
+    pub remaining_query: String,
+    #[serde(default)]
+    pub applied: Vec<Applied>,
+}
+
+/// One applied filter: `param` is `language` (with `language`) or a filter's key such as
+/// `dimension.<id>` (with `optionId`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Applied {
+    pub param: String,
+    pub option_id: Option<String>,
+    pub language: Option<String>,
+}
+
+/// A category (`DiscoveryCategoryItem`), the fields search reads.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SearchCategory {
+    pub category_id: String,
+    pub slug: String,
+    pub name: String,
+    pub key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Categories {
+    #[serde(default)]
+    items: Vec<SearchCategory>,
+}
+
+/// Marketplace search's calls.
+pub trait Search {
+    /// A page of results; `query` is the API's query string, without the `?`.
+    async fn search(&self, query: &str) -> Result<SearchResults, ApiError>;
+    /// Every category.
+    async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError>;
+    /// The category with the slug; `None` when there is none.
+    async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError>;
+}
+
+impl Search for Caller<'_> {
+    async fn search(&self, query: &str) -> Result<SearchResults, ApiError> {
+        self.read(&format!("{ITEMS}?{query}"), DISCOVERY).await
+    }
+
+    async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError> {
+        Ok(self.read::<Categories>("/api/marketplace/categories", DISCOVERY).await?.items)
+    }
+
+    async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError> {
+        match self.read(&format!("/api/marketplace/categories/{}", segment(slug)), DISCOVERY).await {
+            Ok(category) => Ok(Some(category)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
 /// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,
 /// `DiscoveryItemDetailSellerOverlay`), the field the pilot reads: whether the account has the
 /// Listing stock location quick listings ship from. Its offer matches and inventory are not

@@ -28,6 +28,7 @@ mod location_card;
 mod market_nav;
 mod page_actions;
 mod recovery;
+mod search_page;
 
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
@@ -39,6 +40,7 @@ pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateF
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
+pub use search_page::SearchPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
@@ -52,6 +54,10 @@ pub const CART: &[Component] = &[CartItem];
 /// The item page's components (`/items`): its stylesheet, and corten-ui's handler that makes Add to
 /// List's dialog modal when the server draws it open.
 pub const ITEM: &[Component] = &[ItemDetail, corten_ui::dialog::COMPONENT];
+
+/// Search's components (`/search`, `/categories`): its stylesheet and the script that applies a
+/// filter as it changes.
+pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]

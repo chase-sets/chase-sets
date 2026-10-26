@@ -24,9 +24,14 @@
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
 //! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
+//! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
+//! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
-//! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`.
+//! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`;
+//! `<terms>` is `search::Terms`: `q`, `tag`, `language`, `marketActivity`, `priceMin`,
+//! `priceMax`, `inStock`, `sort`, `field.<id>`, `reference.<id>`, `dimension.<id>`,
+//! `interpreted` and `more`.
 use std::sync::Arc;
 
 use corten::{
@@ -77,11 +82,43 @@ pub type Shared = Arc<Config>;
 /// the caller every handler there takes.
 pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
+    pub use categories::{Categories, Category};
     pub use inventory::{Archive, InventoryArea, Location, Locations, Restock, Restocked, WrittenOff};
     pub use items::{
         Item, ItemAdded, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSaved, ItemSellList, ItemShipFrom,
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
+    pub use search::Search;
+
+    /// Marketplace search, public: a handler that shows who is signed in reads
+    /// `Option<Caller<Session>>`.
+    #[corten::routes(state = crate::app::Shared, area = Search)]
+    pub mod search {
+        /// The results for the address's terms.
+        #[derive(Clone, Debug, Default)]
+        #[route("/search", get = crate::search::page)]
+        pub struct Search {
+            #[route(query)]
+            pub terms: crate::search::Terms,
+        }
+    }
+
+    /// A category's search page, public.
+    #[corten::routes(state = crate::app::Shared, area = Categories)]
+    pub mod categories {
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/categories", link)]
+        pub struct Categories;
+
+        /// The results for the address's terms, in the category.
+        #[derive(Clone, Debug)]
+        #[route("/categories/{slug}", get = crate::search::category)]
+        pub struct Category<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub terms: crate::search::Terms,
+        }
+    }
 
     /// Marketplace's item pages, public: no caller is required (a handler that shows whose offers
     /// are theirs reads `Option<Caller<Session>>`), and each route names its handler, so a link
@@ -295,7 +332,7 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
 }
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
-/// sellers on the inventory screens, buyers on the cart, anyone on an item.
+/// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(Router::new())
@@ -306,7 +343,12 @@ pub fn app(config: Config) -> App {
         .components(views::COMPONENTS)
         .area::<url::InventoryArea>(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area::<url::Cart>(|area| url::cart::area(area, shared.clone()).components(views::CART))
-        .area::<url::ItemsArea>(|area| url::items::area(area, shared).components(views::ITEM))
+        .area::<url::ItemsArea>(|area| url::items::area(area, shared.clone()).components(views::ITEM))
+        // Search is served under two prefixes, and a component's stylesheet is in one file, so its
+        // components are every page's (todd-skelton/corten#93).
+        .components(views::SEARCH)
+        .area::<url::Search>(|area| url::search::area(area, shared.clone()))
+        .area::<url::Categories>(|area| url::categories::area(area, shared))
         .error_page(views::error_page)
 }
 

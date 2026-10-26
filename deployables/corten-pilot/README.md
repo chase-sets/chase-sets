@@ -21,6 +21,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
 | `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration The mobile action dock below 80rem: the price, then Buy, Sell and Watch as links to the rail on that side, or Select options. The gallery: more than one picture shows one at a time, picked by its thumbnail. More like this: the similar items' cards under the market book, each to its page here. The market book's Sales tab: the chosen product's spread, last sale and medians, and its sale prices over a range as a chart drawn on the server, the range links. Live: on each change to the item, the market summary, the market book (with the Sales tab's history) and the dock are drawn again (`<corten-live>`) Details' references: each record's dialog, opened by its value with no script. Add to List: an account's recent Saved Lists or a new one in a dialog the page draws, with the tracked quantity, or for a guest an intent claimed after marketplace's registration (not ported yet: a graded product's listing; the rail and the options redrawn live) |
+| `marketplace/` | Search, `/search` and `/categories/{slug}` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a link to the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: the home page's merchandising on `/`, Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -59,6 +60,28 @@ an unknown amount and are not a comparison. Measured once, 7 loads each.
 
 The pilot measured interactive sooner on mobile than on desktop. That was not profiled, and one
 run of 7 loads does not show whether it repeats.
+
+Search (`/search?q=charizard`, two results, and `/search`, the landing with 14), on the local
+`feat/route-handlers` port: the pilot is a release build, marketplace its dev server, so as with the
+cart the React numbers are not a comparison. marketplace's mobile load did not finish within the
+script's 120 s timeout (7.7 MB of JavaScript at 1.6 Mbps), so it has no mobile number. Measured once,
+7 loads each, as the collector.
+
+| Search | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive, results | 5,562 ms | 499 ms | 1,282 ms |
+| Largest contentful paint, results | 3,700 ms | 604 ms | 15,072 ms |
+| Server time (document), results | 3,283 ms | 111 ms | 140 ms |
+| JavaScript transferred | 7,692,764 B | 9,638 B | 9,638 B |
+| HTML / CSS transferred, results | 527,534 / 186,198 B | 4,729 / 4,153 B | 4,729 / 4,153 B |
+| Interactive, landing | not measured | 678 ms | 957 ms |
+| Largest contentful paint, landing | not measured | 648 ms | 1,536 ms |
+
+The results page's mobile LCP is the cards' picture: both results use the sandbox's card-back
+fallback, `/fake-cdn/assets/pokemon_tcg_back.png`, a 1,451,020 B PNG for every variant, which
+marketplace's cards load too. The landing's LCP is its headline. The pilot's `components.css`
+carries search's stylesheet on every page
+([todd-skelton/corten#93 An area has one prefix, so a screen at two addresses (/search, /categories/{slug}) puts its stylesheet on every page](https://github.com/todd-skelton/corten/issues/93)).
 
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
@@ -186,6 +209,7 @@ node scripts/smoke-market-item-sell.mjs http://localhost:7793  # the rail's sell
 node scripts/smoke-market-item-watch.mjs http://localhost:7793  # the Watch tab: a guest's intent and marketplace's registration, the collector's alert with the catalog's words and the saved notice, a threshold past the field's step, 390 px (writes an alert and deletes it; a guest intent expires on its own)
 node scripts/smoke-market-item-save.mjs http://localhost:7793  # Add to List: a guest's intent and marketplace's registration, the collector's dialog with no script and Add Product to a recent or new list with the page saying where it went, a refusal reopened as a modal, the sheet at 390 px (adds to the collector's list "Corten pilot smoke"; a guest intent expires on its own)
 node scripts/smoke-market-item-list.mjs http://localhost:7793  # List this product as the seed seller: the post, the page while Discovery catches up and after, the same form again, the API's waits with the receipt, 390 px (lists below 250.00 and withdraws each listing)
+node scripts/smoke-market-search.mjs http://localhost:7793  # search as a visitor: the words' filters applied, Show results and a chip without a script, a filter applied on change with focus and scroll kept, the sort, a category's path, the filters dialog at 390 px (reads only)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -200,6 +224,7 @@ node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=cart marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=item marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=search marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
@@ -272,6 +297,9 @@ postage, storage locations, cart, item and Add to List. What changed:
 4. Both error pages name every `Failure` case. Two gaps were filed:
    [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88)
    and [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89).
+5. Marketplace search was ported on this branch after that, so it is not on `pilot/corten` yet. With
+   it `corten check` passes (admin 61, marketplace 97, platform 6) and `smoke-market-search.mjs`
+   passes against its release build on the sandbox. Its four Corten gaps are under [Corten gaps](#corten-gaps).
 
 ## What lives where
 
@@ -861,6 +889,20 @@ postage, storage locations, cart, item and Add to List. What changed:
 ## Corten gaps
 
 Open, filed in Corten: none at the `c7fc490` pin.
+
+Open, filed against `feat/route-handlers` (the local port), each with its workaround:
+
+1. [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88): both error pages pass `viewer={None}`.
+2. [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89): none; a session lookup outage shows the failed page's words.
+3. [todd-skelton/corten#90 An answer cannot add rows to a list (Load more re-reads and re-renders every row shown)](https://github.com/todd-skelton/corten/issues/90): Load more is a link to the same results with a page more (`more=24#result-25`), up to 192, the most the API reads at once ([`Found`](marketplace/src/views/search_page.rs)).
+4. [todd-skelton/corten#91 A query parameter cannot have a name other than its field's (#[route(query)] has no name =), so camelCase URLs need a hand-written Params](https://github.com/todd-skelton/corten/issues/91): `search::Terms` writes its parameters by hand ([`search.rs`](marketplace/src/search.rs)).
+5. [todd-skelton/corten#92 A GET form that applies a filter on change loses the user's place: its navigation scrolls to the top and moves focus to the body](https://github.com/todd-skelton/corten/issues/92): `search.js` keeps the changed field, the page's scroll and the rail's in `sessionStorage` and puts them back after the swap, in a `setTimeout` after the runtime's focus reset ([`search.js`](marketplace/src/views/search.js)).
+6. [todd-skelton/corten#93 An area has one prefix, so a screen at two addresses (/search, /categories/{slug}) puts its stylesheet on every page](https://github.com/todd-skelton/corten/issues/93): search's components are in `App::components` ([`app()`](marketplace/src/app.rs)).
+
+Found in Chase Sets by the search port:
+
+1. [chase-sets/chase-sets#10609 [discovery] Search answers 500 on the first request after a quiet minute](https://github.com/chase-sets/chase-sets/issues/10609). The pilot shows the error banner and answers 502; the smoke reads once before it starts.
+2. [chase-sets/chase-sets#10610 [discovery] Search says No items found when the search read fails](https://github.com/chase-sets/chase-sets/issues/10610). Marketplace's behavior, not the pilot's: the pilot says the read failed.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
