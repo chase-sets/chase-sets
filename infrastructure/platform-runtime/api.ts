@@ -124,7 +124,9 @@ export function createProjectionGroupLeasePort(
           throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
         }
 
-        const acquireDeadline = signal ? Number.POSITIVE_INFINITY : Date.now() + SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS;
+        const acquireDeadline = signal
+          ? Number.POSITIVE_INFINITY
+          : Date.now() + SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS;
         let attempts = 0;
         for (;;) {
           if (signal?.aborted) {
@@ -163,7 +165,9 @@ export function createProjectionGroupLeasePort(
           }
           const remainingMs = acquireDeadline - Date.now();
           if (!signal) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS, remainingMs)));
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.min(SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS, remainingMs)),
+            );
           } else {
             await waitForSeedLeaseRetry(signal, SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS);
           }

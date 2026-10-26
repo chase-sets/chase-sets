@@ -26,13 +26,17 @@ const callerPaths = [
 describe("inline seed caller inventory", () => {
   it("keeps every seedApiHostIfEmpty caller on an injected lease-port path", async () => {
     const sources = await Promise.all(
-      callerPaths.map(async (relativePath) => [relativePath, await readFile(resolve(repoRoot, relativePath), "utf8")] as const),
+      callerPaths.map(
+        async (relativePath) => [relativePath, await readFile(resolve(repoRoot, relativePath), "utf8")] as const,
+      ),
     );
 
     for (const [relativePath, source] of sources) {
       expect(source, relativePath).toContain("seedApiHostIfEmpty");
       expect(
-        source.includes("projectionGroupLeasePort") || source.includes("seedOptions") || source.includes("bootstrapOptions"),
+        source.includes("projectionGroupLeasePort") ||
+          source.includes("seedOptions") ||
+          source.includes("bootstrapOptions"),
         relativePath,
       ).toBe(true);
     }
