@@ -1,21 +1,21 @@
 {
   "schema": "db-enrollment-workload/v1",
   "capture": {
-    "fileName": "bootstrap-db-capture-40165642883.json",
-    "fixtureSha256": "6dbb5405590998094ab577b8ffd89595a4795cdd113e830e5360972c89233b23",
-    "runId": "40165642883",
-    "checkoutSha": "0c80214fe8886943a1b92e3d1afc975a0b57eb77",
-    "sourceBase": "47ab8de32c2965581c712f44b778a500dde48ad1",
-    "captureParent": "47ab8de32c2965581c712f44b778a500dde48ad1"
+    "fileName": "bootstrap-db-capture-40252660960.json",
+    "fixtureSha256": "5b25ed93307194d218319c093f5e42db227457481551d00583da0164bd020a9d",
+    "runId": "40252660960",
+    "checkoutSha": "383caf33e5c0c7159be81cc7744ad0044a0938e5",
+    "sourceBase": "b5512a20e16d918a6b9589d79df91806fe142321",
+    "captureParent": "b5512a20e16d918a6b9589d79df91806fe142321"
   },
   "source": {
-    "commit": "47ab8de32c2965581c712f44b778a500dde48ad1",
+    "commit": "b5512a20e16d918a6b9589d79df91806fe142321",
     "ref": "refs/heads/codex/10062-impl-g1",
     "historicalBranch": "codex/10062-impl-g1",
-    "historicalHead": "0c80214fe8886943a1b92e3d1afc975a0b57eb77"
+    "historicalHead": "383caf33e5c0c7159be81cc7744ad0044a0938e5"
   },
   "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
-  "bindingsSha256": "77b703195f132417824915f05ba6610515bd2460945d804b84c4fee9a16d97a7",
+  "bindingsSha256": "899d023c79568670dbfd01c856aefab4b0868c85582c22f8115858ee9acbe942",
   "bindings": [
     [
       "W1 case identities",
@@ -1768,6 +1768,11 @@
               "portName": "offerEconomicsCrossContext",
               "providedBy": "platform-api",
               "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, Commercial Terms' published standard fee schedule terms, and Settlement's protection-reserve summary, each bound to its owning context's database pool and assembled once in the platform-api composition root."
+            },
+            {
+              "portName": "operationsAttentionRuntimeReads",
+              "providedBy": "platform-api",
+              "purpose": "Host-runtime projection blocked-projection and wake-store reads for the Operations Attention API, assembled once from the same builders used by the projection operations routes."
             }
           ],
           "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
