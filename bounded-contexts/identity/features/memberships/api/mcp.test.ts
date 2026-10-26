@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { contextManifest } from "@chase-sets/identity";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { MembershipServices } from "./runtime";
@@ -27,6 +29,35 @@ const membership: Record<string, unknown> = {
   status: "active",
   updated_at: "2026-10-01T00:00:00.000Z",
 } as const;
+
+const sourceCalls = [
+  { route: "memberships", method: "listMemberships", tool: "identity.list-memberships" },
+  { route: "memberships-detail", method: "getMembership", tool: "identity.get-membership" },
+  { route: "memberships-detail", method: "changeMembershipRole", tool: "identity.change-membership-role" },
+  { route: "memberships-detail", method: "revokeMembership", tool: "identity.revoke-membership" },
+  { route: "memberships-detail", method: "reinstateMembership", tool: "identity.reinstate-membership" },
+] as const;
+
+function assertSourceCallCoverage(handlers: Readonly<Record<string, unknown>>) {
+  for (const route of ["memberships", "memberships-detail"] as const) {
+    const source = readFileSync(new URL(`../../../routes/admin/${route}.tsx`, import.meta.url), "utf8");
+    const traced = [
+      ...new Set([
+        ...[...source.matchAll(/\bapi\.(\w+)/g)].map((match) => match[1]),
+        ...[...source.matchAll(/\bcreateIdentityRequestApiClient\([\s\S]*?\)\s*\.\s*(\w+)/g)].map((match) => match[1]),
+      ]),
+    ];
+    const mapped = sourceCalls.filter((call) => call.route === route);
+    expect(mapped.map((call) => call.method).sort()).toEqual(traced.sort());
+    expect([...new Set(contextManifest.agentCoverage[route].tools)].sort()).toEqual(
+      [...new Set(mapped.map((call) => call.tool))].sort(),
+    );
+    for (const call of mapped) {
+      expect(handlers[call.tool], call.tool).toBeTypeOf("function");
+      expect(findMcpTool(call.tool)?.availability, call.tool).toBe("available");
+    }
+  }
+}
 
 function request(arguments_: Record<string, unknown>, requestActor: ResolvedActor | null = actor) {
   return {
@@ -83,6 +114,7 @@ describe("identity membership MCP handlers", () => {
       { ...f.services, listMemberships } as never,
       f.accounts as never,
     ).toolHandlers;
+    assertSourceCallCoverage(handlers);
     await expect(
       handlers["identity.list-memberships"]!(request({ search: "platform-admin", limit: 3 })),
     ).resolves.toMatchObject({

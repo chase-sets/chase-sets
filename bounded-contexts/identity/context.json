@@ -1768,9 +1768,7 @@
       "tools": [
         "identity.create-and-send-invitation",
         "identity.list-invitations",
-        "identity.list-accounts",
-        "identity.cancel-invitation",
-        "identity.decline-invitation"
+        "identity.list-accounts"
       ]
     },
     "invitations-detail": {
@@ -1783,12 +1781,7 @@
     },
     "memberships": {
       "tools": [
-        "identity.create-and-send-invitation",
-        "identity.list-memberships",
-        "identity.list-invitations",
-        "identity.change-membership-role",
-        "identity.revoke-membership",
-        "identity.reinstate-membership"
+        "identity.list-memberships"
       ]
     },
     "memberships-detail": {
