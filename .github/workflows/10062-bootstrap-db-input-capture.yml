@@ -185,9 +185,7 @@ jobs:
               "bootstrap-production-reconciliation.db.test.ts",
               "authoritative-seed-resume-core.db.test.ts",
               "authoritative-seed-resume-reconciliation.db.test.ts",
-              "connector-mount-gate-isolation.db.test.ts",
-              "bootstrap-lock-contention.db.test.ts",
-              "seed-command-full-pools.db.test.ts"
+              "bootstrap-lock-contention.db.test.ts"
             ],
             "test:db:2": [
               "bootstrap-scenario.db.test.ts",
@@ -199,14 +197,16 @@ jobs:
               "bootstrap-shared-seed-command.db.test.ts",
               "inventory-seed-resume.db.test.ts",
               "catalog-seed-interruption-resume.db.test.ts",
-              "authoritative-seed-resume-recovery.db.test.ts"
+              "authoritative-seed-resume-recovery.db.test.ts",
+              "connector-mount-gate-isolation.db.test.ts",
+              "seed-command-full-pools.db.test.ts"
             ],
           });
           export const frozenDigests = Object.freeze({
             "caseManifestSha256": "ad06332028bf340b23eb72c6f27fc352babd4b81e9155eaf2f3beb131c75d83a",
             "commandsSha256": "b6d4d88d3ffc52509601a665cd905775bb62a78de62f6a75140e9fd44b59f4b1",
             "censusSha256": "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
-            "sourceManifestSha256": "dee1f2b4c667ccc30fe0918976126067686da753c6a32805804b807e5e3ef6ac"
+            "sourceManifestSha256": "a3e2641972072a38291df1b5c590aebcf7159aa66bb97d194d03a7ba1f4f10d2"
           });
           export const frozenCounts = Object.freeze({"files":16,"bootstrapFiles":12,"bootstrapCases":71,"cases":82});
           // The immutable #8396 census helper supplies only its reviewed literal-table parser.
