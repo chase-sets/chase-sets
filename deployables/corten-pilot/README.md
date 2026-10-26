@@ -325,15 +325,16 @@ forward only on purpose, when a fix the pilot needs lands.
 | `c919779` | Corten `main` with [todd-skelton/corten#84 A patch or live fragment closes a <dialog> the user opened and folds a <details> they unfolded](https://github.com/todd-skelton/corten/issues/84) closed ([todd-skelton/corten#85 A patch keeps what the user opened: dialogs, details and popovers](https://github.com/todd-skelton/corten/pull/85)) and adopted: the item page's reference dialogs are back in the Details tab, beside their triggers, inside the market book a change to the item redraws. No breaking change for the pilot (Corten's runtime grows 268 B gzipped, its measurement) |
 | `c7fc490` | Corten `main` with [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86) closed ([todd-skelton/corten#87 A dialog the server draws open is modal: corten_ui::dialog::modal](https://github.com/todd-skelton/corten/pull/87)) and adopted: both apps' `modal` handlers are gone. No breaking change for the pilot |
 | `de6f039` | Corten `main` with [todd-skelton/corten#82 A view that is lets then one patch component is not a patch (One<F> never implements Patch)](https://github.com/todd-skelton/corten/issues/82) closed ([todd-skelton/corten#83 A view that is lets then one patch component is a patch](https://github.com/todd-skelton/corten/pull/83)) and adopted: the four `match () { () => { .. } }` blocks are gone. No breaking change for the pilot |
+| `319d3b7` | Corten `main` with [todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81) merged, the breaking change the pilot had been ported to ahead of time on `pilot/corten-route-handlers` (below), and [todd-skelton/corten#94 Filters keep the user's place, lists grow by appending, query names follow serde, areas share stylesheets](https://github.com/todd-skelton/corten/pull/94). Breaking beyond the earlier port: `App::new` takes `Routes` (`Routes::new()` in admin, where every route is in an area), so the local `[patch]` is gone and the four search gaps' workarounds could be removed (see [Corten gaps](#corten-gaps)) |
 
-**Ported ahead of Corten: `feat/route-handlers`.** Corten's next breaking change
-([todd-skelton/corten#81 A route names its handlers in its attribute](https://github.com/todd-skelton/corten/pull/81), with its local
+**Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
+([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
 commit `e07c1a3`) replaces `App::context`, `App::guard` and `Area::guard` with a handler's `Caller<T>`
 and an area's `caller = T`. It also makes a handler's return type its route's answer (`HtmlResult`, `LiveResponse`),
 has every route name its handler in `#[route(..)]`, and turns `Failure` into an enum. The pilot is ported
-to it on the local branch `pilot/corten-route-handlers`, which builds against `e07c1a3` merged
-with `c7fc490` through a local `[patch]`. It is pushed and pinned once the change merges into
-Corten `main`. At that commit `corten check` passes (admin 61, marketplace 93, platform 6). Eight
+to it on the local branch `pilot/corten-route-handlers`, which built against `e07c1a3` merged
+with `c7fc490` through a local `[patch]` until the change merged into Corten `main` as `319d3b7`;
+the branch is now pinned there and merged into `pilot/corten`. At `e07c1a3` `corten check` passes (admin 61, marketplace 93, platform 6). Eight
 smokes pass against its release builds on the sandbox: Operations Attention, scopes, bulk,
 postage, storage locations, cart, item and Add to List. What changed:
 1. Every area is a `#[corten::routes(state = Shared, area = .., caller = ..)]` module whose routes
@@ -942,9 +943,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open, filed in Corten: none at the `c7fc490` pin.
-
-Open, filed against `feat/route-handlers` (the local port), each with its workaround:
+Open, filed in Corten, at the `319d3b7` pin, each with its workaround:
 
 1. [todd-skelton/corten#88 An error page cannot show who is asking (App::error_page has no Caller), so a signed-in user's 404 is drawn signed out](https://github.com/todd-skelton/corten/issues/88): both error pages pass `viewer={None}`.
 2. [todd-skelton/corten#89 Refused::unavailable reaches the error page as Failure::Failed (503), the same as a handler's own 503](https://github.com/todd-skelton/corten/issues/89): none; a session lookup outage shows the failed page's words.

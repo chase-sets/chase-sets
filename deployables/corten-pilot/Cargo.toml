@@ -10,8 +10,8 @@ publish = false
 [workspace.dependencies]
 # Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
 # the pilot needs lands; see README.md, "Corten pin".
-corten = { git = "https://github.com/todd-skelton/corten", rev = "c7fc49081bad6adabbd7ecfca66cc84088545d96", features = ["compress", "json"] }
-corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "c7fc49081bad6adabbd7ecfca66cc84088545d96" }
+corten = { git = "https://github.com/todd-skelton/corten", rev = "319d3b72d74f2aba0dacf24e5f4e4fa8ee14f08e", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "319d3b72d74f2aba0dacf24e5f4e4fa8ee14f08e" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
@@ -28,7 +28,3 @@ uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 
-# Local only: Corten's unmerged feat/route-handlers (e07c1a3) merged with main (c7fc490), to port ahead of it.
-[patch."https://github.com/todd-skelton/corten"]
-corten = { path = "C:/Users/ToddS/AppData/Local/Temp/corten-rh/crates/corten" }
-corten-ui = { path = "C:/Users/ToddS/AppData/Local/Temp/corten-rh/crates/corten-ui" }

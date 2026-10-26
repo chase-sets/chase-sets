@@ -120,7 +120,7 @@ pub mod url {
 /// is served outside an area but Corten's own (health, the runtime, assets).
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
-    App::new(Router::new())
+    App::new(Routes::new())
         .messages::<Msg>()
         .components(views::COMPONENTS)
         .area::<url::Policies>(|area| url::area(area, shared.clone()).components(views::POSTAGE))
