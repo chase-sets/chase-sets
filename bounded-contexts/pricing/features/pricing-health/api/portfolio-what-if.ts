@@ -24,6 +24,7 @@ type WhatIfListing = HurdleSweepListing & Readonly<{
   productId: string;
   currentPriceAmount: MoneyAmount | null;
   economicsResolution: EconomicsResolution | null;
+  currency: string | null;
 }>;
 
 export type PricingHealthWhatIfPortfolio = Readonly<{

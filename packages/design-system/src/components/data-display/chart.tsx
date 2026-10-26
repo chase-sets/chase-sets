@@ -333,7 +333,7 @@ export interface TimeSeriesChartProps extends Omit<HTMLAttributes<HTMLDivElement
 const viewWidth = 640;
 const paddingX = 12;
 
-function resolveSeriesTone(series: TimeSeriesSeries, index: number): ChartTone {
+function resolveSeriesTone(series: Readonly<{ tone?: ChartTone }>, index: number): ChartTone {
   return series.tone ?? chartToneRotation[index % chartToneRotation.length];
 }
 
