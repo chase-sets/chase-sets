@@ -186,7 +186,12 @@ describe("identity invitation MCP handlers", () => {
         createEvents.push("delivery");
       });
       await handlers["identity.create-and-send-invitation"]!(
-        request({ accountId: "acc_1", email: "invitee@example.test", roleKey: "viewer" }),
+        request({
+          accountId: "acc_1",
+          email: "invitee@example.test",
+          roleKey: "viewer",
+          idempotencyKey: "idem-direct-create",
+        }),
       );
       const createCall = f.commandHandler.mock.calls.at(-1)?.[0] as {
         command: Record<string, unknown>;
@@ -308,6 +313,7 @@ describe("identity invitation MCP handlers", () => {
         }),
       );
       expect(f.commandHandler).toHaveBeenCalledTimes(1);
+      expect(requestInvitationAcceptanceLink).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -323,6 +329,13 @@ describe("identity invitation MCP handlers", () => {
     ).rejects.toThrow("cannot manage");
     expect(f.commandHandler).not.toHaveBeenCalled();
     await expect(
+      handlers["identity.create-and-send-invitation"]!(
+        request({ accountId: "acc_other", email: "a@b.test", roleKey: "viewer" }),
+      ),
+    ).rejects.toThrow("cannot manage");
+    expect(f.commandHandler).not.toHaveBeenCalled();
+    expect(requestInvitationAcceptanceLink).not.toHaveBeenCalled();
+    await expect(
       handlers["identity.get-invitation"]!(request({ invitationId: "ivt_1" }, { ...actor, accountId: "acc_other" })),
     ).rejects.toThrow("cannot manage");
     expect(f.commandHandler).not.toHaveBeenCalled();
@@ -332,6 +345,14 @@ describe("identity invitation MCP handlers", () => {
       handlers["identity.resend-invitation"]!(request({ invitationId: "ivt_1", expiresAt: "2026-11-01T00:00:00Z" })),
     ).rejects.toThrow("Only pending");
     expect(f.commandHandler).not.toHaveBeenCalled();
+    f.getInvitationForRead.mockResolvedValueOnce(nonPending);
+    await expect(
+      handlers["identity.resend-and-send-invitation"]!(
+        request({ invitationId: "ivt_1", expiresAt: "2026-11-01T00:00:00Z" }),
+      ),
+    ).rejects.toThrow("Only pending");
+    expect(f.commandHandler).not.toHaveBeenCalled();
+    expect(requestInvitationAcceptanceLink).not.toHaveBeenCalled();
   });
 
   it.each([
