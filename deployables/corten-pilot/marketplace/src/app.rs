@@ -81,6 +81,7 @@ pub type Shared = Arc<Config>;
 /// Every URL the pilot serves, by area. Each area's routes module names each route's handler and
 /// the caller every handler there takes.
 pub mod url {
+    pub use accounts::{Account, AccountReviewReport, AccountsArea};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::{Categories, Category};
     pub use home::Home;
@@ -134,6 +135,33 @@ pub mod url {
             pub slug: &'a str,
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+    }
+
+    /// An account's public page, public: a handler that shows who is signed in reads
+    /// `Option<Caller<Session>>`; Report review posts to the review's own path.
+    #[corten::routes(state = crate::app::Shared, area = AccountsArea)]
+    pub mod accounts {
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/accounts", link)]
+        pub struct AccountsArea;
+
+        /// The account (`slug` is its slug, or an old one or its id, which moves), the reviews'
+        /// role and page, and the review a report was just received for.
+        #[route("/accounts/{slug}", get = crate::accounts::page)]
+        pub struct Account<'a> {
+            pub slug: &'a str,
+            #[route(query)]
+            pub query: crate::accounts::AccountQuery,
+        }
+
+        /// Report a review, from the page with its role and page.
+        #[route("/accounts/{slug}/reviews/{review}/report", post = crate::accounts::report_review)]
+        pub struct AccountReviewReport<'a> {
+            pub slug: &'a str,
+            pub review: &'a str,
+            #[route(query)]
+            pub query: crate::accounts::AccountQuery,
         }
     }
 
@@ -415,7 +443,8 @@ pub fn app(config: Config) -> App {
         .area::<url::Search>(|area| url::search::area(area, shared.clone()).components(views::SEARCH))
         .area::<url::Categories>(|area| url::categories::area(area, shared.clone()).components(views::SEARCH))
         .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SEARCH).components(views::SET))
-        .area::<url::ListingsArea>(|area| url::listings::area(area, shared).components(views::LISTING))
+        .area::<url::ListingsArea>(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
+        .area::<url::AccountsArea>(|area| url::accounts::area(area, shared).components(views::ACCOUNT))
         .error_page(views::error_page)
 }
 

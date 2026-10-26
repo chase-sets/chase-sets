@@ -31,6 +31,9 @@
 //   discovery.routes.set.*, and the listing card's, language labels' and display identity's words).
 // - marketplace/locales/listing.en.json: a listing's public page's English catalog (discovery.routes.publicListing.*,
 //   and the item page's words for a price without a currency).
+// - marketplace/locales/account.en.json: an account's public page's English catalog (discovery.routes.publicAccount.*,
+//   the account badges' words, and Reputation's review report and scoring context,
+//   reputation.features.reviews.ui.reviewReportAction.* and .reviewScoringContext.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -344,6 +347,23 @@ const outputs = [
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/account.en.json",
+    json({
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
+        ["discovery.routes.publicAccount.", "page"],
+        // The trusted seller and founder badges (`features/item-detail/ui/account-badges.tsx`).
+        ["discovery.features.itemDetail.ui.accountBadges.", "badges"],
+        // A listing without a currency's price (the item page's words).
+        ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
+      ])),
+      ...(await catalog("reputation.ts", "reputationEnglishTranslations", [
+        // Report review and how a review counts (marketplace's `features/reviews/ui`).
+        ["reputation.features.reviews.ui.reviewReportAction.", "report"],
+        ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
+      ])),
+    }),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

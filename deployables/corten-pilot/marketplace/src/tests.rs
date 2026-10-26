@@ -376,6 +376,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
         return answer;
     }
+    if let Some(answer) = public_accounts(&method, uri.path(), session) {
+        return answer;
+    }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -912,6 +915,89 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
         "away" => Json(listing("away", true)).into_response(),
         "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Listing not found."),
+    })
+}
+
+/// An account's public page, its chips and its reviews' reports, as the stand-in answers them:
+/// `chase-sets` (old slug `old-chase`, id `acc_chase`) is an active seller with 23 reviews and
+/// two listings; `quiet` has nothing yet and its chips fail; `closed` is closed; `down` fails;
+/// any other is unknown. A review's report needs an account (a visitor is a 401): `other` reported
+/// it already, `stale` sent too many, and `rev_refused` cannot be reported.
+fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Response> {
+    if let Some(review) = path.strip_prefix("/api/marketplace/reviews/").and_then(|r| r.strip_suffix("/report")) {
+        if *method != Method::POST {
+            return None;
+        }
+        return Some(match (session, review) {
+            ("" | "nobody", _) => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
+            ("other", _) => {
+                refusal(StatusCode::CONFLICT, "report_already_submitted", "This reporter has already reported this content.")
+            }
+            ("stale", _) => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
+            (_, "rev_refused") => refusal(StatusCode::BAD_REQUEST, "validation_failed", "This review cannot be reported."),
+            _ => (StatusCode::CREATED, Json(json!({ "id": "rpt_review", "status": "submitted" }))).into_response(),
+        });
+    }
+    let rest = path.strip_prefix("/api/marketplace/accounts/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    if let Some(id) = rest.strip_suffix("/behavioral-metrics-chips") {
+        return Some(match id {
+            "acc_chase" => {
+                Json(json!({ "shipsOnTime": true, "lowCancellationRate": null, "lowDisputeRate": true })).into_response()
+            }
+            _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        });
+    }
+    let review = |id: &str, role: &str, rating: u8, disposition: &str| {
+        json!({
+            "review_id": id, "author_display_name": "Collector Zero", "author_role": role, "rating": rating,
+            "feedback": format!("Review {id}"), "scoring_disposition": disposition, "disposition_reason_code": "normal-completion",
+            "resolution_context": null, "remedy_kind": null, "submitted_at": "2026-10-20T15:00:00.000Z",
+            "updated_at": "2026-10-20T15:00:00.000Z", "reply_feedback": if id == "rev_1" { json!("Thanks!") } else { Value::Null },
+            "reply_status": if id == "rev_1" { json!("active") } else { Value::Null },
+        })
+    };
+    let listing = |id: &str, slug: &str, code: &str| {
+        json!({
+            "listing_id": id, "listing_slug": slug, "catalog_catalog_item_id": "cat_charizard", "catalog_item_slug": "charizard",
+            "item_title": "Charizard", "product_summary": "Form: graded | Grading Company: psa | Grade: nm-mt-8",
+            "ship_from_code": code, "price_amount": "749.00", "price_currency_code": "USD", "visible_quantity": 2,
+            "max_units_per_order": 1, "max_units_per_day": null, "max_units_per_customer_account": null,
+        })
+    };
+    let account = |slug: &str, id: &str, status: &str| {
+        json!({
+            "account_id": id, "account_slug": slug, "account_display_name": "Chase Sets", "status": status,
+            "created_at": "2025-03-04T00:00:00.000Z", "active_listing_count": 0, "badges": [], "founder_number": null,
+            "reviews": { "items": [], "total": 0 }, "listings": [],
+        })
+    };
+    let slug = rest.split('?').next().unwrap_or_default();
+    Some(match slug {
+        "chase-sets" | "old-chase" | "acc_chase" => {
+            let mut a = account("chase-sets", "acc_chase", "active");
+            a["active_listing_count"] = json!(2);
+            a["badges"] = json!(["trusted-seller", "founding-account"]);
+            a["founder_number"] = json!(7);
+            a["average_rating_as_seller"] = json!("4.50");
+            a["review_count_as_seller"] = json!(20);
+            a["rating_count_as_seller"] = json!(18);
+            a["rating_5_count_as_seller"] = json!(12);
+            a["rating_4_count_as_seller"] = json!(6);
+            a["review_count_as_buyer"] = json!(3);
+            a["rating_count_as_buyer"] = json!(3);
+            a["average_rating_as_buyer"] = json!("5.00");
+            a["rating_5_count_as_buyer"] = json!(3);
+            a["reviews"] = json!({ "items": [review("rev_1", "buyer", 5, "included"), review("rev_refused", "seller", 3, "context-only")], "total": 23 });
+            a["listings"] = json!([listing("lst_psa_8", "psa-8", "CHI-ANNEX-2"), listing("lst_stl", "stl-copy", "STL-1")]);
+            Json(a).into_response()
+        }
+        "quiet" => Json(account("quiet", "acc_quiet", "active")).into_response(),
+        "closed" => Json(account("closed", "acc_closed", "closed")).into_response(),
+        "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Account not found."),
     })
 }
 
@@ -3966,7 +4052,7 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     }
     assert!(html.contains(r#"<form method="post" action="/listings/psa-8/buy">"#), "{html}");
     assert!(html.contains(r#"href="/items/charizard">Compare market</a>"#), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/accounts/chase-sets#feedback">View account</a>"#), "{html}");
+    assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
     assert!(!html.contains(r#"role="status""#), "{html}");
 }
@@ -4068,4 +4154,165 @@ async fn a_failed_search_says_so_with_a_502_and_keeps_the_filters() {
     assert!(html.contains("The platform API did not answer."), "{html}");
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
     assert!(!html.contains("No items found"), "a failed read is not an empty one: {html}");
+}
+
+/// The account page's reads of the API (the chips left out).
+fn account_reads(pilot: &Pilot) -> Vec<String> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with("/api/marketplace/accounts/") && !c.path.contains("/behavioral"))
+        .map(|c| c.path.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn an_accounts_page_shows_its_standing_chips_feedback_reviews_and_listings() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/accounts/chase-sets", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(account_reads(&pilot), ["/api/marketplace/accounts/chase-sets?limit=10&offset=0"]);
+    assert!(html.contains("<title>Chase Sets | Marketplace</title>"), "{html}");
+    assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/accounts/chase-sets" "#), "{html}");
+    assert!(!html.contains("noindex"), "{html}");
+    let page = text(&html);
+    for words in [
+        "Chase Sets",
+        "Trusted seller",
+        "Founder #007",
+        "Member since",
+        "Ships on time",
+        "Rarely disputed",
+        "As seller",
+        "As buyer",
+        "18 ratings included \u{b7} 20 reviews",
+        "Collector Zero | Oct 20, 2026",
+        "Seller response: Thanks!",
+        "Included in rating",
+        "Shared for context \u{b7} rating not included",
+        "$749.00",
+        "Ships from Chicago, IL",
+        "Ships from St. Louis, MO",
+        "2 available | Limit 1 per order",
+    ] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(!page.contains("Rarely cancels"), "a chip the API does not vouch for is left out: {page}");
+    assert!(html.contains(r#"<li id="review-rev_1""#) && html.contains(r#"<dialog id="report-dialog-rev_1""#), "{html}");
+    assert!(html.contains(r#"action="/accounts/chase-sets/reviews/rev_1/report""#), "{html}");
+    // The roles and the pages are links to the feedback, the current one marked.
+    for href in
+        ["/accounts/chase-sets#feedback", "/accounts/chase-sets?role=seller#feedback", "/accounts/chase-sets?role=buyer#feedback"]
+    {
+        assert!(html.contains(&format!(r#"href="{href}""#)), "{href}: {html}");
+    }
+    assert!(html.contains(r#"href="/accounts/chase-sets?page=2#feedback">Next page</a>"#), "{html}");
+    assert!(html.contains(r#"href="/accounts/chase-sets?page=3#feedback" aria-label="Page 3""#), "{html}");
+    assert!(!html.contains(">Previous page</a>"), "{html}");
+    assert!(
+        html.contains(r#"href="/listings/psa-8">View listing</a>"#) && html.contains(r#"href="/items/charizard">Compare</a>"#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn the_reviews_role_and_page_are_read_from_the_api_and_written_back_into_the_links() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(account_reads(&pilot), ["/api/marketplace/accounts/chase-sets?limit=10&offset=10&role=seller"]);
+    assert!(html.contains(r#"href="/accounts/chase-sets?role=seller#feedback">Previous page</a>"#), "{html}");
+    assert!(html.contains(r#"href="/accounts/chase-sets?role=seller&amp;page=3#feedback">Next page</a>"#), "{html}");
+    assert!(html.contains(r#"href="/accounts/chase-sets?role=seller&amp;page=2#feedback" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"action="/accounts/chase-sets/reviews/rev_1/report?role=seller&amp;page=2""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_old_slug_or_id_moves_an_unknown_account_is_not_found_and_a_closed_one_is_not_indexed() {
+    let pilot = Pilot::new().await;
+    for old in ["/accounts/old-chase?role=buyer", "/accounts/acc_chase?role=buyer"] {
+        let (status, headers, _) = pilot.send(get(old, None)).await;
+        assert_eq!(
+            (status, headers["location"].to_str().unwrap()),
+            (StatusCode::MOVED_PERMANENTLY, "/accounts/chase-sets?role=buyer")
+        );
+    }
+    let (status, headers, html) = pilot.send(get("/accounts/no-such-account", None)).await;
+    assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()), "{html}");
+    assert_eq!(pilot.send(get("/accounts/down", None)).await.0, StatusCode::BAD_GATEWAY);
+    let (status, _, html) = pilot.send(get("/accounts/closed", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<meta name="robots" content="noindex" "#), "{html}");
+    assert!(html.contains(">Chase Sets&#39;s marketplace profile isn&#39;t available right now.</p>"), "{html}");
+    assert!(!html.contains("id=\"feedback\""), "a closed account shows no feedback: {html}");
+}
+
+#[tokio::test]
+async fn an_account_with_nothing_yet_says_so_and_a_failed_chips_read_shows_none() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/accounts/quiet", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in ["No feedback yet", "No written feedback yet.", "No active listings", "Browse marketplace"] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(!page.contains("Ships on time") && !html.contains(r#"data-tone="success"><"#), "{html}");
+    assert!(!html.contains("Next page"), "{html}");
+    assert!(
+        pilot
+            .stand
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.path == "/api/marketplace/accounts/acc_quiet/behavioral-metrics-chips")
+    );
+}
+
+#[tokio::test]
+async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor_signs_in() {
+    let pilot = Pilot::new().await;
+    let report = "/accounts/chase-sets/reviews/rev_1/report?page=2";
+    let (status, headers, html) = pilot.send(post(report, "buyer", "reason=spam-or-manipulation&details=Paid+for", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers["location"].to_str().unwrap(), "/accounts/chase-sets?page=2&reported=rev_1#review-rev_1");
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/rev_1/report")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "reason": "spam-or-manipulation", "details": "Paid for", "sourceRoutePath": "/accounts/chase-sets" })
+    );
+    let (_, _, html) = pilot.send(get("/accounts/chase-sets?page=2&reported=rev_1", Some("buyer"))).await;
+    assert!(html.contains(r#"role="status"><p class="#) && text(&html).contains("Report submitted"), "{html}");
+    assert!(
+        !html.contains(r#"<dialog id="report-dialog-rev_1""#) && html.contains(r#"<dialog id="report-dialog-rev_refused""#),
+        "{html}"
+    );
+
+    // Reported already: the page, saying so, with the button off.
+    let (status, _, html) = pilot.send(post(report, "other", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This account already reported this review."), "{html}");
+
+    // A reason that is not one, too many reports, and one the API refuses: the dialog drawn open
+    // with what was sent.
+    let (status, _, html) = pilot.send(post(report, "buyer", "reason=nope&details=Keep+me", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
+    let open = html.split(r#"<dialog id="report-dialog-rev_1""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(open.contains(" open"), "{open}");
+    let (status, _, html) = pilot.send(post(report, "stale", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    assert!(html.contains("You have sent several reports"), "{html}");
+    let refused = "/accounts/chase-sets/reviews/rev_refused/report";
+    let (status, _, html) = pilot.send(post(refused, "buyer", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("This review cannot be reported."), "{html}");
+
+    // A visitor signs in on marketplace, back to the page.
+    let (status, headers, _) = pilot.send(post(report, "nobody", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/sign-in?") && to.contains("%2Faccounts%2Fchase-sets"), "{to}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 5);
 }

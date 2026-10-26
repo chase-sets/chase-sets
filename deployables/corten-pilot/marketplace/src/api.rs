@@ -574,6 +574,11 @@ pub trait Marketplace {
     /// visitor `anonymous` (`anon_..`, marketplace's report cookie). A second report from the
     /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429.
     async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
+    /// Report a review (`POST /reviews/{id}/report`), as the account signed in only: a visitor is
+    /// a 401. A second report from the same account is a 409 `report_already_submitted`.
+    async fn report_review(&self, review: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
+    /// A seller's buyer-facing chips (`GET /accounts/{id}/behavioral-metrics-chips`).
+    async fn metrics_chips(&self, account: &str) -> Result<MetricsChips, ApiError>;
 }
 
 /// A listing report's body (`ReportListingRequest`).
@@ -601,6 +606,16 @@ impl Marketplace for Caller<'_> {
             .header(ANONYMOUS_REPORT_HEADER, anonymous)
             .json(report);
         self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+
+    async fn report_review(&self, review: &str, report: &ListingReport<'_>) -> Result<(), ApiError> {
+        let req =
+            self.request(Method::POST, &format!("/api/marketplace/reviews/{}/report", segment(review)), MARKETPLACE).json(report);
+        self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+
+    async fn metrics_chips(&self, account: &str) -> Result<MetricsChips, ApiError> {
+        self.read(&format!("/api/marketplace/accounts/{}/behavioral-metrics-chips", segment(account)), MARKETPLACE).await
     }
 }
 
@@ -1058,6 +1073,9 @@ pub trait Discovery {
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
     /// A listing's public page by its slug (or an old one); `None` when there is none.
     async fn public_listing(&self, slug: &str) -> Result<Option<PublicListing>, ApiError>;
+    /// An account's public page by its slug (or an old one, or its id), with the page of reviews
+    /// `query` asks for (`limit`, `offset`, `role`); `None` when there is none.
+    async fn public_account(&self, slug: &str, query: &str) -> Result<Option<PublicAccount>, ApiError>;
 }
 
 /// Pricing's market rollups for a product, which the Sales tab shows.
@@ -1225,6 +1243,106 @@ impl Discovery for Caller<'_> {
             Err(error) => Err(error),
         }
     }
+
+    async fn public_account(&self, slug: &str, query: &str) -> Result<Option<PublicAccount>, ApiError> {
+        match self.read(&format!("/api/marketplace/accounts/{}?{query}", segment(slug)), DISCOVERY).await {
+            Ok(account) => Ok(Some(account)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// An account's public page (`GET /api/marketplace/accounts/{slug}`, `DiscoveryPublicAccount`), the
+/// fields the page reads. A suspended or closed account (`status` other than `active`) comes
+/// without its listings, reviews or reputation.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PublicAccount {
+    pub account_id: String,
+    pub account_slug: String,
+    pub account_display_name: Option<String>,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub active_listing_count: u64,
+    pub badges: Vec<String>,
+    pub founder_number: Option<u32>,
+    pub average_rating_as_seller: Option<String>,
+    pub review_count_as_seller: u64,
+    pub rating_count_as_seller: u64,
+    pub rating_1_count_as_seller: u64,
+    pub rating_2_count_as_seller: u64,
+    pub rating_3_count_as_seller: u64,
+    pub rating_4_count_as_seller: u64,
+    pub rating_5_count_as_seller: u64,
+    pub average_rating_as_buyer: Option<String>,
+    pub review_count_as_buyer: u64,
+    pub rating_count_as_buyer: u64,
+    pub rating_1_count_as_buyer: u64,
+    pub rating_2_count_as_buyer: u64,
+    pub rating_3_count_as_buyer: u64,
+    pub rating_4_count_as_buyer: u64,
+    pub rating_5_count_as_buyer: u64,
+    pub reviews: AccountReviews,
+    pub listings: Vec<AccountListing>,
+}
+
+/// A page of an account's reviews, and how many there are in all.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AccountReviews {
+    pub items: Vec<AccountReview>,
+    pub total: u64,
+}
+
+/// A review of the account (`DiscoveryPublicAccountReview`), with how it counts toward the rating.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AccountReview {
+    pub review_id: String,
+    pub author_display_name: Option<String>,
+    /// `buyer` (a review of the account as a seller) or `seller`.
+    pub author_role: String,
+    pub rating: u8,
+    pub feedback: Option<String>,
+    /// `included` or `context-only`; none for a review from before scoring.
+    pub scoring_disposition: Option<String>,
+    pub disposition_reason_code: Option<String>,
+    pub resolution_context: Option<String>,
+    pub remedy_kind: Option<String>,
+    pub submitted_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub reply_feedback: Option<String>,
+    pub reply_status: Option<String>,
+}
+
+/// One of the account's active listings, the fields its card shows.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AccountListing {
+    pub listing_id: String,
+    pub listing_slug: String,
+    pub catalog_catalog_item_id: String,
+    pub catalog_item_slug: Option<String>,
+    pub item_title: Option<String>,
+    pub product_summary: Option<String>,
+    pub ship_from_code: Option<String>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub visible_quantity: u64,
+    pub max_units_per_order: Option<u64>,
+    pub max_units_per_day: Option<u64>,
+    pub max_units_per_customer_account: Option<u64>,
+}
+
+/// A seller's buyer-facing chips (`SellerBehavioralMetricsChips`): each is `true` only when its
+/// rate is confidently good and past the threshold, and `null` otherwise.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MetricsChips {
+    pub ships_on_time: Option<bool>,
+    pub low_cancellation_rate: Option<bool>,
+    pub low_dispute_rate: Option<bool>,
 }
 
 /// A listing's public page (`GET /api/marketplace/listings/{slug}`, `DiscoveryPublicListing`):

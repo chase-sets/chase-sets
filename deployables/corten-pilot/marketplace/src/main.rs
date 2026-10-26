@@ -3,6 +3,7 @@
 //! `/account/inventory/restock-decisions`), the buyer's cart (`/account/cart`), which read and
 //! write through the platform API as the signed-in account, and the public item page
 //! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`). See README.md.
+mod accounts;
 mod api;
 mod app;
 mod auth;

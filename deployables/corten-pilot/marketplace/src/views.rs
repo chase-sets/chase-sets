@@ -21,6 +21,7 @@ use crate::{
     text::{CartMsg, Msg, Pilot, Restock},
 };
 
+mod account_page;
 mod cart_item;
 mod decision_card;
 mod item_detail;
@@ -32,6 +33,7 @@ mod recovery;
 mod search_page;
 mod set_page;
 
+pub use account_page::{AccountPage, FEEDBACK, review_anchor};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
@@ -65,6 +67,10 @@ pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT]
 
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), so the area lists `SEARCH` too.
 pub const SET: &[Component] = &[SetPage];
+
+/// An account's public page (`/accounts`): its stylesheet, and corten-ui's handler that makes a
+/// refused Report review's dialog modal.
+pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

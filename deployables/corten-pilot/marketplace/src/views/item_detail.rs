@@ -2109,7 +2109,7 @@ fn Hidden<'a>(pairs: &'a [(String, String)]) -> impl Render {
 #[component(css = ItemDetail)]
 fn Reputation<'a>(t: ItemMsg, name: &'a str, slug: Option<&'a str>, rating: Option<&'a str>, reviews: u64) -> impl Render {
     let rating = rating.and_then(|r| r.parse::<f64>().ok()).filter(|r| r.is_finite());
-    let href = slug.map(|s| on_marketplace(&format!("/accounts/{s}#feedback")));
+    let href = slug.map(crate::accounts::feedback);
     html! {
         <span class={Who}>
             match &href {

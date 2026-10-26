@@ -4,7 +4,7 @@
 //! two from 64rem. A seller away or at capacity shows a warning, and the page offers no Buy.
 use corten::prelude::*;
 
-use super::{on_marketplace, purchase_limit, set_page::long_date};
+use super::{purchase_limit, set_page::long_date};
 use crate::{
     api::PublicListing,
     app::url,
@@ -90,7 +90,7 @@ pub fn bps_percent(bps: u64) -> String {
 }
 
 /// A product's options from its summary (`productOptionsFromSummary`): each part's value.
-fn options(summary: Option<&str>) -> Vec<String> {
+pub fn options(summary: Option<&str>) -> Vec<String> {
     summary
         .unwrap_or("")
         .split(['|', '/', ',', '\u{2022}'])
@@ -124,7 +124,7 @@ pub fn ListingPage<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing, noti
     let tone = if active { "success" } else { "neutral" };
     let item_slug = listing.catalog_item_slug.as_deref().filter(|s| !s.is_empty()).unwrap_or(&l.catalog_catalog_item_id);
     let market = url::Item { slug: item_slug, state: Address::default() }.href();
-    let account = l.seller_slug.as_deref().filter(|s| !s.is_empty()).map(|s| on_marketplace(&format!("/accounts/{s}#feedback")));
+    let account = l.seller_slug.as_deref().filter(|s| !s.is_empty()).map(crate::accounts::feedback);
     let buy = url::PublicListingBuy { slug: &listing.listing_slug }.href();
     let report = url::PublicListingReport { slug: &listing.listing_slug }.href();
     let policy = match (&limit, can) {

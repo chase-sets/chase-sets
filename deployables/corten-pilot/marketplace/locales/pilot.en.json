@@ -49,5 +49,18 @@
     "report_reason_required": "Choose a reason for the report.",
     "report_details_too_long": "Keep the details to 1,000 characters or fewer.",
     "report_refused": "The report could not be sent. Check it and try again."
+  },
+  "account": {
+    "verified_purchase": "Verified purchase",
+    "review_actions": "Review actions",
+    "pagination": "Pagination",
+    "previous_page": "Previous page",
+    "next_page": "Next page",
+    "page_number": "Page {page}",
+    "report_reason_required": "Choose a reason for the report.",
+    "report_details_too_long": "Keep the explanation to 1,000 characters or fewer.",
+    "report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
+    "report_refused": "The report could not be sent. Check it and try again.",
+    "report_close": "Close"
   }
 }
