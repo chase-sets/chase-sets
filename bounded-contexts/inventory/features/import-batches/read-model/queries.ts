@@ -201,8 +201,8 @@ export async function getImportBatch(
        row_note,
        validation_errors,
        committed_inventory_item_id,
-       CASE WHEN outbox.state IN ('pending', 'sending', 'accepted')
-            THEN import_row.committed_listing_id ELSE NULL END AS committed_listing_id,
+       CASE WHEN outbox.state = 'failed' THEN NULL
+            ELSE import_row.committed_listing_id END AS committed_listing_id,
        committed_at,
        import_row.created_at,
        import_row.updated_at

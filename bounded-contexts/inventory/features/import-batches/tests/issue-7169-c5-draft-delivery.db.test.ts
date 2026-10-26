@@ -14,6 +14,7 @@ import {
   enqueueInventoryDraftListingMessage,
   processNextInventoryDraftListingDelivery,
 } from "../api/draft-listing-delivery";
+import { getImportBatch } from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -131,6 +132,19 @@ describeDb("issue-7169 C5 draft listing delivery durable DB proof", () => {
     ).toEqual([{ state: "accepted", attempts: 2 }]);
   });
 
+  it("keeps the first snapshot when a message is enqueued twice", async () => {
+    const first = message("imr_delivery_duplicate");
+    const second = { ...first, snapshot: { ...first.snapshot, quantityCap: 99 } };
+    await enqueueInventoryDraftListingMessage(pools.inventory, first);
+    await enqueueInventoryDraftListingMessage(pools.inventory, second);
+    const rows = await pools.inventory.query<{ message: InventoryDraftListingMessage }>(
+      "SELECT message FROM inventory_import_draft_listing_outbox WHERE message_id = $1",
+      [first.messageId],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]?.message).toEqual(first);
+  });
+
   it("backs off transient unavailability, fails poison conflicts, and resumes after the delay", async () => {
     const transient = message("imr_delivery_backoff");
     await enqueueInventoryDraftListingMessage(pools.inventory, transient);
@@ -228,5 +242,39 @@ describeDb("issue-7169 C5 draft listing delivery durable DB proof", () => {
     expect(results.filter((result) => result.outcome === "accepted")).toHaveLength(1);
     expect(results.filter((result) => result.outcome === "idle")).toHaveLength(1);
     expect(accept).toHaveBeenCalledExactlyOnceWith(pending, expect.anything());
+  });
+
+  it("keeps legacy and pending committed listings visible but hides failed handoffs", async () => {
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batches (batch_id, account_id, status, total_count, accepted_count, committed_count, created_at, updated_at)
+       VALUES ('imb_delivery_read', 'acc_delivery_db', 'committed', 3, 3, 3, now(), now())`,
+    );
+    for (const [rowId, listingId] of [
+      ["imr_delivery_legacy", "lst_delivery_legacy"],
+      ["imr_delivery_pending", "lst_delivery_pending"],
+      ["imr_delivery_failed", "lst_delivery_failed"],
+    ] as const) {
+      await pools.inventory.query(
+        `INSERT INTO inventory_import_batch_rows
+           (row_id, batch_id, row_number, status, committed_listing_id, committed_at, created_at, updated_at)
+         VALUES ($1, 'imb_delivery_read', $2, 'committed', $3, now(), now(), now())`,
+        [rowId, rowId.endsWith("legacy") ? 1 : rowId.endsWith("pending") ? 2 : 3, listingId],
+      );
+    }
+    const pending = message("imr_delivery_pending");
+    const failed = message("imr_delivery_failed");
+    await enqueueInventoryDraftListingMessage(pools.inventory, pending);
+    await enqueueInventoryDraftListingMessage(pools.inventory, failed);
+    await pools.inventory.query(
+      "UPDATE inventory_import_draft_listing_outbox SET state = 'failed' WHERE message_id = $1",
+      [failed.messageId],
+    );
+
+    const detail = await getImportBatch(pools.inventory, "imb_delivery_read", "acc_delivery_db");
+    expect(detail?.rows.map((row) => [row.row_id, row.committed_listing_id])).toEqual([
+      ["imr_delivery_legacy", "lst_delivery_legacy"],
+      ["imr_delivery_pending", "lst_delivery_pending"],
+      ["imr_delivery_failed", null],
+    ]);
   });
 });
