@@ -13,11 +13,40 @@ import {
   type RevocationActivationProof,
 } from "@chase-sets/identity/server";
 
+const FAILURE_CATEGORIES = new Set([
+  "pod_exec",
+  "rbac",
+  "database_connectivity",
+  "schema_permission",
+  "application",
+  "unknown",
+]);
+
 // Only a bounded code crosses this boundary; raw errors can carry connection strings.
 export function activationRefusalCode(error: unknown): string {
   return error instanceof Error && /^revocation_[a-z_]{1,64}$/.test(error.message)
     ? error.message
     : "revocation_activation_refused";
+}
+
+export function activationDiagnostic(error: unknown, proof?: Partial<RevocationActivationProof>) {
+  const candidate =
+    error && typeof error === "object" ? (error as { failureCategory?: unknown }).failureCategory : undefined;
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+  return {
+    schemaVersion: "agent-grant-revocation-diagnostic/v1",
+    evidenceId: /^\d+\/\d+$/.test(`${process.env.GITHUB_RUN_ID ?? ""}/${process.env.GITHUB_RUN_ATTEMPT ?? ""}`)
+      ? `${process.env.GITHUB_RUN_ID}/${process.env.GITHUB_RUN_ATTEMPT}`
+      : "unknown/unknown",
+    environment:
+      proof?.environment === "staging" || proof?.environment === "production" ? proof.environment : "unknown",
+    releaseCommit: /^[a-f0-9]{40}$/.test(proof?.releaseCommit ?? "") ? proof?.releaseCommit : "unknown",
+    imageDigest: /^sha256:[a-f0-9]{64}$/.test(proof?.imageDigest ?? "") ? proof?.imageDigest : "unknown",
+    identity: { state: "unknown" },
+    code: activationRefusalCode(error),
+    sqlstateClass: typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown",
+    failureCategory: typeof candidate === "string" && FAILURE_CATEGORIES.has(candidate) ? candidate : "unknown",
+  };
 }
 
 export async function runActivationCommand(
@@ -92,6 +121,7 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     process.stderr.write(`${activationRefusalCode(error)}\n`);
+    process.stderr.write(`${JSON.stringify(activationDiagnostic(error))}\n`);
     process.exitCode = 1;
   });
 }
