@@ -94,6 +94,8 @@ import {
   createRateLimitPolicyResolver,
   deriveProjectionTriage,
   deriveWakeAttentionItems,
+  normalizeProjectionOperationsSnapshot,
+  normalizeWakeStatusSnapshot,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -188,6 +190,8 @@ import {
 } from "@chase-sets/platform-runtime/mcp";
 import {
   createProjectionOperationsRoutes,
+  loadBlockedProjectionState,
+  loadWakeStatus,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
 import {
@@ -321,6 +325,8 @@ export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2] &
     Readonly<{
       runtimeProfile?: PlatformApiRuntimeProfile;
+      controlPlane?: PlatformControlPlane;
+      workSignalStore?: ProjectionWakeStatusWorkSignalStore;
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
@@ -694,6 +700,22 @@ export function createPlatformApiHost(
     hostPorts: {
       inventoryDraftListingConsumer,
       ...options.hostPorts,
+      operationsAttentionRuntimeReads: {
+        loadBlockedProjections: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          return normalizeProjectionOperationsSnapshot(await loadBlockedProjectionState(runtime, options.controlPlane))
+            .blockedProjections;
+        },
+        loadWakeStatus: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          const snapshot = normalizeWakeStatusSnapshot(await loadWakeStatus(options.workSignalStore));
+          return { generatedAt: snapshot.generatedAt, wakeStore: snapshot.wakeStore };
+        },
+      },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),

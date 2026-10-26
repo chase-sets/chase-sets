@@ -17,6 +17,55 @@ import {
 import { attachRuntimeLifecycleRegistry, createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("durable job store", () => {
+  it("reads active jobs in context before the bounded sentinel and reports incompleteness", async () => {
+    const row = {
+      job_id: "job_1",
+      job_kind: "import",
+      status: "queued" as const,
+      payload: { batchId: "batch-1" },
+      progress: { phase: "queued" },
+      result: null,
+      error_message: null,
+      event_context: {
+        tenantId: "tnt_1",
+        audit: { forAccountId: "acc_1", performedByUserId: "usr_1" },
+      },
+      claim_owner_id: null,
+      claimed_until: null,
+      attempt_count: 0,
+      next_eligible_at: "2026-10-25T00:00:00.000Z",
+      created_at: "2026-10-25T00:00:00.000Z",
+      started_at: null,
+      completed_at: null,
+      updated_at: "2026-10-25T00:00:00.000Z",
+    };
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresDurableJobStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: Array.from({ length: 51 }, (_, index) => ({ ...row, job_id: `job_${index}` })), rowCount: 51 };
+        },
+      },
+      { jobsTable: "catalog_jobs", eventsTable: "catalog_job_events" },
+    );
+
+    const snapshot = await store.listActiveSnapshot?.({
+      jobKinds: ["import"],
+      eventContext: {
+        tenantId: "tnt_1",
+        audit: { forAccountId: "acc_1", performedByUserId: "usr_1" },
+      },
+      limit: 50,
+    });
+
+    expect(snapshot?.items).toHaveLength(50);
+    expect(snapshot?.completeness).toBe("incomplete");
+    expect(calls[0]?.sql).toContain("event_context->>'tenantId'");
+    expect(calls[0]?.sql).toContain("LIMIT $5");
+    expect(calls[0]?.values).toEqual([["import"], "tnt_1", "acc_1", "usr_1", 51]);
+  });
+
   it.each([{ retentionExemptJobKinds: [] }, { retentionExemptJobKinds: ["maintenance"] }])(
     "pairs retention SQL parameters with exemptions $retentionExemptJobKinds",
     async ({ retentionExemptJobKinds }) => {
