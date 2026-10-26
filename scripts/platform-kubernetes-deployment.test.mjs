@@ -968,7 +968,8 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
-  it("loads the environment-specific Helm overlays for staging and production", () => {
+  it("loads the environment-specific Helm overlays for preview, staging and production", () => {
+    expect(platformValuesPathForEnvironment("preview")).toBe("infrastructure/helm/platform/values.preview.yaml");
     expect(platformValuesPathForEnvironment("staging")).toBe("infrastructure/helm/platform/values.staging.yaml");
     expect(platformValuesPathForEnvironment("production")).toBe("infrastructure/helm/platform/values.production.yaml");
     expect(
@@ -2286,7 +2287,11 @@ describe("platform Kubernetes deployment", () => {
           Object.entries(parseYaml(source).jobs)
             .filter(([, job]) => !Object.hasOwn(job, "needs"))
             .map(([id]) => id);
-        expect(withoutNeeds(deploySource)).toEqual(["decommission-live-plan", "resolve-release"]);
+        expect(withoutNeeds(deploySource)).toEqual([
+          "decommission-live-plan",
+          "resolve-release",
+          "reconcile-production-marker",
+        ]);
         expect(withoutNeeds(recoverySource)).toEqual(["refuse-unconfirmed"]);
         await expectDriftControlAdmitted();
         const result = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
@@ -6190,6 +6195,83 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         "-c",
         `superuser_reserved_connections=${settings.superuser_reserved_connections}`,
       ]);
+    }
+  });
+
+  it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
+    const memoryByComponent = {
+      "public-web": "1024Mi",
+      marketplace: "1152Mi",
+      "admin-web": "832Mi",
+      "platform-api": "640Mi",
+      "platform-worker": "832Mi",
+      "platform-bootstrap": "1152Mi",
+      "preview-postgres": "448Mi",
+    };
+    for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const args = deployArgs("preview", release);
+      expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+      const pods = documents(helmTemplate(templateArgs(args))).filter((item) => item.spec?.template);
+      expect(pods).toHaveLength(7);
+      expect(pods.map((item) => item.metadata.labels["app.kubernetes.io/component"]).sort()).toEqual(
+        Object.keys(memoryByComponent).sort(),
+      );
+      for (const pod of pods) {
+        const component = pod.metadata.labels["app.kubernetes.io/component"];
+        const { spec, metadata } = pod.spec.template;
+        expect(spec.containers).toHaveLength(1);
+        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        const selector = (operator) => ({
+          matchExpressions: [
+            { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
+            { key: "app.kubernetes.io/instance", operator, values: [release] },
+          ],
+        });
+        expect(spec.affinity).toEqual({
+          podAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", labelSelector: selector("In") },
+            ],
+          },
+          podAntiAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", namespaceSelector: {}, labelSelector: selector("NotIn") },
+            ],
+          },
+        });
+        for (const expression of selector("In").matchExpressions) {
+          expect(expression.values).toContain(metadata.labels[expression.key]);
+        }
+        if (component === "preview-postgres") {
+          expect(pod.kind).toBe("Deployment");
+          expect(pod.metadata.annotations["helm.sh/hook"]).toBe("pre-install,pre-upgrade");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-40");
+        } else if (component === "platform-bootstrap") {
+          expect(pod.kind).toBe("Job");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.spec.activeDeadlineSeconds).toBe(890);
+        } else {
+          expect(pod.kind).toBe("Deployment");
+        }
+      }
+    }
+  });
+
+  it("refuses conflicting global affinity when preview stack isolation is enabled", () => {
+    expect(() =>
+      helmTemplate([
+        ...templateArgs(deployArgs("preview", "chase-sets-pr-123")),
+        "--set",
+        "global.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key=pool",
+      ]),
+    ).toThrow(/global.affinity cannot be set when global.previewStackIsolation is enabled/);
+  });
+
+  it("does not add pod affinity or anti-affinity to staging or production", () => {
+    for (const environment of ["staging", "production"]) {
+      const rendered = helmTemplate(templateArgs(deployArgs(environment, "chase-sets-platform")));
+      expect(rendered).not.toContain("podAffinity:");
+      expect(rendered).not.toContain("podAntiAffinity:");
     }
   });
 

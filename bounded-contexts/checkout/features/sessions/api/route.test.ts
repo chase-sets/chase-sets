@@ -816,6 +816,123 @@ describe("checkout session routes", () => {
     expect(services.setShippingAddress).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["shipping-address", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "shipping-address",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "shipping-address",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+    ["confirm", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "confirm",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "confirm",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+  ] as const)("maps %s serviceability error %s to HTTP 400", async (endpoint, code, message) => {
+    const services = createServices({
+      setShippingAddress: vi.fn(async () => {
+        throw new CheckoutDomainError(message, code);
+      }),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request(`http://checkout.test/account/checkout-sessions/chk_1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code, message } });
+    expect(services.setShippingAddress).toHaveBeenCalledTimes(1);
+    expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(services.recordCheckoutReservations).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(services.recordOfferSubmitted).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(mockSubmitPurchaseIntentThroughMarketplace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["payment", { payment_id: "pay_existing" }, 200, "confirmed"],
+    ["cancelled", { cancelled_at: "2026-10-25T00:00:00.000Z" }, 200, "cancelled"],
+    ["offer", { submitted_offer_id: "off_existing" }, 200, "purchase-intent-submitted"],
+    ["stale-preview", { fulfillment_preview_revision: "current-preview" }, 409, undefined],
+  ] as const)(
+    "preserves the %s confirm early return before address verification",
+    async (_name, overrides, status, expectedStatus) => {
+      const services = createServices({ getSession: vi.fn(async () => createSession(overrides)) });
+      const response = await buildApp(services).request("/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: { ...shippingAddress, line1: "PO Box 100" },
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      });
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (expectedStatus) expect(body.status).toBe(expectedStatus);
+      else expect(body.error.code).toBe("fulfillment_preview_stale");
+      expect(services.verifyShippingAddress).not.toHaveBeenCalled();
+      expect(services.setShippingAddress).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns the address choice response from confirm before mutating checkout", async () => {
+    const suggestedAddress = { ...shippingAddress, line1: "100 W Market St" };
+    const services = createServices({
+      verifyShippingAddress: vi.fn(
+        async () =>
+          ({
+            status: "choice-required",
+            suggestedAddress,
+            verification: {
+              status: "corrected",
+              source: "verification-test",
+              checkedAt: "2026-10-25T00:00:00.000Z",
+              suggestedAddress,
+            },
+            messages: ["Address was standardized."],
+          }) as const,
+      ),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "address_standardization_suggested" } });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
   it("uses checkout entry attempt keys as idempotent cart session overrides", async () => {
     const createFromCart = vi.fn(async (params: Parameters<CheckoutSessionServices["createFromCart"]>[0]) => ({
       sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
@@ -3376,6 +3493,7 @@ describe("checkout session routes", () => {
     expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
     expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(services.verifyShippingAddress).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
       expect.any(Request),
       "chk_1",

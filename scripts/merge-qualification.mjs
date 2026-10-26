@@ -37,6 +37,7 @@ import {
   buildMergeGateProvisioningObservation,
   validateMergeGateProvisioningObservation,
 } from "./merge-gate-verification.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS } from "./release-qualification-scope.mjs";
 import { buildReleaseQualificationRecord } from "./release-qualification-record.mjs";
 
@@ -1309,7 +1310,12 @@ function readOriginalQualificationPolicy(revision) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   git(["cat-file", "-e", `${revision}^{commit}`]);
-  const exists = git(["ls-tree", "--name-only", revision, "--", MERGE_QUALIFICATION_POLICY_PATH]).trim();
+  const exists = execFileSync("git", ["ls-tree", "--name-only", revision, "--", MERGE_QUALIFICATION_POLICY_PATH], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
   return exists ? git(["show", `${revision}:${MERGE_QUALIFICATION_POLICY_PATH}`]) : null;
 }
 

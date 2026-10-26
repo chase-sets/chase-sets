@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { AUTH_ROLE_PERMISSIONS } from "../../../auth/support/auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { SettlementApiEnv } from "../../api";
 import { createPayoutRoutes } from "../../features/payouts/api/route";
 import type { PayoutServices } from "../../features/payouts/api/runtime";
@@ -130,7 +130,7 @@ describe("payout operations trusted loader and action", () => {
           accountId: "acc_a",
           membershipId: "mem_test",
           roleKey: role,
-          permissions: AUTH_ROLE_PERMISSIONS[role],
+          permissions: ROLE_PERMISSIONS[role],
         }
       : null;
     const rows = empty

@@ -535,13 +535,15 @@ jobs:
         if: always()
         run: |
           failed=0
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
           if [ "${{ github.event_name }}" = "schedule" ]; then
             while IFS= read -r pr_number; do
-              node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns --pr-number "$pr_number" || failed=1
+              node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns --pr-number "$pr_number" || { failed=1; echo "$pr_number" >> "$incomplete_targets"; }
             done < "${{ steps.batch-targets.outputs.target_file }}"
           else
             node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns \
-              --pr-number "${{ matrix.pr_number }}" || failed=1
+              --pr-number "${{ matrix.pr_number }}" || { failed=1; echo "${{ matrix.pr_number }}" >> "$incomplete_targets"; }
           fi
           if [ "$failed" -ne 0 ]; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
@@ -555,6 +557,7 @@ jobs:
       # resources and reported success while the namespace, its workloads,
       # and its in-cluster Postgres persisted on the staging node forever.
       - name: Configure preview Kubernetes context
+        id: preview-context
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -627,18 +630,20 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
           if [ "${{ github.event_name }}" = "schedule" ]; then
             while IFS= read -r pr_number; do
               pnpm run platform:kubernetes-deployment -- teardown \
                 --namespace "chase-sets-pr-${pr_number}" \
                 --release "chase-sets-pr-${pr_number}" \
-                --timeout 5m || failed=1
+                --timeout 5m || { failed=1; echo "$pr_number" >> "$incomplete_targets"; }
             done < "${{ steps.batch-targets.outputs.target_file }}"
           else
             pnpm run platform:kubernetes-deployment -- teardown \
               --namespace "chase-sets-pr-${{ matrix.pr_number }}" \
               --release "chase-sets-pr-${{ matrix.pr_number }}" \
-              --timeout 5m || failed=1
+              --timeout 5m || { failed=1; echo "${{ matrix.pr_number }}" >> "$incomplete_targets"; }
           fi
           if [ "$failed" -ne 0 ]; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
@@ -690,6 +695,7 @@ jobs:
         run: |
           node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            while IFS= read -r pr_number; do echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-incomplete-targets"; done < "${{ steps.batch-targets.outputs.target_file }}"
             exit 1
           }
 
@@ -766,11 +772,58 @@ jobs:
               -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; continue; }
             TF_VAR_preview_identifier="pr-${pr_number}" \
             TF_VAR_platform_image_tag="pr-${pr_number}-${{ matrix.image_sha }}" \
-              terraform destroy -auto-approve || failed=1
+              terraform destroy -auto-approve || { failed=1; echo "$pr_number" >> "$failed_targets"; }
           done < "${{ steps.batch-targets.outputs.target_file }}"
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Retire empty preview Terraform state
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' }}
+        run: |
+          set -uo pipefail
+          failed="${PREVIEW_BATCH_FAILED:-0}"
+          context_outcome="${{ steps.preview-context.outcome }}"
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$failed_targets" || : > "$failed_targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
+          retirement_dir="$RUNNER_TEMP/preview-state-retirement"
+          mkdir -p "$retirement_dir"
+          while IFS= read -r pr_number; do
+            record_path="$retirement_dir/platform-preview-state-retirement-${pr_number}.json"
+            cleanup_succeeded=true
+            if [ "$context_outcome" != "success" ] || grep -Fxq "$pr_number" "$failed_targets" || grep -Fxq "$pr_number" "$incomplete_targets"; then
+              cleanup_succeeded=false
+            fi
+            if ! node scripts/digitalocean-preview-cleanup-sweep.mjs retire-state \
+              --pr-number "$pr_number" \
+              --cleanup-succeeded "$cleanup_succeeded" \
+              --out "$record_path"; then
+              failed=1
+              echo "$pr_number" >> "$failed_targets"
+            fi
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - name: Upload preview state retirement record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-state-retirement-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.batch_index != null && format('batch-{0}', matrix.batch_index) || format('pr-{0}', matrix.pr_number) }}
+          path: ${{ runner.temp }}/preview-state-retirement
+          retention-days: 14
+          if-no-files-found: warn
 
   destroy-stale-verification:
     name: Destroy Stale Verification Namespace
@@ -908,7 +961,7 @@ jobs:
             echo "The bounded stale-webhook window contains at least 100 runs; refusing a truncated cleanup set." >&2
             exit 1
           fi
-          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
+          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("gate-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
           {
             echo "matrix=${matrix}"
             echo "target_count=$(jq '.include | length' <<< "$matrix")"

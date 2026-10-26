@@ -1,9 +1,20 @@
 import type { CheckoutCartReadAuthority } from "../domain/domain";
 import type { CheckoutCartLineRow } from "../read-model/queries";
 import type { CheckoutCartLine } from "../ui/contracts";
+import type { CartReadinessRead } from "../domain/readiness";
 
 export type { CheckoutCartLine } from "../ui/contracts";
-export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "../domain/readiness";
+export type {
+  CartReadinessDecisionInput,
+  CartReadinessMoney,
+  CartReadinessRead,
+  CartReadinessSnapshot,
+} from "../domain/readiness";
+export type CheckoutCartRead = Readonly<{
+  items: readonly CheckoutCartLine[];
+  count: number;
+  readiness: CartReadinessRead;
+}>;
 export type { CheckoutCartReadAuthority, CheckoutCartSourceStanding } from "../domain/domain";
 
 export function normalizePresentedAnonymousCartId(value: string | null | undefined) {

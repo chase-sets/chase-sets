@@ -456,7 +456,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       cwd,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
-      ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     });
   }
 
@@ -1589,10 +1589,10 @@ export function deriveConsentAuthorizationEvidenceInventory({
     mutationCase(
       "MUT-ARTIFACT-COMPARE-ENVIRONMENTAL",
       "AC3",
-      `${ownerContextFixtureRoot}/lockfile-b.yaml`,
+      `${ownerContextFixtureRoot}/lockfile-c.yaml`,
       "compareTypeScriptOwnerContexts / comparedKeys",
       "derivation.semantic-keys-only",
-      "derivation-artifact-resolution-lockfileSha256-mismatch",
+      "derivation-artifact-resolution-lockfileKeys-mismatch",
       null,
       "lockfile-only change",
     ),
@@ -2188,8 +2188,8 @@ process.exitCode = acceptancePassed ? 0 : 1;
 
   /**
    * settled authority's two lockfile fixtures written in turn to one path, so the derived
-   * pair differs in lockfile bytes and in nothing else -- not even the recorded
-   * lockfile path.
+   * pair differs only in the lockfile-bound resolution.lockfileKeys provenance -- not
+   * even the recorded lockfile path.
    */
   function deriveLockfileOnlyArtifactPair() {
     const scratch = mkdtempSync(path.join(tmpdir(), "consent-lockfile-"));
@@ -2199,7 +2199,7 @@ process.exitCode = acceptancePassed ? 0 : 1;
         writeFileSync(lockfilePath, repoFile(`${ownerContextFixtureRoot}/${fixture}`));
         return deriveTypeScriptOwnerContexts({ resolutionRoot: repoRoot, lockfilePath });
       };
-      return { a: derive("lockfile-a.yaml"), b: derive("lockfile-b.yaml") };
+      return { a: derive("lockfile-a.yaml"), b: derive("lockfile-c.yaml") };
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

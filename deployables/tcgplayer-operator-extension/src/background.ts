@@ -1,9 +1,5 @@
-import {
-  createOperatorBackground,
-  operatorCookieName,
-  operatorCookieUrl,
-  type OperatorAdapters,
-} from "@chase-sets/catalog/client";
+import { createOperatorBackground, type OperatorAdapters } from "@chase-sets/catalog/client";
+import { fetchTcgplayerSetNames } from "./tcgplayer-set-name-endpoint";
 
 const adapters: OperatorAdapters = {
   storage: {
@@ -15,25 +11,33 @@ const adapters: OperatorAdapters = {
       await chrome.storage.local.set({ [key]: value });
     },
   },
-  readCookie: () => chrome.cookies.get({ name: operatorCookieName, url: operatorCookieUrl, storeId: "0" }),
-  async schedule(environment, when) {
-    await chrome.alarms.create(`operator-session.${environment}`, { when });
-  },
   async badge(required) {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
   fetch: globalThis.fetch.bind(globalThis),
-  now: Date.now,
+  setNames: fetchTcgplayerSetNames,
 };
 const background = createOperatorBackground(adapters);
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
   void background
-    .receive(
+    .receiveSetNames(
       message,
       { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
       chrome.runtime.id,
     )
-    .then(respond);
+    .then((result) => {
+      if (result !== null) {
+        respond(result);
+        return;
+      }
+      return background
+        .receive(
+          message,
+          { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
+          chrome.runtime.id,
+        )
+        .then(respond);
+    });
   return true;
 });
 chrome.runtime.onMessageExternal.addListener((message: unknown, sender, respond) => {
@@ -52,22 +56,3 @@ chrome.runtime.onMessageExternal.addListener((message: unknown, sender, respond)
     .then(respond);
   return true;
 });
-chrome.cookies.onChanged.addListener((change) => {
-  void background.cookieChanged(change);
-});
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "operator-session.renew") void background.resume();
-  else if (alarm.name === "operator-session.staging") void background.alarm("staging");
-  else if (alarm.name === "operator-session.production") void background.alarm("production");
-});
-async function resume() {
-  await chrome.alarms.create("operator-session.renew", { periodInMinutes: 30 });
-  await background.resume();
-}
-chrome.runtime.onInstalled.addListener(() => {
-  void resume();
-});
-chrome.runtime.onStartup.addListener(() => {
-  void resume();
-});
-void resume();

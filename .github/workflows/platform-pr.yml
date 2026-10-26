@@ -128,7 +128,12 @@ jobs:
             base="$(git rev-list --max-parents=0 "$head")"
           fi
 
-          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}"
+          first_parent=""
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
+            first_parent="--first-parent"
+          fi
+
+          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}" $first_parent
 
       - name: Resolve shared gate plan
         id: gate-plan
@@ -173,9 +178,10 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read
     env:
       BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: [change-scope, static-source]
     if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
     steps:
@@ -192,7 +198,10 @@ jobs:
         run: pnpm run verify:metadata
 
       - name: Install provider browser boundary
-        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+        env:
+          INSTALLER_TIMEOUT_SECONDS: "600"
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/provider-browser-install-timeout.mjs
 
       - name: Installed-boundary controls
         run: |
@@ -284,6 +293,11 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # Keep API's isolated capacity at two workers; the hang-free other
+      # matrix needs one additional workspace slot to finish its full sweep
+      # inside the existing 30-minute job budget. Workspace test settings and
+      # failure propagation remain unchanged.
+      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -369,7 +383,7 @@ jobs:
           fi
 
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
+        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
 
       - name: Upload bootstrap DB evidence including failures
         if: always() && steps.platform-api-selected.outputs.selected == 'true'
@@ -1583,7 +1597,8 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}

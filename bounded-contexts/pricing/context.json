@@ -393,16 +393,6 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
-    },
-    {
-      "portName": "tcgplayerMarketTransport",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
-    },
-    {
-      "portName": "tcgplayerMarketCaptureReceiptSink",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -523,9 +513,11 @@
       "surfaces": [
         "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compute",
         "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compare",
+        "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/apply-goal",
         "route-action:bounded-contexts/pricing/support/route-support/pricing-health.tsx",
         "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:H52c9743ac335#1",
-        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1"
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#2"
       ],
       "visibleDestination": {
         "description": "Compute verdict returns the persisted dry-run snapshot and redirects to direct durable request/summary reads; queued work is visibly pending and revalidated without waiting for an event projection."
@@ -534,7 +526,8 @@
         "authoritativeResponse": "The existing enqueueDryRun atomically persists the request and job; GET never enqueues and reads completed summaries by current body hash.",
         "tests": [
           "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
-          "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-loader.db.test.ts"
+          "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-loader.db.test.ts",
+          "bounded-contexts/pricing/features/pricing-health/tests/apply-goal.db.test.ts"
         ]
       }
     },

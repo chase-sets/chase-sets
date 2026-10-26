@@ -34,43 +34,7 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
 // appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
-// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
-  {
-    file: ".github/workflows/platform-ephemeral-verification.yml",
-    jobId: "verify-release",
-    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-merge-gate-verification.yml",
-    jobId: "verify",
-    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-pr.yml",
-    jobId: "preview-deploy-smoke",
-    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-production",
-    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
     file: ".github/workflows/catalog-completion-report.yml",
@@ -94,6 +58,20 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #10356 threads the preview runtime provider secrets into the ephemeral verification apply step.
+const previewRuntimeSecretsDelta = [
+  "SCRYDEX_API_KEY",
+  "SCRYDEX_TEAM_ID",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
+  "SES_SOURCE_ARN",
+].map((secretName) => ({
+  file: ".github/workflows/platform-ephemeral-verification.yml",
+  jobId: "verify-release",
+  stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+  secretName,
+  purpose: "terraform-infra",
+}));
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
 const previewWildcardJob = "restore-preview-wildcard-tls";
@@ -271,6 +249,16 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+// #10462 threads the canonical staging Admin keys into only the isolated coordinate-preview capture step.
+const scrydexCoordinatePreviewDelta = ["name:Capture Scrydex coordinate preview#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-coordinate-preview",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
   ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
     file: ".github/workflows/catalog-staging-provider-uat.yml",
@@ -281,6 +269,19 @@ const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].f
   })),
 );
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
+const productionMemoryProbeDelta = [
+  ["name:Configure production read context#6", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure production read context#6", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure production read context#6", "SPACES_SECRET_KEY", "spaces-evidence"],
+  ["name:Capture production web memory#7", "PROMETHEUS_QUERY_TOKEN", "spaces-evidence"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/platform-production-memory-probe.yml",
+  jobId: "capture",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
+
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
   ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_ACCESS_ID", "spaces-evidence"],
@@ -555,6 +556,20 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+const previewStateRetirementDelta = [
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+].map(([secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-cleanup.yml",
+  jobId: "destroy-preview",
+  stepAnchor: "name:Retire empty preview Terraform state#17",
+  secretName,
+  purpose,
+}));
 
 function applyReviewedStepInsertions(record) {
   return reviewedStepInsertions.reduce((current, insertion) => {
@@ -668,6 +683,30 @@ const qualificationCleanupDelta = [
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
   },
+];
+// #10396: deploy-production's inline Kubernetes context step moved into the shared marker recovery
+// composite, and the isolated marker-only job receives only the composite and registry-identity grants.
+const productionMarkerRecoveryRetiredAnchor = "name:Configure production Kubernetes context#25";
+const productionMarkerRecoveryDelta = [
+  ...["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"].flatMap((secretName) =>
+    ["deploy-production", "reconcile-production-marker"].map((jobId) => ({
+      file: ".github/workflows/platform-production.yml",
+      jobId,
+      stepAnchor: "uses:./.github/actions/production-marker-recovery-context",
+      secretName,
+      purpose: "terraform-infra",
+    })),
+  ),
+  ...[
+    "name:Derive source registry identity#6",
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+  ].map((stepAnchor) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "reconcile-production-marker",
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  })),
 ];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -852,38 +891,55 @@ describe("managed Postgres authority source generator", () => {
     const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
     expectParity(original, historicalGenerated);
 
+    for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(1588);
+    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRetiredVerifierRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
       ...original,
       grants: [
         ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...ebayAccountDeletionDelta.map((entry) => ({
+          ...entry,
+          secretName:
+            entry.secretName === "EBAY_ACCOUNT_DELETION_ENDPOINT"
+              ? "EBAY_APPLICATION_CLIENT_ID"
+              : "EBAY_APPLICATION_CLIENT_SECRET",
+        })),
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexCoordinatePreviewDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
+        ...productionMemoryProbeDelta,
         ...credentialHealthDelta,
         ...stagingClusterAddonsDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
-      ].map(applyQualificationStepInsertions),
-    };
-    expect(expected.grants).toHaveLength(1703);
-    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
-    expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta
-        .map(applyReviewedStepInsertions)
+        ...previewStateRetirementDelta,
+      ]
         .map(applyQualificationStepInsertions)
-        .filter(isCatalogKeyring),
-    );
+        .filter(
+          (record) =>
+            !(
+              record.file === ".github/workflows/platform-production.yml" &&
+              record.jobId === "deploy-production" &&
+              record.stepAnchor === productionMarkerRecoveryRetiredAnchor
+            ),
+        )
+        .concat(productionMarkerRecoveryDelta),
+    };
+    // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
+    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
@@ -894,6 +950,7 @@ describe("managed Postgres authority source generator", () => {
       const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
       expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
     }
+    expectedOwners.set(`${AUTHORITY_ROOT}/platform-production-lock-monitor/monitor-production-release-lock.json`, []);
     const sources = await snapshot(repositoryRoot, AUTHORITY_ROOT);
     expect(Object.keys(sources).sort()).toEqual([...expectedOwners.keys()].sort());
     for (const [owner, records] of expectedOwners) {
@@ -921,6 +978,12 @@ describe("managed Postgres authority source generator", () => {
         ...generated,
         grants: [...generated.grants, { ...reviewedCatalogDelta[0], stepAnchor: "name:Apply sixth Catalog grant#99" }],
       },
+      ...["file", "jobId", "stepAnchor", "secretName"].map((key) => ({
+        ...generated,
+        grants: generated.grants.map((record, index) =>
+          index === repeatedIndex ? { ...record, [key]: `${record[key]}-renamed` } : record,
+        ),
+      })),
     ];
     for (const mutation of mutations) expect(() => expectParity(expected, mutation)).toThrow();
 

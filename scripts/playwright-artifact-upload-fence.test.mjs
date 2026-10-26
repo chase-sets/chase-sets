@@ -1,5 +1,9 @@
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { gitListingOptions } from "./lib/git-listing.mjs";
 import {
   PlaywrightUploadFenceUnknownError,
   auditPullRequestHistory,
@@ -40,6 +44,15 @@ function fourProducerCorpus() {
   );
 }
 
+function trackedActionsYaml() {
+  const result = spawnSync("git", ["ls-files", "-z", "--", ".github"], gitListingOptions({ encoding: "utf8" }));
+  expect(result.status).toBe(0);
+  return result.stdout
+    .split("\0")
+    .filter((path) => /^\.github\/(?:workflows|actions)\/.+\.ya?ml$/i.test(path))
+    .sort();
+}
+
 function passingGuard(sha) {
   return {
     status: "pass",
@@ -56,15 +69,30 @@ function pull({ commits = 3, headSha = shas[2], branch = "codex/issue-6895" } = 
 describe("raw Playwright artifact upload fence (#6895)", () => {
   it("tracked Actions corpus has no raw Playwright publication path", () => {
     const result = scanPlaywrightArtifactUploads();
+    const tracked = trackedActionsYaml();
+    const workflowFiles = tracked.filter((path) => path.startsWith(".github/workflows/"));
+    const compositeActionFiles = tracked.filter((path) => path.startsWith(".github/actions/"));
 
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
+    // Corpus membership is derived from git and file content, never from a pinned file count.
+    expect(result.census.files).toEqual(tracked);
+    expect(result.census.workflowFiles).toEqual(workflowFiles);
+    expect(result.census.compositeActionFiles).toEqual(compositeActionFiles);
+    expect(workflowFiles).not.toEqual([]);
+    expect(compositeActionFiles).not.toEqual([]);
     expect(result.discovery).toMatchObject({
-      trackedFiles: 77,
-      parsedFiles: 77,
-      workflowFiles: 73,
-      compositeActionFiles: 4,
+      trackedFiles: tracked.length,
+      parsedFiles: tracked.length,
+      workflowFiles: workflowFiles.length,
+      compositeActionFiles: compositeActionFiles.length,
     });
+    // Every tracked file with an upload-artifact step is an analyzed producer.
+    const producers = tracked.filter((path) =>
+      /^\s*(?:-\s+)?uses:\s*['"]?actions\/upload-artifact@/m.test(readFileSync(resolve(path), "utf8")),
+    );
+    expect(producers).not.toEqual([]);
+    expect([...new Set(result.uploads.map(({ file }) => file))].sort()).toEqual(producers);
     expect(result.discovery.uploadSteps).toBeGreaterThan(0);
     expect(result.discovery.evaluatedUploadPaths).toBeGreaterThan(result.discovery.uploadSteps);
     expect(result.census.files).toHaveLength(result.discovery.trackedFiles);
@@ -78,19 +106,21 @@ describe("raw Playwright artifact upload fence (#6895)", () => {
     const original = fourProducerCorpus();
     const files = Object.keys(original);
 
-    for (const removedProducerCount of [1, 2, 3]) {
+    // Every subset of disabled producers: only disabling all four passes, and each remaining raw producer is named.
+    for (let disabledMask = 0; disabledMask < 2 ** files.length; disabledMask += 1) {
+      const disabled = files.filter((_file, index) => disabledMask & (1 << index));
       const mutant = { ...original };
-      for (const file of files.slice(0, removedProducerCount)) {
+      for (const file of disabled) {
         mutant[file] = mutant[file]
           .replace("artifacts/playwright/report", "artifacts/release-health/probe.json")
           .replace("artifacts/playwright/test-results", "artifacts/staging-advisory-evidence/summary.json");
       }
+      const remaining = files.filter((file) => !disabled.includes(file));
       const result = inspectPlaywrightArtifactUploadCorpus(mutant);
 
-      expect(result.status).toBe("fail");
-      expect(new Set(result.findings.map((finding) => finding.file))).toEqual(
-        new Set(files.slice(removedProducerCount)),
-      );
+      expect(result.status, disabled.join(",")).toBe(remaining.length === 0 ? "pass" : "fail");
+      expect(new Set(result.findings.map((finding) => finding.file))).toEqual(new Set(remaining));
+      expect(result.census.workflowFiles).toEqual([...files].sort());
     }
   });
 
@@ -211,6 +241,8 @@ runs:
       ["artifacts/catalog-scale-probe/preview.json"],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
       ["artifacts/catalog-scrydex-option-refresh/receipt.json"],

@@ -282,6 +282,9 @@ describe("#5695 legal review corpus: closed membership and source authority", ()
       "condition-and-photo-standards",
       "order-protection",
       "refunds-and-returns",
+      "shipping-requirements",
+      "cannot-fulfill-an-order",
+      "sales-fees",
       "getting-paid",
     ]);
     expect(renderCounselReviewPacket(baseline)).toContain("`getting-paid` (en)");
@@ -311,6 +314,24 @@ describe("#5695 legal review corpus: closed membership and source authority", ()
         error.includes("does not name incorporated Help Article 'getting-paid'"),
       ),
     ).toBe(true);
+
+    for (const [sectionId, slug] of [
+      ["listing-obligations", "condition-and-photo-standards"],
+      ["fulfillment-obligations", "shipping-requirements"],
+      ["fulfillment-obligations", "cannot-fulfill-an-order"],
+      ["fees-and-deductions", "sales-fees"],
+    ]) {
+      const dropped = buildLegalReviewCorpus(
+        mapSection("seller-agreement", sectionId, (section) => ({
+          ...section,
+          draftText: "Synthetic omitted article.",
+        })),
+      );
+      expect(dropped.ok, `${sectionId}/${slug}`).toBe(false);
+      expect(dropped.errors, JSON.stringify(dropped.errors)).toContain(
+        `Seller agreement subject '${sectionId}' does not name incorporated Help Article '${slug}'.`,
+      );
+    }
   });
 });
 
@@ -484,6 +505,9 @@ describe("#5695 counsel review packet: deterministic bytes and lifecycle-stable 
         "condition-and-photo-standards",
         "refunds-and-returns",
         "getting-paid",
+        "shipping-requirements",
+        "cannot-fulfill-an-order",
+        "sales-fees",
       ],
     });
     expect(digestsByArticle(reorderedIncorporation)).toEqual(digestsByArticle(baseline));

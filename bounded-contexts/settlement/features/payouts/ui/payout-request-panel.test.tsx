@@ -43,6 +43,13 @@ const readiness: SettlementPayoutReadinessRow = {
   updated_at: "2026-10-12T12:00:00.000Z",
 };
 
+const quickAmounts = {
+  currency_code: "usd",
+  minimum_amount: "7.25",
+  maximum_amount: "250.00",
+  full_available_amount: "0.00",
+} as const;
+
 describe("SettlementPayoutRequestPanel", () => {
   it.each([
     { amount: "0.00", payable: false },
@@ -55,6 +62,7 @@ describe("SettlementPayoutRequestPanel", () => {
         wallet={{ ...wallet, available_balance_amount: amount }}
         payoutReadiness={readiness}
         canRequestPayouts
+        quickAmounts={quickAmounts}
       />,
     );
     const rendered = document.createElement("div");
@@ -65,5 +73,26 @@ describe("SettlementPayoutRequestPanel", () => {
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((button) => button.disabled)).toBe(!payable);
     expect(rendered.querySelector<HTMLInputElement>('input[name="amount"]')?.disabled).toBe(!payable);
+  });
+
+  it("uses API quick amounts for bounds and labels and disables an empty full-available shortcut", () => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutRequestPanel
+        wallet={{ ...wallet, available_balance_amount: "125.00" }}
+        payoutReadiness={readiness}
+        canRequestPayouts
+        quickAmounts={quickAmounts}
+      />,
+    );
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+
+    const amount = rendered.querySelector<HTMLInputElement>('input[name="amount"]');
+    expect(amount?.min).toBe("7.25");
+    expect(amount?.max).toBe("250");
+    expect(rendered.textContent).toContain("Minimum · $7.25");
+    expect(rendered.textContent).toContain("Full available · $0.00");
+    expect(rendered.querySelector<HTMLButtonElement>('button[value="minimum"]')?.disabled).toBe(false);
+    expect(rendered.querySelector<HTMLButtonElement>('button[value="available"]')?.disabled).toBe(true);
   });
 });

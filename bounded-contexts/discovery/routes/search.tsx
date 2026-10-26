@@ -906,7 +906,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         }
         current.delete("page");
         current.delete(INTERPRETED_PARAM);
-        navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
+        void navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
         return;
       }
 

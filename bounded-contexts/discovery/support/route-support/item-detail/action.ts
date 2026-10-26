@@ -48,9 +48,9 @@ import {
   LISTING_STOCK_SHIP_FROM_CODE,
   selectItemImage,
 } from "./support";
-import { sortListingsByBuyerPrice } from "../../../features/item-detail/domain/item-detail-market";
 import {
   assertSelectedListingQuantityAvailable,
+  findLowestListingForProductAction,
   findSelectedListingForAction,
   getPublicSelectedOfferForSellList,
   getListingAvailableQuantity,
@@ -123,22 +123,6 @@ function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market
     listingStreamVersion: listing.listing_stream_version,
     source: "discovery.item-detail.add-to-cart",
   };
-}
-
-function findBestAvailableListingForAction(item: DiscoveryItemDetail, productId: string) {
-  const bestListing =
-    sortListingsByBuyerPrice(
-      item.market_listings.filter(
-        (listing) =>
-          listing.product_id === productId && listing.status === "active" && getListingAvailableQuantity(listing) > 0,
-      ),
-    )[0] ?? null;
-
-  if (!bestListing) {
-    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
-  }
-
-  return bestListing;
 }
 
 function actionErrorMessage(error: Error) {
@@ -228,7 +212,7 @@ async function buyThisListing({
     const quantity = parsePositiveQuantity(formData.get("quantity"));
     const lockedListing = lockedListingId
       ? findSelectedListingForAction(item, lockedListingId)
-      : findBestAvailableListingForAction(item, productId);
+      : findLowestListingForProductAction(item, productId);
     assertSelectedListingQuantityAvailable(lockedListing, quantity);
     const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
     const source = {
@@ -407,7 +391,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         intent === "buy-best-match" ? "" : String(formData.get("sellerPreferenceId") ?? "").trim();
       const preferredListing = sellerPreferenceId ? findSelectedListingForAction(item, sellerPreferenceId) : null;
       if (intent === "buy-best-match") {
-        assertSelectedListingQuantityAvailable(findBestAvailableListingForAction(item, productId), quantity);
+        assertSelectedListingQuantityAvailable(findLowestListingForProductAction(item, productId), quantity);
       }
       if (preferredListing) {
         if (preferredListing.product_id !== productId) {

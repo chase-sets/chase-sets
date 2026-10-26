@@ -38,8 +38,6 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
@@ -50,6 +48,7 @@ const ownerContracts = loadOwnerContracts(admittedContexts);
 const OPERATOR_REMOVAL = "marketplace.listing.operator-unlisted";
 const REMOVAL_CONSUMERS = [
   ["marketplace", "marketplace-listing-projection", 2],
+  ["platform-operations", "account-appeal-interest-projection", 1],
   ["platform-operations", "reported-content-queue-projection", 1],
   ["discovery", "discovery-market-projection", 3],
   ["discovery", "discovery-product-alert-notification-projection", 2],

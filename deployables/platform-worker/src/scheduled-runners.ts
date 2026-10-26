@@ -521,30 +521,6 @@ export function createRegisteredScheduledRunners({
     );
   }
 
-  const runTcgplayerMarketCapture = pricing?.priceSignals.runTcgplayerMarketCapture;
-  if (runTcgplayerMarketCapture && input.marketRollupsCloserIntervalMs) {
-    runners.push(
-      createScheduledJobRunner(
-        "pricing.tcgplayer-market-capture",
-        input.marketRollupsCloserIntervalMs,
-        controlPlane,
-        async () => {
-          const result = await runTcgplayerMarketCapture();
-          logger.info("Pricing TCGplayer market capture pass completed.", {
-            type: "pricing.tcgplayer-market-capture",
-            status: result.status,
-            reason: result.reason,
-            signalWorkCount: result.signalWorkCount,
-            signalsRecorded: result.signalsRecorded,
-            signalsUnresolved: result.signalsUnresolved,
-            capturesCommitted: result.capturesCommitted,
-          });
-          return result.signalsRecorded + result.capturesCommitted;
-        },
-      ),
-    );
-  }
-
   const runAccountLinkageCloser = settlement?.accountLinkage?.runAccountLinkageCloser;
   if (runAccountLinkageCloser && input.settlementAccountLinkageCloserIntervalMs) {
     runners.push(

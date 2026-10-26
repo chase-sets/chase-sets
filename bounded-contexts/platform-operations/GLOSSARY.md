@@ -272,3 +272,21 @@ A **Support Reference Lookup** is the Platform Operations admin surface that res
 A **Seller Compliance Sale** is one recorded, replayable fact about a platform-processed sale: the `(payment_id, order_id)` pair a Payments capture creates against an Ordering order, together with Ordering's authoritative seller, the capture occurrence instant, the gross money decomposition in cents when every source value is present and reconciles, the recorded per-line classification inputs, cancellation, and the cumulative refund total and cap when a refund has affected that order.
 
 It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.
+
+## Appealable Enforcement Action
+
+An **Appealable Enforcement Action** is one Identity account enforcement (suspension, reactivation, or closure, keyed `enf_`) or Marketplace listing enforcement (operator or automatic unlisting, keyed `lea_`) that Platform Operations has recorded as a complete registry tuple: the owning account, the source event type, and the source stream id and version, all taken from the published fact and never from a caller.
+
+The tuple is immutable. A later fact that claims the same action with a different tuple marks it conflicted for good. Only a present, complete, non-conflicted action owned by the asking account is returned; an action not yet projected, owned by another account, or conflicted reads as one indeterminate answer, never as `not appealable`. Reactivations and closures stay appealable. It narrows the planned **Enforcement Action** to the actions that source contexts have actually published.
+
+## Account Appeal
+
+An **Account Appeal** is the private Platform Operations aggregate that records a seller's statement about one Appealable Enforcement Action and its operator review. Filing and withdrawal require a carried seller file capability; review and outcome require a carried operator review capability. Its stream is `platform-operations.account-appeal-<appealableActionId>`.
+
+### Appeal Status
+
+**Appeal Status** is the aggregate lifecycle: `filed`, `in-review`, `upheld`, `reversed`, `modified`, or `withdrawn`. Terminal statuses are steady and immutable; a reversal does not restore the account.
+
+### Appeal Outcome
+
+An **Appeal Outcome** is the private terminal decision `upheld`, `reversed`, or `modified`, together with its trimmed rationale, internal note, and operator identity. These facts remain in the private event and are not public event payloads.

@@ -479,6 +479,11 @@ function ygojsonSetNormalizedObservation(): YgojsonExecutableMappingContract["no
         "hash-material",
       ]),
       name: ygojsonPathExpression("set.name.en", "catalog-truth", ["normalized-observation", "hash-material"]),
+      setId: ygojsonPathExpression("set.id", "external-reference", [
+        "normalized-observation",
+        "hash-material",
+        "merge-identity",
+      ]),
       setName: ygojsonPathExpression("set.name.en", "catalog-truth", [
         "normalized-observation",
         "hash-material",

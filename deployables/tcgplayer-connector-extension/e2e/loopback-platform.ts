@@ -67,7 +67,7 @@ export async function loopbackPlatform(
     pageStatus: null as number | null,
   };
   const claims = [...(options.claims ?? [])];
-  const server = createServer(async (request, reply) => {
+  const serve = async (request: IncomingMessage, reply: ServerResponse) => {
     drill.requestCount++;
     reply.setHeader("Connection", "close");
     if (await options.handle?.(request, reply)) return;
@@ -215,6 +215,14 @@ export async function loopbackPlatform(
     }
     reply.writeHead(404);
     reply.end();
+  };
+  const server = createServer((request, reply) => {
+    serve(request, reply).catch((error: unknown) => {
+      // Rethrow as uncaught so the runner fails exactly as the unhandled rejection did.
+      setImmediate(() => {
+        throw error;
+      });
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

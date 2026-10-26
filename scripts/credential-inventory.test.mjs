@@ -63,7 +63,7 @@ describe("credential inventory check (AC1)", () => {
   it("passes on the repository inventory, workflows and actions", () => {
     expect(checkCredentialInventory(resolve("."))).toEqual([]);
     const { inventory } = validateCredentialInventory(repositoryInventory);
-    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(11);
+    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(13);
   });
 
   it("names a referenced secret that has no entry", () => {
@@ -280,6 +280,7 @@ describe("agent tier in the credential inventory (AC1)", () => {
       project: "chase-sets-agent-dev",
       keys: [
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
+        { name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON", testPrefixes: [] },
         { name: "EBAY_SANDBOX_APP_ID", testPrefixes: [] },
         { name: "EBAY_SANDBOX_CERT_ID", testPrefixes: ["SBX-"] },
         { name: "EBAY_SANDBOX_DEV_ID", testPrefixes: [] },
@@ -506,8 +507,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 10 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 10} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 11 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 11} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);

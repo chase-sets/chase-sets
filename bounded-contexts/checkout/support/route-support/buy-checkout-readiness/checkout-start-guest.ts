@@ -1,13 +1,10 @@
 import { redirectDocument } from "react-router";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "@chase-sets/auth-context";
 import type { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../../request-support/api-client";
-import {
-  appendClearedAnonymousCartCookie,
-  appendGuestCheckoutCookie,
-  CHECKOUT_GUEST_COOKIE_NAME,
-} from "../../request-support/guest-checkout";
+import { appendClearedAnonymousCartCookie, appendGuestCheckoutCookie } from "../../request-support/guest-checkout";
 import { checkoutSessionRequestFromForm, ensureCartReadinessSnapshot } from "./checkout-start-source";
 import type { CheckoutStartSource } from "../../../features/sessions/ui/checkout-start-page-types";
 
@@ -69,7 +66,7 @@ export async function startGuestCheckoutSession(
   }>,
 ) {
   const guestHeaders = {
-    cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(params.guest.guestToken)}`,
+    cookie: `${AUTH_GUEST_CHECKOUT_COOKIE_NAME}=${encodeURIComponent(params.guest.guestToken)}`,
     ...(params.anonymousCartId ? { "x-checkout-anonymous-cart-id": params.anonymousCartId } : {}),
   };
   const guestApi = createCheckoutRequestApiClient(request, { headers: guestHeaders });

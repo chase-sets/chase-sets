@@ -6,6 +6,7 @@ export type PostageLabelCapability =
   | "usps-rate"
   | "usps-service-level"
   | "signature-delivery-confirmation"
+  | "insurance"
   | "label-document"
   | "tracking";
 
@@ -91,6 +92,7 @@ export type PurchaseUspsLabelRequest = Readonly<{
 
 export type RecoverPurchasedPostageLabelRequest = Readonly<{
   idempotencyKey: string;
+  insuranceAmount?: string | null;
 }>;
 
 export type PurchasedPostageLabel = Readonly<{

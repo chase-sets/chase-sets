@@ -47,6 +47,13 @@ const readiness: SettlementPayoutReadinessRow = {
   updated_at: "2026-07-15T00:00:00.000Z",
 };
 
+const quickAmounts = {
+  currency_code: "usd",
+  minimum_amount: "7.25",
+  maximum_amount: "250.00",
+  full_available_amount: "42.50",
+} as const;
+
 function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutRow {
   return {
     payout_id: "pay-1",
@@ -103,6 +110,7 @@ describe("SettlementMoneyDashboardPage", () => {
           }),
         ]}
         payoutReadiness={readiness}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts
         canSetupPayouts
@@ -133,6 +141,7 @@ describe("SettlementMoneyDashboardPage", () => {
         entries={[]}
         payouts={[]}
         payoutReadiness={{ ...readiness, status: "not-started", provider_reference: null }}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts
         canSetupPayouts
@@ -151,6 +160,7 @@ describe("SettlementMoneyDashboardPage", () => {
         entries={[]}
         payouts={[]}
         payoutReadiness={readiness}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts
         canSetupPayouts
@@ -191,13 +201,14 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("$12.21");
   });
 
-  it("caps the full-available shortcut label through the payout policy", () => {
+  it("renders API-provided bounds and full-available shortcut label", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={{ ...wallet, available_balance_amount: "999999.00" }}
         entries={[]}
         payouts={[]}
         payoutReadiness={readiness}
+        quickAmounts={{ ...quickAmounts, full_available_amount: "999.99" }}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts
         canSetupPayouts
@@ -205,8 +216,11 @@ describe("SettlementMoneyDashboardPage", () => {
       />,
     );
 
-    expect(html).toContain('name="availableAmount" value="999999.00"');
-    expect(html).toContain("Full available · $10,000.00");
+    expect(html).not.toContain('name="availableAmount"');
+    expect(html).toContain("Minimum · $7.25");
+    expect(html).toContain("Full available · $999.99");
+    expect(html).toContain('min="7.25"');
+    expect(html).toContain('max="250"');
   });
 });
 
@@ -281,6 +295,7 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
         ]}
         payouts={[]}
         payoutReadiness={readiness}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts={false}
         canSetupPayouts={false}
@@ -309,6 +324,7 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
           }),
         ]}
         payoutReadiness={readiness}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         selectedWalletAdjustment={selectedWalletAdjustment}
         canRequestPayouts
@@ -351,6 +367,7 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
         entries={[]}
         payouts={[payout()]}
         payoutReadiness={readiness}
+        quickAmounts={quickAmounts}
         evaluatedAt="2026-07-15T12:00:00.000Z"
         canRequestPayouts
         canSetupPayouts

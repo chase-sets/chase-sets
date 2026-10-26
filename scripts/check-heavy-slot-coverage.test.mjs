@@ -95,7 +95,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 87);
+  assert.equal(result.entrypoints.length, 88);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -498,6 +498,8 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/identity-creation-position-guard.test.mjs": "position fixture does not spawn the guard",
   "scripts/ordering-test-profile.test.mjs": "workspace fixture does not spawn the guard",
   "scripts/process.test.mjs": "process helper does not spawn a guarded child",
+  "scripts/provider-browser-install-timeout.test.mjs":
+    "installer fixtures inject spawn and signals; hosted-controls is inspected, never executed",
   "scripts/provider-object-disposition/browser-boundary/install-ci.test.mjs":
     "browser fixture does not spawn the guard",
   "scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs":
@@ -563,7 +565,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 30);
+  assert.equal(candidates.length, 31);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

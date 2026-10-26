@@ -279,6 +279,12 @@ describe("support request runtime", () => {
       sellerResponseHours: 24,
       supportReviewHours: 12,
     });
+
+    await expect(runtime.resolveSupportFlowDefinition("product-not-received")).resolves.toMatchObject({
+      sellerResponseHours: 96,
+      supportReviewHours: 48,
+    });
+    expect(resolvePolicy).toHaveBeenCalledTimes(2);
   });
 
   it("listFlowDefinitions falls back to the compiled catalog when no policies dependency is wired", async () => {

@@ -3,6 +3,48 @@
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
+      "stepAnchor": "name:Retire empty preview Terraform state#17",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "destroy-preview",
       "stepAnchor": "job",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "application-runtime"

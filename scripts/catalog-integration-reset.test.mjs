@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { runInNewContext } from "node:vm";
 import { stagingRefreshOverlapWorkflowFiles } from "./staging-refresh-preflight-config.mjs";
@@ -35,11 +36,11 @@ function assertImmutableProviderUatAdmission(document) {
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
+    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
   );
   expect(worker.needs).toEqual(["admit-reviewed-sha", "resolve-provider-uat-plan"]);
   expect(worker.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
+    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
   );
   expect(gate.steps.some((step) => /checkout|setup|playwright/i.test(step.uses ?? step.run ?? ""))).toBe(false);
   const sha = "a".repeat(40);
@@ -113,6 +114,10 @@ const workflowFilesWithConcurrencyGroup = (group) =>
     .sort();
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const runnerPath = join(scriptsDir, "run-catalog-integration-reset.mjs");
+const temporaryDirectories = [];
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 const targetTables = [
   "catalog_source_observation_integration_work_units",
@@ -263,7 +268,9 @@ describe("catalog integration reset argument and environment gates", () => {
   });
 
   it("runs through the retained Node ops wrapper and fails before connection when the URL env is absent", () => {
-    const env = { ...process.env };
+    const directory = mkdtempSync(join(tmpdir(), "catalog-reset-wrapper-"));
+    temporaryDirectories.push(directory);
+    const env = { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory };
     delete env.DATABASE_URL_CATALOG;
     const result = spawnSync(process.execPath, [runnerPath, "--action", "dry-run"], {
       encoding: "utf8",
