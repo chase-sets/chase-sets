@@ -9,6 +9,7 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
   test.setTimeout(120_000);
   await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Fpricing-health", { waitUntil: "domcontentloaded" });
   await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
+  await expect(page).toHaveURL(/\/account\/desk\/pricing-health(?:\?|$)/);
   const before = await page.request.get("/api/marketplace/account/pricing-health");
   expect(before.ok()).toBe(true);
   const beforeBody = await before.json();
