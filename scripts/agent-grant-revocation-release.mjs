@@ -713,18 +713,17 @@ export async function main(
     failure = error;
   }
   const refusal = failure === undefined ? null : refusalCode(failure);
+  let status;
   try {
-    writeJson(
-      values["--status-out"],
-      captureStatus({ ...options, command: action, outcome, refusal, failure }, { run, now }),
-    );
+    status = captureStatus({ ...options, command: action, outcome, refusal, failure }, { run, now });
+    writeJson(values["--status-out"], status);
   } catch {
     // A refusal keeps its own code; a success without its record is not a success.
     if (!refusal) throw new Error("revocation_status_unwritten");
   }
   if (refusal)
     process.stdout.write(
-      `${JSON.stringify(diagnosticRecord({ options, refusal, failure, identityState: "unknown" }))}\n`,
+      `${JSON.stringify(status?.diagnostic ?? diagnosticRecord({ options, refusal, failure, identityState: "unknown" }))}\n`,
     );
   if (failure !== undefined) throw failure;
 }

@@ -332,6 +332,31 @@ describe("revocation release CLI decisions", () => {
     await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
     expect(status().diagnostic).toMatchObject({ identity: { state: "dormant" } });
   });
+  it("prints the status diagnostic beside a refusal", async () => {
+    const f = fixture({
+      statuses: [dormant],
+      protocol: "refused",
+      childDiagnostic: {
+        schemaVersion: "agent-grant-revocation-diagnostic/v1",
+        identity: { state: "unknown" },
+        sqlstateClass: "unknown",
+        failureCategory: "application",
+      },
+    });
+    let output = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output += chunk;
+      return true;
+    });
+    try {
+      await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
+    } finally {
+      write.mockRestore();
+    }
+    const printed = JSON.parse(output.trim());
+    expect(printed).toEqual(status().diagnostic);
+    expect(printed.identity).toEqual({ state: "dormant" });
+  });
   it("activate rejects a mismatched receipt digest without unfreezing", async () => {
     const f = fixture({ statuses: [dormant, activated], protocol: "wrong-digest" });
     await expect(main(args("activate"), f)).rejects.toThrow("revocation_activation_unconfirmed");
