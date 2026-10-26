@@ -79,6 +79,16 @@ async function projectionVersion(db: PgQueryable, table: string, appealId: strin
   return version === undefined ? null : Number(version);
 }
 
+async function projectionAppealId(db: PgQueryable, streamKey: string): Promise<string> {
+  const result = await db.query<{ appeal_id: string }>(
+    `SELECT appeal_id
+       FROM platform_operations_account_appeal_seller_history
+      WHERE appeal_id = $1 OR appealable_action_id = $1`,
+    [streamKey],
+  );
+  return result.rows[0]?.appeal_id ?? streamKey;
+}
+
 async function assertProjectionVersion(
   db: PgQueryable,
   appealId: string,
@@ -123,7 +133,6 @@ async function insertFiled(
     data.statement,
     data.filedByUserId,
     "filed",
-    null,
     null,
     null,
     1,
@@ -180,8 +189,12 @@ async function updateTransition(
 export function buildAccountAppealProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   const project: ProjectorHandler = async (event, context) => {
     const projectionDb = resolveProjectionDb(context, db);
-    const appealId = appealIdFromStream(event);
+    const streamKey = appealIdFromStream(event);
     if (event.type === "platform-operations.account-appeal.filed") {
+      const appealId = event.data.appealId;
+      if (typeof appealId !== "string" || !appealId) {
+        throw new Error("Account appeal filing must include a nonempty appeal id.");
+      }
       if (event.streamVersion !== 1) throw new Error(`Account appeal filing must start at version 1 for ${appealId}.`);
       const existing = await projectionVersion(
         projectionDb,
@@ -198,6 +211,7 @@ export function buildAccountAppealProjectionHandlers(db: PgQueryable): Projector
       );
       return;
     }
+    const appealId = await projectionAppealId(projectionDb, streamKey);
     if (event.type === "platform-operations.account-appeal.review-started") {
       await updateTransition(projectionDb, appealId, event.streamVersion, "in-review");
     } else if (event.type === "platform-operations.account-appeal.outcome-recorded") {
