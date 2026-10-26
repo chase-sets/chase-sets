@@ -1734,9 +1734,17 @@ fn item() -> Value {
 }
 
 /// The Discovery API's item read: `charizard` (or its id), with the listings published here as
-/// the seller's; `down` fails, anything else is unknown.
+/// the seller's; `unlisted` is the same item with no listings or offers; `down` fails, anything
+/// else is unknown.
 fn discovery_item(stand: &Stand, id: &str) -> Response {
     match id {
+        "unlisted" => {
+            let mut item = item();
+            item["slug"] = json!("unlisted");
+            item["market_listings"] = json!([]);
+            item["offer_demand_matches"] = json!([]);
+            Json(item).into_response()
+        }
         "charizard" | "cat_charizard" => {
             let mut item = item();
             let raw = json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }]);
@@ -2738,6 +2746,37 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_mobile_dock_links_to_the_rail_on_each_side_or_to_the_options() {
+    let pilot = Pilot::new().await;
+    let dock = |html: &str| {
+        let at = html.find(r#"<div class="item-detail__dock">"#).expect("the dock");
+        html[at..].split("</nav>").next().unwrap().to_owned()
+    };
+    // A product the page names: its price and the rail on each side, the options kept.
+    let (_, _, html) = pilot.send(get("/items/charizard?dimension.dim_form=chc_raw", None)).await;
+    let bar = dock(&html);
+    assert!(text(&bar).contains("$389.00 Buy Sell Watch"), "{bar}");
+    assert_eq!(
+        hrefs(&bar, ""),
+        [
+            "/items/charizard?dimension.dim_form=chc_raw#rail-title",
+            "/items/charizard?market=sell&amp;dimension.dim_form=chc_raw#rail-title",
+            "/items/charizard?market=watch&amp;dimension.dim_form=chc_raw#rail-title",
+        ]
+    );
+    assert!(html.contains(r#"id="rail-title""#), "the links' target: {html}");
+    // On the Sell side the price is the best offer's.
+    let (_, _, html) = pilot.send(get("/items/charizard?market=sell", None)).await;
+    assert!(text(&dock(&html)).starts_with("$380.00"), "{html}");
+    // Nothing named: one Select options, to the options.
+    let (status, _, html) = pilot.send(get("/items/unlisted", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let bar = dock(&html);
+    assert_eq!(hrefs(&bar, "Select options"), ["#select-options"], "{bar}");
+    assert!(!bar.contains("#rail-title"), "{bar}");
 }
 
 #[tokio::test]

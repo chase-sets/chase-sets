@@ -3,7 +3,8 @@
 // market summary, the rail and the market book against the API's ranked listings and offers,
 // choosing a product option (a link) and one from a long list (a GET form), choosing a listing,
 // one that is gone, the sell side, the moved and unknown addresses, and the page at 390 px:
-// nothing scrolls sideways and every control is at least 40 px tall. It writes nothing.
+// nothing scrolls sideways, every control is at least 40 px tall, and the mobile dock goes to the
+// rail. It writes nothing.
 // Usage: node scripts/smoke-market-item.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [slug]
 //   (state from `scripts/sign-in.mjs <pilot-url> <state-file> collector --api <api-url>`)
 import { chromium } from "@playwright/test";
@@ -157,6 +158,30 @@ for (const address of ["", `?dimension.${form.dimensionId}=${graded.optionId}`, 
   }));
   check(!wide, `390 px ${address || "(nothing chosen)"}: nothing scrolls sideways`);
   check(small.length === 0, `390 px ${address || "(nothing chosen)"}: every control is at least 40 px (${small.join(", ")})`);
+  await ctx.close();
+}
+
+// The mobile action dock: held at the bottom at 390 px, its Sell goes to the rail on the Sell side
+// (with and without JavaScript), and it is not shown at 1280 px.
+for (const javaScriptEnabled of [true, false]) {
+  const { ctx, page } = await context({ javaScriptEnabled, viewport: { width: 390, height: 844 } });
+  await page.goto(`${base}/items/${slug}`);
+  const dock = page.locator('[class*="__dock-bar"]');
+  const box = await dock.boundingBox();
+  const how = javaScriptEnabled ? "with JavaScript" : "without";
+  check(Boolean(box) && box.y + box.height <= 844 && box.y > 600, `390 px: the dock is at the bottom of the screen (${how}, top ${Math.round(box?.y ?? -1)})`);
+  await dock.getByRole("link", { name: "Sell", exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.get("market") === "sell" && u.hash === "#rail-title");
+  await page.waitForTimeout(300);
+  const top = (await page.locator("#rail-title").boundingBox())?.y ?? -1;
+  // Scrolled to it, the title sits at the top, give or take a fraction of a pixel.
+  check(top > -2 && top < 200, `its Sell lands on the Sell rail (${how}, the rail's title at ${Math.round(top)} px)`);
+  await ctx.close();
+}
+{
+  const { ctx, page } = await context({ javaScriptEnabled: true, viewport: { width: 1280, height: 900 } });
+  await page.goto(`${base}/items/${slug}`);
+  check(!(await page.locator('[class*="__dock"]').first().isVisible()), "1280 px: no dock");
   await ctx.close();
 }
 

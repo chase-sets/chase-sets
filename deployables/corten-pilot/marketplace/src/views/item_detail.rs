@@ -349,6 +349,43 @@ pub fn ItemDetail<'a>(
                 <MarketBook t={t} screen={screen} address={address} slug={slug} />
             </div>
         </div>
+        <Dock t={t} screen={screen} address={address} slug={slug} />
+    }
+}
+
+/// Marketplace's mobile action dock (`CommerceActionBar` in `MarketplaceProductMobileActionDock`),
+/// held at the bottom of the screen below 80rem: the price, then Buy, Sell and Watch, or one
+/// Select options while the options name no product. Marketplace's buttons open the rail's card in
+/// a bottom sheet, which needs its script. The pilot's are links to the rail on that side
+/// (`#rail-title`), so they work without JavaScript, and the rail is the one form.
+#[component(css = ItemDetail)]
+fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
+    let to_rail = move |market: Market| format!("{}#rail-title", url::Item { slug, state: address.with_market(market) }.href());
+    let summary = &screen.summary;
+    let price = match screen.market {
+        Market::Buy if screen.selected_listing().is_some() => screen.selected_listing().map(|l| listing_price(t, l)),
+        Market::Sell => screen.offers.first().map(|o| offer_price(t, o)),
+        _ => summary
+            .lowest_price_currency_code
+            .as_ref()
+            .map(|_| money(t, summary.lowest_price_amount.as_deref(), summary.lowest_price_currency_code.as_deref())),
+    };
+    let price = price.unwrap_or_else(|| t.view_market_price_unavailable().to_owned());
+    html! {
+        <div class={Dock}>
+            <nav class={DockBar} aria-label={t.page_choose_market_intent()}>
+                if screen.product_id.is_some() {
+                    <p class={DockPrice}>{&price}</p>
+                    <div class={DockActions}>
+                        <a class={(Button, Primary)} href={&to_rail(Market::Buy)}>{t.page_buy_2()}</a>
+                        <a class={Button} href={&to_rail(Market::Sell)}>{t.route_sell_2()}</a>
+                        <a class={Button} href={&to_rail(Market::Watch)}>{t.route_watch()}</a>
+                    </div>
+                } else {
+                    <a class={(Button, Primary, Wide)} href="#select-options">{t.page_select_options()}</a>
+                }
+            </nav>
+        </div>
     }
 }
 
