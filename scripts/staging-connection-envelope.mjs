@@ -41,8 +41,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const awaitRun = String(awaitStep?.run ?? "");
   const advisoryResumesWorkerBeforeRbacRemoval =
     awaitRun.includes("scenario-seed-release") &&
-    awaitRun.indexOf("scenario-seed-release") <
-      awaitRun.indexOf("kubectl delete rolebinding,role,serviceaccount");
+    awaitRun.indexOf("scenario-seed-release") < awaitRun.indexOf("kubectl delete rolebinding,role,serviceaccount");
   const seedEnv = manifest.spec.template.spec.containers[0].env;
   const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group ?? workflow.concurrency?.group;
   const doesNotCancel = (workflow, job) =>
