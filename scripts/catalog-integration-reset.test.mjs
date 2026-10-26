@@ -431,6 +431,12 @@ describe("Catalog Integration Staging Reset workflow", () => {
     expect(workflowFilesWithConcurrencyGroup("platform-deploy-staging")).toEqual(
       [...deployConcurrencyWorkflowFiles].sort(),
     );
+    const advisorySource = workflowSource(".github/workflows/platform-staging-advisory-evidence.yml");
+    const membersBlock = advisorySource.match(/const members = \[(.*?)\n\s+\];/s)?.[1] ?? "";
+    const advisoryMembers = [...membersBlock.matchAll(/\"([^\"]+\.yml)\"/g)].map(([, member]) =>
+      `.github/workflows/${member}`,
+    );
+    expect(advisoryMembers.sort()).toEqual([...deployConcurrencyWorkflowFiles].sort());
     expect(workflowSource(".github/workflows/platform-database-restore-drill.yml")).toContain(
       "group: platform-database-restore-drill",
     );

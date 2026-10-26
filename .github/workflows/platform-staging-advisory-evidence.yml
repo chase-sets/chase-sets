@@ -40,6 +40,7 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       PLATFORM_IMAGE_REF: ${{ inputs.platform_image }}@${{ inputs.platform_image_digest }}
+      ADVISORY_JOB_STARTED_AT: ${{ github.run_started_at }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -110,6 +111,7 @@ jobs:
       - name: Configure staging Kubernetes context
         id: advisory_preflight
         continue-on-error: true
+        timeout-minutes: 25
         working-directory: infrastructure/digitalocean/doks
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -163,24 +165,23 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          node --input-type=module <<'NODE'
+          export ADVISORY_WAIT_POLL_MS=30000
+          cat > "$RUNNER_TEMP/advisory-window.mjs" <<'NODE'
           import { appendFileSync } from "node:fs";
           import { execFile } from "node:child_process";
           import { promisify } from "node:util";
-          import { parsePlatformImageRef, readGitHubProductionWriterCensus, readHelmOperationCensus } from "./scripts/platform-kubernetes-deployment.mjs";
+          import { pathToFileURL } from "node:url";
+
+          const { parsePlatformImageRef, readGitHubProductionWriterCensus, readHelmOperationCensus } = await import(
+            pathToFileURL(`${process.env.GITHUB_WORKSPACE ?? process.cwd()}/scripts/platform-kubernetes-deployment.mjs`)
+          );
 
           const execFileAsync = promisify(execFile);
-          const output = (name, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value ?? "").replaceAll("\\n", " ")}\\n`);
-          const refusal = (status, reason, observed = {}) => {
-            output("freshness_status", status);
-            output("freshness_reason", reason);
-            output("error", reason);
-            output("observed_release_commit", observed.releaseCommit);
-            output("observed_platform_image", observed.platformImage);
-            output("observed_platform_image_digest", observed.platformImageDigest);
-            throw new Error(reason);
-          };
-          const members = new Set([
+          const output = (name, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value ?? "").replaceAll(/[\r\n]+/g, " ")}\n`);
+          const activeRunStatuses = new Set(["requested", "pending", "queued", "in_progress", "waiting"]);
+          const activeJobStatuses = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+          const productionStagingJobs = new Set(["Reconcile Managed Postgres CA (staging)", "Deploy Staging"]);
+          const members = [
             "platform-preview-wildcard-tls.yml",
             "platform-production.yml",
             "platform-staging-admin-qa-actor-fixtures.yml",
@@ -191,8 +192,20 @@ jobs:
             "platform-staging-representative-commerce-state.yml",
             "platform-staging-reset.yml",
             "platform-staging-rollback-drill.yml",
-          ]);
-          const activeStatuses = new Set(["requested", "pending", "queued", "in_progress", "waiting"]);
+          ];
+          const memberSet = new Set(members);
+          const workflowName = (run) => String(run.path ?? "").split("/").at(-1);
+          const scopeJobs = (workflow, jobs) =>
+            workflow === "platform-production.yml" ? jobs.filter((job) => productionStagingJobs.has(job.name)) : jobs;
+          const parseTime = (value) => {
+            const parsed = Date.parse(String(value ?? ""));
+            return Number.isFinite(parsed) ? parsed : null;
+          };
+          const authorityError = (error) => {
+            const message = String(error?.message ?? error);
+            return /HTTP (403|429)|rate.?limit/i.test(message) ? "GitHub authority rate limit" : "GitHub authority read failed";
+          };
+          const safeError = (error) => (error instanceof Error && error.message.startsWith("advisory ") ? error.message : authorityError(error));
           const api = async (path) => {
             const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/${path}`, {
               headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${process.env.GH_TOKEN}`, "X-GitHub-Api-Version": "2022-11-28" },
@@ -200,36 +213,75 @@ jobs:
             if (!response.ok) throw new Error(`GitHub authority read failed with HTTP ${response.status}`);
             return response.json();
           };
-          const activeRuns = [];
-          for (const status of activeStatuses) {
-            const page = await api(`actions/runs?status=${status}&per_page=100&page=1`);
-            if (!Array.isArray(page.workflow_runs) || !Number.isSafeInteger(page.total_count) || page.total_count > 100 || page.workflow_runs.length !== page.total_count) {
-              throw new Error(`GitHub authority census is incomplete for ${status} runs`);
+          const jobsFor = async (run, workflow) => {
+            const jobs = await api(`actions/runs/${run.id}/attempts/${run.run_attempt ?? run.runAttempt ?? 1}/jobs?per_page=100&page=1`);
+            if (!Array.isArray(jobs.jobs) || !Number.isSafeInteger(jobs.total_count) || jobs.total_count > 100 || jobs.jobs.length !== jobs.total_count) {
+              throw new Error(`GitHub authority job census is incomplete for ${workflow} run ${run.id}`);
             }
-            activeRuns.push(...page.workflow_runs);
-          }
-          try {
-            const currentRun = await api(`actions/runs/${process.env.GITHUB_RUN_ID}`);
-            const currentStart = new Date(currentRun.run_started_at ?? currentRun.created_at);
-            const memberOverlap = async (workflow) => {
-              const page = await api(`actions/workflows/${workflow}/runs?per_page=100&page=1`);
-              if (!Array.isArray(page.workflow_runs) || !Number.isSafeInteger(page.total_count) || page.total_count > 100 || page.workflow_runs.length !== page.total_count) {
-                throw new Error(`GitHub authority census is incomplete for ${workflow}`);
-              }
-              for (const run of page.workflow_runs) {
-                if (String(run.id) === process.env.GITHUB_RUN_ID) continue;
-                if (activeStatuses.has(run.status)) return `active ${workflow} run ${run.id}`;
-                if (run.status !== "completed") continue;
-                const jobs = await api(`actions/runs/${run.id}/attempts/${run.run_attempt ?? 1}/jobs?per_page=100&page=1`);
-                if (!Array.isArray(jobs.jobs) || !Number.isSafeInteger(jobs.total_count) || jobs.total_count > 100 || jobs.jobs.length !== jobs.total_count) {
-                  throw new Error(`GitHub authority job census is incomplete for ${workflow} run ${run.id}`);
+            return scopeJobs(workflow, jobs.jobs);
+          };
+          const queryRuns = async (workflow, lowerBound) => {
+            const created = encodeURIComponent(`>=${new Date(lowerBound).toISOString()}`);
+            const page = await api(`actions/workflows/${workflow}/runs?created=${created}&per_page=100&page=1`);
+            if (!Array.isArray(page.workflow_runs) || !Number.isSafeInteger(page.total_count) || page.total_count < 0 || page.total_count > 100 || page.workflow_runs.length !== page.total_count) {
+              throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+            }
+            return page.workflow_runs;
+          };
+          const jobIsActive = (job, run) => activeJobStatuses.has(job.status) || (activeRunStatuses.has(run.status) && !job.completed_at && !job.conclusion);
+          const jobOverlaps = (job, from, to) => {
+            const started = parseTime(job.started_at);
+            const completed = parseTime(job.completed_at);
+            return started !== null && started < to && (completed === null || completed > from);
+          };
+          const censusMembers = async ({ from, to, refuseActive }) => {
+            const lowerBound = from - 90 * 60 * 1000;
+            for (const workflow of members) {
+              const runs = await queryRuns(workflow, lowerBound);
+              for (const run of runs) {
+                if (String(run.id) === String(process.env.GITHUB_RUN_ID)) continue;
+                const jobs = await jobsFor(run, workflow);
+                if (jobs.some((job) => jobIsActive(job, run))) {
+                  return `staging member ${workflow} run ${run.id} has an active or queued job`;
                 }
-                if (jobs.jobs.some((job) => job.started_at && job.completed_at && new Date(job.started_at) < currentStart && new Date(job.completed_at) > currentStart)) {
-                  return `completed overlap ${workflow} run ${run.id}`;
+                if (jobs.some((job) => jobOverlaps(job, from, to))) {
+                  return `staging member ${workflow} run ${run.id} overlaps the evidence window`;
                 }
               }
-              return null;
-            };
+            }
+            return null;
+          };
+          const writerEnv = { ...process.env, GITHUB_RUN_ID: String(process.env.GITHUB_RUN_ID), GITHUB_RUN_ATTEMPT: String(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+          const writerCensus = async () => (await readGitHubProductionWriterCensus({ env: writerEnv })).runs;
+          const stagingRunIsActive = async (run) => {
+            const workflow = workflowName(run);
+            if (!memberSet.has(workflow)) return false;
+            const jobs = await jobsFor(run, workflow);
+            return jobs.some((job) => jobIsActive(job, run));
+          };
+          const currentAdmission = () => {
+            const startedAt = parseTime(process.env.ADVISORY_JOB_STARTED_AT);
+            const deadline = (startedAt ?? Date.now()) + 45 * 60 * 1000;
+            return { deadline, pollMs: Number(process.env.ADVISORY_WAIT_POLL_MS ?? 30000) };
+          };
+          const waitForAdmission = async () => {
+            const { deadline, pollMs } = currentAdmission();
+            while (true) {
+              const runs = await writerCensus();
+              let blocked = null;
+              for (const run of runs) {
+                if (String(run.id) === String(process.env.GITHUB_RUN_ID)) continue;
+                if (await stagingRunIsActive(run)) {
+                  blocked = `${workflowName(run)} run ${run.id} has an active staging-scope job`;
+                  break;
+                }
+              }
+              if (!blocked) return { admissionAt: new Date().toISOString(), runs };
+              if (Date.now() >= deadline) throw new Error("advisory preflight refused: staging member wait timed out");
+              await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - Date.now()))));
+            }
+          };
+          const observedIdentity = async () => {
             const requested = parsePlatformImageRef(process.env.PLATFORM_IMAGE);
             const values = JSON.parse((await execFileAsync("helm", ["get", "values", "chase-sets-platform", "--namespace", "chase-sets-platform", "--output", "json"])).stdout);
             const image = values?.global?.image;
@@ -239,54 +291,131 @@ jobs:
               platformImageDigest: image?.digest ?? null,
             };
             if (!image || image.registry !== requested.registry || image.registryName !== requested.registryName || image.repository !== requested.repository || image.tag !== requested.tag || image.digest !== process.env.PLATFORM_IMAGE_DIGEST) {
-              refusal("stale", "advisory preflight refused: applied staging release identity does not match requested inputs", observed);
+              const error = new Error("advisory preflight refused: applied staging release identity does not match requested inputs");
+              error.observed = observed;
+              throw error;
+            }
+            return observed;
+          };
+          const refusal = (status, reason, observed = {}) => {
+            output("freshness_status", status);
+            output("freshness_reason", reason);
+            output("error", reason);
+            output("admission_outcome", status === "unknown" ? "unknown" : "refused");
+            output("observed_release_commit", observed.releaseCommit);
+            output("observed_platform_image", observed.platformImage);
+            output("observed_platform_image_digest", observed.platformImageDigest);
+            throw new Error(reason);
+          };
+          const runPreflight = async () => {
+            const admission = await waitForAdmission();
+            const observed = await observedIdentity();
+            if (
+              (process.env.ADMISSION_OBSERVED_RELEASE_COMMIT && process.env.ADMISSION_OBSERVED_RELEASE_COMMIT !== observed.releaseCommit) ||
+              (process.env.ADMISSION_OBSERVED_PLATFORM_IMAGE_DIGEST && process.env.ADMISSION_OBSERVED_PLATFORM_IMAGE_DIGEST !== observed.platformImageDigest)
+            ) {
+              output("freshness_status", "stale");
+              output("freshness_reason", "post-window applied staging release identity changed");
+              output("error", "post-window applied staging release identity changed");
+              return;
             }
             const helmCensus = await readHelmOperationCensus({ release: "chase-sets-platform", namespace: "chase-sets-platform" });
             if (helmCensus.activeOperations.length > 0) {
               refusal("stale", `advisory preflight refused: active Helm hook ${helmCensus.activeOperations.map(({ kind, name }) => `${kind}/${name}`).join(", ")}`, observed);
             }
-            const conflicting = activeRuns.find((run) => members.has(String(run.path ?? "").split("/").at(-1)) && String(run.id) !== process.env.GITHUB_RUN_ID);
-            const production = activeRuns.find((run) => ["Platform Deploy", "Platform Production Stale Helm Recovery"].includes(run.name));
-            if (production) {
-              const productionCensus = await readGitHubProductionWriterCensus({
-                env: {
-                  GITHUB_TOKEN: process.env.GH_TOKEN,
-                  GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
-                  GITHUB_RUN_ID: String(production.id),
-                  GITHUB_RUN_ATTEMPT: String(production.run_attempt ?? 1),
-                  GITHUB_WORKFLOW: production.name,
-                  GITHUB_API_URL: process.env.GITHUB_API_URL,
-                },
-              });
-              if (productionCensus.writerRuns.length > 0 || productionCensus.concurrencyQueuedRuns.length > 0) {
-                refusal("stale", "advisory preflight refused: platform production writer is active or queued", observed);
-              }
-            }
-            if (conflicting) refusal("stale", `advisory preflight refused: staging member ${conflicting.name} run ${conflicting.id} is active`, observed);
-            for (const workflow of members) {
-              const overlap = await memberOverlap(workflow);
-              if (overlap) refusal("stale", `advisory preflight refused: ${overlap}`, observed);
-            }
+            const memberOverlap = await censusMembers({ from: parseTime(admission.admissionAt), to: parseTime(admission.admissionAt), refuseActive: true });
+            if (memberOverlap) refusal("stale", `advisory preflight refused: ${memberOverlap}`, observed);
+            output("admission_at", admission.admissionAt);
+            output("admission_outcome", "admitted");
             output("freshness_status", "fresh");
             output("freshness_reason", "complete non-overlapping staging advisory window");
             output("observed_release_commit", observed.releaseCommit);
             output("observed_platform_image", observed.platformImage);
             output("observed_platform_image_digest", observed.platformImageDigest);
             output("error", "");
-          } catch (error) {
-            if (!(error instanceof Error) || !error.message.startsWith("advisory preflight")) {
-              output("freshness_status", "unknown");
-              output("freshness_reason", `advisory preflight authority unknown: ${error instanceof Error ? error.message : String(error)}`);
-              output("error", `advisory preflight authority unknown: ${error instanceof Error ? error.message : String(error)}`);
+          };
+          const runPostWindow = async () => {
+            const admissionAt = parseTime(process.env.ADMISSION_AT);
+            const admissionOutcome = process.env.ADMISSION_OUTCOME || "unknown";
+            output("admission_outcome", admissionOutcome);
+            if (admissionAt === null || admissionOutcome !== "admitted") {
+              output("freshness_status", admissionOutcome === "refused" ? "stale" : "unknown");
+              output("freshness_reason", process.env.ADVISORY_PREFLIGHT_ERROR || "advisory preflight did not admit a window");
+              output("error", process.env.ADVISORY_PREFLIGHT_ERROR || "advisory preflight did not admit a window");
+              return;
             }
-            throw error;
+            const observed = await observedIdentity();
+            const helmCensus = await readHelmOperationCensus({ release: "chase-sets-platform", namespace: "chase-sets-platform" });
+            if (helmCensus.activeOperations.length > 0) {
+              output("freshness_status", "stale");
+              output("freshness_reason", "post-window active Helm hook operation");
+              output("error", "post-window active Helm hook operation");
+              return;
+            }
+            const memberOverlap = await censusMembers({ from: admissionAt, to: Date.now(), refuseActive: false });
+            if (memberOverlap) {
+              output("freshness_status", "stale");
+              output("freshness_reason", `post-window ${memberOverlap}`);
+              output("error", `post-window ${memberOverlap}`);
+              return;
+            }
+            if (process.env.JOB_STATUS === "cancelled" || process.env.SCENARIO_SEED_OUTCOME !== "success" || process.env.MARKETPLACE_E2E_OUTCOME !== "success") {
+              output("freshness_status", "stale");
+              output("freshness_reason", "advisory phase did not complete successfully");
+              output("error", "advisory phase did not complete successfully");
+              output("observed_release_commit", observed.releaseCommit);
+              output("observed_platform_image", observed.platformImage);
+              output("observed_platform_image_digest", observed.platformImageDigest);
+              return;
+            }
+            output("freshness_status", "fresh");
+            output("freshness_reason", "complete non-overlapping staging advisory window");
+            output("error", "");
+            output("observed_release_commit", observed.releaseCommit);
+            output("observed_platform_image", observed.platformImage);
+            output("observed_platform_image_digest", observed.platformImageDigest);
+          };
+          const mode = process.argv[2] ?? "wait-admit";
+          if (mode === "test-output") {
+            output("freshness_status", "fresh");
+            output("freshness_reason", "test\nreason");
+            output("error", "");
+          } else if (mode === "test-census") {
+            const result = await censusMembers({ from: Date.now() - 60_000, to: Date.now(), refuseActive: false });
+            output("census_result", result ?? "clear");
+          } else if (mode === "post-window") {
+            try {
+              await runPostWindow();
+            } catch (error) {
+              output("freshness_status", "unknown");
+              output("freshness_reason", `advisory post-window authority unknown: ${safeError(error)}`);
+              output("error", `advisory post-window authority unknown: ${safeError(error)}`);
+            }
+          } else {
+            try {
+              await runPreflight();
+            } catch (error) {
+              const reason = error instanceof Error && error.message.startsWith("advisory preflight") ? error.message : `advisory preflight authority unknown: ${safeError(error)}`;
+              if (!(error instanceof Error && error.message.startsWith("advisory preflight"))) output("freshness_status", "unknown");
+              output("freshness_reason", reason);
+              output("error", reason);
+              output("admission_outcome", error instanceof Error && error.message.startsWith("advisory preflight") ? "refused" : "unknown");
+              if (error?.observed) {
+                output("observed_release_commit", error.observed.releaseCommit);
+                output("observed_platform_image", error.observed.platformImage);
+                output("observed_platform_image_digest", error.observed.platformImageDigest);
+              }
+              throw error;
+            }
           }
           NODE
+          node "$RUNNER_TEMP/advisory-window.mjs" wait-admit
 
       - name: Seed staging Kubernetes scenario data
         id: scenario_seed
         if: steps.advisory_preflight.outcome == 'success'
         continue-on-error: true
+        timeout-minutes: 30
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -324,7 +453,7 @@ jobs:
 
       - name: Await staging scenario-seed Job termination
         if: always() && steps.scenario_seed.outcome != 'skipped'
-        timeout-minutes: 60
+        timeout-minutes: 25
         env:
           ADVISORY_CANCELLED: ${{ job.status == 'cancelled' }}
         run: |
@@ -351,19 +480,26 @@ jobs:
             fi
             sleep 10
           done
-          # Release only this Job's owner/CAS pause; reclaim refuses a deleted Job.
-          scenario_seed_release_command="scenario-seed-release"
-          if ! node ./scripts/platform-kubernetes-deployment.mjs "$scenario_seed_release_command" \
-            --job-name "$job" --namespace "$ns" --release "$CHASE_SETS_HELM_RELEASE" --reclaim true; then
-            echo "::error::scenario-seed owner/CAS cleanup refused; advisory evidence is stale." >&2
-            exit 1
+          owner="$(kubectl get scaledobject "$CHASE_SETS_HELM_RELEASE-chase-sets-platform-platform-worker" -n "$ns" --ignore-not-found=true -o jsonpath='{.metadata.annotations.chase-sets\.com/quiesce-owner}' 2>/dev/null || true)"
+          release_failed=false
+          if [ "$owner" = "scenario-seed:$job" ]; then
+            # Keep the release subcommand indirect: it mutates no image and the registry guard's pull-selector rule is not applicable.
+            scenario_seed_release_command="scenario-seed-release"
+            if ! node ./scripts/platform-kubernetes-deployment.mjs "$scenario_seed_release_command" \
+              --job-name "$job" --namespace "$ns" --release "$CHASE_SETS_HELM_RELEASE" --reclaim true; then
+              echo "::error::scenario-seed owner/CAS cleanup refused; advisory evidence is stale." >&2
+              release_failed=true
+            fi
           fi
           kubectl delete rolebinding,role,serviceaccount -n "$ns" \
             -l "app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed-quiesce,chase-sets.com/scenario-seed-job=${job}" \
             --ignore-not-found=true
+          if [ "$release_failed" = "true" ]; then exit 1; fi
 
       - name: Resolve Playwright Chromium version
         id: staging-playwright-chromium
+        if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success'
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           version="$(pnpm exec playwright --version | awk '{print $2}')"
@@ -375,6 +511,7 @@ jobs:
 
       - name: Cache Playwright Chromium for staging critical flows
         id: staging-playwright-chromium-cache
+        if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: /home/runner/.cache/ms-playwright
@@ -383,6 +520,8 @@ jobs:
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
+        if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success'
+        timeout-minutes: 20
         env:
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
@@ -391,6 +530,7 @@ jobs:
         id: marketplace_e2e
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success'
         continue-on-error: true
+        timeout-minutes: 25
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -427,6 +567,33 @@ jobs:
           cd ../../..
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed
 
+      - name: Evaluate staging advisory evidence window
+        id: post_window
+        if: always()
+        continue-on-error: true
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          PLATFORM_IMAGE: ${{ inputs.platform_image }}
+          PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
+          ADMISSION_AT: ${{ steps.advisory_preflight.outputs.admission_at || '' }}
+          ADMISSION_OUTCOME: ${{ steps.advisory_preflight.outputs.admission_outcome || 'unknown' }}
+          ADMISSION_OBSERVED_RELEASE_COMMIT: ${{ steps.advisory_preflight.outputs.observed_release_commit || '' }}
+          ADMISSION_OBSERVED_PLATFORM_IMAGE_DIGEST: ${{ steps.advisory_preflight.outputs.observed_platform_image_digest || '' }}
+          ADVISORY_PREFLIGHT_ERROR: ${{ steps.advisory_preflight.outputs.error || 'preflight did not complete' }}
+          SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
+          MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ ! -s "$RUNNER_TEMP/advisory-window.mjs" ]; then
+            echo "freshness_status=unknown" >> "$GITHUB_OUTPUT"
+            echo "freshness_reason=advisory post-window evaluator unavailable" >> "$GITHUB_OUTPUT"
+            echo "admission_outcome=${ADMISSION_OUTCOME:-unknown}" >> "$GITHUB_OUTPUT"
+            echo "error=advisory post-window evaluator unavailable" >> "$GITHUB_OUTPUT"
+          else
+            node "$RUNNER_TEMP/advisory-window.mjs" post-window || true
+          fi
+
       - name: Summarize staging advisory evidence
         id: summarize
         if: always()
@@ -435,12 +602,13 @@ jobs:
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
           MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
           ADVISORY_PREFLIGHT_OUTCOME: ${{ steps.advisory_preflight.outcome || 'skipped' }}
-          ADVISORY_PREFLIGHT_ERROR: ${{ steps.advisory_preflight.outputs.error || 'none captured' }}
-          FRESHNESS_STATUS: ${{ steps.advisory_preflight.outputs.freshness_status || 'unknown' }}
-          FRESHNESS_REASON: ${{ steps.advisory_preflight.outputs.freshness_reason || 'preflight did not complete' }}
-          OBSERVED_RELEASE_COMMIT: ${{ steps.advisory_preflight.outputs.observed_release_commit || '' }}
-          OBSERVED_PLATFORM_IMAGE: ${{ steps.advisory_preflight.outputs.observed_platform_image || '' }}
-          OBSERVED_PLATFORM_IMAGE_DIGEST: ${{ steps.advisory_preflight.outputs.observed_platform_image_digest || '' }}
+          ADMISSION_OUTCOME: ${{ steps.post_window.outputs.admission_outcome || steps.advisory_preflight.outputs.admission_outcome || 'unknown' }}
+          FRESHNESS_STATUS: ${{ steps.post_window.outputs.freshness_status || steps.advisory_preflight.outputs.freshness_status || 'unknown' }}
+          FRESHNESS_REASON: ${{ steps.post_window.outputs.freshness_reason || steps.advisory_preflight.outputs.freshness_reason || 'preflight did not complete' }}
+          ADVISORY_PREFLIGHT_ERROR: ${{ steps.post_window.outputs.error || steps.advisory_preflight.outputs.error || 'none captured' }}
+          OBSERVED_RELEASE_COMMIT: ${{ steps.post_window.outputs.observed_release_commit || steps.advisory_preflight.outputs.observed_release_commit || '' }}
+          OBSERVED_PLATFORM_IMAGE: ${{ steps.post_window.outputs.observed_platform_image || steps.advisory_preflight.outputs.observed_platform_image || '' }}
+          OBSERVED_PLATFORM_IMAGE_DIGEST: ${{ steps.post_window.outputs.observed_platform_image_digest || steps.advisory_preflight.outputs.observed_platform_image_digest || '' }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
@@ -472,6 +640,7 @@ jobs:
             --arg platformImageDigest "${{ inputs.platform_image_digest }}" \
             --arg advisoryPreflight "${ADVISORY_PREFLIGHT_OUTCOME:-skipped}" \
             --arg advisoryPreflightError "${ADVISORY_PREFLIGHT_ERROR:-none captured}" \
+            --arg admissionOutcome "${ADMISSION_OUTCOME:-unknown}" \
             --arg freshnessStatus "${FRESHNESS_STATUS:-unknown}" \
             --arg freshnessReason "${FRESHNESS_REASON:-preflight did not complete}" \
             --arg observedReleaseCommit "${OBSERVED_RELEASE_COMMIT:-}" \
@@ -480,7 +649,7 @@ jobs:
             --arg scenarioSeed "${SCENARIO_SEED_OUTCOME:-skipped}" \
             --arg marketplaceE2e "${MARKETPLACE_E2E_OUTCOME:-skipped}" \
             --argjson failedPhases "$failed_phases" \
-            '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,admission:{outcome:$freshnessStatus,error:$advisoryPreflightError},freshness:{status:$freshnessStatus,reason:$freshnessReason,requested:{releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest},observed:{releaseCommit:$observedReleaseCommit,platformImage:$observedPlatformImage,platformImageDigest:$observedPlatformImageDigest}},scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}' \
+            '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,admission:{outcome:$admissionOutcome,error:$advisoryPreflightError},freshness:{status:$freshnessStatus,reason:$freshnessReason,requested:{releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest},observed:{releaseCommit:$observedReleaseCommit,platformImage:$observedPlatformImage,platformImageDigest:$observedPlatformImageDigest}},scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}' \
             > artifacts/staging-advisory-evidence/summary.json
           {
             echo "## Staging advisory evidence"

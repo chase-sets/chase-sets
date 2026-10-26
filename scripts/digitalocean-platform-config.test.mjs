@@ -187,6 +187,52 @@ function operatorGuard(run, name) {
   return run.slice(start, end + 2);
 }
 
+function extractAdvisoryEvaluator() {
+  const block = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Configure staging Kubernetes context");
+  const match = String(block).match(/cat > \"\$RUNNER_TEMP\/advisory-window\.mjs\" <<'NODE'\n([\s\S]*?)\n\s*NODE/);
+  if (!match) throw new Error("Missing advisory evaluator heredoc");
+  return match[1]
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/, ""))
+    .join("\n");
+}
+
+function executeAdvisoryEvaluator(mode, overrides = {}, fixture = null) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-evaluator-"));
+  const script = join(root, "advisory-window.mjs");
+  const output = join(root, "output");
+  let evaluator = extractAdvisoryEvaluator();
+  if (fixture) {
+    const apiStart = evaluator.indexOf("const api = async (path) => {");
+    const apiEnd = evaluator.indexOf("const jobsFor", apiStart);
+    const api = `const api = async (path) => {\n  const fixture = ${JSON.stringify(fixture)};\n  const workflowMatch = path.match(/^actions\\/workflows\\/([^/]+)\\/runs/);\n  if (workflowMatch) { const runs = fixture.runs?.[workflowMatch[1]] ?? []; return { total_count: fixture.totals?.[workflowMatch[1]] ?? runs.length, workflow_runs: runs }; }\n  const jobsMatch = path.match(/^actions\\/runs\\/(\\d+)\\/attempts\\/\\d+\\/jobs/);\n  if (jobsMatch) { const jobs = fixture.jobs?.[jobsMatch[1]] ?? []; return { total_count: jobs.length, jobs }; }\n  return { workflow_runs: [], total_count: 0 };\n};\n`;
+    evaluator = evaluator.slice(0, apiStart) + api + evaluator.slice(apiEnd);
+  }
+  writeFileSync(script, evaluator);
+  try {
+    const result = spawnSync(process.execPath, [script, mode], {
+      cwd: resolve("."),
+      env: {
+        ...process.env,
+        GITHUB_WORKSPACE: resolve("."),
+        GITHUB_API_URL: "https://api.github.com",
+        GITHUB_REPOSITORY: "synthetic/chase-sets",
+        GITHUB_RUN_ID: "999",
+        GITHUB_RUN_ATTEMPT: "1",
+        GITHUB_OUTPUT: output,
+        GH_TOKEN: "synthetic-token",
+        PLATFORM_IMAGE: "registry.digitalocean.com/chase-sets/chase-sets-platform:" + "a".repeat(40),
+        PLATFORM_IMAGE_DIGEST: "sha256:" + "b".repeat(64),
+        ...overrides,
+      },
+      encoding: "utf8",
+    });
+    return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "" };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("operator inputs before shell parsing (#8993)", () => {
   it("reproduces the frozen Compose line-oriented guard bypass without provider effects", () => {
     const block = operatorBlocks.find((entry) => entry.file === "platform-compose-boot-smoke.yml");
@@ -4768,6 +4814,39 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow.indexOf("- name: Staging Stripe money smoke")).toBeLessThan(
       markStagingDeployedIndex,
     );
+  });
+
+  it("executes the advisory output writer and preserves bounded census controls", () => {
+    const baseline = executeAdvisoryEvaluator("test-output");
+    expect(baseline.status, baseline.stderr).toBe(0);
+    const records = baseline.evidence.trimEnd().split("\n");
+    expect(records).toEqual(["freshness_status=fresh", "freshness_reason=test reason", "error="]);
+    expect(records.every((record) => /^[^=]+=.*$/.test(record))).toBe(true);
+
+    const emptyRuns = Object.fromEntries([
+      "platform-preview-wildcard-tls.yml",
+      "platform-production.yml",
+      "platform-staging-admin-qa-actor-fixtures.yml",
+      "platform-staging-bootstrap-hook-drill.yml",
+      "platform-staging-cluster-addons.yml",
+      "platform-staging-evidence-window.yml",
+      "platform-staging-helm-recovery.yml",
+      "platform-staging-representative-commerce-state.yml",
+      "platform-staging-reset.yml",
+      "platform-staging-rollback-drill.yml",
+    ].map((workflow) => [workflow, []]));
+    const historical = executeAdvisoryEvaluator("test-census", {}, { runs: emptyRuns, totals: { "platform-production.yml": 0 } });
+    expect(historical.status, historical.stderr).toBe(0);
+    expect(historical.evidence).toContain("census_result=clear");
+
+    const capped = { ...emptyRuns, "platform-production.yml": Array.from({ length: 101 }, (_, index) => ({ id: index + 1 })) };
+    const overCap = executeAdvisoryEvaluator("test-census", {}, { runs: capped, totals: { "platform-production.yml": 101 } });
+    expect(overCap.status).not.toBe(0);
+    expect(`${overCap.stdout}${overCap.stderr}`).toContain("incomplete for platform-production.yml");
+
+    const evaluator = extractAdvisoryEvaluator();
+    const newlineMutant = evaluator.replace("replaceAll(/[\\r\\n]+/g", "replaceAll(/$^/g");
+    expect(() => expect(newlineMutant).toContain("replaceAll(/[\\r\\n]+/g")).toThrow();
   });
 
   it("carries the scenario seed bootstrap error into the advisory step summary and incident comment", () => {
