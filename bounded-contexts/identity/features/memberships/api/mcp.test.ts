@@ -79,16 +79,29 @@ describe("identity membership MCP handlers", () => {
   it("MCP source-call contract coverage: memberships preserve read predicates", async () => {
     const f = services();
     const listMemberships = vi.fn(async () => ({ items: [membership], total: 1 }));
-    const handlers = createMembershipMcpHandlers({ ...f.services, listMemberships } as never, f.accounts as never).toolHandlers;
-    await expect(handlers["identity.list-memberships"]!(request({ search: "platform-admin", limit: 3 }))).resolves.toMatchObject({
+    const handlers = createMembershipMcpHandlers(
+      { ...f.services, listMemberships } as never,
+      f.accounts as never,
+    ).toolHandlers;
+    await expect(
+      handlers["identity.list-memberships"]!(request({ search: "platform-admin", limit: 3 })),
+    ).resolves.toMatchObject({
       total: 1,
     });
     expect(listMemberships).toHaveBeenCalledWith({ search: "acc_1", status: undefined, limit: 3, offset: undefined });
     f.getMembership.mockResolvedValueOnce({ ...membership, account_id: "acc_other", role_key: "platform-admin" });
-    await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }))).rejects.toThrow("cannot view");
-    const platformActor = { ...actor, roleKey: "platform-admin", permissions: ["memberships.view", "memberships.manage"] } as ResolvedActor;
+    await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }))).rejects.toThrow(
+      "cannot view",
+    );
+    const platformActor = {
+      ...actor,
+      roleKey: "platform-admin",
+      permissions: ["memberships.view", "memberships.manage"],
+    } as ResolvedActor;
     f.getMembership.mockResolvedValueOnce({ ...membership, account_id: "acc_other", role_key: "platform-admin" });
-    await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }, platformActor))).resolves.toMatchObject({
+    await expect(
+      handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }, platformActor)),
+    ).resolves.toMatchObject({
       role_key: "platform-admin",
     });
   });

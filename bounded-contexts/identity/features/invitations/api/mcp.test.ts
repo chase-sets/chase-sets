@@ -96,14 +96,23 @@ describe("identity invitation MCP handlers", () => {
       ),
     ).rejects.toThrow("invitation was saved");
     expect(events).toEqual(["commit", "delivery"]);
-    expect(requestInvitationAcceptanceLink).toHaveBeenCalledWith(expect.any(Request), expect.stringMatching(/^ivt_/), expect.anything());
+    expect(requestInvitationAcceptanceLink).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.stringMatching(/^ivt_/),
+      expect.anything(),
+    );
   });
 
   it("MCP source-call contract coverage: invitations map reads and delivery", async () => {
     const f = services();
     const listInvitations = vi.fn(async () => ({ items: [invitation], total: 1 }));
-    const handlers = createInvitationMcpHandlers({ ...f.services, listInvitations } as never, f.accounts as never).toolHandlers;
-    await expect(handlers["identity.list-invitations"]!(request({ status: "pending", limit: 10, offset: 2 }))).resolves.toEqual({
+    const handlers = createInvitationMcpHandlers(
+      { ...f.services, listInvitations } as never,
+      f.accounts as never,
+    ).toolHandlers;
+    await expect(
+      handlers["identity.list-invitations"]!(request({ status: "pending", limit: 10, offset: 2 })),
+    ).resolves.toEqual({
       items: [invitation],
       total: 1,
       count: 1,
