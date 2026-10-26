@@ -61,13 +61,15 @@ See [DigitalOcean load balancer configuration](https://docs.digitalocean.com/pro
 
 ## Query-Free Serving Logs
 
-Ingress and the maintenance default backend use pathname-only access formats:
+The ingress controller uses pathname-only access formats:
 request method, URI pathname, status, timing and bounded upstream/request IDs are
 retained, while request arguments and referrers are excluded. Ingress request-scoped
-error output and the maintenance backend error log are discarded with
-`error-log-path: /dev/null` and `error_log /dev/null`; access fields and controller
-logs continue to classify failures. Re-enabling either error stream or adding a
-query-bearing token requires a new security decision.
+error output is discarded with `error-log-path: /dev/null`; access fields and
+controller logs continue to classify failures. The maintenance default backend is
+not part of the current chart; any future restoration is restoration-owned and
+must define a pathname-only access format and `error_log /dev/null` before
+reintroduction. Re-enabling the controller error stream or adding a query-bearing
+token requires a new security decision.
 
 ## Rendering
 
