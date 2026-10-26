@@ -19,7 +19,14 @@ import {
   type ListingEnforcementActionId,
 } from "@chase-sets/primitives/typed-ids";
 import { module as platformOperationsModule } from "../../../index";
-import { APPEALABLE_ACTION_INDETERMINATE, readAppealableEnforcementAction } from "../read-model/projection";
+import {
+  ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES,
+  ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS,
+  ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS,
+  APPEALABLE_ACTION_INDETERMINATE,
+  buildAccountAppealProjectionHandlers,
+  readAppealableEnforcementAction,
+} from "../read-model/projection";
 import { accountAppealSchemaMigrations } from "../read-model/schema";
 import { createAccountAppealRuntime } from "../api/runtime";
 import { withAccountAppealOperatorAccess, withAccountAppealSellerAccess } from "../api/access";
@@ -135,6 +142,10 @@ describeDb("account appeal aggregate DB proof", () => {
     return Object.assign({}, ...subscriptions.map((subscription) => subscription.handlers)) as ProjectorHandlerMap;
   }
 
+  function appealProjectionHandlers(): ProjectorHandlerMap {
+    return buildAccountAppealProjectionHandlers(pool);
+  }
+
   /** One projection transaction per event, committed on success and rolled back on a thrown error. */
   async function deliver(delivery: Delivery, auditAccountId?: string): Promise<void> {
     const event = toEvent(delivery, auditAccountId);
@@ -151,6 +162,37 @@ describeDb("account appeal aggregate DB proof", () => {
     } finally {
       scoped.release();
     }
+  }
+
+  async function deliverAppeal(delivery: Delivery): Promise<void> {
+    const event = toEvent(delivery);
+    const handler = (appealProjectionHandlers() as Readonly<Record<string, ProjectorHandler | undefined>>)[event.type];
+    if (!handler) throw new Error(`No registered appeal handler for ${event.type}`);
+    const scoped = await pool.connect();
+    try {
+      await scoped.query("BEGIN");
+      await handler(event, { db: scoped });
+      await scoped.query("COMMIT");
+    } catch (error) {
+      await scoped.query("ROLLBACK");
+      throw error;
+    } finally {
+      scoped.release();
+    }
+  }
+
+  function appealDelivery(
+    appealId: string,
+    streamVersion: number,
+    type: (typeof ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES)[number],
+    data: Record<string, unknown> = {},
+  ): Delivery {
+    return {
+      type,
+      streamId: `platform-operations.account-appeal-${appealId}`,
+      streamVersion,
+      data,
+    };
   }
 
   function read(appealableActionId: string, ownerAccountId: string) {
@@ -194,6 +236,120 @@ describeDb("account appeal aggregate DB proof", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  describe("event-only seller and operator projections (R3)", () => {
+    it("fresh boot applies the four private events and replay leaves both rows byte-identical", async () => {
+      const appealId = createId("apl");
+      const accountId = createId("acc");
+      const actionId = createId("enf");
+      const tenantId = createId("tnt");
+      const filedByUserId = createId("usr");
+      const operatorUserId = createId("usr");
+      const history = [
+        appealDelivery(appealId, 1, "platform-operations.account-appeal.filed", {
+          appealId,
+          tenantId,
+          accountId,
+          action: {
+            appealableActionId: actionId,
+            ownerAccountId: accountId,
+            source: "identity.account.closed",
+            sourceStreamId: `identity.account-${accountId}`,
+            sourceStreamVersion: 2,
+          },
+          statement: "The closure was mistaken",
+          filedByUserId,
+        }),
+        appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"),
+        appealDelivery(appealId, 3, "platform-operations.account-appeal.outcome-recorded", {
+          outcome: "reversed",
+          rationale: "Evidence changed",
+          note: "Internal review note",
+          operatorUserId,
+        }),
+      ];
+      for (const event of history) await deliverAppeal(event);
+
+      const before = await Promise.all([
+        pool.query(
+          `SELECT appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+                  appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+                  filed_by_user_id, status, outcome, rationale, stream_version
+             FROM platform_operations_account_appeal_seller_history WHERE appeal_id=$1`,
+          [appealId],
+        ),
+        pool.query(
+          `SELECT appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+                  appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+                  filed_by_user_id, status, outcome, rationale, stream_version, note, operator_user_id
+             FROM platform_operations_account_appeal_operator_history WHERE appeal_id=$1`,
+          [appealId],
+        ),
+      ]);
+      expect(before[0]?.rows[0]).toMatchObject({ status: "reversed", outcome: "reversed", stream_version: 3 });
+      expect(before[0]?.rows[0]).not.toHaveProperty("note");
+      expect(before[0]?.rows[0]).not.toHaveProperty("operator_user_id");
+      expect(before[1]?.rows[0]).toMatchObject({
+        status: "reversed",
+        outcome: "reversed",
+        rationale: "Evidence changed",
+        note: "Internal review note",
+        operator_user_id: operatorUserId,
+        stream_version: 3,
+      });
+
+      for (const event of history) await deliverAppeal(event);
+      const after = await Promise.all([
+        pool.query("SELECT * FROM platform_operations_account_appeal_seller_history WHERE appeal_id=$1", [appealId]),
+        pool.query("SELECT * FROM platform_operations_account_appeal_operator_history WHERE appeal_id=$1", [appealId]),
+      ]);
+      expect(after.map((result) => result.rows)).toEqual(before.map((result) => result.rows));
+    });
+
+    it("enforces the seller allowlist and rejects missing or skipped stream versions", async () => {
+      const columns = await pool.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='platform_operations_account_appeal_seller_history'
+          ORDER BY ordinal_position`,
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([...ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS]);
+      const operatorColumns = await pool.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='platform_operations_account_appeal_operator_history'
+          ORDER BY ordinal_position`,
+      );
+      expect(operatorColumns.rows.map((row) => row.column_name)).toEqual([...ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS]);
+
+      const appealId = createId("apl");
+      await expect(
+        deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started")),
+      ).rejects.toThrow("version gap");
+      await deliverAppeal(
+        appealDelivery(appealId, 1, "platform-operations.account-appeal.filed", {
+          appealId,
+          tenantId: createId("tnt"),
+          accountId: createId("acc"),
+          action: {
+            appealableActionId: createId("enf"),
+            ownerAccountId: createId("acc"),
+            source: "identity.account.closed",
+            sourceStreamId: "identity.account-placeholder",
+            sourceStreamVersion: 1,
+          },
+          statement: "Statement",
+          filedByUserId: createId("usr"),
+        }),
+      );
+      await expect(
+        deliverAppeal(appealDelivery(appealId, 3, "platform-operations.account-appeal.review-started")),
+      ).rejects.toThrow("version gap");
+      await deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"));
+      await deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"));
+      expect(
+        (await pool.query("SELECT stream_version,status FROM platform_operations_account_appeal_seller_history")).rows,
+      ).toEqual([{ stream_version: 2, status: "in-review" }]);
+    });
   });
 
   describe("registry (R1)", () => {
@@ -497,6 +653,36 @@ describeDb("account appeal aggregate DB proof", () => {
         operatorUserId: operator.userId,
       });
       expect(stored.rows[2]).toMatchObject({ performed_by_user_id: operator.userId, for_account_id: owner });
+
+      // The production runtime is the event producer; the projection consumes its stored events,
+      // proving this is event-only rather than a route-side read-model write.
+      const runtimeEvents = await pool.query<{
+        event_type: string;
+        payload: Record<string, unknown>;
+        stream_version: number;
+      }>(
+        `SELECT event_type, payload, stream_version
+           FROM event_store_events
+          WHERE stream_id = $1
+          ORDER BY stream_version`,
+        [`platform-operations.account-appeal-${enforcementActionId}`],
+      );
+      for (const row of runtimeEvents.rows) {
+        await deliverAppeal({
+          type: row.event_type,
+          streamId: `platform-operations.account-appeal-${enforcementActionId}`,
+          streamVersion: row.stream_version,
+          data: row.payload,
+        });
+      }
+      expect(
+        (await pool.query(
+          `SELECT status, outcome, rationale, stream_version
+             FROM platform_operations_account_appeal_seller_history
+            WHERE appeal_id = (SELECT payload->>'appealId' FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version LIMIT 1)`,
+          [`platform-operations.account-appeal-${enforcementActionId}`],
+        )).rows,
+      ).toMatchObject([{ status: "reversed", outcome: "reversed", rationale: "Evidence changed", stream_version: 3 }]);
     });
 
     it("concurrent distinct outcomes produce one terminal winner and one conflict", async () => {

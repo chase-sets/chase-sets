@@ -16,6 +16,13 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const PROJECTION = "account-appeal-interest-projection";
+const APPEAL_PROJECTION = "account-appeal-projection";
+const APPEAL_EVENTS = [
+  "platform-operations.account-appeal.filed",
+  "platform-operations.account-appeal.review-started",
+  "platform-operations.account-appeal.outcome-recorded",
+  "platform-operations.account-appeal.withdrawn",
+] as const;
 const SOURCES = [
   ["identity", ["identity.account.suspended", "identity.account.reactivated", "identity.account.closed"]],
   ["marketplace", ["marketplace.listing.operator-unlisted", "marketplace.listing.auto-unlisted"]],
@@ -50,6 +57,30 @@ describe("account appeal registry worker interest", () => {
           woken.filter((key) => key !== `platform-operations:${PROJECTION}`).sort(),
         );
       }
+    }
+  });
+});
+
+describe("account appeal lifecycle worker interest", () => {
+  it("wakes the same-context replay projection for every private lifecycle event", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = interestIndex(runtime);
+    const runner = runtime.subscriptionRunners.find(
+      (entry) => entry.sourceContextName === "platform-operations" && entry.projectionName === APPEAL_PROJECTION,
+    );
+    expect(runner).toMatchObject({
+      targetContextName: "platform-operations",
+      checkpointKey: `${APPEAL_PROJECTION}:platform-operations:v1`,
+      streamPrefixes: undefined,
+    });
+    expect([...(runner?.eventTypes ?? [])].sort()).toEqual([...APPEAL_EVENTS].sort());
+    for (const eventType of APPEAL_EVENTS) {
+      expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+      expect(
+        lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType }).map(
+          (entry) => `${entry.targetContextName}:${entry.projectionName}`,
+        ),
+      ).toContain(`platform-operations:${APPEAL_PROJECTION}`);
     }
   });
 });
