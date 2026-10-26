@@ -526,6 +526,9 @@ describe("item detail buy now checkout actions", () => {
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
         market_listings: [activeListing()],
+        market_products: [
+          { product_id: "cat_charizard::form:raw", lowest_listing_id: "lst_charizard", best_offer_id: null },
+        ],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -591,6 +594,63 @@ describe("item detail buy now checkout actions", () => {
     expect(secondResponse.status).toBe(302);
     expect(firstEntryAttemptKey).toBe(PRESENTED_ENTRY_KEY);
     expect(mockCreateCheckoutSession.mock.calls[1]?.[0]?.entryAttemptKey).toBe(firstEntryAttemptKey);
+  });
+
+  it("locks the product choice from the Discovery market product rows when no listing is posted", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: [],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [],
+        market_products: [
+          {
+            product_id: "cat_charizard::form:raw",
+            lowest_listing_id: "lst_outside_window",
+            best_offer_id: null,
+          },
+        ],
+        market_product_listings: [activeListing({ listing_id: "lst_outside_window" })],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue(
+        commandResult({ session_id: "chk_product_choice" }),
+      ),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "buy-this-listing");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
+      source: expect.objectContaining({
+        listingId: "lst_outside_window",
+        productId: "cat_charizard::form:raw",
+        lockedListingId: "lst_outside_window",
+      }),
+    });
+    expectFreshWriteRedirect(response, "/checkout/buy/session/chk_product_choice");
   });
 
   it("adds selected products to the checkout cart without creating a session", async () => {
@@ -1526,6 +1586,9 @@ describe("item detail buy now checkout actions", () => {
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
         market_listings: [activeListing()],
+        market_products: [
+          { product_id: "cat_charizard::form:raw", lowest_listing_id: "lst_charizard", best_offer_id: null },
+        ],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1643,6 +1706,9 @@ describe("item detail buy now checkout actions", () => {
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
         market_listings: [activeListing()],
+        market_products: [
+          { product_id: "cat_charizard::form:raw", lowest_listing_id: "lst_charizard", best_offer_id: null },
+        ],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});

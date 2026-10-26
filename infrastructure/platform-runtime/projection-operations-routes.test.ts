@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createProjectionOperationsRoutes } from "./projection-operations-routes";
+import {
+  createProjectionOperationsRoutes,
+  type ProjectionOperationsRouteOptions,
+} from "./projection-operations-routes";
 import type { ResolvedActor } from "./auth";
 import type { ApiHostRuntime } from "./api";
 import type { PlatformControlPlane, ProjectionOperationKind, ProjectionOperationRecord } from "./control-plane";
@@ -18,14 +21,26 @@ const platformActor = {
 function createRouteApp(
   actor: ResolvedActor | null,
   runtime: ApiHostRuntime = createRuntime(),
-  options: Parameters<typeof createProjectionOperationsRoutes>[1] = {},
+  options: Partial<ProjectionOperationsRouteOptions> = {},
 ) {
   const app = new Hono<{ Variables: { actor: ResolvedActor | null } }>();
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     await next();
   });
-  app.route("/", createProjectionOperationsRoutes(runtime, options));
+  app.route(
+    "/",
+    createProjectionOperationsRoutes(runtime, {
+      deriveProjectionTriage: vi.fn(() => ({
+        attentionItems: [],
+        repairQueue: [],
+        activeWorkerCount: 0,
+        staleWorkerCount: 0,
+      })),
+      deriveWakeAttentionItems: vi.fn(() => []),
+      ...options,
+    }),
+  );
   return app;
 }
 
@@ -193,6 +208,188 @@ describe("projection operations routes", () => {
     const response = await app.request("/");
 
     expect(response.status).toBe(403);
+  });
+
+  it.each([
+    { actor: null, status: 401 },
+    { actor: { ...platformActor, permissions: ["catalog.view"] }, status: 403 },
+  ])("does not invoke either deriver before the $status actor guard", async ({ actor, status }) => {
+    const deriveProjectionTriage = vi.fn<ProjectionOperationsRouteOptions["deriveProjectionTriage"]>(() => ({
+      attentionItems: [],
+      repairQueue: [],
+      activeWorkerCount: 0,
+      staleWorkerCount: 0,
+    }));
+    const deriveWakeAttentionItems = vi.fn<ProjectionOperationsRouteOptions["deriveWakeAttentionItems"]>(() => []);
+    const app = createRouteApp(actor, createRuntime(), { deriveProjectionTriage, deriveWakeAttentionItems });
+
+    expect((await app.request("/")).status).toBe(status);
+    expect((await app.request("/wake-status")).status).toBe(status);
+    expect(deriveProjectionTriage).not.toHaveBeenCalled();
+    expect(deriveWakeAttentionItems).not.toHaveBeenCalled();
+  });
+
+  it("forwards the exact composed projection body to its deriver and returns its fields", async () => {
+    const triage = {
+      attentionItems: [{ id: "synthetic-attention" }],
+      repairQueue: [{ targetId: "synthetic-repair" }],
+      activeWorkerCount: 7,
+      staleWorkerCount: 3,
+    };
+    const deriveProjectionTriage = vi.fn<ProjectionOperationsRouteOptions["deriveProjectionTriage"]>(() => triage);
+    const app = createRouteApp(platformActor, createRuntime(), {
+      controlPlane: createControlPlane(),
+      deriveProjectionTriage,
+    });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+    expect(deriveProjectionTriage).toHaveBeenCalledTimes(1);
+    const [body] = deriveProjectionTriage.mock.calls[0] ?? [];
+    expect(body).toEqual({
+      summary: {
+        status: "ok",
+        totalGroups: 0,
+        caughtUpGroups: 0,
+        behindGroups: 0,
+        staleGroups: 0,
+        runningGroups: 0,
+        errorGroups: 0,
+        outstandingEventCount: "0",
+        contexts: [],
+        initializedGroups: 0,
+        requiredGroups: 0,
+      },
+      projectionGroups: [],
+      blockedProjections: [],
+      projectionStatusSource: "runtime-memory",
+      workers: [],
+      workerHeartbeatHistory: expect.any(Object),
+      runners: [],
+      operations: [],
+      operationSummary: expect.any(Object),
+    });
+    const { attentionItems, repairQueue, activeWorkerCount, staleWorkerCount, ...rawBody } = await response.json();
+    expect(rawBody).toEqual(body);
+    expect({ attentionItems, repairQueue, activeWorkerCount, staleWorkerCount }).toEqual(triage);
+  });
+
+  it.each(["enabled", "disabled", "unavailable"] as const)(
+    "forwards the exact %s wake body to its deriver and returns its fields",
+    async (state) => {
+      const attentionItems = [{ id: "synthetic-wake-attention" }];
+      const deriveWakeAttentionItems = vi.fn<ProjectionOperationsRouteOptions["deriveWakeAttentionItems"]>(
+        () => attentionItems,
+      );
+      const workSignalStore: ProjectionOperationsRouteOptions["workSignalStore"] =
+        state === "unavailable"
+          ? undefined
+          : {
+              summarizeProjectionWakeIntents: vi.fn(async () => ({
+                queuedCount: 0,
+                claimedCount: 0,
+                failedCount: state === "enabled" ? 2 : 0,
+                expiredCount: 0,
+                staleClaimCount: 0,
+                oldestQueuedAt: null,
+                oldestClaimedAt: null,
+              })),
+              summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+              summarizeCheckpointSignals: vi.fn(async () => ({
+                readinessCount: 0,
+                expiredReadinessCount: 0,
+                latestReadyRecordedAt: null,
+                pendingWaiterCount: 0,
+                expiredPendingWaiterCount: 0,
+                satisfiedWaiterCount: 0,
+                oldestPendingWaiterAt: null,
+                pendingWaiterOrigins: [],
+              })),
+            };
+      const app = createRouteApp(platformActor, createRuntime(), { deriveWakeAttentionItems, workSignalStore });
+
+      const response = await app.request("/wake-status");
+
+      expect(response.status).toBe(200);
+      expect(deriveWakeAttentionItems).toHaveBeenCalledTimes(1);
+      const [body] = deriveWakeAttentionItems.mock.calls[0] ?? [];
+      expect(body).toEqual(
+        expect.objectContaining({
+          generatedAt: expect.any(String),
+          wakeStore: state === "unavailable" ? { available: false } : expect.objectContaining({ available: true }),
+          relay: { available: false },
+          schedulers: { available: false },
+          rollout: expect.any(Object),
+          migration: expect.any(Object),
+        }),
+      );
+      const { attentionItems: returnedItems, ...rawBody } = await response.json();
+      expect(rawBody).toEqual(body);
+      expect(returnedItems).toEqual(attentionItems);
+    },
+  );
+
+  it.each([
+    {
+      name: "fresh",
+      snapshotAt: "2026-07-22T00:00:00.000Z",
+      states: ["active", "stale", "expired", "unknown", "unknown"],
+    },
+    {
+      name: "old",
+      snapshotAt: "2026-07-22T01:00:00.000Z",
+      states: ["expired", "expired", "expired", "unknown", "unknown"],
+    },
+    { name: "absent", snapshotAt: undefined, states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "partial", snapshotAt: "2026-07-22T", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "invalid", snapshotAt: "invalid", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+  ])("classifies workers before derivation against the $name snapshotAt only", async ({ snapshotAt, states }) => {
+    const workers = [
+      { worker_id: "active", heartbeat_at: "2026-07-22T00:00:00.000Z" },
+      { worker_id: "stale", heartbeat_at: "2026-07-21T23:50:00.000Z" },
+      { worker_id: "expired", heartbeat_at: "2026-07-21T23:49:59.999Z" },
+      { worker_id: "missing-heartbeat" },
+      {},
+    ];
+    const history = await createControlPlane().readWorkerHeartbeatHistory();
+    // The malformed cases exercise the untrusted storage boundary, not a new clock fallback.
+    const controlPlane = createControlPlane({
+      readWorkerHeartbeatHistory: vi.fn<PlatformControlPlane["readWorkerHeartbeatHistory"]>(async () => ({
+        ...history,
+        snapshotAt: snapshotAt as string,
+        workers,
+      })),
+    });
+    const deriveProjectionTriage = vi.fn<ProjectionOperationsRouteOptions["deriveProjectionTriage"]>(() => ({
+      attentionItems: [],
+      repairQueue: [],
+      activeWorkerCount: 0,
+      staleWorkerCount: 0,
+    }));
+
+    const response = await createRouteApp(platformActor, createRuntime(), {
+      controlPlane,
+      deriveProjectionTriage,
+    }).request("/");
+
+    expect(response.status).toBe(200);
+    expect(deriveProjectionTriage).toHaveBeenCalledTimes(1);
+    const body = deriveProjectionTriage.mock.calls[0]?.[0] as Record<string, unknown>;
+    const returned = await response.json();
+    expect(returned.workers.map((worker: Record<string, unknown>) => worker.worker_state)).toEqual(states);
+    expect(returned.workers).toEqual(JSON.parse(JSON.stringify(body.workers)));
+    expect(body).not.toHaveProperty("generatedAt");
+    expect(returned).not.toHaveProperty("generatedAt");
+    if (snapshotAt === "2026-07-22T00:00:00.000Z") {
+      expect(returned.workers.map((worker: Record<string, unknown>) => worker.heartbeat_age_ms)).toEqual([
+        0,
+        600_000,
+        600_001,
+        null,
+        null,
+      ]);
+    }
   });
 
   it("allows projection operations view actors to inspect the console", async () => {
@@ -663,5 +860,167 @@ describe("projection operations routes", () => {
         },
       ],
     });
+  });
+
+  it("publishes per-group freshness source and nested snapshot age for fresh, stale, and runtime groups", async () => {
+    const now = Date.now();
+    const runtime = createRuntime([
+      {
+        targetContextName: "catalog",
+        projectionName: "fresh-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "fresh-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+      {
+        targetContextName: "catalog",
+        projectionName: "stale-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "stale-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+      {
+        targetContextName: "catalog",
+        projectionName: "runtime-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "runtime-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+    ] as unknown as ApiHostRuntime["projectionGroups"]);
+    const controlPlane = createControlPlane({
+      listProjectionStatusSnapshots: vi.fn(async () => [
+        {
+          projection_key: "catalog.fresh-projection",
+          status: {
+            targetContextName: "catalog",
+            projectionName: "fresh-projection",
+            projectionRevision: 1,
+            storedProjectionRevision: 1,
+            revisionStale: false,
+            sourceContextNames: ["catalog"],
+            ownedTables: [],
+            requiredDuringBootstrap: false,
+            initialized: true,
+            caughtUp: true,
+            state: "caught-up",
+            lastError: null,
+            outstandingEventCount: "5",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            updatedAt: new Date(now).toISOString(),
+            subscriptions: [],
+          },
+          updated_at: new Date(now - 42).toISOString(),
+        },
+        {
+          projection_key: "catalog.stale-projection",
+          status: {
+            targetContextName: "catalog",
+            projectionName: "stale-projection",
+            projectionRevision: 1,
+            storedProjectionRevision: 1,
+            revisionStale: false,
+            sourceContextNames: ["catalog"],
+            ownedTables: [],
+            requiredDuringBootstrap: false,
+            initialized: true,
+            caughtUp: true,
+            state: "caught-up",
+            lastError: null,
+            outstandingEventCount: "9",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            updatedAt: new Date(now).toISOString(),
+            subscriptions: [],
+          },
+          updated_at: new Date(now - 5 * 60_000).toISOString(),
+        },
+      ]),
+    });
+
+    const response = await createRouteApp(platformActor, runtime, { controlPlane }).request("/");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      projectionGroups: Array<Record<string, unknown>>;
+    };
+    expect(body.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectionName: "fresh-projection",
+          projectionStatusSource: "fresh-snapshot",
+          snapshot: expect.objectContaining({ ageMs: expect.any(Number) }),
+        }),
+        expect.objectContaining({
+          projectionName: "stale-projection",
+          projectionStatusSource: "stale-snapshot",
+          snapshot: expect.objectContaining({ ageMs: expect.any(Number) }),
+        }),
+        expect.objectContaining({
+          projectionName: "runtime-projection",
+          projectionStatusSource: "runtime-memory",
+        }),
+      ]),
+    );
+    expect(body.projectionGroups.find((group) => group.projectionName === "runtime-projection")).not.toHaveProperty(
+      "snapshot",
+    );
   });
 });

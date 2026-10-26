@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   Box,
@@ -28,7 +29,6 @@ import {
   formatOfferCount,
   formatSellerCount,
   getCommonPriceCurrencyCode,
-  getHighestOfferPrice,
   type MarketBookTab,
   type MarketIntent,
   type MarketSelectionSource,
@@ -192,7 +192,12 @@ export function buildItemDetailPageView({
     );
   const marketSummaryPrice =
     marketIntent === "sell"
-      ? formatMoney(getHighestOfferPrice(matchingOffers), getCommonPriceCurrencyCode(matchingOffers))
+      ? formatMoney(
+          matchingOffers[0] && tryMoneyToCents(matchingOffers[0].price_amount) !== null
+            ? matchingOffers[0].price_amount
+            : null,
+          getCommonPriceCurrencyCode(matchingOffers),
+        )
       : selectedMarketSummary.lowest_price_currency_code
         ? formatMoney(selectedMarketSummary.lowest_price_amount, selectedMarketSummary.lowest_price_currency_code)
         : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable");

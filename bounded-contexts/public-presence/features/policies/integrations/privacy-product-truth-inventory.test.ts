@@ -220,7 +220,10 @@ describe("privacy product-truth derivation over the real repository", () => {
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ]);
-    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasCount).toBe(2);
+    // The guest checkout cookie has one shipped constant, in the Auth contract.
+    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasDeclarations).toEqual([
+      "contracts/auth-context/index.ts:4",
+    ]);
   });
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {
@@ -365,11 +368,11 @@ describe("privacy product-truth derivation over the real repository", () => {
       "providerName",
       "providerSubject",
     ]);
-    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:212-215"]);
+    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:228-231"]);
 
     const facebook = factFor("social-provider-profile", "facebook");
     expect(facebook.detail.mappedProfileFields).not.toContain("hostedDomain");
-    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:220-223"]);
+    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:236-239"]);
   });
 
   it("resolves every derived evidence reference to real cited source lines", () => {

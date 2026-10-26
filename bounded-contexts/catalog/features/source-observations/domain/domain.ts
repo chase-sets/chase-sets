@@ -296,6 +296,7 @@ export type SourceObservationYugiohSetReferenceNormalized = JsonObject &
     tcg: "yugioh";
     languageCode: string;
     name: string;
+    setId?: string;
     setCode: string | null;
     setName: string;
     releaseDate: string | null;
@@ -563,6 +564,8 @@ export type SourceObservationState = Readonly<{
   sourcePayload: JsonValue;
   pendingSourcePayloadChunks: readonly string[] | null;
   pendingSourcePayloadChunkCount: number | null;
+  pendingNormalizedEvidenceChunks: readonly string[] | null;
+  pendingNormalizedEvidenceChunkCount: number | null;
   status: SourceObservationStatus;
   statusReason: string | null;
   promotedCatalogItemId: string | null;
@@ -590,6 +593,8 @@ export const initialSourceObservationState: SourceObservationState = {
   sourcePayload: null,
   pendingSourcePayloadChunks: null,
   pendingSourcePayloadChunkCount: null,
+  pendingNormalizedEvidenceChunks: null,
+  pendingNormalizedEvidenceChunkCount: null,
   status: "observed",
   statusReason: null,
   promotedCatalogItemId: null,
@@ -684,9 +689,20 @@ type ChunkedSourceObservationRecordEventData = JsonObject &
     sourcePayloadChunkCount: number;
   }>;
 
+type NormalizedEvidenceChunkedSourceObservationRecordEventData = JsonObject &
+  Omit<SourceObservationRecordEventFields, "normalized" | "sourcePayload"> &
+  Readonly<{
+    normalizedEvidenceEncoding: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+    normalizedEvidenceChunkCount: number;
+    sourcePayload?: JsonValue;
+    sourcePayloadEncoding?: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+    sourcePayloadChunkCount?: number;
+  }>;
+
 type SourceObservationRecordEventData =
   | InlineSourceObservationRecordEventData
-  | ChunkedSourceObservationRecordEventData;
+  | ChunkedSourceObservationRecordEventData
+  | NormalizedEvidenceChunkedSourceObservationRecordEventData;
 
 export type SourceObservationRecordedEvent = DomainEvent<
   "catalog.source-observation.recorded",
@@ -721,6 +737,17 @@ export type SourceObservationPayloadChunkRecordedEvent = DomainEvent<
     chunkIndex: number;
     chunkCount: number;
     encodedPayload: string;
+  }>
+>;
+
+export type SourceObservationNormalizedEvidenceChunkRecordedEvent = DomainEvent<
+  "catalog.source-observation.normalized-evidence-chunk-recorded",
+  Readonly<{
+    observationId: string;
+    sourceRecordHash: string;
+    chunkIndex: number;
+    chunkCount: number;
+    encodedNormalizedEvidence: string;
   }>
 >;
 
@@ -787,6 +814,7 @@ export type SourceObservationEvent =
   | SourceObservationChangedEvent
   | SourceObservationRefreshedEvent
   | SourceObservationPayloadChunkRecordedEvent
+  | SourceObservationNormalizedEvidenceChunkRecordedEvent
   | SourceObservationPromotedEvent
   | SourceObservationReferencePromotedEvent
   | SourceObservationPromotionPlanRecordedEvent
@@ -1015,6 +1043,42 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         pendingSourcePayloadChunkCount: null,
       };
     }
+    case "catalog.source-observation.normalized-evidence-chunk-recorded": {
+      assert(
+        state.id === event.data.observationId,
+        "Source Observation normalized evidence chunk targets the active observation.",
+      );
+      assert(
+        state.sourceRecordHash === event.data.sourceRecordHash,
+        "Source Observation normalized evidence chunk targets the active source revision.",
+      );
+      assert(
+        state.pendingNormalizedEvidenceChunks !== null && state.pendingNormalizedEvidenceChunkCount !== null,
+        "Source Observation normalized evidence chunk requires an active assembly.",
+      );
+      assert(
+        event.data.chunkCount === state.pendingNormalizedEvidenceChunkCount,
+        "Source Observation normalized evidence chunk count must match its header.",
+      );
+      assert(
+        event.data.chunkIndex === state.pendingNormalizedEvidenceChunks.length,
+        "Source Observation normalized evidence chunks must replay in order.",
+      );
+
+      const normalizedChunks = [...state.pendingNormalizedEvidenceChunks, event.data.encodedNormalizedEvidence];
+      if (normalizedChunks.length < event.data.chunkCount) {
+        return {
+          ...state,
+          pendingNormalizedEvidenceChunks: normalizedChunks,
+        };
+      }
+      return {
+        ...state,
+        normalized: decodeSourceObservationPayloadChunks(normalizedChunks) as SourceObservationNormalized,
+        pendingNormalizedEvidenceChunks: null,
+        pendingNormalizedEvidenceChunkCount: null,
+      };
+    }
     case "catalog.source-observation.promoted":
       return {
         ...state,
@@ -1127,37 +1191,65 @@ function recordSourceObservationEvents(
     return [{ type, data } as SourceObservationEvent];
   }
 
-  const { sourcePayload, ...recordHeader } = data;
-  const encodedChunks = encodeSourceObservationPayloadChunks(sourcePayload);
-  const header = {
-    ...recordHeader,
+  const { sourcePayload, ...withoutSourcePayload } = data;
+  const sourcePayloadChunks = encodeSourceObservationPayloadChunks(sourcePayload);
+  const headerWithoutSource = {
+    ...withoutSourcePayload,
     sourcePayloadEncoding: SOURCE_OBSERVATION_PAYLOAD_ENCODING,
-    sourcePayloadChunkCount: encodedChunks.length,
+    sourcePayloadChunkCount: sourcePayloadChunks.length,
   } as ChunkedSourceObservationRecordEventData;
+  const normalizedEvidenceChunks =
+    jsonByteLength(headerWithoutSource) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES
+      ? null
+      : encodeSourceObservationPayloadChunks(data.normalized);
+  const { normalized: _normalized, ...withoutNormalizedEvidence } = withoutSourcePayload;
+  const header = normalizedEvidenceChunks
+    ? ({
+        ...withoutNormalizedEvidence,
+        normalizedEvidenceEncoding: SOURCE_OBSERVATION_PAYLOAD_ENCODING,
+        normalizedEvidenceChunkCount: normalizedEvidenceChunks.length,
+        sourcePayloadEncoding: SOURCE_OBSERVATION_PAYLOAD_ENCODING,
+        sourcePayloadChunkCount: sourcePayloadChunks.length,
+      } as NormalizedEvidenceChunkedSourceObservationRecordEventData)
+    : headerWithoutSource;
 
   assert(
     jsonByteLength(header) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES,
     "Source Observation normalized facts exceed the bounded event target.",
   );
 
-  const chunkEvents = encodedChunks.map(
+  const normalizedChunkEvents = (normalizedEvidenceChunks ?? []).map(
+    (encodedNormalizedEvidence, chunkIndex): SourceObservationNormalizedEvidenceChunkRecordedEvent => ({
+      type: "catalog.source-observation.normalized-evidence-chunk-recorded",
+      data: {
+        observationId: data.observationId,
+        sourceRecordHash: data.sourceRecordHash,
+        chunkIndex,
+        chunkCount: normalizedEvidenceChunks!.length,
+        encodedNormalizedEvidence,
+      },
+    }),
+  );
+  const sourceChunkEvents = sourcePayloadChunks.map(
     (encodedPayload, chunkIndex): SourceObservationPayloadChunkRecordedEvent => ({
       type: "catalog.source-observation.source-payload-chunk-recorded",
       data: {
         observationId: data.observationId,
         sourceRecordHash: data.sourceRecordHash,
         chunkIndex,
-        chunkCount: encodedChunks.length,
+        chunkCount: sourcePayloadChunks.length,
         encodedPayload,
       },
     }),
   );
   assert(
-    chunkEvents.every((event) => jsonByteLength(event.data) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES),
+    [...normalizedChunkEvents, ...sourceChunkEvents].every(
+      (event) => jsonByteLength(event.data) <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES,
+    ),
     "Source Observation identifiers exceed the bounded payload-chunk event target.",
   );
 
-  return [{ type, data: header } as SourceObservationEvent, ...chunkEvents];
+  return [{ type, data: header } as SourceObservationEvent, ...normalizedChunkEvents, ...sourceChunkEvents];
 }
 
 function evolveSourceObservationRecord(
@@ -1166,7 +1258,10 @@ function evolveSourceObservationRecord(
   status: SourceObservationStatus,
   statusReason: string | null,
 ): SourceObservationState {
-  const isInline = "sourcePayload" in data;
+  const isNormalizedInline = "normalized" in data;
+  const isSourcePayloadInline = "sourcePayload" in data;
+  const hasNormalizedEvidenceChunks = "normalizedEvidenceEncoding" in data;
+  const hasSourcePayloadChunks = "sourcePayloadEncoding" in data;
   return {
     ...state,
     id: data.observationId,
@@ -1181,10 +1276,14 @@ function evolveSourceObservationRecord(
     sourceProfileKey: sourceProfileKeyFromEvent(data),
     sourceProfileVersion: sourceProfileVersionFromEvent(data),
     sourceMappingFingerprint: sourceMappingFingerprintFromEvent(data),
-    normalized: data.normalized,
-    sourcePayload: isInline ? data.sourcePayload : null,
-    pendingSourcePayloadChunks: isInline ? null : [],
-    pendingSourcePayloadChunkCount: isInline ? null : data.sourcePayloadChunkCount,
+    normalized: isNormalizedInline ? (data.normalized as SourceObservationNormalized) : null,
+    sourcePayload: isSourcePayloadInline ? (data.sourcePayload ?? null) : null,
+    pendingSourcePayloadChunks: isSourcePayloadInline || !hasSourcePayloadChunks ? null : [],
+    pendingSourcePayloadChunkCount:
+      isSourcePayloadInline || !hasSourcePayloadChunks ? null : (data.sourcePayloadChunkCount ?? null),
+    pendingNormalizedEvidenceChunks: isNormalizedInline || !hasNormalizedEvidenceChunks ? null : [],
+    pendingNormalizedEvidenceChunkCount:
+      isNormalizedInline || !hasNormalizedEvidenceChunks ? null : (data.normalizedEvidenceChunkCount ?? null),
     status,
     statusReason,
   };

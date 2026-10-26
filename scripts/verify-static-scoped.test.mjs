@@ -220,14 +220,15 @@ describe("verify:static surface-map derivation", () => {
     const chain = currentChain();
     const completeness = verifyStaticSurfaceMapCompleteness(chain);
 
-    expect(chain).toHaveLength(30);
+    expect(chain).toHaveLength(31);
     expect(completeness).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === MAY_NARROW),
     ).toHaveLength(18);
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === ALWAYS_RUN),
-    ).toHaveLength(12);
+    ).toHaveLength(13);
+    expect(VERIFY_STATIC_SURFACES["lint:async"].classification).toBe(ALWAYS_RUN);
     for (const entry of Object.values(VERIFY_STATIC_SURFACES)) {
       expect(entry.evidence.length).toBeGreaterThan(0);
       expect(entry.rule).toBeTruthy();
@@ -323,7 +324,7 @@ describe("verify:static surface-map derivation", () => {
   it("keeps exactly the complete scripts battery outside the focused local contract", () => {
     const chain = currentChain();
 
-    expect(chain).toHaveLength(30);
+    expect(chain).toHaveLength(31);
     expect(chain.at(-1)?.name).toBe("test:scripts");
     expect(Object.keys(VERIFY_STATIC_SCOPED_EXCLUSIONS)).toEqual(["test:scripts"]);
     expect(packageJson().scripts["verify:static"]).toContain("pnpm run test:scripts");
@@ -410,6 +411,7 @@ describe("scoped guard-test selection", () => {
         "pnpm-lock.yaml",
       ],
     ],
+    ["scripts/check-structure/tcgplayer-host-credential-guard.test.mjs", [".github/credential-inventory.json"]],
   ];
 
   function assertRepresentativeCoverage(surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES) {

@@ -221,6 +221,74 @@ describe("settlement payout routes", () => {
     );
   });
 
+  it("forwards preview amount selections and rejects unknown selections before the runtime", async () => {
+    const previewPayoutRequest = vi.fn(async () => ({ can_request: true }));
+    const app = createAuthenticatedApp({ previewPayoutRequest }, ["payouts.request"]);
+
+    const selected = await app.request("/payouts/preview", {
+      method: "POST",
+      body: JSON.stringify({ amount: "1.00", amountSelection: "available", availableAmount: "9999.00" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(selected.status).toBe(200);
+    expect(previewPayoutRequest).toHaveBeenCalledWith(
+      { accountId: "acc_seller", amount: "1.00", amountSelection: "available" },
+      context,
+    );
+
+    for (const amountSelection of [null, ""] as const) {
+      previewPayoutRequest.mockClear();
+      const unchanged = await app.request("/payouts/preview", {
+        method: "POST",
+        body: JSON.stringify({ amount: "12.50", amountSelection }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(unchanged.status).toBe(200);
+      expect(previewPayoutRequest).toHaveBeenCalledWith(
+        { accountId: "acc_seller", amount: "12.50", amountSelection },
+        context,
+      );
+    }
+
+    previewPayoutRequest.mockClear();
+    const unknown = await app.request("/payouts/preview", {
+      method: "POST",
+      body: JSON.stringify({ amount: "12.50", amountSelection: "available-now" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(unknown.status).toBe(400);
+    await expect(unknown.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+    expect(previewPayoutRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns payout quick amounts for the actor account", async () => {
+    const getPayoutQuickAmounts = vi.fn(async (_params: { accountId: string }) => ({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "125.00",
+    }));
+    const app = createAuthenticatedApp({ getPayoutQuickAmounts }, ["payouts.view"]);
+
+    const response = await app.request("/payouts/quick-amounts");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "125.00",
+    });
+    expect(getPayoutQuickAmounts).toHaveBeenCalledExactlyOnceWith({ accountId: "acc_seller" });
+  });
+
+  it("requires authentication for payout quick amounts", async () => {
+    const getPayoutQuickAmounts = vi.fn();
+    const response = await createAuthenticatedApp({ getPayoutQuickAmounts }, null).request("/payouts/quick-amounts");
+    expect(response.status).toBe(401);
+    expect(getPayoutQuickAmounts).not.toHaveBeenCalled();
+  });
+
   it("returns payout money timelines for the current account", async () => {
     const getPayoutMoneyTimeline = vi.fn(async () => ({
       payout_id: "pyo_test",
@@ -566,6 +634,7 @@ describe("platform payout read authority", () => {
     ["GET", "/payouts", "listPayouts"],
     ["GET", "/payouts/pyo_other", "getPayout"],
     ["GET", "/payouts/pyo_other/timeline", "getPayoutMoneyTimeline"],
+    ["GET", "/payouts/quick-amounts", "getPayoutQuickAmounts"],
   ])("denies platform-only readers %s %s without invoking %s", async (method, path, serviceName) => {
     const service = vi.fn();
     const response = await createAuthenticatedApp({ [serviceName]: service }, ["payouts.platform.view"]).request(path, {

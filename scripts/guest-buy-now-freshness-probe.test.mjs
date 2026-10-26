@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_READY_SLO_MS,
   GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION,
@@ -36,6 +36,12 @@ import {
   waitForWakeRuntimePreflight,
   SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON,
 } from "./guest-buy-now-freshness-probe.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 const execFileAsync = promisify(execFile);
 
@@ -1627,6 +1633,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("writes evidence and warns for safe temporary state that never becomes pay-ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now.json");
     const evidence = await runGuestBuyNowFreshnessProbe({
       outPath: outFile,
@@ -1703,6 +1710,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("fails explicitly without browser attempts when wake runtime never becomes ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now-wake-preflight.json");
     let now = 1_000;
     let observed = false;
@@ -1753,6 +1761,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("persists the wake-status fetch-failure class when every preflight fetch throws", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now-wake-preflight-fetch-failed.json");
     const failingFetchImpl = wakeStatusFetchImpl({
       signIn: () => Response.json({ sessionToken: "session-token" }),
@@ -1809,6 +1818,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("keeps raw wake-status fetch error text out of persisted probe evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now-wake-preflight-redaction.json");
     let now = 1_000;
     const evidence = await runGuestBuyNowFreshnessProbe({
@@ -1905,6 +1915,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("retries browser navigation timeouts and records redacted runtime evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now-runtime.json");
     const attempts = [];
     const evidence = await runGuestBuyNowFreshnessProbe({
@@ -2141,6 +2152,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("writes runtime timeout evidence when every attempt fails before observation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guest-buy-now-runtime-abort.json");
     const evidence = await runGuestBuyNowFreshnessProbe({
       outPath: outFile,
@@ -2346,6 +2358,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("proceeds without blocking when projections never converge within the budget", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-projection-gate-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "staging-projection-convergence-gate.json");
     let now = 0;
     const evidence = await runProjectionConvergenceGate({
@@ -2374,6 +2387,7 @@ describe("guest Buy Now freshness probe", () => {
 
   it("forced non-convergence: the real CLI path warns and exits zero so probes still proceed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-projection-gate-cli-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "staging-projection-convergence-gate.json");
     const server = createServer((request, response) => {
       response.setHeader("Content-Type", "application/json");

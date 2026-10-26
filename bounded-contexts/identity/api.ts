@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
 import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
+import type { PermissionKey } from "@chase-sets/auth-context";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -26,7 +27,6 @@ import {
   normalizePhoneNumber,
   parseGrantableRoleKey,
   type GrantableRoleKey,
-  type PermissionKey,
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";

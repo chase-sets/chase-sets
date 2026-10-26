@@ -63,7 +63,7 @@ export function selectStaleVerificationNamespaces(items, options = {}) {
     .map((item) => {
       const namespace = item.metadata.name;
       const match = VERIFICATION_NAMESPACE_PATTERN.exec(namespace);
-      return { namespace, release: `csv-${match[1]}`, slug: `verify-${match[1]}` };
+      return { namespace, release: `csv-${match[1]}`, slug: `gate-${match[1]}` };
     })
     .sort((left, right) => left.namespace.localeCompare(right.namespace));
 }

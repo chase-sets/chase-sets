@@ -1,4 +1,5 @@
 import "./observability-prelude";
+import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
@@ -119,6 +120,16 @@ const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
+  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
+    ? {
+        readConsistencyGateway: {
+          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
+          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
+        },
+      }
+    : {}),
+});
 const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
   ? createPostgresEvidenceWindowRegistration(pools.control)
   : undefined;
@@ -171,7 +182,10 @@ const settlementOperationsRecorder = {
   },
 };
 const webhookTelemetry = {
-  record(event: Parameters<typeof recordProviderWebhookIngestion>[0]) {
+  record(
+    event: Parameters<typeof recordProviderWebhookIngestion>[0] &
+      Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+  ) {
     recordProviderWebhookIngestion(event);
     const fields = {
       type: "provider.webhook.ingestion",
@@ -182,6 +196,8 @@ const webhookTelemetry = {
       retryable: event.retryable,
       provider_event_id: event.providerEventId ?? null,
       event_kind: event.eventKind ?? null,
+      token_mint: event.tokenMint ?? "not-attempted",
+      key_fetch: event.keyFetch ?? "not-attempted",
     };
     if (event.outcome === "failed") {
       logger.error("Provider webhook ingestion failed.", fields);
@@ -320,6 +336,8 @@ const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
   runtimeLifecycle,
+  controlPlane,
+  workSignalStore,
   hostPorts: {
     ...capabilityAdministrationPorts,
     deploymentEnvironment: config.deploymentEnvironment,
@@ -609,16 +627,6 @@ const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control,
   mandateResolver: agentGrantConsent.resolveMandate,
 });
 const drainState = createProcessDrainState();
-const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
-  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
-    ? {
-        readConsistencyGateway: {
-          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
-          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
-        },
-      }
-    : {}),
-});
 const ucpProfileResolver = createUcpProfileResolver({
   db: pools.control,
   onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),

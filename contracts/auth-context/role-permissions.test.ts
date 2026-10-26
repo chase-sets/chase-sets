@@ -1,9 +1,70 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "./constants";
-import { ROLE_KEYS } from "../../../support/runtime-support/common";
+import { PERMISSION_KEYS, PERMISSION_PRESETS, ROLE_PERMISSIONS } from "./index";
 
-describe("identity role permissions", () => {
+type PreMoveFixture = Readonly<{
+  source: Readonly<{ commit: string; path: string; blob: string; export: string }>;
+  rolePermissions: Readonly<Record<string, readonly string[]>>;
+}>;
+
+// Generated once from Auth's AUTH_ROLE_PERMISSIONS at the base commit of the
+// move (#3467); `source` names the exact blob it was exported from.
+const preMove: PreMoveFixture = JSON.parse(
+  readFileSync(new URL("./pre-move-auth-role-permissions.fixture.json", import.meta.url), "utf8"),
+);
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+function gitGrep(args: readonly string[]): readonly string[] {
+  const result = spawnSync("git", ["grep", "--no-color", ...args], { cwd: repoRoot, encoding: "utf8" });
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(`git grep failed: ${result.stderr || result.error?.message}`);
+  }
+  return result.stdout.split("\n").filter(Boolean);
+}
+
+describe("canonical role-to-permission table", () => {
+  it("canonical role table equals the pre-move Auth table", () => {
+    expect(preMove.source).toEqual({
+      commit: "15e1e56fc71665b8aabb699c8f00688233136be8",
+      path: "bounded-contexts/auth/support/auth-support/constants.ts",
+      blob: "0c4214790c27b9937e91f09e565c5c9f298bd8b1",
+      export: "AUTH_ROLE_PERMISSIONS",
+    });
+    expect(ROLE_PERMISSIONS).toEqual(preMove.rolePermissions);
+  });
+
+  it("is the only role-to-permission table and PermissionKey declaration", () => {
+    expect(
+      gitGrep(["-E", "ROLE_PERMISSIONS = |type PermissionKey =", "--", "bounded-contexts", "contracts", ":!*.test.*"]),
+    ).toEqual([
+      "contracts/auth-context/index.ts:export type PermissionKey = (typeof PERMISSION_KEYS)[number];",
+      "contracts/auth-context/index.ts:export const ROLE_PERMISSIONS = {",
+    ]);
+  });
+
+  it("declares each permission key once and grants only declared keys", () => {
+    expect(new Set(PERMISSION_KEYS).size).toBe(PERMISSION_KEYS.length);
+    const declared = new Set<string>(PERMISSION_KEYS);
+    expect(
+      [...Object.values(ROLE_PERMISSIONS), ...Object.values(PERMISSION_PRESETS)]
+        .flat()
+        .filter((permission) => !declared.has(permission)),
+    ).toEqual([]);
+  });
+
+  it("declares the guest checkout cookie name only in this contract", () => {
+    expect(
+      gitGrep(["-F", '= "chase_sets_guest_checkout"', "--", "bounded-contexts/*.ts", "contracts/*.ts", ":!*.test.*"]),
+    ).toEqual([
+      'contracts/auth-context/index.ts:export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";',
+    ]);
+  });
+});
+
+describe("role permission grants", () => {
   it("grants reported-content operator authority to platform-admin only", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "reported-content.view")).toEqual(
@@ -14,6 +75,7 @@ describe("identity role permissions", () => {
       expect(permissions).not.toContain("reported-content.view");
     }
   });
+
   it("grants platform payout reads once to platform-admin and never through a preset", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
@@ -26,6 +88,7 @@ describe("identity role permissions", () => {
       expect(permissions).not.toContain("payouts.platform.view");
     }
   });
+
   it("grants commercial agreement management only to platform admins", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "commercial-terms.agreements.manage")).toEqual(
@@ -38,29 +101,6 @@ describe("identity role permissions", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect((permissions as readonly string[]).includes("provider-connections.view")).toBe(role === "platform-admin");
     }
-  });
-  it("keeps feedback operator authority on platform staff roles only", () => {
-    for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
-      expect(ROLE_PERMISSIONS[roleKey]).not.toEqual(
-        expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
-      );
-    }
-    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
-      expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
-    );
-  });
-  it("grants projection operations to platform-admin, as Auth's role table does", () => {
-    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
-      expect.arrayContaining([
-        "projection-operations.operate",
-        "projection-operations.rebuild",
-        "projection-operations.view",
-      ]),
-    );
-  });
-
-  it("has permissions for every runtime role key", () => {
-    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual([...ROLE_KEYS].sort());
   });
 
   it("grants platform admins the explicit admin-web surface permissions", () => {
@@ -76,6 +116,9 @@ describe("identity role permissions", () => {
         "memberships.view",
         "postage-policies.manage",
         "postage-policies.view",
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
         "platform-feedback.manage",
         "platform-feedback.view",
         "public-presence.manage",
@@ -107,6 +150,28 @@ describe("identity role permissions", () => {
     );
   });
 
+  it("grants commercial terms, postage policy and projection operations authority to live account roles", () => {
+    expect(ROLE_PERMISSIONS.owner).toEqual(
+      expect.arrayContaining([
+        "commercial-terms.manage",
+        "commercial-terms.view",
+        "postage-policies.manage",
+        "postage-policies.view",
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
+      ]),
+    );
+    expect(ROLE_PERMISSIONS.manager).toEqual(
+      expect.arrayContaining([
+        "commercial-terms.manage",
+        "commercial-terms.view",
+        "postage-policies.manage",
+        "postage-policies.view",
+      ]),
+    );
+  });
+
   it("restricts platform-policy.manage to platform-admin (m110 #4291 policy console)", () => {
     expect(ROLE_PERMISSIONS["platform-admin"]).toContain("platform-policy.manage");
     expect(ROLE_PERMISSIONS.owner).not.toContain("platform-policy.manage");
@@ -126,17 +191,13 @@ describe("identity role permissions", () => {
     // still require this dedicated authority. It must never be resolved onto a role
     // until those routes retire in favor of the typed Wallet Adjustment lifecycle, so
     // no owner/manager (or any other role) can post to an arbitrary wallet.
-    for (const roleKey of ROLE_KEYS) {
-      expect(ROLE_PERMISSIONS[roleKey]).not.toContain("wallet-adjustments.operate");
+    for (const permissions of Object.values(ROLE_PERMISSIONS)) {
+      expect(permissions).not.toContain("wallet-adjustments.operate");
     }
     // Owner and manager hold payouts.manage, but that must never carry the
     // authority to post a cash-equivalent ledger entry to an arbitrary wallet.
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
-    expect(ROLE_PERMISSIONS.owner).not.toContain("wallet-adjustments.operate");
     expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
-    expect(ROLE_PERMISSIONS.manager).not.toContain("wallet-adjustments.operate");
-    // Acquiring any payout permission does not grant the wallet-adjustment authority.
-    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("wallet-adjustments.operate");
   });
 
   it("grants the platform Wallet Adjustment authority (ADR 0020) to platform-admin only", () => {
@@ -150,17 +211,14 @@ describe("identity role permissions", () => {
     for (const permission of walletAdjustmentPermissions) {
       expect(ROLE_PERMISSIONS["platform-admin"]).toContain(permission);
     }
-    for (const roleKey of ROLE_KEYS) {
+    for (const [roleKey, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       if (roleKey === "platform-admin") {
         continue;
       }
       for (const permission of walletAdjustmentPermissions) {
-        expect(ROLE_PERMISSIONS[roleKey]).not.toContain(permission);
+        expect(permissions).not.toContain(permission);
       }
     }
-    // Read/create/approve/reverse are independently named permissions, not a
-    // single bundled grant, so each can be withheld on its own.
-    expect(new Set(walletAdjustmentPermissions).size).toBe(walletAdjustmentPermissions.length);
     // Owner/manager hold payouts.manage, but the platform Wallet Adjustment
     // authority must never ride along with account-scoped payout authority.
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
@@ -174,27 +232,24 @@ describe("identity role permissions", () => {
       "platform-feedback.export",
     ] as const;
 
-    // Platform-staff hold the full operator surface, including the separately
-    // named export grant.
     for (const capability of operatorCapabilities) {
       expect(ROLE_PERMISSIONS["platform-admin"]).toContain(capability);
     }
-
     // Ordinary account roles never enumerate/export/mutate customer feedback --
     // submitting one's own experience feedback is an authenticated-subject
     // authority, not a role capability.
-    for (const roleKey of ROLE_KEYS) {
+    for (const [roleKey, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       if (roleKey === "platform-admin") {
         continue;
       }
       for (const capability of operatorCapabilities) {
-        expect(ROLE_PERMISSIONS[roleKey]).not.toContain(capability);
+        expect(permissions).not.toContain(capability);
       }
     }
-
-    // Export is an independent grant, so a view-only staff assignment cannot
-    // download the free-text comment corpus.
-    expect(new Set(operatorCapabilities).size).toBe(operatorCapabilities.length);
+    // Ordinary roles keep their non-feedback grants intact.
+    expect(ROLE_PERMISSIONS.owner).toContain("support.manage");
+    expect(ROLE_PERMISSIONS.fulfillment).toContain("support.manage");
+    expect(ROLE_PERMISSIONS.viewer).toContain("support.view");
   });
 
   it("separates Listing Evidence Policy review from drafting, validation, and activation", () => {
@@ -247,10 +302,10 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets, including the platform-admin-only reported-content and projection-operations grants.
+  // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
   const predecessor = {
     "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
-    owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
+    owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
     viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",

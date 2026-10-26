@@ -135,6 +135,7 @@ export async function readCandidateComparison(
       ? Object.fromEntries(Object.entries(health.currencies).map(([currency, summary]) => [currency, select(summary)]))
       : null;
   const listingCount = health?.population.listingCount ?? null;
+  const directive = input.body.rules[0]?.directive;
   return {
     goalId: input.choice.goalId,
     goalVersion: input.choice.goalVersion,
@@ -163,6 +164,10 @@ export async function readCandidateComparison(
     capitalTurn: metric((summary) => summary.capitalTurn.value),
     economicsSet: facts?.economicsSet ?? null,
     flags: run.summary?.flags ?? {},
+    parameters: { ...input.choice.parameters },
+    currencyCode: directive?.currencyCode ?? null,
+    floor: directive?.floor,
+    guardrails: directive?.guardrails,
   };
 }
 

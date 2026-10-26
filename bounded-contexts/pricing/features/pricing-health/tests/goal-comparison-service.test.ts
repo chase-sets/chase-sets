@@ -63,6 +63,7 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
   const enqueueDryRun = vi.fn<RepricingEngineServices["enqueueDryRun"]>().mockResolvedValue(null);
   const getDryRun = vi.fn<RepricingEngineServices["getDryRun"]>().mockImplementation(async () => latestRun);
   const getHalt = vi.fn<RepricingPolicyServices["getHalt"]>().mockResolvedValue({ engaged: false } as never);
+  const executeOwnedRepricingPolicy = vi.fn<RepricingPolicyServices["executeOwnedRepricingPolicy"]>();
   const resolvePolicy: PolicyRuntime["resolvePolicy"] = async (definition) => ({
     policyKey: definition.policyKey,
     value: definition.defaultValue,
@@ -75,7 +76,7 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
   const services = createPricingHealthServices({
     db,
     policies: { resolvePolicy },
-    repricingPolicies: { loadOwnedRepricingPolicy, getHalt },
+    repricingPolicies: { loadOwnedRepricingPolicy, getHalt, executeOwnedRepricingPolicy },
     repricingEngine: { enqueueDryRun, getDryRun },
     forecastLedger: { listGoalAdoptions: async () => [adoption] },
   });

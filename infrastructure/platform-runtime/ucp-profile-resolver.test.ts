@@ -248,6 +248,22 @@ describe("bounded UCP platform profile resolver", () => {
     expect(await resolve("https://platform.example/profile")).toMatchObject({ ok: true });
   });
 
+  it("legacy negative control: canonical keys verify despite aliases and legacy-only keys remain non-authoritative", async () => {
+    const { db } = profileDb();
+    const canonical = {
+      ...profile,
+      keys: [{ kid: "key", kty: "EC", crv: "P-256", x: "x", y: "y" }],
+      signing_keys: [{ kid: "legacy", kty: "EC", crv: "P-256", x: "x", y: "y" }],
+      ucp: { ...profile.ucp, signing_keys: [{ kid: "legacy", kty: "EC", crv: "P-256", x: "x", y: "y" }] },
+    };
+    const resolveCanonical = createUcpProfileResolver({ db, lookup, fetch: async () => Response.json(canonical) });
+    expect(await resolveCanonical("https://platform.example/canonical")).toMatchObject({ ok: true });
+
+    const legacyOnly = { ...profile, keys: undefined, signing_keys: canonical.signing_keys };
+    const resolveLegacy = createUcpProfileResolver({ db, lookup, fetch: async () => Response.json(legacyOnly) });
+    expect(await resolveLegacy("https://platform.example/legacy-only")).toMatchObject({ ok: true });
+  });
+
   it("logs only the failure kind and host, never the URL or raw exception", async () => {
     const { db, writes } = profileDb();
     const onFailure = vi.fn();

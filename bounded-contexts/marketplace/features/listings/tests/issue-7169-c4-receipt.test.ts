@@ -5,7 +5,7 @@ import {
   listingIdForInventoryDraftRow,
 } from "@chase-sets/inventory-draft-listing";
 import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
-import { createInventoryDraftListingConsumer } from "../api/inventory-draft-consumer";
+import { createInventoryDraftListingConsumer, InventoryDraftListingUnavailable } from "../api/inventory-draft-consumer";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
@@ -17,6 +17,7 @@ import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { decideMarketplaceListing, initialMarketplaceListingState, type CreateListingCommand } from "../domain/domain";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { normalizeMarketplaceListingFeeLock } from "../domain/fee-lock";
 
 describe("issue-7169-c4-draft-receipt", () => {
   it("binds the committed row to a deterministic message and listing identity", () => {
@@ -296,7 +297,10 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     async (at) => {
       const h = harness();
       h.kill(at);
-      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toThrow();
+      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+        code: "inventory-draft-unavailable",
+        diagnostic: "unexpected-failure",
+      });
       expect(h.events()).toHaveLength(0);
       expect(h.receipts()).toHaveLength(0);
       h.kill(null);
@@ -309,7 +313,10 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
   it("reconciles an accepted-but-lost reply by exact receipt lookup, without another creation", async () => {
     const h = harness();
     h.kill("reply");
-    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toThrow();
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "unexpected-failure",
+    });
     const stored = await h.consumer.readReceipt("imr_c4_1", draftContext);
     expect(stored).not.toBeNull();
     h.kill(null);
@@ -367,24 +374,169 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     expect(h.pool.connect).not.toHaveBeenCalled();
   });
 
-  it("classifies a deterministic listing-domain rejection as unavailable without a receipt", async () => {
-    const h = harness();
-    const rejectDraft = () => h.seedLegacy(draftMessage(), { quantityCap: 0 });
-    expect(rejectDraft).toThrow(MarketplaceListingDomainError);
-    expect(rejectDraft).toThrow("Listing quantity cap must be a positive whole number.");
-    h.createDraft.mockImplementation(async () => {
-      rejectDraft();
-      throw new Error("Expected the listing decider to reject the command");
-    });
-    for (let delivery = 0; delivery < 2; delivery += 1) {
-      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
-        code: "inventory-draft-unavailable",
+  it("issue-7169-c4-terminal-classification enforces every message-derived create rule", async () => {
+    const boundaryCases = [
+      {
+        valid: { priceAmount: "0.01" },
+        invalid: { priceAmount: "0.00" },
+      },
+      {
+        valid: { priceCurrencyCode: "USD" },
+        invalid: { priceCurrencyCode: "US" },
+      },
+      {
+        valid: { totalQuantity: 1 },
+        invalid: { totalQuantity: 0 },
+      },
+      {
+        valid: { quantityCap: 1, totalQuantity: 1 },
+        invalid: { quantityCap: 0 },
+      },
+      {
+        valid: { quantityCap: 2, totalQuantity: 2 },
+        invalid: { quantityCap: 3, totalQuantity: 2 },
+      },
+      {
+        valid: { shipFromAddress: { ...draftMessage().snapshot.shipFromAddress, line1: "A" } },
+        invalid: { shipFromAddress: { ...draftMessage().snapshot.shipFromAddress, line1: "" } },
+      },
+    ] as const;
+
+    for (const boundaryCase of boundaryCases) {
+      const accepted = harness();
+      accepted.seedLegacy({
+        ...draftMessage(),
+        snapshot: { ...draftMessage().snapshot, ...boundaryCase.valid },
       });
+      expect(accepted.events()).toHaveLength(1);
+
+      const rejected = harness();
+      await expect(
+        rejected.consumer.accept(
+          { ...draftMessage(), snapshot: { ...draftMessage().snapshot, ...boundaryCase.invalid } },
+          draftContext,
+        ),
+      ).rejects.toMatchObject({ code: "inventory-draft-conflict" });
+      expect(rejected.pool.connect).not.toHaveBeenCalled();
+      expect(rejected.events()).toHaveLength(0);
+      expect(rejected.receipts()).toHaveLength(0);
     }
-    expect(h.createDraft).toHaveBeenCalledTimes(2);
-    expect(h.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
+  });
+
+  it("issue-7169-c4-unavailable-diagnostics preserves mutable causes and rollback", async () => {
+    const h = harness();
+    h.createDraft.mockImplementation(async () => {
+      normalizeMarketplaceListingFeeLock({
+        unitCount: 2,
+        terms: {
+          marketplaceSalesFeePercentageBps: 10_001,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: null,
+          shippingAllowancePercentageBps: 0,
+          termsScheduleId: "commercial-terms-quote",
+          termsAgreementId: "agreement-c4",
+          termsResolvedAt: draftMessage().snapshot.committedAt,
+        },
+        marketplaceSalesFeeUnitAmount: "0.00",
+        sellerNetUnitAmount: "10.00",
+        feeQuoteFingerprint: "quote-c4",
+      });
+      throw new Error("Expected fee-lock normalization to reject the quote");
+    });
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "listing-rejected",
+    });
+    expect(h.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
     expect(h.events()).toHaveLength(0);
     expect(h.receipts()).toHaveLength(0);
+
+    const evidence = harness();
+    evidence.createDraft.mockRejectedValue(new Error("evidence requirements unavailable"));
+    await expect(evidence.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "unexpected-failure",
+    });
+    expect(evidence.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
+    expect(evidence.events()).toHaveLength(0);
+    expect(evidence.receipts()).toHaveLength(0);
+
+    const storage = harness();
+    storage.kill("receipt");
+    await expect(storage.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "unexpected-failure",
+    });
+    expect(storage.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
+    expect(storage.events()).toHaveLength(0);
+    expect(storage.receipts()).toHaveLength(0);
+
+    const readiness = harness();
+    const original = readiness.query.getMockImplementation()!;
+    readiness.query.mockImplementation(async (sql, values) =>
+      sql.includes("AS ready") ? { rows: [{ ready: false }] } : original(sql, values),
+    );
+    await expect(readiness.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "receipt-ledger-not-ready",
+    });
+    await expect(readiness.consumer.readReceipt(draftMessage().messageId, draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "receipt-ledger-not-ready",
+    });
+    expect(readiness.events()).toHaveLength(0);
+    expect(readiness.receipts()).toHaveLength(0);
+
+    const rewrapped = harness();
+    rewrapped.createDraft.mockRejectedValue(new InventoryDraftListingUnavailable("listing-rejected"));
+    await expect(rewrapped.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "listing-rejected",
+    });
+  });
+
+  it("issue-7169-c4-diagnostic-secret-free scrubs message and cause on every unavailable path", async () => {
+    const assertSecretFree = (error: unknown, secret: string, diagnostic: string) => {
+      expect(error).toMatchObject({ code: "inventory-draft-unavailable", diagnostic });
+      expect(error).toBeInstanceOf(Error);
+      const record = error as Error & { diagnostic?: string };
+      expect(record.message).not.toContain(secret);
+      expect(record.diagnostic).toBe(diagnostic);
+      for (const key of Object.getOwnPropertyNames(record)) {
+        expect(key).not.toContain(secret);
+        expect(String((record as unknown as Record<string, unknown>)[key])).not.toContain(secret);
+      }
+      expect(JSON.stringify(record)).not.toContain(secret);
+    };
+
+    const domain = harness();
+    const domainSecret = "Bearer domain-secret-marker";
+    domain.createDraft.mockImplementation(async () => {
+      const error = new MarketplaceListingDomainError("command-rejected", domainSecret);
+      Object.defineProperty(error, "cause", { value: domainSecret, enumerable: false });
+      throw error;
+    });
+    const domainError = await domain.consumer.accept(draftMessage(), draftContext).catch((value) => value);
+    assertSecretFree(domainError, domainSecret, "listing-rejected");
+
+    const plain = harness();
+    const plainSecret = "Bearer plain-secret-marker";
+    plain.createDraft.mockImplementation(async () => {
+      throw new Error(plainSecret, { cause: plainSecret });
+    });
+    const plainError = await plain.consumer.accept(draftMessage(), draftContext).catch((value) => value);
+    assertSecretFree(plainError, plainSecret, "unexpected-failure");
+
+    const receipt = harness();
+    const receiptSecret = "Bearer receipt-secret-marker";
+    receipt.query.mockImplementation(async (sql) => {
+      if (sql.includes("AS ready")) return { rows: [{ ready: true }] };
+      throw new Error(receiptSecret, { cause: receiptSecret });
+    });
+    const readError = await receipt.consumer
+      .readReceipt(draftMessage().messageId, draftContext)
+      .catch((value) => value);
+    assertSecretFree(readError, receiptSecret, "unexpected-failure");
   });
 });
 
@@ -425,6 +577,7 @@ describe("issue-7169-c4-consumer-rollout", () => {
     );
     await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
       code: "inventory-draft-unavailable",
+      diagnostic: "receipt-ledger-not-ready",
     });
     expect(h.createDraft).not.toHaveBeenCalled();
     expect(h.events()).toHaveLength(0);

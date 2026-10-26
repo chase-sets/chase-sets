@@ -65,7 +65,7 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
     setKey("");
     setName("");
     setDescription("");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

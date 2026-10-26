@@ -175,6 +175,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-wallet-funding-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:platform-policy-document-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:account-appeal-interest-projection` | Platform Operations | **identity**, **marketplace** | push-enabled | 2/2 |
 | `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
@@ -215,7 +216,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 128 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 129 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (85)
 

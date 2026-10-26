@@ -69,6 +69,7 @@ import {
   parseChannelCredentialKeyring,
   type ChannelCredentialKeyring,
   parseEbayAccountDeletionConfiguration,
+  parseEbayApplicationKeyAuthorityConfiguration,
   type EbayAccountDeletionConfiguration,
 } from "@chase-sets/channels/server";
 
@@ -871,6 +872,11 @@ export function loadConfig(): PlatformApiConfig {
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
       process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,
+      parseEbayApplicationKeyAuthorityConfiguration(
+        process.env.EBAY_APPLICATION_CLIENT_ID,
+        process.env.EBAY_APPLICATION_CLIENT_SECRET,
+        observedDeploymentEnvironment === "production" ? "production" : "sandbox",
+      ),
     ),
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,

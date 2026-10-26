@@ -8,6 +8,7 @@ import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   assertNoDestructiveChanges,
   destructiveChangeApprovalFromText,
@@ -749,6 +750,11 @@ const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.y
 const playwrightConfig = readFileSync(resolve("playwright.config.ts"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
+const doksFoundationMain = readFileSync(resolve("infrastructure/digitalocean/doks/main.tf"), "utf8");
+const doksFoundationLocals = readFileSync(resolve("infrastructure/digitalocean/doks/locals.tf"), "utf8");
+const doksFoundationVariables = readFileSync(resolve("infrastructure/digitalocean/doks/variables.tf"), "utf8");
+const doksFoundationReadme = readFileSync(resolve("infrastructure/digitalocean/doks/README.md"), "utf8");
+const doksFoundationAuthority = readFileSync(resolve(".github/authority/platform-doks-foundation/apply.json"), "utf8");
 const platformObservabilityStateMigrationWorkflow = readFileSync(
   resolve(".github/workflows/platform-observability-state-migration.yml"),
   "utf8",
@@ -962,6 +968,77 @@ function workflowStep(source, stepName) {
 
   const next = source.indexOf("\n      - name:", start + 1);
   return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
+function resolveDoksTestJqPath() {
+  const configured = process.env.DOKS_TEST_JQ_PATH?.trim();
+  const jqPath = configured || execFileSync(operatorBash, ["-lc", "command -v jq"], { encoding: "utf8" }).trim();
+  if (!jqPath) throw new Error("A real jq executable is required for the DOKS preflight control.");
+  const version = spawnSync(operatorBash, ["-lc", `"${jqPath}" --version`], { encoding: "utf8" });
+  if (version.status !== 0) throw new Error("The configured DOKS jq executable could not be run.");
+  return jqPath;
+}
+
+function executeDoksPreflight({ providerResponse, providerResponseText, providerReadFails = false }) {
+  const root = mkdtempSync(join(tmpdir(), "doks-preflight-control-"));
+  const jqPath = resolveDoksTestJqPath();
+  const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+  const runStart = preflightStep.indexOf("run: |\n");
+  expect(runStart).not.toBe(-1);
+  const run = preflightStep
+    .slice(runStart + "run: |\n".length)
+    .replaceAll("${{ inputs.version_change }}", "none")
+    .replaceAll("${{ inputs.kubernetes_version }}", "1.36.5-do.1")
+    .replaceAll("${{ inputs.environment }}", "staging");
+  const providerJson = (providerResponseText ?? JSON.stringify(providerResponse)).replaceAll("'", "'\\''");
+  const doctlResponse = providerReadFails ? "return 1" : `printf '%s' '${providerJson}'`;
+  const stubs = `
+    date() { printf '2026-10-25T00:00:00Z'; }
+    jq() {
+      case "$1" in
+        -n)
+          JQ_CAPTURED_AT="$4" JQ_FILTER="$5" node -e 'const state = process.env.JQ_FILTER.includes("read-error") ? "read-error" : "absent"; console.log(JSON.stringify({ state, captured_at: process.env.JQ_CAPTURED_AT }));'
+          ;;
+        -r)
+          JQ_FILTER="$2" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(process.env.JQ_FILTER === ".version" ? value.version : Array.isArray(value) ? value.length : 1);' "$3"
+          ;;
+        -ce|-e)
+          "$DOKS_TEST_JQ_PATH" "$@"
+          ;;
+        --arg)
+          JQ_CAPTURED_AT="$3" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const candidate = Array.isArray(value) ? value[0] : value; console.log(JSON.stringify({ state: "present", id: candidate.id, version: candidate.version, captured_at: process.env.JQ_CAPTURED_AT }));' "$5"
+          ;;
+      esac
+    }
+    terraform() {
+      case "$1 $2" in
+        'state list') printf 'digitalocean_kubernetes_cluster.platform\\n' ;;
+        'output -raw') printf 'synthetic-cluster-id\\n' ;;
+      esac
+    }
+    doctl() {
+      if [[ "$1" == kubernetes && "$2" == cluster && "$3" == get ]]; then
+        ${doctlResponse}
+      fi
+    }
+  `;
+  try {
+    const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], {
+      cwd: root,
+      env: { ...process.env, DOKS_TEST_JQ_PATH: jqPath },
+      encoding: "utf8",
+    });
+    if (result.error) throw result.error;
+    const artifactPath = join(root, "artifacts/doks-foundation/pre-apply-cluster.json");
+    return {
+      status: result.status,
+      output: `${result.stdout}${result.stderr}`,
+      artifact: existsSync(artifactPath) ? JSON.parse(readFileSync(artifactPath, "utf8")) : null,
+    };
+  } finally {
+    if (!root.startsWith(join(tmpdir(), "doks-preflight-control-"))) throw new Error("Unexpected control cleanup root");
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function workflowEnvironmentExpression(step, variableName) {
@@ -2676,7 +2753,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
     expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
+      "DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+    );
+    expect(dbProfileJob).toContain(
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
@@ -3068,6 +3148,112 @@ describe("DigitalOcean platform configuration", () => {
       dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
     );
     expect(dockerfile).not.toContain("chmod 777");
+  });
+
+  it("turns off routine DOKS patch upgrades and staggers maintenance windows", () => {
+    expect(doksFoundationMain).toMatch(/auto_upgrade\s*=\s*false/);
+    expect(doksFoundationMain).not.toContain("var.auto_upgrade");
+    expect(doksFoundationVariables).not.toMatch(/variable\s+"auto_upgrade"/);
+    expect(platformDoksFoundationWorkflow).not.toMatch(/TF_VAR_auto_upgrade|-var(?:=|\s+)auto_upgrade/);
+    const tfvarsFiles = execFileSync("git", ["ls-files", "--", "*.tfvars"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .split(/\r?\n/)
+      .filter(Boolean);
+    for (const relativePath of tfvarsFiles) {
+      expect(readFileSync(resolve(relativePath), "utf8")).not.toMatch(/auto_upgrade\s*=/);
+    }
+    expect(doksFoundationMain).toContain("day        = local.maintenance_day");
+    expect(doksFoundationLocals).toContain(
+      'maintenance_day = var.environment == "production" ? "wednesday" : "sunday"',
+    );
+    expect(doksFoundationVariables).not.toMatch(/variable\s+"maintenance_day"/);
+    expect(doksFoundationReadme).toContain("Routine patch auto-upgrades are disabled");
+  });
+
+  it("preflights every version change before planning and keeps the inspected plan outside artifacts", () => {
+    const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+    const inspectStep = workflowStep(platformDoksFoundationWorkflow, "Inspect Terraform plan DOKS");
+    const planIndex = platformDoksFoundationWorkflow.indexOf("- name: Terraform plan DOKS");
+    const preflightIndex = platformDoksFoundationWorkflow.indexOf("- name: Preflight DOKS version change");
+    const inspectIndex = platformDoksFoundationWorkflow.indexOf("- name: Inspect Terraform plan DOKS");
+    const applyIndex = platformDoksFoundationWorkflow.indexOf("- name: Terraform apply DOKS");
+
+    expect(platformDoksFoundationWorkflow).toContain("version_change:");
+    expect(platformDoksFoundationWorkflow).toContain("default: none");
+    expect(platformDoksFoundationWorkflow).toContain("- upgrade");
+    expect(preflightStep).toContain("doctl kubernetes cluster get");
+    expect(preflightStep).toContain("pre-apply-cluster.json");
+    expect(preflightStep).toContain('[ "$version_change" = "none" ]');
+    expect(preflightStep).toContain("get-upgrades");
+    expect(preflightStep).toContain('state: "read-error"');
+    expect(preflightStep).toMatch(
+      /if ! doctl kubernetes cluster get[\s\S]+?state: "read-error"[\s\S]+?DOKS cluster read failed/,
+    );
+    expect(preflightStep).toContain('state: "absent"');
+    expect(preflightStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(inspectStep).toContain('terraform show -json tfplan > "$plan_json"');
+    expect(inspectStep).toContain('summarize-plan "$plan_json"');
+    expect(inspectStep).toContain("assert-no-destructive-changes tfplan");
+    expect(inspectStep).not.toContain("artifacts/doks-foundation/tfplan");
+    expect(preflightIndex).toBeLessThan(planIndex);
+    expect(planIndex).toBeLessThan(inspectIndex);
+    expect(inspectIndex).toBeLessThan(applyIndex);
+    expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
+  });
+
+  it("executes the preflight against provider object and array response shapes", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
+    const oneElement = executeDoksPreflight({ providerResponse: [cluster] });
+    expect(oneElement).toMatchObject({
+      status: 0,
+      artifact: { state: "present", id: cluster.id, version: cluster.version },
+    });
+    expect(executeDoksPreflight({ providerResponse: cluster })).toMatchObject({
+      status: 0,
+      artifact: { state: "present", id: cluster.id, version: cluster.version },
+    });
+    const empty = executeDoksPreflight({ providerResponse: [] });
+    expect(empty.status).not.toBe(0);
+    expect(empty.artifact).toMatchObject({ state: "read-error" });
+    const multiple = executeDoksPreflight({
+      providerResponse: [cluster, { id: "other-cluster", version: cluster.version }],
+    });
+    expect(multiple.status).not.toBe(0);
+    expect(multiple.artifact).toMatchObject({ state: "read-error" });
+    const malformed = executeDoksPreflight({ providerResponse: null, providerResponseText: "not-json" });
+    expect(malformed.status).not.toBe(0);
+    expect(malformed.artifact).toMatchObject({ state: "read-error" });
+    const readError = executeDoksPreflight({ providerResponse: null, providerReadFails: true });
+    expect(readError.status).not.toBe(0);
+    expect(readError.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("fails closed for version mismatches, unlisted upgrade targets, and provider read errors", () => {
+    const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+    expect(preflightStep).toContain('if [ "$live_version" != "${{ inputs.kubernetes_version }}" ]; then');
+    expect(preflightStep).toContain('if ! jq -e --arg target "${{ inputs.kubernetes_version }}"');
+    expect(preflightStep).toContain("DOKS cluster read failed");
+    expect(preflightStep).toContain('state: "absent"');
+    expect(preflightStep).toContain('state: "read-error"');
+    expect(preflightStep).toContain("DOKS cluster read failed; refusing to classify the state as absent.");
+    expect(preflightStep).toMatch(
+      /if ! doctl kubernetes cluster get[\s\S]+?state: "read-error"[\s\S]+?DOKS cluster read failed/,
+    );
+  });
+
+  it("documents the staging-first planned-upgrade and steady-state contracts", () => {
+    expect(doksPlatformOperationsRunbook).toContain("## Kubernetes Version Changes");
+    expect(doksPlatformOperationsRunbook).toContain("version_change=upgrade");
+    expect(doksPlatformOperationsRunbook).toContain("at least 2 days before production");
+    expect(doksPlatformOperationsRunbook).toContain("CoreDNS");
+    expect(doksPlatformOperationsRunbook).toContain("konnectivity");
+    expect(doksPlatformOperationsRunbook).toContain("host gives a go");
+    expect(doksPlatformOperationsRunbook).toContain("There is no downgrade path");
+    expect(doksPlatformOperationsRunbook).toContain("monthly");
+    expect(doksPlatformOperationsRunbook).toContain("30 days before end of life");
+    expect(doksPlatformOperationsRunbook).toContain("unplanned upgrade is an incident");
   });
 
   it("provides a confirmed CI path for live DOKS foundation proof", () => {

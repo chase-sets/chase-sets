@@ -3,7 +3,11 @@ import { globSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createVitest, parseCLI } from "vitest/node";
-import { derivePlatformApiDbTestCensus } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+import {
+  bootstrapDbEnrollmentManifest,
+  derivePlatformApiDbTestCensus,
+  platformApiNonBootstrapDbCensus,
+} from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -838,7 +842,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
@@ -913,7 +917,32 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(56);
+    // Named members, never a moving total: the bootstrap manifest and the frozen non-bootstrap census each declare
+    // their DB entries and execution units, and the Vitest include rule declares the complete discovered set.
+    const declaredUnits = [
+      ...Object.entries(bootstrapDbEnrollmentManifest).map(([file, { executionUnit }]) => [
+        `__tests__/${file}`,
+        executionUnit,
+      ]),
+      ...Object.entries(platformApiNonBootstrapDbCensus.entries),
+    ];
+    const declaredBootstrap = Object.keys(bootstrapDbEnrollmentManifest)
+      .map((file) => `__tests__/${file}`)
+      .sort();
+    const declaredDb = declaredUnits.map(([file]) => file).sort();
+    const resolved = (entries) => entries.map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/")).sort();
+    const expectDeclared = (actual, declared) => expect([...actual].sort()).toEqual(declared);
+    expectDeclared(census.dbEntries, declaredDb);
+    expectDeclared(census.bootstrapEntries, declaredBootstrap);
+    for (const [actual, declared] of [
+      [census.dbEntries.slice(1), declaredDb],
+      [[...census.dbEntries, census.dbEntries[0]], declaredDb],
+      [[...census.dbEntries, "__tests__/forged-unenrolled.db.test.ts"], declaredDb],
+      [census.dbEntries, [...declaredDb, declaredDb[0]].sort()],
+      [census.bootstrapEntries, declaredDb],
+    ]) {
+      expect(() => expectDeclared(actual, declared)).toThrow();
+    }
     expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
@@ -927,32 +956,48 @@ describe("DB duration scheduling", () => {
     expect(census.entries).toContain("__tests__/ebay-account-deletion-staff-composition.test.ts");
     expect(census.entries).toContain("__tests__/staging-proof-credit-environment.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/staging-proof-credit-environment.test.ts");
-    expect(census.dbEntries).toHaveLength(16);
-    expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
-    const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
+    const onDisk = resolved(census.dbEntries);
     const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
     try {
+      expect((await vitest.globTestSpecifications()).map((spec) => spec.moduleId).sort()).toEqual(
+        resolved(census.entries),
+      );
       const groups = [];
       for (const args of output.invocations) {
         const parts = scripts[args[3]].split(" && ");
         expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
         expect(parts[1]).toContain("--maxWorkers=3");
         const { filter } = parseCLI(parts[1]);
-        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
+        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId).sort());
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([3, 10, 3]);
-      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(3);
+      expect(output.invocations.map((args) => args[3])).toEqual(
+        [...new Set(declaredUnits.map(([, executionUnit]) => executionUnit))].sort((left, right) =>
+          left.localeCompare(right, "en", { numeric: true }),
+        ),
+      );
+      expect(groups).toEqual(
+        output.invocations.map((args) =>
+          resolved(declaredUnits.filter(([, executionUnit]) => executionUnit === args[3]).map(([file]) => file)),
+        ),
+      );
+      const operatorSessionDb = resolved(declaredDb.filter((entry) => entry.includes("/operator-session/")));
+      expect(operatorSessionDb.length).toBeGreaterThan(0);
+      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toEqual(operatorSessionDb);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
       );
-      const expectedOrdinary = census.entries
-        .filter((entry) => !census.dbEntries.includes(entry))
-        .map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/"))
-        .sort();
+      const expectedOrdinary = resolved(census.entries.filter((entry) => !census.dbEntries.includes(entry)));
       const operatorOrdinary = expectedOrdinary.filter((entry) => entry.includes("/operator-session/"));
-      expect(operatorOrdinary).toHaveLength(3);
+      expect(operatorOrdinary.length).toBeGreaterThan(0);
+      expect(operatorOrdinary).toEqual(
+        resolved(
+          globSync("__tests__/operator-session/**/*.test.ts", { cwd: api.dir }).filter(
+            (entry) => !entry.endsWith(".db.test.ts"),
+          ),
+        ),
+      );
       for (const name of ["test:unit", "test:fast"]) {
         const {
           options: { exclude },
@@ -1311,8 +1356,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(68);
-    expect(replay.observations).toHaveLength(92);
+    expect(unitEntries).toHaveLength(69);
+    expect(replay.observations).toHaveLength(93);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

@@ -587,7 +587,9 @@ export function buildPreviewDoksIngressValues(options = {}) {
   const previewIdentifier = String(options.previewIdentifier ?? options.env?.PREVIEW_IDENTIFIER ?? "").trim();
   // Two disposable identifier shapes share the preview ingress path and the
   // one *.preview.chasesets.com wildcard: PR previews (pr-<number>) and
-  // merge-gate verification runs (gate-<run-id>-<run-attempt>). Both stay
+  // merge-gate verification runs and ephemeral verification runs
+  // (gate-<run-id>-<run-attempt>). Ephemeral verification keeps its
+  // chase-sets-verify-* namespace while using the gate-* host label. All stay
   // single-label hostnames (see buildPreviewDoksIngressHosts), so the shared
   // wildcard certificate covers every host of both kinds.
   if (!/^(?:pr-[0-9]+|gate-[0-9]+-[0-9]+)$/.test(previewIdentifier)) {

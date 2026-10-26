@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { SupportOperationsPage } from "./support-operations-page";
-import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
+import type { SupportRequestDetail, SupportRequestDetailResponse, SupportRequestListItem } from "./contracts";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
+import { normalizeFlowType } from "../domain/common";
 
 function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
   return {
@@ -49,14 +51,15 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
   };
 }
 
-function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetail {
-  return {
+function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetailResponse {
+  const request = {
     ...buildQueueItem(),
     evidence: [],
     responses: [],
     offers: [],
     ...overrides,
   };
+  return { ...request, flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)) };
 }
 
 function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> = {}) {

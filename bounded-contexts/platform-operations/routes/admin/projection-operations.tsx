@@ -4,8 +4,8 @@ import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runti
 import { t } from "@chase-sets/localization";
 import {
   cancelProjectionOperation,
-  loadProjectionOperationsSnapshot,
-  loadWakeStatusSnapshot,
+  loadProjectionOperationsConsoleSnapshot,
+  loadWakeStatusConsoleSnapshot,
   readProjectionOperationsFilters,
   rebuildProjectionContext,
   rebuildProjectionGroup,
@@ -26,8 +26,8 @@ function currentRoutePath(request: Request) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const [data, wakeStatus] = await Promise.all([
-    loadProjectionOperationsSnapshot(request),
-    loadWakeStatusSnapshot(request),
+    loadProjectionOperationsConsoleSnapshot(request),
+    loadWakeStatusConsoleSnapshot(request),
   ]);
 
   return {

@@ -192,6 +192,27 @@
     },
     {
       "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-coordinate-preview",
+      "stepAnchor": "name:Capture Scrydex coordinate preview#4",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-coordinate-preview",
+      "stepAnchor": "name:Capture Scrydex coordinate preview#4",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-coordinate-preview",
+      "stepAnchor": "name:Capture Scrydex coordinate preview#4",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
       "jobId": "scrydex-force-refresh-bounded",
       "stepAnchor": "name:Run bounded Scrydex force refresh#4",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
@@ -1355,56 +1376,84 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -1467,56 +1516,56 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -1551,28 +1600,28 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -1734,6 +1783,20 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -1777,6 +1840,41 @@
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SCRYDEX_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SCRYDEX_TEAM_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_AWS_ACCESS_KEY_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_AWS_SECRET_ACCESS_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_SOURCE_ARN",
       "purpose": "terraform-infra"
     },
     {
@@ -2092,6 +2190,20 @@
       "jobId": "verify",
       "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {
@@ -3051,6 +3163,20 @@
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {
@@ -5619,6 +5745,20 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
@@ -7328,6 +7468,20 @@
       "jobId": "deploy-staging",
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {

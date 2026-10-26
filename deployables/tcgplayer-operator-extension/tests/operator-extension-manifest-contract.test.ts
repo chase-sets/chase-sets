@@ -14,6 +14,7 @@ describe("operator-extension-manifest-contract", () => {
     expect(operatorManifest.host_permissions).toEqual([
       "https://admin.staging.chasesets.com/*",
       "https://admin.chasesets.com/*",
+      "https://mpapi.tcgplayer.com/*",
     ]);
     expect(operatorManifest).toHaveProperty("externally_connectable", {
       matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
