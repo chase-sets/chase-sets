@@ -16,7 +16,7 @@ const message = {
 function dbForDelivery() {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   const db: PgQueryable = {
-    query: vi.fn(async <Row = Record<string, unknown>>(sql: string, values: readonly unknown[] = []) => {
+    query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
       if (sql.includes("RETURNING outbox.message_id")) {
         return {
@@ -27,12 +27,12 @@ function dbForDelivery() {
               account_id: message.authority.accountId,
               performed_by_user_id: message.authority.performedByUserId,
               message,
-            } as Row,
+            },
           ],
           rowCount: 1,
         };
       }
-      return { rows: [] as Row[], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
     }),
   };
   return { db, calls };
