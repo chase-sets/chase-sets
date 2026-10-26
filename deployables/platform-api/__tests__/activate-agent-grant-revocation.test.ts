@@ -126,6 +126,30 @@ describe("revocation-floor activation command", () => {
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).sqlstateClass).toBe("unknown");
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).failureCategory).toBe("unknown");
   });
+  it("retains validated proof identity in the entrypoint refusal diagnostic", async () => {
+    const captured = proof();
+    const failure = new Error("raw secret-marker");
+    await expect(
+      runActivationCommand({
+        owner: {
+          activationProof: async () => undefined,
+          activate: async () => {
+            throw failure;
+          },
+        },
+        environment: captured.environment,
+        readProof: async () => captured,
+        write: vi.fn(),
+      }),
+    ).rejects.toBe(failure);
+    const emitted = JSON.parse(JSON.stringify(activationDiagnostic(failure)));
+    expect(emitted).toMatchObject({
+      environment: captured.environment,
+      releaseCommit: captured.releaseCommit,
+      imageDigest: captured.imageDigest,
+    });
+    expect(JSON.stringify(emitted)).not.toContain("secret-marker");
+  });
   it("prints the bounded code, never a generic or raw refusal, from the entrypoint", () => {
     const source = readFileSync(new URL("../scripts/activate-agent-grant-revocation.mts", import.meta.url), "utf8");
     const normalized = source.replaceAll("\r\n", "\n");

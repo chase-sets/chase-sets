@@ -83,15 +83,18 @@ function diagnosticFromError(error) {
 
 export function diagnosticRecord({ options, refusal, failure, identityState = "unknown" }) {
   const inherited = diagnosticFromError(failure);
+  const statusIdentityState = ["activated", "dormant", "unknown"].includes(identityState) ? identityState : "unknown";
+  const childIdentityState = inherited?.identity?.state;
+  const identity = ["activated", "dormant"].includes(childIdentityState)
+    ? inherited.identity
+    : { state: statusIdentityState };
   return {
     schemaVersion: "agent-grant-revocation-diagnostic/v1",
     evidenceId: /^\d+\/\d+$/.test(options.evidenceId ?? "") ? options.evidenceId : "unknown/unknown",
     environment: options.environment,
     releaseCommit: options.releaseCommit,
     imageDigest: options.imageDigest,
-    identity: inherited?.identity ?? {
-      state: ["activated", "dormant", "unknown"].includes(identityState) ? identityState : "unknown",
-    },
+    identity,
     code: refusal ?? "revocation_activation_succeeded",
     sqlstateClass: inherited?.sqlstateClass ?? sqlstateClass(failure),
     failureCategory: inherited?.failureCategory ?? failureCategory(failure),

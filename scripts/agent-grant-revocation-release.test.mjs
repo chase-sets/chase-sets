@@ -71,6 +71,7 @@ describe("revocation release CLI decisions", () => {
     protocol = "revalidate",
     forbidden = null,
     logs = "",
+    childDiagnostic = null,
   } = {}) {
     let floor = absent
       ? null
@@ -169,6 +170,7 @@ describe("revocation release CLI decisions", () => {
             if (protocol === "lost-reply") return close(1);
             if (protocol === "refused") {
               child.stderr.write(`raw failure ${secretMarker}\nrevocation_dormant_request_unresolved\n`);
+              if (childDiagnostic) child.stderr.write(`${JSON.stringify(childDiagnostic)}\n`);
               return close(1);
             }
             if (protocol === "revalidate" && writes.length === 1)
@@ -315,6 +317,20 @@ describe("revocation release CLI decisions", () => {
     await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
     expect(status()).toHaveProperty("diagnostic");
     expect(JSON.stringify(status().diagnostic)).not.toContain(secretMarker);
+  });
+  it("preserves a known status identity over an unknown child diagnostic", async () => {
+    const f = fixture({
+      statuses: [dormant],
+      protocol: "refused",
+      childDiagnostic: {
+        schemaVersion: "agent-grant-revocation-diagnostic/v1",
+        identity: { state: "unknown" },
+        sqlstateClass: "unknown",
+        failureCategory: "application",
+      },
+    });
+    await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
+    expect(status().diagnostic).toMatchObject({ identity: { state: "dormant" } });
   });
   it("activate rejects a mismatched receipt digest without unfreezing", async () => {
     const f = fixture({ statuses: [dormant, activated], protocol: "wrong-digest" });
