@@ -82,8 +82,8 @@ describe("identity creation position guard real discovery", () => {
       {
         command: "GrantMembership",
         anchorId: "C3",
-        hitCount: 23,
-        registeredCount: 23,
+        hitCount: 24,
+        registeredCount: 24,
         violationCount: 0,
       },
     ]);
