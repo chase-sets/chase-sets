@@ -8,7 +8,9 @@ export function PricingHealthWhatIfPanels({ data }: Readonly<{ data: PricingHeal
   if (data.portfolios.length === 0) return <Banner tone="info" title={copy("whatIf.empty")} />;
   return (
     <Stack gap={4} data-testid="pricing-health-what-if">
-      {data.portfolios.map((portfolio) => <PortfolioWhatIfPanel key={portfolio.key} portfolio={portfolio} />)}
+      {data.portfolios.map((portfolio) => (
+        <PortfolioWhatIfPanel key={portfolio.key} portfolio={portfolio} />
+      ))}
     </Stack>
   );
 }
@@ -30,14 +32,23 @@ function PortfolioWhatIfPanel({ portfolio }: Readonly<{ portfolio: PricingHealth
     <Card elevation="tinted" data-elevation-role="furniture" data-testid={`pricing-health-what-if-${portfolio.key}`}>
       <Card.Header>
         <Card.Title>{portfolio.label}</Card.Title>
-        <Card.Description>{copy("whatIf.portfolioDescription", { listings: number(portfolio.listingCount) })}</Card.Description>
+        <Card.Description>
+          {copy("whatIf.portfolioDescription", { listings: number(portfolio.listingCount) })}
+        </Card.Description>
       </Card.Header>
       <Card.Body>
         <Stack gap={4}>
           <NumericSeriesChart
             label={copy("whatIf.horizon.label", { portfolio: portfolio.label })}
             title={copy("whatIf.horizon.title")}
-            series={[{ id: `${portfolio.key}-horizon`, name: copy("whatIf.horizon.series"), points: horizonPoints, tone: "accent" }]}
+            series={[
+              {
+                id: `${portfolio.key}-horizon`,
+                name: copy("whatIf.horizon.series"),
+                points: horizonPoints,
+                tone: "accent",
+              },
+            ]}
             formatX={(value) => `${number(value)}d`}
             formatY={(value) => formatMoney(value.toFixed(2), currency)}
             emptyTitle={copy("whatIf.empty")}
@@ -46,25 +57,58 @@ function PortfolioWhatIfPanel({ portfolio }: Readonly<{ portfolio: PricingHealth
           <NumericSeriesChart
             label={copy("whatIf.hurdle.label", { portfolio: portfolio.label })}
             title={copy("whatIf.hurdle.title")}
-            series={[{
-              id: `${portfolio.key}-hurdle`,
-              name: copy("whatIf.hurdle.series"),
-              points: hurdlePoints,
-              tone: "success",
-              markers: best ? [{ x: best.dailyReturnHurdle, y: best.dailyReturn, label: copy("whatIf.hurdle.bestMarker", { hurdle: percent(best.dailyReturnHurdle) }), tone: "success" }] : [],
-            }]}
+            series={[
+              {
+                id: `${portfolio.key}-hurdle`,
+                name: copy("whatIf.hurdle.series"),
+                points: hurdlePoints,
+                tone: "success",
+                markers: best
+                  ? [
+                      {
+                        x: best.dailyReturnHurdle,
+                        y: best.dailyReturn,
+                        label: copy("whatIf.hurdle.bestMarker", { hurdle: percent(best.dailyReturnHurdle) }),
+                        tone: "success",
+                      },
+                    ]
+                  : [],
+              },
+            ]}
             formatX={percent}
             formatY={percent}
             emptyTitle={copy("whatIf.noEconomics")}
             insufficientTitle={copy("whatIf.insufficient")}
           />
-          <KeyValueList items={[
-            { key: copy("whatIf.configuredHurdle"), value: portfolio.hurdle.configuredDailyReturnHurdles.length ? portfolio.hurdle.configuredDailyReturnHurdles.map(percent).join(", ") : copy("unavailable") },
-            { key: copy("whatIf.bestHurdle"), value: best ? `${percent(best.dailyReturnHurdle)} (${percent(best.dailyReturn)})` : copy("whatIf.none") },
-            { key: copy("whatIf.valueDelta"), value: portfolio.hurdle.valueDeltaAmount === null ? copy("unavailable") : formatMoney(portfolio.hurdle.valueDeltaAmount.toFixed(2), currency) },
-            { key: copy("whatIf.waitDelta"), value: portfolio.hurdle.waitDeltaDays === null ? copy("unavailable") : `${number(portfolio.hurdle.waitDeltaDays)} days` },
-            { key: copy("whatIf.snapshot"), value: portfolio.snapshotHash ?? copy("unavailable") },
-          ]} />
+          <KeyValueList
+            items={[
+              {
+                key: copy("whatIf.configuredHurdle"),
+                value: portfolio.hurdle.configuredDailyReturnHurdles.length
+                  ? portfolio.hurdle.configuredDailyReturnHurdles.map(percent).join(", ")
+                  : copy("unavailable"),
+              },
+              {
+                key: copy("whatIf.bestHurdle"),
+                value: best ? `${percent(best.dailyReturnHurdle)} (${percent(best.dailyReturn)})` : copy("whatIf.none"),
+              },
+              {
+                key: copy("whatIf.valueDelta"),
+                value:
+                  portfolio.hurdle.valueDeltaAmount === null
+                    ? copy("unavailable")
+                    : formatMoney(portfolio.hurdle.valueDeltaAmount.toFixed(2), currency),
+              },
+              {
+                key: copy("whatIf.waitDelta"),
+                value:
+                  portfolio.hurdle.waitDeltaDays === null
+                    ? copy("unavailable")
+                    : `${number(portfolio.hurdle.waitDeltaDays)} days`,
+              },
+              { key: copy("whatIf.snapshot"), value: portfolio.snapshotHash ?? copy("unavailable") },
+            ]}
+          />
         </Stack>
       </Card.Body>
     </Card>

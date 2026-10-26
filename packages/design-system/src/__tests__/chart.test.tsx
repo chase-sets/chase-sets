@@ -237,12 +237,18 @@ describe("NumericSeriesChart", () => {
     const { container } = renderWithRoot(
       <NumericSeriesChart
         label="Horizon value"
-        series={[{
-          id: "value",
-          name: "Portfolio value",
-          points: [{ x: 1, y: 10, label: "1 day: $10" }, { x: Number.NaN, y: 20 }, { x: 3, y: 30 }],
-          markers: [{ x: 3, y: 30, label: "Best cycle" }],
-        }]}
+        series={[
+          {
+            id: "value",
+            name: "Portfolio value",
+            points: [
+              { x: 1, y: 10, label: "1 day: $10" },
+              { x: Number.NaN, y: 20 },
+              { x: 3, y: 30 },
+            ],
+            markers: [{ x: 3, y: 30, label: "Best cycle" }],
+          },
+        ]}
       />,
     );
     expect(container.querySelectorAll("svg > path")).toHaveLength(1);
@@ -253,8 +259,17 @@ describe("NumericSeriesChart", () => {
   });
 
   it("renders distinct empty, insufficient, and error states", () => {
-    expect(renderWithRoot(<NumericSeriesChart label="Empty" series={[{ id: "x", name: "X", points: [] }]} />).container.textContent).toContain("No data yet");
-    expect(renderWithRoot(<NumericSeriesChart label="Insufficient" series={[{ id: "x", name: "X", points: [{ x: 1, y: 2 }] }]} />).container.textContent).toContain("Not enough data yet");
-    expect(renderWithRoot(<NumericSeriesChart label="Error" error="Synthetic outage" series={[]} />).container.textContent).toContain("Synthetic outage");
+    expect(
+      renderWithRoot(<NumericSeriesChart label="Empty" series={[{ id: "x", name: "X", points: [] }]} />).container
+        .textContent,
+    ).toContain("No data yet");
+    expect(
+      renderWithRoot(
+        <NumericSeriesChart label="Insufficient" series={[{ id: "x", name: "X", points: [{ x: 1, y: 2 }] }]} />,
+      ).container.textContent,
+    ).toContain("Not enough data yet");
+    expect(
+      renderWithRoot(<NumericSeriesChart label="Error" error="Synthetic outage" series={[]} />).container.textContent,
+    ).toContain("Synthetic outage");
   });
 });

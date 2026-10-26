@@ -71,11 +71,13 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.hurdle": "Daily Return Hurdle (%/day)",
   "pricing.features.pricingHealth.hurdleSources": "Daily Return Hurdle provenance counts",
   "pricing.features.pricingHealth.whatIf.title": "Portfolio what-ifs",
-  "pricing.features.pricingHealth.whatIf.description": "Preview-only horizon value and hurdle sweeps over complete listing sets.",
+  "pricing.features.pricingHealth.whatIf.description":
+    "Preview-only horizon value and hurdle sweeps over complete listing sets.",
   "pricing.features.pricingHealth.whatIf.empty": "No active listings to preview",
   "pricing.features.pricingHealth.whatIf.insufficient": "Not enough finite samples to show this preview",
   "pricing.features.pricingHealth.whatIf.noEconomics": "No Economics snapshot is available for this sweep",
-  "pricing.features.pricingHealth.whatIf.portfolioDescription": "{listings} listings; no prices or Economics are changed.",
+  "pricing.features.pricingHealth.whatIf.portfolioDescription":
+    "{listings} listings; no prices or Economics are changed.",
   "pricing.features.pricingHealth.whatIf.horizon.title": "Horizon value curve",
   "pricing.features.pricingHealth.whatIf.horizon.label": "Horizon value curve for {portfolio}",
   "pricing.features.pricingHealth.whatIf.horizon.series": "One-copy portfolio value",

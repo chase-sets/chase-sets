@@ -533,8 +533,7 @@ export interface NumericSeries {
   markers?: readonly NumericSeriesMarker[];
 }
 
-export interface NumericSeriesChartProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface NumericSeriesChartProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   series: readonly NumericSeries[];
   label: string;
   title?: ReactNode;
@@ -601,7 +600,9 @@ export function NumericSeriesChart({
           title={hasAnyData ? insufficientTitle : emptyTitle}
           description={hasAnyData ? resolvedInsufficientDescription : emptyDescription}
         />
-        {showTable && hasAnyData ? <NumericSampleTable series={finiteSeries} formatX={formatX} formatY={formatY} /> : null}
+        {showTable && hasAnyData ? (
+          <NumericSampleTable series={finiteSeries} formatX={formatX} formatY={formatY} />
+        ) : null}
       </div>
     );
   }
@@ -631,11 +632,21 @@ export function NumericSeriesChart({
   const geometry = finiteSeries.map((entry, index) => {
     const tone = resolveSeriesTone(entry, index);
     const points = [...entry.points].sort((left, right) => left.x - right.x);
-    return { entry, tone, points, path: toLinePath(points.map((point) => [xScale(point.x), yScale(point.y)] as Point)) };
+    return {
+      entry,
+      tone,
+      points,
+      path: toLinePath(points.map((point) => [xScale(point.x), yScale(point.y)] as Point)),
+    };
   });
   const defaultSummary = geometry
-    .map(({ entry, points }) => `${entry.name}: ${points.length} samples, from ${formatY(points[0]!.y)} to ${formatY(points.at(-1)!.y)}.`)
-    .concat(finiteSeries.flatMap((entry) => (entry.markers ?? []).map((marker) => `${entry.name} marker: ${marker.label}.`)))
+    .map(
+      ({ entry, points }) =>
+        `${entry.name}: ${points.length} samples, from ${formatY(points[0]!.y)} to ${formatY(points.at(-1)!.y)}.`,
+    )
+    .concat(
+      finiteSeries.flatMap((entry) => (entry.markers ?? []).map((marker) => `${entry.name} marker: ${marker.label}.`)),
+    )
     .join(" ");
   const resolvedShowLegend = showLegend ?? finiteSeries.length > 1;
 
@@ -654,11 +665,26 @@ export function NumericSeriesChart({
         className="h-auto w-full max-w-full"
       >
         {geometry.map(({ entry, tone, path }) => (
-          <path key={`${entry.id}-line`} d={path} className={chartStrokeToneClasses[tone]} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            key={`${entry.id}-line`}
+            d={path}
+            className={chartStrokeToneClasses[tone]}
+            fill="none"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         ))}
         {geometry.flatMap(({ entry, tone }) =>
           (entry.markers ?? []).map((marker) => (
-            <circle key={`${entry.id}-marker-${marker.x}-${marker.y}`} cx={xScale(marker.x)} cy={yScale(marker.y)} r={4} className={cx(chartFillToneClasses[marker.tone ?? tone], "stroke-background")} strokeWidth={1.5}>
+            <circle
+              key={`${entry.id}-marker-${marker.x}-${marker.y}`}
+              cx={xScale(marker.x)}
+              cy={yScale(marker.y)}
+              r={4}
+              className={cx(chartFillToneClasses[marker.tone ?? tone], "stroke-background")}
+              strokeWidth={1.5}
+            >
               <title>{marker.label}</title>
             </circle>
           )),
@@ -668,7 +694,12 @@ export function NumericSeriesChart({
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
           {finiteSeries.map((entry, index) => {
             const tone = resolveSeriesTone(entry, index);
-            return <li key={entry.id} className="flex items-center gap-2 text-xs text-secondary"><span aria-hidden="true" className={cx("h-2 w-2 rounded-tokenFull", chartFillToneClasses[tone])} />{entry.name}</li>;
+            return (
+              <li key={entry.id} className="flex items-center gap-2 text-xs text-secondary">
+                <span aria-hidden="true" className={cx("h-2 w-2 rounded-tokenFull", chartFillToneClasses[tone])} />
+                {entry.name}
+              </li>
+            );
           })}
         </ul>
       ) : null}
@@ -690,11 +721,23 @@ function NumericSampleTable({
   return (
     <table className="mt-3 w-full text-left text-xs" aria-label="Chart samples">
       <caption className="sr-only">Chart samples</caption>
-      <thead><tr><th scope="col">X</th><th scope="col">Y</th><th scope="col">Series</th></tr></thead>
+      <thead>
+        <tr>
+          <th scope="col">X</th>
+          <th scope="col">Y</th>
+          <th scope="col">Series</th>
+        </tr>
+      </thead>
       <tbody>
-        {series.flatMap((entry) => entry.points.map((point, index) => (
-          <tr key={`${entry.id}-${point.x}-${index}`}><td>{formatX(point.x)}</td><td>{point.label ?? formatY(point.y)}</td><td>{entry.name}</td></tr>
-        )))}
+        {series.flatMap((entry) =>
+          entry.points.map((point, index) => (
+            <tr key={`${entry.id}-${point.x}-${index}`}>
+              <td>{formatX(point.x)}</td>
+              <td>{point.label ?? formatY(point.y)}</td>
+              <td>{entry.name}</td>
+            </tr>
+          )),
+        )}
       </tbody>
     </table>
   );

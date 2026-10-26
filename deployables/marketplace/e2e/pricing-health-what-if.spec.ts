@@ -9,8 +9,11 @@ const viewports = [
   { width: 820, height: 1180 },
 ];
 
-test("Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed", async ({ page }, testInfo) => {
+test("Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed", async ({
+  page,
+}, testInfo) => {
   test.setTimeout(120_000);
+  await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Fpricing-health", { waitUntil: "domcontentloaded" });
   await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
   const before = await page.request.get("/api/marketplace/account/pricing-health");
   expect(before.ok()).toBe(true);
@@ -23,7 +26,9 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
   await expect(page.getByText("No product line", { exact: true })).toBeVisible();
   for (const [index, viewport] of viewports.entries()) {
     await page.setViewportSize(viewport);
-    expect(await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(
+      await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
     await captureResponsiveEvidence({ page, testInfo, claimId: `pricing-health-what-if-${index}` });
   }
   await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health what-if panels" });
