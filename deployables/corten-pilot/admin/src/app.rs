@@ -292,7 +292,7 @@ async fn invalid(
     config: &Config,
     headers: &HeaderMap,
     errors: Errors,
-    form: impl Render,
+    form: impl Patch,
     policy: Option<&str>,
     forms: Forms,
 ) -> corten::Result {

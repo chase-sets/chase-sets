@@ -229,7 +229,7 @@ pub fn AttentionSheet<'a>(
     item: Option<&'a AttentionItem>,
     parked: Option<&'a Parked>,
     manage: bool,
-) -> impl Render {
+) -> impl Patch {
     html! {
         match item {
             None => <dialog id={ids::ATTENTION_DIALOG}></dialog>,
@@ -310,7 +310,7 @@ pub fn ParkForm<'a, I: Id + AttrValue + Copy>(
     submit: &'a str,
     form: &'a Draft<ParkInput>,
     manage: bool,
-) -> impl Render {
+) -> impl Patch {
     let f = ParkInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     html! {
@@ -331,7 +331,7 @@ pub fn ParkForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// The park form that came back, refused: drawn in place of the one posted.
-pub fn park_form<'a>(t: Cat, query: &'a ScopeQuery, parked: &'a Parked, manage: bool) -> impl Render + 'a {
+pub fn park_form<'a>(t: Cat, query: &'a ScopeQuery, parked: &'a Parked, manage: bool) -> impl Patch + 'a {
     html! {
         match parked {
             Parked::Dismiss(draft) => {

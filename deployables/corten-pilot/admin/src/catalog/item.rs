@@ -376,7 +376,7 @@ async fn invalid(
     headers: &HeaderMap,
     id: &str,
     errors: &Errors,
-    form: impl Render,
+    form: impl Patch,
     back: ItemBack,
 ) -> corten::Result {
     let after = url::After::default();
@@ -384,14 +384,7 @@ async fn invalid(
 }
 
 /// A dialog the server draws when it is opened: the dialog as a patch, or the page with it open.
-async fn opened(
-    req: &Req,
-    config: &Shared,
-    headers: &HeaderMap,
-    id: &str,
-    dialog: impl Render,
-    back: ItemBack,
-) -> corten::Result {
+async fn opened(req: &Req, config: &Shared, headers: &HeaderMap, id: &str, dialog: impl Patch, back: ItemBack) -> corten::Result {
     if req.mode == Mode::Action {
         return req.patch(dialog);
     }

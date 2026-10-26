@@ -30,41 +30,46 @@ pub struct Previewed<'a> {
 /// form that starts it. The page has an empty `<dialog>` with its id; a preview's answer is this
 /// dialog, open (a patch with JavaScript, the page without).
 #[component(css)]
-pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Render {
+pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
     let f = BulkInput::FIELDS;
     html! {
-        let title = t.bulk_preview_title(shown.label).to_string();
-        let description = shown.preview.map(|v| t.bulk_preview_description(v.ready_count, v.blocked_count).to_string());
-        let ready = shown.preview.is_some_and(|v| v.ready_count > 0);
-        let ids: &[String] = match shown.preview {
-            Some(preview) if shown.input.mode != "filter" => &preview.ids,
-            _ => &[],
-        };
-        <Dialog
-            id={ids::PREVIEW_DIALOG}
-            title={&title}
-            description={description.as_deref()}
-            open
-            close={p.catalog_close()}
-        >
-            if let Some(preview) = shown.preview {
-                <Candidates t={t} candidates={&preview.candidates} />
+        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
+        match () {
+            () => {
+                let title = t.bulk_preview_title(shown.label).to_string();
+                let description = shown.preview.map(|v| t.bulk_preview_description(v.ready_count, v.blocked_count).to_string());
+                let ready = shown.preview.is_some_and(|v| v.ready_count > 0);
+                let ids: &[String] = match shown.preview {
+                    Some(preview) if shown.input.mode != "filter" => &preview.ids,
+                    _ => &[],
+                };
+                <Dialog
+                    id={ids::PREVIEW_DIALOG}
+                    title={&title}
+                    description={description.as_deref()}
+                    open
+                    close={p.catalog_close()}
+                >
+                    if let Some(preview) = shown.preview {
+                        <Candidates t={t} candidates={&preview.candidates} />
+                    }
+                    <form class={Confirm} id={ids::CONFIRM} method="post" action={shown.confirm} data-patch>
+                        {shown.errors.form_message()}
+                        <input type="hidden" name={f.action} value={&shown.input.action}>
+                        <input type="hidden" name={f.mode} value={&shown.input.mode}>
+                        for id in ids {
+                            <input type="hidden" name={f.ids} value={id}>
+                        }
+                        <div class={Footer}>
+                            <button type="submit" class={Small} disabled={!ready}>{t.bulk_confirm()}</button>
+                            <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
+                                {t.bulk_cancel()}
+                            </button>
+                        </div>
+                    </form>
+                </Dialog>
             }
-            <form class={Confirm} id={ids::CONFIRM} method="post" action={shown.confirm} data-patch>
-                {shown.errors.form_message()}
-                <input type="hidden" name={f.action} value={&shown.input.action}>
-                <input type="hidden" name={f.mode} value={&shown.input.mode}>
-                for id in ids {
-                    <input type="hidden" name={f.ids} value={id}>
-                }
-                <div class={Footer}>
-                    <button type="submit" class={Small} disabled={!ready}>{t.bulk_confirm()}</button>
-                    <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
-                        {t.bulk_cancel()}
-                    </button>
-                </div>
-            </form>
-        </Dialog>
+        }
     }
 }
 

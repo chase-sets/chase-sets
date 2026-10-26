@@ -19,14 +19,18 @@ function check(ok, what) {
 }
 
 const browser = await chromium.launch();
+const elsewhere = [];
 
 async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 }) {
   const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, viewport });
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
+  // The pilot's errors count; admin-web's own page's are reported, not counted (its dev server's
+  // route discovery logs "Failed to fetch manifest patches" when the smoke moves on mid-fetch).
   const problems = [];
-  page.on("console", (m) => m.type() === "error" && problems.push(m.text()));
-  page.on("pageerror", (e) => problems.push(String(e)));
+  const theirs = (text) => !page.url().startsWith(base) && (elsewhere.push(text.slice(0, 160)), true);
+  page.on("console", (m) => m.type() === "error" && !theirs(m.text()) && problems.push(m.text()));
+  page.on("pageerror", (e) => !theirs(String(e)) && problems.push(String(e)));
   return { ctx, page, problems };
 }
 
@@ -126,5 +130,6 @@ const rows = (page) =>
 }
 
 await browser.close();
+if (elsewhere.length) console.log(`note admin-web's own page logged ${elsewhere.length} errors (not counted): ${[...new Set(elsewhere)].slice(0, 3).join(" | ")}`);
 console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

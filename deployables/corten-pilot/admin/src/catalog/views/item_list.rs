@@ -218,14 +218,19 @@ pub fn item_list<'a>(
 
 /// The changes since the page was drawn (`ids::CHANGES`), in the element that streams them
 /// (`ids::LIVE`). Reload draws both again, so the count starts over with a new stream.
-pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Render + 'a {
+pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Patch + 'a {
     html! {
-        let live = url::ItemsLive { query: query.clone() }.href();
-        let list = url::Items::default().href();
-        let kept = query.kept();
-        <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
-            {item_changes(t, query, Pending::default())}
-        </LiveStatus>
+        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
+        match () {
+            () => {
+                let live = url::ItemsLive { query: query.clone() }.href();
+                let list = url::Items::default().href();
+                let kept = query.kept();
+                <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
+                    {item_changes(t, query, Pending::default())}
+                </LiveStatus>
+            }
+        }
     }
 }
 
@@ -272,7 +277,7 @@ pub fn item_rows<'a>(
     query: &'a url::ItemQuery,
     screen: &'a ListScreen<ItemRow, ItemPreview>,
     manage: bool,
-) -> impl Render + 'a {
+) -> impl Patch + 'a {
     let title = t.item_list_catalog_items();
     let empty_title = t.list_none_found(title.to_lowercase()).to_string();
     let empty_description = if query.filtered() {
@@ -377,7 +382,7 @@ fn ItemBulkFields(t: Cat) -> impl Render {
 /// The create form (`ids::CREATE`), what a refused create is patched with. Its stylesheet is
 /// the page's.
 #[component(css)]
-pub fn ItemForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ItemInput>) -> impl Render {
+pub fn ItemForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ItemInput>) -> impl Patch {
     let f = ItemInput::FIELDS;
     let e = form.errors.within(id);
     html! {
@@ -405,7 +410,7 @@ pub fn ItemPreviewDialog<'a>(
     errors: &'a Errors,
     confirm: &'a str,
     label: &'a str,
-) -> impl Render {
+) -> impl Patch {
     let f = ItemBulkInput::FIELDS;
     let e = errors.within(ids::CONFIRM);
     let publish = input.action == "publish";
@@ -456,41 +461,52 @@ pub fn ItemPreviewDialog<'a>(
     };
     // The view owns what its dialog borrows: the title and description move into the markup.
     html! {
-        let (title, description) = (title, description);
-        <Dialog id={ids::PREVIEW_DIALOG} title={&title} description={description.as_deref()} open close={p.catalog_close()}>
-            if let Some(note) = note {
-                <p class={Note}>{note}</p>
+        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
+        match () {
+            () => {
+                let (title, description) = (title, description);
+                <Dialog
+                    id={ids::PREVIEW_DIALOG}
+                    title={&title}
+                    description={description.as_deref()}
+                    open
+                    close={p.catalog_close()}
+                >
+                    if let Some(note) = note {
+                        <p class={Note}>{note}</p>
+                    }
+                    if let Some(ItemPreview::Publish(v)) = preview {
+                        <PublishTable t={t} candidates={&v.candidates} />
+                    }
+                    if let Some(ItemPreview::Edit(v)) = preview {
+                        <EditTable t={t} candidates={&v.candidates} />
+                    }
+                    if let Some(ItemPreview::Lifecycle(v)) = preview {
+                        <Candidates t={t} candidates={&v.candidates} />
+                    }
+                    <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
+                        {errors.form_message()}
+                        {e.message(f.blueprint_id)}
+                        {e.message(f.category_id)}
+                        {e.message(f.tags)}
+                        <input type="hidden" name={f.action} value={&input.action}>
+                        <input type="hidden" name={f.mode} value={mode}>
+                        for id in ids {
+                            <input type="hidden" name={f.ids} value={id}>
+                        }
+                        <input type="hidden" name={f.blueprint_id} value={&input.blueprint_id}>
+                        <input type="hidden" name={f.category_id} value={&input.category_id}>
+                        <input type="hidden" name={f.tags} value={&input.tags}>
+                        <div class={Footer}>
+                            <button type="submit" class={Small} disabled={!ready}>{confirm_label}</button>
+                            <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
+                                {t.item_list_cancel()}
+                            </button>
+                        </div>
+                    </form>
+                </Dialog>
             }
-            if let Some(ItemPreview::Publish(v)) = preview {
-                <PublishTable t={t} candidates={&v.candidates} />
-            }
-            if let Some(ItemPreview::Edit(v)) = preview {
-                <EditTable t={t} candidates={&v.candidates} />
-            }
-            if let Some(ItemPreview::Lifecycle(v)) = preview {
-                <Candidates t={t} candidates={&v.candidates} />
-            }
-            <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
-                {errors.form_message()}
-                {e.message(f.blueprint_id)}
-                {e.message(f.category_id)}
-                {e.message(f.tags)}
-                <input type="hidden" name={f.action} value={&input.action}>
-                <input type="hidden" name={f.mode} value={mode}>
-                for id in ids {
-                    <input type="hidden" name={f.ids} value={id}>
-                }
-                <input type="hidden" name={f.blueprint_id} value={&input.blueprint_id}>
-                <input type="hidden" name={f.category_id} value={&input.category_id}>
-                <input type="hidden" name={f.tags} value={&input.tags}>
-                <div class={Footer}>
-                    <button type="submit" class={Small} disabled={!ready}>{confirm_label}</button>
-                    <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
-                        {t.item_list_cancel()}
-                    </button>
-                </div>
-            </form>
-        </Dialog>
+        }
     }
 }
 
@@ -565,33 +581,38 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
 /// The removal of the checked drafts (admin-web's Remove Draft Catalog Items): how many, and the
 /// confirm, which removes each.
 #[component(css = ItemForm)]
-pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors, confirm: &'a str) -> impl Render {
+pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors, confirm: &'a str) -> impl Patch {
     let f = ItemBulkInput::FIELDS;
     let ready = !ids.is_empty() && errors.is_empty();
     html! {
-        let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
-        <Dialog
-            id={ids::PREVIEW_DIALOG}
-            title={t.item_list_remove_draft_catalog_items()}
-            description={ready.then_some(description.as_str())}
-            open
-            close={p.catalog_close()}
-        >
-            <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
-                {errors.form_message()}
-                for id in ids {
-                    <input type="hidden" name={f.ids} value={id}>
-                }
-                <div class={Footer}>
-                    <button type="submit" class={(Small, Danger)} disabled={!ready}>
-                        {t.item_list_remove_drafts_from_selected()}
-                    </button>
-                    <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
-                        {t.item_list_cancel()}
-                    </button>
-                </div>
-            </form>
-        </Dialog>
+        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
+        match () {
+            () => {
+                let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
+                <Dialog
+                    id={ids::PREVIEW_DIALOG}
+                    title={t.item_list_remove_draft_catalog_items()}
+                    description={ready.then_some(description.as_str())}
+                    open
+                    close={p.catalog_close()}
+                >
+                    <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
+                        {errors.form_message()}
+                        for id in ids {
+                            <input type="hidden" name={f.ids} value={id}>
+                        }
+                        <div class={Footer}>
+                            <button type="submit" class={(Small, Danger)} disabled={!ready}>
+                                {t.item_list_remove_drafts_from_selected()}
+                            </button>
+                            <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
+                                {t.item_list_cancel()}
+                            </button>
+                        </div>
+                    </form>
+                </Dialog>
+            }
+        }
     }
 }
 

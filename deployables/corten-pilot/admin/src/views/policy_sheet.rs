@@ -132,7 +132,7 @@ pub fn PolicySheet<'a>(
 
 /// What a preview answered: inside the sheet, and on its own as the preview's patch.
 #[component(css = PolicySheet)]
-pub fn PreviewResult<'a>(t: Msg, plan: Option<&'a PackagePlan>) -> impl Render {
+pub fn PreviewResult<'a>(t: Msg, plan: Option<&'a PackagePlan>) -> impl Patch {
     let none = t.common_none();
     let yes_no = |b: bool| if b { t.common_yes() } else { t.common_no() };
     let list = |items: &[String]| if items.is_empty() { none.to_owned() } else { items.join(", ") };

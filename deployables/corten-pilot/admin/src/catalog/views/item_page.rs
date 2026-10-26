@@ -555,7 +555,8 @@ fn Disclosure<'a, C: Render>(title: &'a str, summary: &'a str, tone: &'a str, op
     }
 }
 
-/// A row's one-button form (clear, remove, unlink), its refusal next to it.
+/// A row's one-button form (clear, remove, unlink), its refusal next to it. `id`: its key
+/// (`ids::row`).
 #[component(css = ItemPage)]
 pub fn RowForm<'a>(
     id: &'a str,
@@ -563,10 +564,10 @@ pub fn RowForm<'a>(
     label: &'a str,
     hidden: &'a [(FieldName, &'a str)],
     refused: Option<&'a (String, Errors)>,
-) -> impl Render {
+) -> impl Patch {
     let errors = refused.filter(|(form, _)| form == id).map(|(_, e)| e.clone()).unwrap_or_default();
     html! {
-        <form class={RowForm} id={id} method="post" action={action} data-patch>
+        <form class={RowForm} id={ids::ItemId(id)} method="post" action={action} data-patch>
             for (name, value) in hidden {
                 <input type="hidden" name={*name} value={*value}>
             }
@@ -625,7 +626,7 @@ fn FieldValues<'a>(
                                         type="button"
                                         class={Cue}
                                         command="show-modal"
-                                        commandfor={&ids::reference(&reference.reference_id)}
+                                        commandfor={ids::ItemId(&ids::reference(&reference.reference_id))}
                                         aria-label={&label}
                                         aria-haspopup="dialog"
                                     >
@@ -676,7 +677,7 @@ fn ReferenceDialogs<'a>(t: Cat, rows: &'a [DetailRow<'a>]) -> impl Render {
                 .map(|r| (relationship_label(&r.relationship_type), r.reference.as_ref().map_or_else(|| r.reference_id.clone(), |x| x.name.clone())))
                 .collect();
             <Dialog
-                id={&dialog}
+                id={ids::ItemId(&dialog)}
                 title={&reference.name}
                 description={Some(&kind)}
                 open={false}
@@ -1101,7 +1102,7 @@ fn Select<'a, I: Id>(
 /// The publish form: the display identity's readiness, the required field ids, and Recheck (a
 /// \`GET\` of the same address, which draws the form again with the readiness now).
 #[component(css = ItemPage)]
-pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readiness: &'a Readiness) -> impl Render {
+pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readiness: &'a Readiness) -> impl Patch {
     let f = PublishInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ids::PUBLISH));
     let action = at::Publish::of(id).href();
@@ -1141,7 +1142,7 @@ pub fn IdForm<'a, I: Id + AttrValue + Copy>(
     label: &'a str,
     submit: &'a str,
     form: &'a Draft<IdInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = IdInput::FIELDS;
     let e = form.errors.within(id);
     html! {
@@ -1155,13 +1156,7 @@ pub fn IdForm<'a, I: Id + AttrValue + Copy>(
 
 /// Set Field Value's dialog, drawn open: the server draws it when it is opened.
 #[component(css = ItemPage)]
-pub fn FieldDialog<'a>(
-    t: Cat,
-    p: Pilot,
-    id: &'a str,
-    form: &'a Draft<FieldValueInput>,
-    choices: &'a FieldChoices,
-) -> impl Render {
+pub fn FieldDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Patch {
     html! {
         <Dialog id={ids::FIELD_DIALOG} title={t.item_set_field_value_2()} description={None} open close={p.catalog_close()}>
             <FieldValueForm t={t} id={id} form={form} choices={choices} />
@@ -1172,7 +1167,7 @@ pub fn FieldDialog<'a>(
 /// The field, and its value: a reference record for a reference field (shown only when one is
 /// chosen, with CSS \`:has\`), text for any other.
 #[component(css = ItemPage)]
-pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Render {
+pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Patch {
     let f = FieldValueInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ids::FIELD));
     let action = at::Fields::of(id).href();
@@ -1227,7 +1222,7 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
 }
 
 #[component(css = ItemPage)]
-pub fn MetadataForm<'a>(t: Cat, id: &'a str, form: &'a Draft<MetadataInput>) -> impl Render {
+pub fn MetadataForm<'a>(t: Cat, id: &'a str, form: &'a Draft<MetadataInput>) -> impl Patch {
     let f = MetadataInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ids::METADATA));
     let action = at::Metadata { id }.href();
@@ -1250,7 +1245,7 @@ pub fn ListForm<'a, I: Id + AttrValue + Copy>(
     lines: bool,
     submit: &'a str,
     form: &'a Draft<ListInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = ListInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     html! {
@@ -1273,7 +1268,7 @@ pub fn ListForm<'a, I: Id + AttrValue + Copy>(
 }
 
 #[component(css = ItemPage)]
-pub fn FallbackForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FallbackInput>) -> impl Render {
+pub fn FallbackForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FallbackInput>) -> impl Patch {
     let f = FallbackInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ids::FALLBACK));
     let action = at::Fallback { id }.href();
@@ -1309,7 +1304,7 @@ pub fn ReferenceForm<'a, I: Id + AttrValue + Copy>(
     form_id: I,
     product: bool,
     form: &'a Draft<ReferenceInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = ReferenceInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(form_id));
     let action = if product { at::ProductRefs { id }.href() } else { at::CatalogRefs { id }.href() };
@@ -1342,7 +1337,7 @@ pub fn ContentDialog<'a>(
     id: &'a str,
     form: &'a Draft<ContentLineInput>,
     choices: &'a ContentChoices,
-) -> impl Render {
+) -> impl Patch {
     html! {
         <Dialog id={ids::CONTENT_DIALOG} title={t.item_add_content_line()} description={None} open close={p.catalog_close()}>
             <ContentForm t={t} id={id} form={form} choices={choices} />
@@ -1351,7 +1346,7 @@ pub fn ContentDialog<'a>(
 }
 
 #[component(css = ItemPage)]
-pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, choices: &'a ContentChoices) -> impl Render {
+pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, choices: &'a ContentChoices) -> impl Patch {
     let f = ContentLineInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ids::CONTENT));
     let action = at::Contents::of(id).href();

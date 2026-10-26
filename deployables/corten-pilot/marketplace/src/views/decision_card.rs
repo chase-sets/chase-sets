@@ -137,7 +137,7 @@ pub fn RestockForm<'a>(
     id: &'a str,
     draft: &'a DecisionDraft,
     enabled: bool,
-) -> impl Render {
+) -> impl Patch {
     let f = DecisionInput::FIELDS;
     html! {
         <WriteForm
@@ -167,7 +167,7 @@ pub fn WriteOffForm<'a>(
     id: &'a str,
     draft: &'a DecisionDraft,
     enabled: bool,
-) -> impl Render {
+) -> impl Patch {
     let f = DecisionInput::FIELDS;
     html! {
         <WriteForm

@@ -23,7 +23,7 @@ pub fn Recovery<'a>(
     check: &'a Check,
     again: &'a str,
     list: &'a str,
-) -> impl Render {
+) -> impl Patch {
     let (check_form, check_attempt, check_family, check_target, check_user) = refs();
     let f = Check::FIELDS;
     let account = viewer.actor.account_id.as_str();
@@ -80,7 +80,7 @@ pub fn Recovery<'a>(
 /// A write form: it carries the attempt the pilot issued, remembers it before it is sent (the
 /// script), and is off while a write is uncertain.
 #[component(css = Recovery)]
-pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
+pub fn WriteForm<'a, I: Id + AttrValue, A: AttrValue, C: Render>(
     t: Msg,
     id: I,
     action: A,
@@ -91,7 +91,7 @@ pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
     errors: &'a Errors,
     enabled: bool,
     children: C,
-) -> impl Render {
+) -> impl Patch {
     let unavailable = refs();
     let (account, user) = (viewer.actor.account_id.as_str(), viewer.actor.user_id.as_str());
     // `target` in a handler call is the event's target, so the record's id goes by another name.

@@ -1,4 +1,4 @@
-use corten::prelude::*;
+use corten::{prelude::*, view::AttrValue};
 
 use super::{
     Draft, StatusPill,
@@ -75,14 +75,14 @@ pub struct Transition {
 /// The status and the changes it allows, as `LifecycleControls` draws them. Each button posts
 /// its action; one that asks first opens a dialog whose button posts it.
 #[component(css = DetailPage)]
-pub fn LifecycleForm<'a>(
+pub fn LifecycleForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
-    id: &'a str,
+    id: I,
     action: &'a str,
     status: &'a str,
     transitions: &'a [Transition],
     errors: &'a Errors,
-) -> impl Render {
+) -> impl Patch {
     let f = ActionInput::FIELDS;
     html! {
         <form class={Lifecycle} id={id} method="post" action={action} data-patch>
@@ -91,7 +91,7 @@ pub fn LifecycleForm<'a>(
             <StatusPill status={status} toned />
             for step in transitions {
                 if step.confirm {
-                    let dialog = format!("{id}-{}", step.action);
+                    let dialog = super::id_with(&id, &format!("-{}", step.action));
                     let title = t.lifecycle_confirm_action_title(step.label).to_string();
                     <button type="button" class={(Small, Danger)} command="show-modal" commandfor={&dialog}>{step.label}</button>
                     <dialog class={Confirm} id={&dialog} aria-label={&title}>
@@ -116,7 +116,13 @@ pub fn LifecycleForm<'a>(
 
 /// An option's deprecate or reactivate button, as its status allows.
 #[component(css = DetailPage)]
-pub fn OptionLifecycleForm<'a>(t: Cat, id: &'a str, action: &'a str, status: &'a str, errors: &'a Errors) -> impl Render {
+pub fn OptionLifecycleForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    status: &'a str,
+    errors: &'a Errors,
+) -> impl Patch {
     let f = ActionInput::FIELDS;
     html! {
         <form class={Inline} id={id} method="post" action={action} data-patch>
@@ -210,7 +216,7 @@ pub fn OptionRow<'a>(
                     }
                     <OptionLifecycleForm
                         t={t}
-                        id={&ids::option_lifecycle(option_id)}
+                        id={ids::option_lifecycle(option_id)}
                         action={&lifecycle}
                         status={&option.status}
                         errors={&errors}

@@ -243,7 +243,7 @@ pub fn page<'a>(
 
 /// A refused write's patch: its form again, and a status that settles the posted attempt.
 #[component]
-pub fn Refused<'a>(t: Msg, viewer: &'a Viewer, write: &'a Which, draft: &'a Draft, status: &'a Status) -> impl Render {
+pub fn Refused<'a>(t: Msg, viewer: &'a Viewer, write: &'a Which, draft: &'a Draft, status: &'a Status) -> impl Patch {
     let (list, check) = (url::Locations::default().href(), Check::default());
     html! {
         <Recovery t={t} viewer={viewer} status={status} check={&check} again={&list} list={&list} />
@@ -334,7 +334,7 @@ pub fn RefusedDecision<'a>(
     which: &'a Decided,
     draft: &'a DecisionDraft,
     status: &'a Status,
-) -> impl Render {
+) -> impl Patch {
     let (list, check) = (url::Restock::default().href(), Check::default());
     html! {
         <Recovery t={m} viewer={viewer} status={status} check={&check} again={&list} list={&list} />

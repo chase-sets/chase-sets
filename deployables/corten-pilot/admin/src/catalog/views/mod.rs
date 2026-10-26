@@ -64,6 +64,15 @@ pub const COMPONENTS: &[Component] = &[
     corten_ui::Toaster,
 ];
 
+/// The text of element id `id` followed by `suffix`: the id of a part of that element (a
+/// dialog's heading, a confirm dialog of a form).
+pub fn id_with(id: &impl Id, suffix: &str) -> String {
+    let mut text = String::new();
+    id.write_id(&mut text);
+    text.push_str(suffix);
+    text
+}
+
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {
     use corten::prelude::*;
@@ -72,42 +81,64 @@ pub mod ids {
     #[derive(Id, Clone, Copy)]
     pub struct CatalogCreateId;
     pub const CREATE: CatalogCreateId = CatalogCreateId;
-    pub const CREATE_DIALOG: &str = "catalog-create-dialog";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogCreateDialogId;
+    pub const CREATE_DIALOG: CatalogCreateDialogId = CatalogCreateDialogId;
     /// A record's edit form.
     #[derive(Id, Clone, Copy)]
     pub struct CatalogEditId;
     pub const EDIT: CatalogEditId = CatalogEditId;
-    pub const EDIT_DIALOG: &str = "catalog-edit-dialog";
-    pub const LIFECYCLE: &str = "catalog-lifecycle";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogEditDialogId;
+    pub const EDIT_DIALOG: CatalogEditDialogId = CatalogEditDialogId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogLifecycleId;
+    pub const LIFECYCLE: CatalogLifecycleId = CatalogLifecycleId;
     #[derive(Id, Clone, Copy)]
     pub struct CatalogAddOptionId;
     pub const ADD_OPTION: CatalogAddOptionId = CatalogAddOptionId;
-    pub const ADD_OPTION_DIALOG: &str = "catalog-add-option-dialog";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddOptionDialogId;
+    pub const ADD_OPTION_DIALOG: CatalogAddOptionDialogId = CatalogAddOptionDialogId;
     #[derive(Id, Clone, Copy)]
     pub struct CatalogReorderId;
     pub const REORDER: CatalogReorderId = CatalogReorderId;
-    pub const REORDER_DIALOG: &str = "catalog-reorder-dialog";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogReorderDialogId;
+    pub const REORDER_DIALOG: CatalogReorderDialogId = CatalogReorderDialogId;
     /// A list's rows (or its empty state) and pager: what a change to the list re-renders.
-    pub const ROWS: &str = "catalog-rows";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogRowsId;
+    pub const ROWS: CatalogRowsId = CatalogRowsId;
     /// The bulk bar's form, which the rows' boxes join.
     pub const BULK: &str = "catalog-bulk";
-    pub const PREVIEW_DIALOG: &str = "catalog-bulk-preview";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogBulkPreviewId;
+    pub const PREVIEW_DIALOG: CatalogBulkPreviewId = CatalogBulkPreviewId;
     /// The preview's confirm form.
     #[derive(Id, Clone, Copy)]
     pub struct CatalogBulkConfirmId;
     pub const CONFIRM: CatalogBulkConfirmId = CatalogBulkConfirmId;
-    pub const JOB_DIALOG: &str = "catalog-bulk-job";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogBulkJobId;
+    pub const JOB_DIALOG: CatalogBulkJobId = CatalogBulkJobId;
     /// A job's status in its dialog: what each change to the job draws again.
     pub const JOB_STATUS: &str = "catalog-bulk-status";
     /// The element that streams a list's changes, and what it draws (the catalog items say how
     /// many changed rather than drawing the rows again).
-    pub const LIVE: &str = "catalog-live";
-    pub const CHANGES: &str = "catalog-changes";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogLiveId;
+    pub const LIVE: CatalogLiveId = CatalogLiveId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogChangesId;
+    pub const CHANGES: CatalogChangesId = CatalogChangesId;
 
     /// The attention queue's Review form (each row's button submits it with its item), the
     /// item's sheet, and its two park forms.
     pub const ATTENTION_OPEN: &str = "attention-open";
-    pub const ATTENTION_DIALOG: &str = "attention-sheet";
+    #[derive(Id, Clone, Copy)]
+    pub struct AttentionSheetId;
+    pub const ATTENTION_DIALOG: AttentionSheetId = AttentionSheetId;
     #[derive(Id, Clone, Copy)]
     pub struct AttentionDismissId;
     pub const ATTENTION_DISMISS: AttentionDismissId = AttentionDismissId; // attention-dismiss
@@ -122,61 +153,84 @@ pub mod ids {
         #[derive(Id, Clone, Copy)]
         pub struct ItemPublishId;
         pub const PUBLISH: ItemPublishId = ItemPublishId; // item-publish
-        pub const PUBLISH_DIALOG: &str = "item-publish-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemPublishDialogId;
+        pub const PUBLISH_DIALOG: ItemPublishDialogId = ItemPublishDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemBlueprintId;
         pub const BLUEPRINT: ItemBlueprintId = ItemBlueprintId; // item-blueprint
-        pub const BLUEPRINT_DIALOG: &str = "item-blueprint-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemBlueprintDialogId;
+        pub const BLUEPRINT_DIALOG: ItemBlueprintDialogId = ItemBlueprintDialogId;
         /// Set Field Value: drawn by the server when it is opened (its lists are long).
         #[derive(Id, Clone, Copy)]
         pub struct ItemFieldId;
         pub const FIELD: ItemFieldId = ItemFieldId; // item-field
-        pub const FIELD_DIALOG: &str = "item-field-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemFieldDialogId;
+        pub const FIELD_DIALOG: ItemFieldDialogId = ItemFieldDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemCategoryId;
         pub const CATEGORY: ItemCategoryId = ItemCategoryId; // item-category
-        pub const CATEGORY_DIALOG: &str = "item-category-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemCategoryDialogId;
+        pub const CATEGORY_DIALOG: ItemCategoryDialogId = ItemCategoryDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemMetadataId;
         pub const METADATA: ItemMetadataId = ItemMetadataId; // item-metadata
-        pub const METADATA_DIALOG: &str = "item-metadata-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemMetadataDialogId;
+        pub const METADATA_DIALOG: ItemMetadataDialogId = ItemMetadataDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemTagsId;
         pub const TAGS: ItemTagsId = ItemTagsId; // item-tags
-        pub const TAGS_DIALOG: &str = "item-tags-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemTagsDialogId;
+        pub const TAGS_DIALOG: ItemTagsDialogId = ItemTagsDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemImageUrlsId;
         pub const URLS: ItemImageUrlsId = ItemImageUrlsId; // item-image-urls
-        pub const URLS_DIALOG: &str = "item-image-urls-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemImageUrlsDialogId;
+        pub const URLS_DIALOG: ItemImageUrlsDialogId = ItemImageUrlsDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemFallbackId;
         pub const FALLBACK: ItemFallbackId = ItemFallbackId; // item-fallback
-        pub const FALLBACK_DIALOG: &str = "item-fallback-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemFallbackDialogId;
+        pub const FALLBACK_DIALOG: ItemFallbackDialogId = ItemFallbackDialogId;
         #[derive(Id, Clone, Copy)]
         pub struct ItemCatalogRefId;
         pub const CATALOG_REF: ItemCatalogRefId = ItemCatalogRefId; // item-catalog-ref
-        pub const CATALOG_REF_DIALOG: &str = "item-catalog-ref-dialog";
+        pub const CATALOG_REF_DIALOG: ItemId<'static> = ItemId("catalog-ref-dialog");
         #[derive(Id, Clone, Copy)]
         pub struct ItemProductRefId;
         pub const PRODUCT_REF: ItemProductRefId = ItemProductRefId; // item-product-ref
-        pub const PRODUCT_REF_DIALOG: &str = "item-product-ref-dialog";
+        // `item-product-ref-dialog`: one type with the catalog's, since the page picks either.
+        pub const PRODUCT_REF_DIALOG: ItemId<'static> = ItemId("product-ref-dialog");
         /// Add content line: drawn by the server when it is opened.
         #[derive(Id, Clone, Copy)]
         pub struct ItemContentId;
         pub const CONTENT: ItemContentId = ItemContentId; // item-content
-        pub const CONTENT_DIALOG: &str = "item-content-dialog";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemContentDialogId;
+        pub const CONTENT_DIALOG: ItemContentDialogId = ItemContentDialogId;
         /// The image fallback's clear form.
         pub const FALLBACK_CLEAR: &str = "item-fallback-clear";
 
-        /// A row's form: a field value's clear, a category's remove, a reference's unlink, a
-        /// content line's remove.
+        /// A part of the page that is one of many, by its key (`row`): `item-{key}`.
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemId<'a>(pub &'a str);
+
+        /// A row's form's key (`ItemId`): a field value's clear, a category's remove, a
+        /// reference's unlink, a content line's remove.
         pub fn row(kind: &str, key: &str) -> String {
             // Hex, so two keys never share an id (a provider's keys may hold any character).
             let key: String = key.bytes().map(|b| format!("{b:02x}")).collect();
-            format!("item-{kind}-{key}")
+            format!("{kind}-{key}")
         }
 
-        /// A reference record's detail dialog.
+        /// A reference record's detail dialog's key (`ItemId`).
         pub fn reference(id: &str) -> String {
             row("reference", id)
         }
@@ -190,12 +244,20 @@ pub mod ids {
         OptionId(option_id)
     }
 
-    pub fn option_dialog(option_id: &str) -> String {
-        format!("option-{option_id}-dialog")
+    /// An option's edit dialog: `option-dialog-{id}`.
+    #[derive(Id, Clone, Copy)]
+    pub struct OptionDialogId<'a>(pub &'a str);
+
+    pub fn option_dialog(option_id: &str) -> OptionDialogId<'_> {
+        OptionDialogId(option_id)
     }
 
-    pub fn option_lifecycle(option_id: &str) -> String {
-        format!("option-{option_id}-lifecycle")
+    /// An option's deprecate or reactivate form: `option-lifecycle-{id}`.
+    #[derive(Id, Clone, Copy)]
+    pub struct OptionLifecycleId<'a>(pub &'a str);
+
+    pub fn option_lifecycle(option_id: &str) -> OptionLifecycleId<'_> {
+        OptionLifecycleId(option_id)
     }
 }
 

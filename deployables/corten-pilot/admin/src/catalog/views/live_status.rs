@@ -8,19 +8,20 @@ use corten::{
     FieldName,
     i18n::{DateStyle, TimeStyle},
     prelude::*,
+    view::AttrValue,
 };
 
 use crate::text::Cat;
 
 #[component(css, js)]
-pub fn LiveStatus<'a, C: Render>(
+pub fn LiveStatus<'a, I: Id + AttrValue + Copy, C: Render>(
     t: Cat,
-    id: &'a str,
+    id: I,
     src: &'a str,
     reload: &'a str,
     kept: &'a [(FieldName, String)],
     children: C,
-) -> impl Render {
+) -> impl Patch {
     let (since,) = refs();
     html! {
         <corten-live

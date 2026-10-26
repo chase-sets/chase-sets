@@ -615,7 +615,7 @@ async fn dimension_invalid(
     headers: &HeaderMap,
     id: &str,
     errors: &Errors,
-    form: impl Render,
+    form: impl Patch,
     forms: DimensionForms,
 ) -> corten::Result {
     let after = url::After::default();
@@ -745,7 +745,7 @@ async fn redraw(
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
-    form: impl Render,
+    form: impl Patch,
     forms: DimensionForms,
 ) -> corten::Result {
     if req.mode == Mode::Action {
@@ -778,7 +778,7 @@ async fn option_lifecycle(
     };
     let action = url::OptionLifecycle { id: &id, option_id: &option_id }.href();
     let form_id = ids::option_lifecycle(&option_id);
-    let form = views::OptionLifecycleForm { t: req.t(), id: &form_id, action: &action, status: &input.status, errors: &errors };
+    let form = views::OptionLifecycleForm { t: req.t(), id: form_id, action: &action, status: &input.status, errors: &errors };
     let forms = DimensionForms { option_lifecycle: Some((option_id.clone(), errors.clone())), ..Default::default() };
     dimension_invalid(&req, &config, &headers, &id, &errors, form, forms).await
 }

@@ -49,7 +49,7 @@ pub fn Lifecycle<'a>(
 /// The reason and a button that asks before it activates (a `<dialog>` the button opens with
 /// `command`, no script; its confirm button submits the form).
 #[component(css = Lifecycle)]
-pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<ActivateInput>) -> impl Render {
+pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<ActivateInput>) -> impl Patch {
     let f = ActivateInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ActivateFormId));
     let title = t.detail_activate_confirm_title(&i.label).to_string();
@@ -84,7 +84,7 @@ pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Acti
 
 /// The reason and a button that asks before it retires.
 #[component(css = Lifecycle)]
-pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<RetireInput>) -> impl Render {
+pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<RetireInput>) -> impl Patch {
     let f = RetireInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(RetireFormId));
     let title = t.detail_retire_confirm_title(&i.label).to_string();
@@ -119,7 +119,7 @@ pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Retire
 
 /// A rollback draft: a copy of the policy under a new label and dates.
 #[component(css = Lifecycle)]
-pub fn CloneForm<'a>(t: Msg, id: &'a str, form: &'a Draft<CloneInput>) -> impl Render {
+pub fn CloneForm<'a>(t: Msg, id: &'a str, form: &'a Draft<CloneInput>) -> impl Patch {
     let f = CloneInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(CloneFormId));
     html! {

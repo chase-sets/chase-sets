@@ -164,7 +164,7 @@ pub fn LocationFields<'a, I: Id + Copy>(t: Msg, form_id: I, draft: &'a Draft, cr
 
 /// Create a location.
 #[component(css = LocationCard)]
-pub fn CreateForm<'a>(t: Msg, viewer: &'a Viewer, draft: &'a Draft, enabled: bool) -> impl Render {
+pub fn CreateForm<'a>(t: Msg, viewer: &'a Viewer, draft: &'a Draft, enabled: bool) -> impl Patch {
     html! {
         <WriteForm
             t={t}
@@ -185,7 +185,7 @@ pub fn CreateForm<'a>(t: Msg, viewer: &'a Viewer, draft: &'a Draft, enabled: boo
 
 /// Save a location.
 #[component(css = LocationCard)]
-pub fn UpdateForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft, enabled: bool) -> impl Render {
+pub fn UpdateForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft, enabled: bool) -> impl Patch {
     html! {
         <WriteForm
             t={t}
@@ -206,7 +206,7 @@ pub fn UpdateForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft,
 
 /// Archive a location: its current fields go along as hidden inputs, as marketplace sends them.
 #[component(css = LocationCard)]
-pub fn ArchiveForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft, enabled: bool) -> impl Render {
+pub fn ArchiveForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft, enabled: bool) -> impl Patch {
     let f = LocationInput::FIELDS;
     let i = &draft.input;
     let hidden = [

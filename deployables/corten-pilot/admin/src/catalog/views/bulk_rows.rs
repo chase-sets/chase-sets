@@ -41,7 +41,7 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
     fields: F,
     more: M,
     children: C,
-) -> impl Render {
+) -> impl Patch {
     let (form, count, preview, clear) = refs();
     let f = BulkInput::FIELDS;
     let matching = t.bulk_matching(bar.total, bar.entity).to_string();

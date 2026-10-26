@@ -16,15 +16,15 @@ use crate::{
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; its script reopens a dialog drawn open as a modal.
 #[component(css, js)]
-pub fn Dialog<'a, C: Render>(
-    id: &'a str,
+pub fn Dialog<'a, I: Id + AttrValue + Copy, C: Render>(
+    id: I,
     title: &'a str,
     description: Option<&'a str>,
     open: bool,
     close: &'a str,
     children: C,
-) -> impl Render {
-    let heading = format!("{id}-title");
+) -> impl Patch {
+    let heading = super::id_with(&id, "-title");
     html! {
         <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={js::modal(target)}>
             <header class={Head}>
@@ -41,7 +41,7 @@ pub fn Dialog<'a, C: Render>(
 
 /// The button that opens a dialog.
 #[component(css = Dialog)]
-pub fn Trigger<'a>(dialog: &'a str, label: &'a str, secondary: bool) -> impl Render {
+pub fn Trigger<'a, I: Id + AttrValue + Copy>(dialog: I, label: &'a str, secondary: bool) -> impl Render {
     html! {
         if secondary {
             <button type="button" class={(Small, Secondary)} command="show-modal" commandfor={dialog}>{label}</button>
@@ -127,7 +127,7 @@ pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
     action: &'a str,
     create: bool,
     form: &'a Draft<DimensionInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = DimensionInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     let kinds = value_kinds(t);
@@ -156,7 +156,7 @@ pub fn FieldForm<'a, I: Id + AttrValue + Copy>(
     action: &'a str,
     create: bool,
     form: &'a Draft<FieldInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = FieldInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     let types = value_types(t);
@@ -193,7 +193,7 @@ pub fn OptionForm<'a, I: Id + AttrValue + Copy>(
     action: &'a str,
     add: bool,
     form: &'a Draft<OptionInput>,
-) -> impl Render {
+) -> impl Patch {
     let f = OptionInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     let labels = i.labels();
@@ -239,7 +239,7 @@ pub fn OptionForm<'a, I: Id + AttrValue + Copy>(
 
 /// The order of a dimension's options, as ids separated by commas.
 #[component(css = Dialog)]
-pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ReorderInput>) -> impl Render {
+pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ReorderInput>) -> impl Patch {
     let f = ReorderInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
     html! {

@@ -221,7 +221,7 @@ pub fn PolicyFields<'a, I: Id + Copy>(t: Msg, form_id: I, form: &'a Draft<Policy
 
 /// A new draft.
 #[component(css = PolicyFields)]
-pub fn CreateForm<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
+pub fn CreateForm<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Patch {
     html! {
         <form class={Form} id={CreateFormId} method="post" action={url::Policies::default()} data-patch>
             {form.errors.form_message()}
@@ -234,7 +234,7 @@ pub fn CreateForm<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
 /// A revision of the policy, and a preview of the package plan it makes: the preview button
 /// posts the same fields to the preview route (`formaction`), so it previews what is typed.
 #[component(css = PolicyFields)]
-pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl Render {
+pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl Patch {
     let f = PolicyInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(ReviseFormId));
     let num = |min, step| Kind::Number { min, step };
