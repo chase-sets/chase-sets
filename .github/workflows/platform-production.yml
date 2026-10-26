@@ -680,6 +680,8 @@ jobs:
 
       - name: Build release image
         id: release_image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -788,6 +790,7 @@ jobs:
       - name: Push release image
         if: steps.release_image.outputs.built == 'true'
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
         run: |
           set -euo pipefail
