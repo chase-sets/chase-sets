@@ -21,6 +21,10 @@ import {
 } from "../../ui/primary-workbench-read-model-test-support";
 import type { CatalogIntegrationControlPlaneOverview } from "../../ui/contracts";
 
+type RouteControlPlaneOverview = CatalogIntegrationControlPlaneOverview & {
+  activeJobs: NonNullable<CatalogIntegrationControlPlaneOverview["activeJobs"]>;
+};
+
 describe("source observation routes: integration discovery and profile administration", () => {
   it("lists integration scopes using provider language and expansion filters", async () => {
     const listIntegrationScopes = vi.fn(async () => [
@@ -610,7 +614,7 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/integration-control-plane/overview");
 
     expect(response.status).toBe(200);
-    const overview = (await response.json()) as CatalogIntegrationControlPlaneOverview;
+    const overview = (await response.json()) as RouteControlPlaneOverview;
     expect(overview.activeJobs.completeness).toBe("incomplete");
 
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
