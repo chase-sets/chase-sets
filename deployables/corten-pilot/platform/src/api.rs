@@ -34,6 +34,13 @@ impl Platform {
             receipt: receipt.map(Receipt::header),
         }
     }
+
+    /// Calls that are the same for everyone: no cookies, no receipt, and the host the app
+    /// configured instead of the request's, for a handler that cannot read who is asking
+    /// (`corten::Public`).
+    pub fn anonymous(&self, host: &str, proto: &'static str) -> Caller<'_> {
+        Caller { platform: self, cookie: None, host: host.to_owned(), proto, receipt: None }
+    }
 }
 
 pub struct Caller<'a> {

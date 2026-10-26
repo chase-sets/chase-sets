@@ -242,7 +242,22 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "time",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "corten-pilot-public"
+version = "0.1.0"
+dependencies = [
+ "corten",
+ "corten-pilot-platform",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
  "tracing",
 ]
 

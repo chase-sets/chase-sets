@@ -35,8 +35,11 @@ async function context({ javaScriptEnabled, signedIn, viewport }) {
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
-  page.on("console", (m) => m.type() === "error" && problems.push(m.text()));
-  page.on("pageerror", (e) => problems.push(String(e)));
+  // Only the pilot's: the sell block also opens marketplace's page in this tab, whose realtime
+  // stream the sandbox sometimes refuses (429).
+  const ours = () => page.url().startsWith(base);
+  page.on("console", (m) => m.type() === "error" && ours() && problems.push(m.text()));
+  page.on("pageerror", (e) => ours() && problems.push(String(e)));
   return { ctx, page, problems };
 }
 

@@ -4,6 +4,7 @@
 //! (`ItemDetailMarketBook`). Every choice is a link to the same page with the choice in its
 //! address (`items::Address`); a dimension with more than five options is a GET form.
 use corten::prelude::*;
+use platform::chart::{self, Chart, TimeSeries};
 use serde_json::{Value, json};
 
 use super::on_marketplace;
@@ -618,7 +619,7 @@ struct CurrencySales {
     sold: (String, Option<String>),
     m30: (String, String),
     m90: (String, String),
-    chart: Chart,
+    chart: SalesChart,
     /// The chart summary's id, one for each currency.
     summary_id: String,
 }
@@ -650,7 +651,7 @@ fn SalesRead<'a>(
                 sold: last_sold(t, aggregate),
                 m30: median(t, aggregate, 30, minimum),
                 m90: median(t, aggregate, 90, minimum),
-                chart: Chart::of(t, points, currency, markers),
+                chart: SalesChart::of(t, points, currency, markers),
                 summary_id: format!("sales-summary-{}", currency.unwrap_or("none").to_ascii_lowercase()),
             }
         })
@@ -691,8 +692,10 @@ fn SalesRead<'a>(
                     </div>
                 </dl>
                 <Ranges t={t} address={address} slug={slug} />
-                match &group.chart {
-                    Chart::Plot(plot) => { <Plot plot={plot} label={&label} summary_id={&group.summary_id} /> }
+                match &group.chart.chart {
+                    Chart::Plot(plot) => {
+                        <TimeSeries plot={plot} label={&label} summary={&group.chart.summary} summary_id={&group.summary_id} />
+                    }
                     Chart::Empty => {
                         <div class={Empty}>
                             <p class={Strong}>{t.panel_chart_empty_title()}</p>
@@ -797,131 +800,48 @@ fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u
     (unavailable, note)
 }
 
-/// A currency's sale prices as a chart (`TimeSeriesChart`, drawn here as SVG): nothing sold, one
-/// day sold (a trend needs two), or the plot.
-enum Chart {
-    Empty,
-    Insufficient,
-    Plot(PlotShape),
-}
-
-/// The plot's geometry in a 640 by 220 box, and its words: the line of each period's last price,
-/// the band from its lowest to its highest, a mark on each period with a verified sale, and the
-/// summary a screen reader reads.
-pub struct PlotShape {
-    line: String,
-    band: Option<String>,
-    marks: Vec<(String, String, String)>,
+/// A currency's sale prices as a chart (`TimeSeriesChart`, drawn by `platform::chart`): the line
+/// of each period's last price, the band from its lowest to its highest, a mark on each period
+/// with a verified sale, and the summary a screen reader reads.
+struct SalesChart {
+    chart: Chart,
     summary: String,
 }
 
-const CHART_WIDTH: f64 = 640.0;
-const CHART_HEIGHT: f64 = 220.0;
-const CHART_PAD: f64 = 12.0;
-
-impl Chart {
+impl SalesChart {
     fn of(t: ItemMsg, points: &[RollupPoint], currency: Option<&str>, markers: bool) -> Self {
         let p = Pilot::default();
-        let mut plotted: Vec<(f64, f64, &RollupPoint)> = points
-            .iter()
-            .filter_map(|point| {
-                let value = point.last_price_amount.as_deref()?.parse::<f64>().ok()?;
-                Some((day_number(&point.day)?, value, point))
-            })
-            .collect();
-        match plotted.len() {
-            0 => return Chart::Empty,
-            1 => return Chart::Insufficient,
-            _ => {}
-        }
-        plotted.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let band: Vec<(f64, f64, f64)> = plotted
-            .iter()
-            .filter_map(|(x, _, point)| {
-                let min = point.min_price_amount.as_deref()?.parse::<f64>().ok()?;
-                let max = point.max_price_amount.as_deref()?.parse::<f64>().ok()?;
-                Some((*x, min, max))
-            })
-            .collect();
-        let (x0, x1) = (plotted[0].0, plotted[plotted.len() - 1].0);
-        let values = plotted.iter().map(|p| p.1).chain(band.iter().flat_map(|b| [b.1, b.2]));
-        let (lo, hi) = values.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
-        let (lo, hi) = pad_domain(lo, hi);
-        let x = |v: f64| CHART_PAD + scale(v, x0, x1, 0.0, CHART_WIDTH - 2.0 * CHART_PAD);
-        let y = |v: f64| CHART_PAD + scale(v, lo, hi, CHART_HEIGHT - 2.0 * CHART_PAD, 0.0);
-        let at = |px: f64, py: f64| format!("{:.2},{:.2}", x(px), y(py));
-        let line = plotted
-            .iter()
-            .enumerate()
-            .map(|(i, p)| format!("{}{}", if i == 0 { "M" } else { "L" }, at(p.0, p.1)))
-            .collect::<Vec<_>>();
-        let band = (!band.is_empty()).then(|| {
-            let top = band.iter().enumerate().map(|(i, b)| format!("{}{}", if i == 0 { "M" } else { "L" }, at(b.0, b.2)));
-            let bottom = band.iter().rev().map(|b| format!("L{}", at(b.0, b.1)));
-            format!("{} Z", top.chain(bottom).collect::<Vec<_>>().join(" "))
-        });
         let price = |v: f64| money(t, Some(&format!("{v:.2}")), currency);
-        let name = t.panel_chart_series_name();
-        let marks: Vec<(String, String, String)> = if markers {
-            plotted
+        let amount = |a: &Option<String>| a.as_deref().and_then(|a| a.parse::<f64>().ok());
+        let mut sorted: Vec<&RollupPoint> = points.iter().collect();
+        sorted.sort_by(|a, b| a.day.cmp(&b.day));
+        let mut marks = Vec::new();
+        let chart = Chart::of(
+            sorted
                 .iter()
-                .filter(|(_, _, point)| point.verified_trade_count > 0)
-                .map(|(px, py, point)| {
-                    let label = t.panel_verified_sale_marker(&price(*py), &point.day).to_string();
-                    (format!("{:.2}", x(*px)), format!("{:.2}", y(*py)), label)
+                .map(|point| {
+                    let value = amount(&point.last_price_amount);
+                    let mark = value.filter(|_| markers && point.verified_trade_count > 0).map(|v| {
+                        let label = t.panel_verified_sale_marker(&price(v), &point.day).to_string();
+                        marks.push(label.clone());
+                        label
+                    });
+                    // A period without a price is left out, its band too.
+                    let band = value.and(amount(&point.min_price_amount).zip(amount(&point.max_price_amount)));
+                    chart::Point { day: &point.day, value, band, mark }
                 })
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+        );
+        let name = t.panel_chart_series_name();
+        let mut summary = match &chart {
+            Chart::Plot(plot) => p.item_chart_summary(name, plot.count, &price(plot.min), &price(plot.max)).to_string(),
+            Chart::Empty | Chart::Insufficient => String::new(),
         };
-        let (min, max) = plotted.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
-        let mut summary = p.item_chart_summary(name, plotted.len(), &price(min), &price(max)).to_string();
-        for (_, _, label) in &marks {
+        for label in &marks {
             summary.push(' ');
             summary.push_str(&p.item_chart_marker(name, label).to_string());
         }
-        Chart::Plot(PlotShape { line: line.join(" "), band, marks, summary })
-    }
-}
-
-/// A `YYYY-MM-DD` day as a number of days, the chart's time axis.
-fn day_number(day: &str) -> Option<f64> {
-    let mut parts = day.splitn(3, '-').map(|p| p.parse::<i32>().ok());
-    let (year, month, day) = (parts.next()??, parts.next()??, parts.next()??);
-    let month = time::Month::try_from(u8::try_from(month).ok()?).ok()?;
-    let date = time::Date::from_calendar_date(year, month, u8::try_from(day).ok()?).ok()?;
-    Some(f64::from(date.to_julian_day()))
-}
-
-fn scale(value: f64, d0: f64, d1: f64, r0: f64, r1: f64) -> f64 {
-    if d1 == d0 { (r0 + r1) / 2.0 } else { r0 + (value - d0) / (d1 - d0) * (r1 - r0) }
-}
-
-/// The value axis a little wider than the values (`padDomain` by 8%).
-fn pad_domain(min: f64, max: f64) -> (f64, f64) {
-    let span = max - min;
-    let pad = if span == 0.0 { (max.abs() * 0.08).max(1.0) } else { span * 0.08 };
-    (min - pad, max + pad)
-}
-
-/// The plot: scrolls inside its box below 480 px wide rather than squeezing, as marketplace's.
-#[component(css = ItemDetail)]
-fn Plot<'a>(plot: &'a PlotShape, label: &'a str, summary_id: &'a str) -> impl Render {
-    html! {
-        <figure class={ChartBox}>
-            <div class={ChartScroll}>
-                <svg viewBox="0 0 640 220" role="img" aria-label={label} aria-describedby={summary_id} focusable="false">
-                    if let Some(band) = &plot.band {
-                        <path class={ChartBand} d={band}></path>
-                    }
-                    <path class={ChartLine} d={&plot.line}></path>
-                    for (cx, cy, title) in &plot.marks {
-                        <circle class={ChartMark} cx={cx} cy={cy} r="4"><title>{title}</title></circle>
-                    }
-                </svg>
-            </div>
-            <figcaption class={VisuallyHidden} id={summary_id}>{&plot.summary}</figcaption>
-        </figure>
+        SalesChart { chart, summary }
     }
 }
 

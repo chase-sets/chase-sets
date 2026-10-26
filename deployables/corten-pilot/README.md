@@ -6,8 +6,9 @@ not deployed, is not part of the platform gates or the delivery loop, and has it
 ([corten-pilot.yml](../../.github/workflows/corten-pilot.yml)).
 
 Each app is a standalone server in front of the existing platform API. Every call forwards the
-signed-in user's cookies, as the React app does; sign-in, the other pages and all business rules
-stay where they are. The pilot owns only the screens:
+signed-in user's cookies, as the React app does (`public/`'s pages are the same for everyone and
+call it with none); sign-in, the other pages and all business rules stay where they are. The
+pilot owns only the screens:
 
 | App | Screen | Ported from | What it covers |
 |---|---|---|---|
@@ -26,6 +27,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | The notification center, `/account/notifications` | marketplace | a member (signed out goes to sign-in and back): Feed and Settings as links (`?view=settings`, `&section=product-alerts`). The feed: the unread count, each notification's title, words, New or Read, source and time, Open (here for a ported page, marketplace for another, no link off-site) and Mark read; Mark all read, off when none is unread. Each write draws the feed again in place with a script and redirects without one. The settings: a switch per channel the page has words for (web, email, product alerts; marketplace also shows bare `sms` and `rcs`, [chase-sets/chase-sets#10625 [notifications] Delivery settings show unlabeled 'sms' and 'rcs' switches for channels the platform does not deliver](https://github.com/chase-sets/chase-sets/issues/10625)), each a form button with `role="switch"` drawn again in place; then the account's Product alerts with Pause or Resume, Delete and View product, read after each write with its receipt. A refusal is a `422` with the API's words, a failed read or write a `502`. The item page's Manage alerts now opens it here at `#product-alerts` (not ported: the feed's live updates) |
 | `marketplace/` | A set's page, `/sets/{slug}` | marketplace | anyone: the game, the set's name and what is known of it (its card count, cataloged items, code and long release date), its cataloged items as search's cards (the lowest price and View card; one column, two from lg, three from 2xl), Browse all in search (`reference.<type>=<set>`) when the API sent only some, an empty state with none, and the breadcrumb's JSON-LD. An old slug moves for good with its query; an unknown set is a 404 and a failed read a 502 (marketplace answers 200 for both: [chase-sets/chase-sets#10612 [discovery] Answer an unknown set page with 404, and a failed set read with 5xx, not 200](https://github.com/chase-sets/chase-sets/issues/10612)) |
 | `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a GET form: with a script, the next page added after the rows shown; without one, the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories, and on `/` the home page's shelf in place of the results: the four featured categories (their description, count and a link to each) and the three newest items (the lowest price and View item), one column on a phone; words or a filter asked on `/` show the results there. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
+| `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` | public-web | anyone, the same page for everyone (`Public`: shared caches keep it a minute and serve it stale for an hour; public-web's CDN lifetime is a day, [todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106)): the breadcrumb, the item's title and subtitle, then for each currency it traded in its price history (each day's median or last price, the day's low to high as a band, drawn on the server; an empty or one-day chart says so) and its market stats as a list (last sold and when, the 30- and 90-day medians and their trades, active listings and the lowest asks, the 30-day sell-through), and View active listings, Create a price alert and Sell yours on marketplace. The title, description, social tags, canonical, `noindex` when the site is not indexed, and the Product's lowest ask as JSON-LD on the production site. An unknown item is a 404 with public-web's words, a failed read a 502 no cache keeps. `robots.txt` and the sitemap of the market pages Pricing says are worth indexing follow `CHASE_SETS_PUBLIC_INDEXING` (not ported: public-web's other pages, its favicons and manifest, and its waitlist analytics bridge) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -203,6 +205,26 @@ The page has no script of its own: the JavaScript is Corten's runtime and `stati
 switches, Mark read and the alerts' buttons are
 `data-patch` forms.
 
+public-web's market page (the seeded Twilight Masquerade Elite Trainer Box: a last sale, three
+listings, no series), signed out, the pilot's `public/` release build against public-web's dev
+server, desktop only for public-web. As for the cart, the dev numbers are not a comparison: the
+dev server sends its modules one by one, unminified. Measured once, 11 loads each on desktop and 7
+on mobile. Two earlier desktop runs of the pilot, minutes before, gave medians of 1,117 and 749 ms
+interactive while the machine was busy; a trace of single loads then showed 290 to 390 ms to the
+first paint, so the 11-load run is the one recorded.
+
+| Market page | public-web (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 2,535 ms | 301 ms | 871 ms |
+| Largest contentful paint | 708 ms | 348 ms | 992 ms |
+| Server time (document) | 537 ms | 18 ms | 16 ms |
+| JavaScript transferred | 9,855,670 B | 8,504 B | 8,504 B |
+| HTML / CSS transferred | 383,153 / 186,139 B | 1,681 / 3,526 B | 1,681 / 3,526 B |
+| Requests | 251 | 9 | 9 |
+
+The page has no script of its own. Its server time is one Pricing read with no session; in front
+of a CDN most loads would not reach it at all.
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -351,6 +373,8 @@ node scripts/measure.mjs screen=home marketplace=http://localhost:7753 pilot=htt
 node scripts/measure.mjs screen=set marketplace=http://localhost:7753 pilot=http://localhost:7793 set=base-set
 node scripts/measure.mjs screen=listing marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
+node scripts/smoke-public-market.mjs http://localhost:7797 http://localhost:7754  # public-web's market page beside its own: the head's tags, the h1 and sections, every stat, the links, what caches keep (with and without a cookie), no JavaScript, a 404, robots and the sitemap, 1280 and 390 px (only reads)
+node scripts/measure.mjs screen=market public-web=http://localhost:7754 pilot=http://localhost:7797   # signed out
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
 
@@ -362,13 +386,23 @@ Run `corten dev` inside the app's directory; it also rebuilds on an edit in `pla
 | `ADMIN_WEB_ORIGIN` | `http://localhost:7752` | admin: sign-in and the admin pages the nav links to |
 | `MARKETPLACE_WEB_ORIGIN` | `http://localhost:7753` | marketplace: sign-in and the pages the nav links to |
 | `PUBLIC_PROTO` | `http` | the scheme forwarded to the API as `x-forwarded-proto` |
+| `CHASE_SETS_PUBLIC_ORIGIN` | `https://chasesets.com` | public: the canonical origin (canonical links, the sitemap, the host the API is told) |
+| `CHASE_SETS_MARKETPLACE_ORIGIN` | `https://marketplace.chasesets.com` | public: where Buy or sell links go |
+| `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
+| `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (Home) |
 
 `scripts/export.mjs` writes what the apps read from Chase Sets' sources: each screen's English
 text (`*/locales/en.json`), each app's navigation (`*/nav.json`), admin's default policy
 (`admin/defaults.json`), the scope product domains (`admin/scope-domains.json`), the design system's tokens (`platform/tokens.json`) and three fonts. CI
 runs it with `--check`, so a change to the React apps' text, nav or tokens shows up here.
 `*/locales/pilot.en.json` is the pilot's own text. One image per app:
-`docker build --build-arg APP=marketplace .`.
+`docker build --build-arg APP=marketplace .` (or `admin`, `public`).
+
+The market page's reference is public-web's dev server, which the dev system does not start
+with `marketplace-full`. From the worktree root, on 7754 against the sandbox's API:
+`PORT=7754 CHASE_SETS_INTERNAL_API_ORIGIN=http://localhost:7762 CHASE_SETS_PUBLIC_ORIGIN=http://localhost:7754 CHASE_SETS_MARKETPLACE_ORIGIN=http://localhost:7753 node node_modules/@react-router/dev/bin.js dev`
+in `deployables/public-web`. The pilot's app runs with `CHASE_SETS_PUBLIC_ORIGIN=http://localhost:7797`
+and `CHASE_SETS_MARKETPLACE_ORIGIN=http://localhost:7753` so the two pages name the same places.
 
 ## Corten pin
 
@@ -442,9 +476,11 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `platform/src/jobs.rs` | a durable job's status stream as the signed-in user: the job's record after each change until it is done, resuming from the last event |
 | `platform/src/session.rs`, `nav.rs` | the session cookie, the color mode, and the React apps' nav rules |
 | `platform/src/theme.rs`, `section.rs` | the design system's tokens, and the page header, sections and banner both screens use |
+| `platform/src/chart.rs` | a time series drawn on the server as SVG (`TimeSeriesChart`): the item page's Sales tab and the market page |
 | `*/src/app.rs` | routes, access (sign-in at the React app, 403, 502), and the handlers |
 | `*/src/api.rs` | the screen's calls; typed bodies with only the fields the screen reads |
 | `*/src/form.rs` | what the forms post; the pilot checks only shape (text present, numbers parse), the API checks the rules |
+| `public/src/market.rs`, `views/market_page.*` | public-web's market page, `robots.txt` and the sitemap, each `Public` |
 | `marketplace/src/recovery.rs` | the write's attempt id, the address's `Check`, and confirming a write the browser did not hear back about |
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
@@ -1038,6 +1074,33 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([`notifications.rs`](marketplace/src/notifications.rs),
     [`notification_page.rs`](marketplace/src/views/notification_page.rs)).
 
+46. **public-web is its own app, and every answer is the same for everyone.** public-web is a
+    third web host (chasesets.com), with no shell and no session, so its market page is a third
+    app, `public/`, rather than a route in `marketplace/`. Each handler returns `Public`, whose
+    inputs cannot tell who is asking: a `Caller`, a cookie or a header does not compile there.
+    The page reads Pricing with `Platform::anonymous`, which sends no cookie and names the site's
+    configured host instead of the request's. Corten sends the page `public, max-age=60,
+    stale-while-revalidate=3600` and `Vary: cookie`, and `private, no-cache` to a request with
+    a cookie, a client navigation, a 404 or a 502. public-web also gives a CDN a day
+    (`s-maxage=86400`); `Public` cannot yet
+    ([todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106)).
+    The chart is the item page's Sales chart, moved to `platform::chart` so both apps draw the
+    same geometry; the market page passes each day's median, or last, price and its low to high,
+    with no marks. The stats are a `<dl>`: public-web's values are `h2`s
+    ([chase-sets/chase-sets#10629 [pricing] The public market page's stat values are h2 headings, so a screen reader lists "$44.50" and "3" as sections](https://github.com/chase-sets/chase-sets/issues/10629)).
+    "{count} trades" is the catalog's, "1 trades" too
+    ([chase-sets/chase-sets#10630 [pricing] The public market page says '1 trades' for a window with one trade](https://github.com/chase-sets/chase-sets/issues/10630)).
+    Three deliberate differences. The sitemap lists only the pages this app serves (public-web
+    also lists its own), each with when it last traded (`lastmod`; public-web has the date and
+    leaves it out), and a failed read answers 502 instead of a sitemap without the market pages,
+    which a crawler would keep for an hour. One canonical origin (`CHASE_SETS_PUBLIC_ORIGIN`) for
+    the page and the sitemap, where public-web's market route falls back to the request's origin
+    and its layout to chasesets.com. Home goes to public-web (`PUBLIC_WEB_ORIGIN`), which serves
+    it. Not ported: the waitlist analytics bridge public-web's layout inlines in every page (no
+    page here sends its event), the favicons and the manifest
+    ([`market.rs`](public/src/market.rs), [`market_page.rs`](public/src/views/market_page.rs),
+    [`chart.rs`](platform/src/chart.rs)).
+
 ## Corten gaps
 
 Open, filed in Corten, at the `d824f40` pin, each with its workaround:
@@ -1048,6 +1111,7 @@ Open, filed in Corten, at the `d824f40` pin, each with its workaround:
 4. [todd-skelton/corten#100 A typed route cannot carry a #fragment, so a redirect after a write cannot bring the browser back to the element it acted on](https://github.com/todd-skelton/corten/issues/100): `app::At`, an `Href` that writes `{route}#{fragment}`, for Report review's redirect to the review and the notification center's redirect to `#product-alerts`; `accounts::feedback` and `AccountScreen::feedback_href` format the `#feedback` links; `views::account_page::review_anchor` writes the fragment through `Id::write_id` so it is the card's id ([`accounts.rs`](marketplace/src/accounts.rs)).
 5. [todd-skelton/corten#101 t.date has no month-and-year style, so 'Member since March 2025' cannot be localized](https://github.com/todd-skelton/corten/issues/101): `set_page::month_year`, English only, from the timestamp's first ten characters ([`set_page.rs`](marketplace/src/views/set_page.rs)).
 6. [todd-skelton/corten#104 A data-patch answer cannot ask to be read again, so a write whose read is catching up has to navigate](https://github.com/todd-skelton/corten/issues/104): an alert's write whose read has not caught up redirects to the settings with its receipt instead of patching the list; that page reads again with `ReadAgain` ([`notifications::change_alert`](marketplace/src/notifications.rs), decision 45).
+7. [todd-skelton/corten#106 Public has no shared-cache lifetime (s-maxage) apart from the browser's, so a CDN cannot keep a page longer than a browser](https://github.com/todd-skelton/corten/issues/106): the market page is `Public::new(60 s).stale_while_revalidate(3600 s)`, so a CDN keeps it a minute where public-web gives it a day ([`market.rs`](public/src/market.rs), decision 46).
 
 Found in Chase Sets by the search port:
 
@@ -1061,6 +1125,8 @@ Found in Chase Sets by the search port:
 8. [chase-sets/chase-sets#10624 [discovery] Product-alert links go through a retired notifications URL, so each visit takes two redirects](https://github.com/chase-sets/chase-sets/issues/10624), found by the notification center's port. The pilot's Manage alerts links straight to the settings at `#product-alerts`.
 9. [chase-sets/chase-sets#10625 [notifications] Delivery settings show unlabeled 'sms' and 'rcs' switches for channels the platform does not deliver](https://github.com/chase-sets/chase-sets/issues/10625), found the same way. The pilot lists only the channels it has words for (`notifications::CHANNELS`); the smoke checks there are three.
 10. [chase-sets/chase-sets#10627 [discovery] Pausing, resuming or deleting a Product alert shows its old status: the redirect carries no write receipt](https://github.com/chase-sets/chase-sets/issues/10627), found the same way. The pilot reads with the receipt (decision 45).
+11. [chase-sets/chase-sets#10629 [pricing] The public market page's stat values are h2 headings, so a screen reader lists "$44.50" and "3" as sections](https://github.com/chase-sets/chase-sets/issues/10629), found by the market page's port. The pilot's stats are a `<dl>`; `smoke-public-market.mjs` prints public-web's headings beside the pilot's.
+12. [chase-sets/chase-sets#10630 [pricing] The public market page says '1 trades' for a window with one trade](https://github.com/chase-sets/chase-sets/issues/10630), found the same way, from the catalog. The pilot keeps the catalog's message.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

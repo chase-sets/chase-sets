@@ -3605,8 +3605,8 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     assert!(book.contains(r#"aria-current="true">1 year</a>"#), "{book}");
     assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
     assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
-    assert!(book.contains(r#"class="item-detail__chart-line" d="M12.00,"#), "{book}");
-    assert_eq!(book.matches("item-detail__chart-band").count(), 1, "{book}");
+    assert!(book.contains(r#"class="time-series__chart-line" d="M12.00,"#), "{book}");
+    assert_eq!(book.matches("time-series__chart-band").count(), 1, "{book}");
     assert_eq!(book.matches("<circle").count(), 1, "{book}");
     assert!(book.contains("<title>Verified sale, $390.00, 2026-09-01</title>"), "{book}");
     assert!(

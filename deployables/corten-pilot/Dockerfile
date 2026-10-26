@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# One image per app in the workspace: docker build --build-arg APP=admin (or marketplace) .
+# One image per app in the workspace: docker build --build-arg APP=admin (or marketplace, public) .
 ARG APP=admin
 
 FROM rust:1-bookworm AS build

@@ -59,9 +59,9 @@ pub const INVENTORY: &[Component] = &[PageActions, Recovery, handlers::COMPONENT
 /// The cart's components (`/account/cart`).
 pub const CART: &[Component] = &[CartItem];
 
-/// The item page's components (`/items`): its stylesheet, and corten-ui's handler that makes Add to
-/// List's dialog modal when the server draws it open.
-pub const ITEM: &[Component] = &[ItemDetail, corten_ui::dialog::COMPONENT];
+/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, and corten-ui's
+/// handler that makes Add to List's dialog modal when the server draws it open.
+pub const ITEM: &[Component] = &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT];
 
 /// Search's components (`/search`, `/categories`, and `/sets` for its cards): its stylesheet and
 /// the script that applies a filter as it changes.

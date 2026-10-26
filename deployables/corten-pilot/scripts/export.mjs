@@ -36,6 +36,8 @@
 //   reputation.features.reviews.ui.reviewReportAction.* and .reviewScoringContext.*).
 // - marketplace/locales/notifications.en.json: the notification center's English catalog
 //   (notifications.features.notificationCenter.ui.page.* and .shell.*, and notifications.routes.accountNotifications.*).
+// - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
+//   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -53,7 +55,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const pilot = path.resolve(here, "..");
 const repo = path.resolve(pilot, "../..");
 const check = process.argv.includes("--check");
-const apps = ["admin", "marketplace"];
+const apps = ["admin", "marketplace", "public"];
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
@@ -376,6 +378,16 @@ const outputs = [
         ["notifications.routes.accountNotifications.", "route"],
       ]),
     ),
+  ],
+  [
+    "public/locales/market.en.json",
+    json({
+      ...(await catalog("pricing.ts", "pricingEnglishTranslations", [
+        ["pricing.features.publicMarketPages.ui.marketPriceHistoryPage.", "page"],
+        ["pricing.features.publicMarketPages.routes.marketPriceHistory.", "route"],
+      ])),
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.appRoot.", "root"]])),
+    }),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
