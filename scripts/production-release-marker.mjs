@@ -807,27 +807,27 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       ]);
     },
   };
-  if (env.DIGITALOCEAN_ACCESS_TOKEN) {
-    io.assertRegistryWritable = async () => {
-      const result = await assertDigitalOceanRegistryWritable(identity.image.split("/")[1], {
-        commandOutput: async (program, args) =>
-          (
-            await runCommand(program, args, {
-              env: { ...env, DIGITALOCEAN_ACCESS_TOKEN: env.DIGITALOCEAN_ACCESS_TOKEN },
-            })
-          ).stdout,
-      });
-      if (env.REGISTRY_GC_GATE_OUT) {
-        await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
-      }
-      if (result.result !== "writable") {
-        const error = new Error(`Registry mutation refused: ${result.reason}`);
-        error.code = result.rootCauseCode || "registry-gc-gate-unknown";
-        error.registryGcGate = result;
-        throw error;
-      }
-    };
-  }
+  io.assertRegistryWritable = async () => {
+    const registryToken = env.DIGITALOCEAN_ACCESS_TOKEN;
+    if (!registryToken) return;
+    const result = await assertDigitalOceanRegistryWritable(identity.image.split("/")[1], {
+      commandOutput: async (program, args) =>
+        (
+          await runCommand(program, args, {
+            env: { ...env, DIGITALOCEAN_ACCESS_TOKEN: registryToken },
+          })
+        ).stdout,
+    });
+    if (env.REGISTRY_GC_GATE_OUT) {
+      await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
+    }
+    if (result.result !== "writable") {
+      const error = new Error(`Registry mutation refused: ${result.reason}`);
+      error.code = result.rootCauseCode || "registry-gc-gate-unknown";
+      error.registryGcGate = result;
+      throw error;
+    }
+  };
   return io;
 }
 

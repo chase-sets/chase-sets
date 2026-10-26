@@ -724,6 +724,25 @@ const productionMarkerRecoveryDelta = [
     purpose: "terraform-infra",
   })),
 ];
+// #9450 adds the existing scoped registry credentials to the new fail-closed
+// writer-gate invocations; these are deliberate authority additions, not a snapshot refresh.
+const registryGarbageCollectionGateCredentialDelta = [
+  [".github/workflows/platform-pr.yml", "preview-deploy-smoke", "name:Build and push platform image#9"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Build release image#5"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Push release image#8"],
+  [".github/workflows/platform-production.yml", "deploy-production", "name:Mark production release#53"],
+  [
+    ".github/workflows/platform-production.yml",
+    "reconcile-production-marker",
+    "name:Reconcile retained production marker#8",
+  ],
+].map(([file, jobId, stepAnchor]) => ({
+  file,
+  jobId,
+  stepAnchor,
+  secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+  purpose: "terraform-infra",
+}));
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -952,7 +971,8 @@ describe("managed Postgres authority source generator", () => {
               record.stepAnchor === productionMarkerRecoveryRetiredAnchor
             ),
         )
-        .concat(productionMarkerRecoveryDelta),
+        .concat(productionMarkerRecoveryDelta)
+        .concat(registryGarbageCollectionGateCredentialDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

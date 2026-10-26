@@ -2484,7 +2484,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("docker buildx build \\\n            --pull");
     const markerSource = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
     expect(markerSource).toContain("if (io.assertRegistryWritable) await io.assertRegistryWritable();");
-    expect(markerSource).toContain('if (error?.code === "registry-gc-read-only"');
+    expect(markerSource).toMatch(/if \(\s*error\?\.code === "registry-gc-read-only"/);
     expect(readFileSync(resolve("scripts/digitalocean-registry-gc-gate.mjs"), "utf8")).toContain(
       'ACTIVE_GC_NOT_FOUND_PHRASE = "did not find an active garbage collection"',
     );

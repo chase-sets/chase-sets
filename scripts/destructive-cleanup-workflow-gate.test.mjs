@@ -233,6 +233,7 @@ function assertRegistryStepTopology(workflow) {
   expect(resolvedConsumers.map(({ index, name }) => ({ index, name }))).toEqual([
     { index: 5, name: "Check deploy lane" },
     { index: 6, name: "Cleanup registry tags" },
+    { index: 7, name: "Record cancelled registry cleanup" },
   ]);
   for (const consumer of resolvedConsumers) expect(indices.resolver).toBeLessThan(consumer.index);
   return indices;

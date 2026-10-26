@@ -204,7 +204,7 @@ describe("resolve release commit", () => {
       "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
     );
     const markerStep = workflowStep(production, "Mark production release");
-    expect(markerStep).toContain("run: node ./scripts/production-release-marker.mjs publish");
+    expect(markerStep).toContain("node ./scripts/production-release-marker.mjs publish");
     expect(markerStep).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
     expect(markerStep).toContain("RELEASE_IMAGE: ${{ steps.image.outputs.image }}");
     expect(markerStep).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
