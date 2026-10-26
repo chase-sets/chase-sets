@@ -34,7 +34,7 @@ mod recovery;
 mod search_page;
 mod set_page;
 
-pub use account_page::{AccountPage, FEEDBACK, review_anchor};
+pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,

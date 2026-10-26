@@ -128,7 +128,7 @@ try {
     await banner.getByRole("link", { name: "Manage alerts" }).click();
     await page.waitForURL((u) => u.href.startsWith(`${base}/account/notifications`));
     const settings = new URL(page.url());
-    check(settings.searchParams.get("section") === "product-alerts" && settings.hash === "#product-alerts", `Manage alerts opens the pilot's alert settings at the alerts (${settings.search}${settings.hash})`);
+    check(settings.searchParams.get("section") === "product-alerts" && settings.hash === "", `Manage alerts opens the pilot's alert settings at the alerts (${settings.search}${settings.hash})`);
     const listed = await page.locator("#product-alerts").innerText();
     check(listed.includes("Raw / Near Mint") && listed.includes("Offers - at or above $15.00"), "and lists the new alert");
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);

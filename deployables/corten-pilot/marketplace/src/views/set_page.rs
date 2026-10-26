@@ -74,14 +74,6 @@ pub fn long_date(value: &str) -> Option<String> {
     (1..=31).contains(&date).then(|| format!("{name} {date}, {year}"))
 }
 
-/// A date's month and year, as marketplace writes when an account joined (`formatDate` with
-/// `preset: "long", includeDay: false`): "October 2026". English only: Corten's `t.date` has no
-/// style without the day (todd-skelton/corten#101).
-pub fn month_year(value: &str) -> Option<String> {
-    let (year, name, _) = date_parts(value)?;
-    Some(format!("{name} {year}"))
-}
-
 /// A date's year, month name and day, from the first ten characters (`2026-10-24`).
 fn date_parts(value: &str) -> Option<(u32, &'static str, u32)> {
     const MONTHS: [&str; 12] = [
@@ -110,7 +102,7 @@ fn date_parts(value: &str) -> Option<(u32, &'static str, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{long_date, month_year};
+    use super::long_date;
 
     #[test]
     fn a_release_date_is_written_long() {
@@ -118,7 +110,5 @@ mod tests {
         assert_eq!(long_date("2024-11-08T00:00:00.000Z").as_deref(), Some("November 8, 2024"));
         assert_eq!(long_date("1999-13-01"), None);
         assert_eq!(long_date("soon"), None);
-        assert_eq!(month_year("2026-10-24 03:53:46.13+00").as_deref(), Some("October 2026"));
-        assert_eq!(month_year("2026-00-01"), None);
     }
 }

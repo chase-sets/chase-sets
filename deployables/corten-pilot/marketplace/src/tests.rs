@@ -3057,6 +3057,7 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         html.contains(r#"href="/account/notifications?view=settings&amp;section=product-alerts&amp;afterWrite=%7B"#),
         "{html}"
     );
+    assert!(!html.contains(r#"%7D#product-alerts""#), "the link has no fragment (todd-skelton/corten#107): {html}");
     assert!(!text(&html).contains("Alerts are created after account registration"), "an account is not told to register: {html}");
 
     // No threshold is an alert without one, whatever the currency says.
@@ -4528,17 +4529,19 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
     let calls = notice_calls(&pilot);
     assert_eq!(calls[0].path, "/api/marketplace/account/product-alerts/pal_1/pause");
     assert_eq!(waits_for(&calls[1].headers).as_deref(), Some("22"), "the read waits for the write");
-    // Without a script: the settings at the alerts, with the receipt, which the read waits for.
+    // Without a script: the settings at the alerts (the section names them; no #fragment, which
+    // a page that reads itself again would never be read at: todd-skelton/corten#107), with the
+    // receipt, which the read waits for.
     let (status, headers, _) =
         pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=pause", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap().to_owned();
     assert!(
-        to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite=")
-            && to.ends_with("#product-alerts"),
+        to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite=") && !to.contains('#'),
         "{to}"
     );
-    let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("watcher"))).await;
+    let (_, _, html) = pilot.send(get(&to, Some("watcher"))).await;
+    assert!(html.contains(r#"autofocus"#), "the alerts' heading takes focus: {html}");
     assert!(html.contains(r#"/product-alerts/pal_1" data-patch><input type="hidden" name="action" value="resume">"#), "{html}");
     // A read that has not caught up: saved, reading again.
     let (status, headers, _) =

@@ -5,11 +5,11 @@
 //! (`ListingCard`). One column on a phone; the facts two by two from 40rem and in a row from
 //! 64rem, the two ratings side by side from 48rem, the listings two by two from 64rem.
 use corten::{
-    i18n::{DateStyle, parse_timestamp},
+    i18n::{DateStyle, MonthStyle, parse_timestamp},
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace, set_page::month_year};
+use super::{listing_page::options, on_marketplace};
 use crate::{
     accounts::{AccountScreen, MOST_DETAILS, REASONS, ReviewNotice, ReviewReportFields, Role},
     api::{AccountListing, AccountReview, PublicAccount},
@@ -18,8 +18,9 @@ use crate::{
     text::{AccountMsg, Pilot},
 };
 
-/// The feedback section's id, which the role and page links go to.
-pub const FEEDBACK: &str = "feedback";
+/// The feedback section, which the role and page links go to.
+#[derive(Id)]
+pub struct FeedbackId;
 /// The picture every listing card shows (`discoveryAssetUrls.defaultProductImage`).
 const CARD_BACK: &str = "/fake-cdn/assets/pokemon_tcg_back.png";
 
@@ -30,13 +31,6 @@ pub struct ReviewId<'a>(pub &'a str);
 /// A review's Report review dialog.
 #[derive(Id)]
 pub struct ReportDialogId<'a>(pub &'a str);
-
-/// The fragment of a review's card (`ReviewId`).
-pub fn review_anchor(review: &str) -> String {
-    let mut anchor = String::new();
-    corten::view::Id::write_id(&ReviewId(review), &mut anchor);
-    anchor
-}
 
 /// A rating as the API writes it (`"4.50"`), when it is a number.
 fn rating(text: Option<&str>) -> Option<f64> {
@@ -157,7 +151,7 @@ pub fn AccountPage<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen) -> im
             } else {
                 <Header t={t} account={account} name={name} />
                 <Chips t={t} screen={screen} />
-                <section id={FEEDBACK} class={Feedback} aria-labelledby="account-feedback-heading">
+                <section id={FeedbackId} class={Feedback} aria-labelledby="account-feedback-heading">
                     <h2 id="account-feedback-heading" class={SectionTitle}>{t.page_feedback()}</h2>
                     <div class={Sides}>
                         <Distribution t={t} title={t.page_as_seller()} side={&Side::seller(account)} />
@@ -233,7 +227,7 @@ pub fn AccountPage<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen) -> im
 #[component(css = AccountPage)]
 fn Header<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl Render {
     let seller = rating(account.average_rating_as_seller.as_deref()).filter(|_| account.rating_count_as_seller > 0);
-    let since = account.created_at.as_deref().and_then(month_year);
+    let since = account.created_at.as_deref().and_then(parse_timestamp).map(|at| t.date(at, MonthStyle::Long).to_string());
     let founder = account.badges.iter().any(|b| b == "founding-account").then(|| match account.founder_number {
         Some(n) if n > 0 => format!("{} #{n:03}", t.badges_founder()),
         _ => t.badges_founder().to_owned(),

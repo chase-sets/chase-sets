@@ -53,16 +53,6 @@ pub const GUEST_CHECKOUT: &str = "guest-checkout.manage";
 /// An account's own pages (the notification center), as marketplace's loaders require.
 pub const ACCOUNTS_VIEW: &str = "accounts.view";
 
-/// A typed route with a fragment, for a redirect or a link to a place on the page: `Href` for a
-/// route has none, and `http::Uri` drops it (todd-skelton/corten#100).
-pub struct At<'a, R>(pub &'a R, pub &'a str);
-
-impl<R: Route> corten::route::Href for At<'_, R> {
-    fn with_href<T>(&self, f: impl FnOnce(&str) -> T) -> T {
-        f(&format!("{}#{}", self.0.href(), self.1))
-    }
-}
-
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
     pub platform: Platform,

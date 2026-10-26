@@ -31,7 +31,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{AlertChange, ApiError, Caller as Api, Feed, Notifications as _, Preference, ProductAlert},
-    app::{At, Shared, read_failed, sign_in_at, url},
+    app::{Shared, read_failed, sign_in_at, url},
     auth::{Member, Viewer},
     text::{NotificationsMsg, Pilot},
     views::{self, Layout},
@@ -84,7 +84,8 @@ impl Place {
 /// The channels the page has words for, in the order it shows them.
 pub const CHANNELS: [&str; 3] = ["web", "email", "product-alerts"];
 
-/// The Product alerts' section, and where a link to them goes.
+/// The Product alerts' section, as the address names it (`section=product-alerts`). Links to it
+/// carry no `#` until todd-skelton/corten#107 lands; the section's heading takes focus instead.
 pub const ALERTS: &str = "product-alerts";
 
 /// The Product alerts, as the settings show them.
@@ -338,7 +339,8 @@ pub(crate) async fn set_preference(
 ///
 /// The redirect while the read catches up is the workaround for todd-skelton/corten#104: a
 /// patch answer cannot ask to be read again, so the settings page reads with the receipt and
-/// says the change is pending. Remove the fallback once #104 lands. Carrying the receipt in
+/// says the change is pending. Remove the fallback once #104 lands. It has no #fragment until
+/// todd-skelton/corten#107 lands. Carrying the receipt in
 /// the redirect is what marketplace does not do (chase-sets/chase-sets#10627).
 pub(crate) async fn change_alert(
     req: Req,
@@ -374,7 +376,10 @@ pub(crate) async fn change_alert(
             return req.patch(html! { <views::AlertsSection t={t} p={p} alerts={&alerts} notice={None} focus={false} /> });
         }
     }
-    req.redirect(&At(&to, ALERTS))
+    // Not `to.at(ProductAlertsId)`: that page reads itself again while the list catches up, and
+    // a page at a #fragment is never read again (todd-skelton/corten#107). The section's heading
+    // takes focus when the address names it, which brings the user to it.
+    req.redirect(&to)
 }
 
 #[cfg(test)]

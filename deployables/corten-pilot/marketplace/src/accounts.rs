@@ -23,7 +23,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{Caller, Discovery as _, ListingReport, Marketplace as _, MetricsChips, PublicAccount},
-    app::{At, Shared, marketplace_origin, sign_in_at, url},
+    app::{Shared, marketplace_origin, sign_in_at, url},
     auth::Session,
     items::Raw,
     text::{AccountMsg, Pilot},
@@ -114,7 +114,7 @@ impl AccountScreen {
             page: (page > 1).then(|| page.to_string()),
             reported: None,
         };
-        format!("{}#{}", url::Account { slug: &self.account.account_slug, query }.href(), views::FEEDBACK)
+        url::Account { slug: &self.account.account_slug, query }.at(views::FeedbackId).href()
     }
 
     /// Where Report review for `review` posts, with the role and page the page shows.
@@ -133,7 +133,7 @@ impl AccountScreen {
 
 /// An account's page at its feedback, for the item and listing pages' seller links.
 pub fn feedback(slug: &str) -> String {
-    format!("{}#{}", url::Account { slug, query: AccountQuery::default() }.href(), views::FEEDBACK)
+    url::Account { slug, query: AccountQuery::default() }.at(views::FeedbackId).href()
 }
 
 /// The reviews' page the address asks for (`reviewPageFromRequest`): a whole number from 1.
@@ -284,7 +284,7 @@ pub(crate) async fn report_review(
     match result {
         Ok(()) => {
             let to = url::Account { slug: &screen.account.account_slug, query: screen.query(Some(&review)) };
-            req.redirect(&At(&to, &views::review_anchor(&review)))
+            req.redirect(&to.at(views::ReviewId(&review)))
         }
         Err(error) => {
             screen.chips = chips(&caller, &screen.account).await;
