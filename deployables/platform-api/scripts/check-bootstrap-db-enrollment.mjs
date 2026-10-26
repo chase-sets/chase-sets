@@ -36,22 +36,22 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
         referenceDurationMs: 14660,
-        identity: "f749da3c0ba3e000",
+        identity: "94ce72ab08826c62",
       },
       {
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
         referenceDurationMs: 16424,
-        identity: "1e91d11294f92825",
+        identity: "19168dc535e66536",
       },
       {
         name: "limits and reconciles every production-like seed context against current-code state",
         referenceDurationMs: 20046,
-        identity: "91ce1f9bea42efa9",
+        identity: "727db2f4716f86e3",
       },
       {
         name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
         referenceDurationMs: 20703,
-        identity: "5d22ae06208e8106",
+        identity: "b7f1f122ca7b219f",
       },
       {
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
@@ -222,7 +222,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "standalone seeds acquire L, while caller-held seeds never acquire or release it twice",
         referenceDurationMs: 595,
-        identity: "84b492128c26ed18",
+        identity: "b48e834f7351386f",
       },
       {
         name: "real bootstrap holds L through every admin phase and a killed bootstrap frees L",
@@ -271,7 +271,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 86310,
-        identity: "d5d72806700dfd1c",
+        identity: "543c346f4daf119b",
       },
       {
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
@@ -350,7 +350,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "boots every non-production profile on one shared max-one seed command pool",
         referenceDurationMs: 78252,
-        identity: "4d891cb822a0a334",
+        identity: "f92a3b265dc5393c",
       },
     ],
   },
