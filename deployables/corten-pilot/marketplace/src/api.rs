@@ -1320,6 +1320,8 @@ pub trait Search {
     async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError>;
     /// The category with the slug; `None` when there is none.
     async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError>;
+    /// The set with the slug (or an old one) and its first items; `None` when there is none.
+    async fn set(&self, slug: &str) -> Result<Option<SetPage>, ApiError>;
 }
 
 impl Search for Caller<'_> {
@@ -1338,6 +1340,32 @@ impl Search for Caller<'_> {
             Err(error) => Err(error),
         }
     }
+
+    async fn set(&self, slug: &str) -> Result<Option<SetPage>, ApiError> {
+        match self.read(&format!("/api/marketplace/sets/{}", segment(slug)), DISCOVERY).await {
+            Ok(set) => Ok(Some(set)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// A set's page (`DiscoveryBrowseSetPage`): the set, a reference record of its type, and the
+/// first of its cataloged items, as search's cards.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SetPage {
+    pub reference_record_id: String,
+    pub type_key: String,
+    pub slug: String,
+    pub name: String,
+    pub code: Option<String>,
+    pub game: Option<String>,
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub reference_card_count: Option<u64>,
+    pub item_count: u64,
+    #[serde(default)]
+    pub items: Vec<SearchItem>,
 }
 
 /// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,

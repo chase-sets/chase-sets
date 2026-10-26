@@ -18,6 +18,7 @@ mod restock;
 mod saving;
 mod search;
 mod selling;
+mod sets;
 mod text;
 mod views;
 mod watching;

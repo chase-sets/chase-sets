@@ -636,20 +636,29 @@ fn Shelf<'a>(t: SearchMsg, shelf: &'a HomeShelf) -> impl Render {
                     </div>
                     <a class={Secondary} href={&newest}>{t.home_browse_all_new_arrivals()}</a>
                 </div>
-                <ol class={Arrivals}>
-                    for (index, item) in shelf.arrivals.iter().enumerate() {
-                        <Arrival t={t} item={item} index={index} />
-                    }
-                </ol>
+                <ItemCards t={t} items={&shelf.arrivals} action={t.home_view_item()} from={Some(t.home_from())} />
             </section>
         }
     }
 }
 
-/// A new arrival's card: its picture and title link to the item, its subtitle, its lowest price
-/// ("From"), and View item.
+/// Items as cards, one column, two from lg and three from 2xl (a `Grid` of `ListingCard`s): the
+/// home page's new arrivals and a set's cards.
 #[component(css = SearchPage)]
-fn Arrival<'a>(t: SearchMsg, item: &'a SearchItem, index: usize) -> impl Render {
+pub fn ItemCards<'a>(t: SearchMsg, items: &'a [SearchItem], action: &'a str, from: Option<&'a str>) -> impl Render {
+    html! {
+        <ol class={Arrivals}>
+            for (index, item) in items.iter().enumerate() {
+                <ItemCard t={t} item={item} index={index} action={action} from={from} />
+            }
+        </ol>
+    }
+}
+
+/// An item's card: its picture and title link to the item, its subtitle, its lowest price (after
+/// `from`, "From", when there is one), and `action` (View item, View card).
+#[component(css = SearchPage)]
+fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a str, from: Option<&'a str>) -> impl Render {
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let href = url::Item { slug, state: Address::default() }.href();
@@ -691,9 +700,14 @@ fn Arrival<'a>(t: SearchMsg, item: &'a SearchItem, index: usize) -> impl Render 
                     <p class={Muted}>{subtitle}</p>
                 }
                 if let Some(price) = &price {
-                    <p class={Price}><span class={Muted}>{t.home_from()}" "</span><span class={Strong}>{price}</span></p>
+                    <p class={Price}>
+                        if let Some(from) = from {
+                            <span class={Muted}>{from}" "</span>
+                        }
+                        <span class={Strong}>{price}</span>
+                    </p>
                 }
-                <p class={Intents}><a class={Primary} href={&href}>{t.home_view_item()}</a></p>
+                <p class={Intents}><a class={Primary} href={&href}>{action}</a></p>
             </div>
         </li>
     }

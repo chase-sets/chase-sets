@@ -789,6 +789,9 @@ fn search(uri: &Uri) -> Option<Response> {
             refusal(StatusCode::NOT_FOUND, "not_found", "Category not found.")
         });
     }
+    if let Some(slug) = path.strip_prefix("/api/marketplace/sets/") {
+        return Some(set(slug));
+    }
     if path != "/api/marketplace/items" {
         return None;
     }
@@ -827,6 +830,31 @@ fn search(uri: &Uri) -> Option<Response> {
         }))
         .into_response(),
     )
+}
+
+/// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
+/// items, one listed; `empty-set` with none; `down` failing; any other unknown.
+fn set(slug: &str) -> Response {
+    let card = |n: u32, listed: bool| {
+        json!({
+            "catalog_item_id": format!("cat_set_{n}"), "slug": format!("set-card-{n}"), "title": format!("Set Card {n}"),
+            "subtitle": format!("Base Set {n}/102"), "image_urls": [], "product_asset_sets": [], "image_fallback": null,
+            "market_summary": listed.then(|| json!({ "lowest_price_amount": "12.50", "lowest_price_currency_code": "USD", "active_listing_count": 1 })),
+        })
+    };
+    let set = |slug: &str, items: Vec<Value>, count: u64| {
+        json!({
+            "reference_record_id": "ref_base_set", "type_key": "expansion", "key": slug, "slug": slug, "name": "Base Set",
+            "code": "BS", "game": "Pokemon Trading Card Game", "release_date": "1999-01-09", "reference_card_count": 102,
+            "item_count": count, "items": items, "updated_at": "2026-10-24T03:54:25.877Z",
+        })
+    };
+    match slug {
+        "base-set" | "base" => Json(set("base-set", vec![card(1, true), card(2, false)], 3)).into_response(),
+        "empty-set" => Json(set("empty-set", Vec::new(), 0)).into_response(),
+        "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Set not found."),
+    }
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -3709,6 +3737,41 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert!(!html.contains("Featured categories"), "{html}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
     assert!(html.contains(r#"href="/?q=pika&amp;more=24#result-25""#), "Load more stays at the home page: {html}");
+}
+
+#[tokio::test]
+async fn a_set_page_shows_the_set_and_its_cards_and_links_to_all_of_them() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/sets/base-set", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Base Set card list | Marketplace</title>"), "{html}");
+    assert!(html.contains(">Pokemon Trading Card Game</span>") && html.contains(">Base Set</h1>"), "{html}");
+    assert!(
+        html.contains(">Cards in set: 102 \u{b7} Cataloged items: 3 \u{b7} set code BS \u{b7} released January 9, 1999</p>"),
+        "{html}"
+    );
+    assert_eq!(html.matches(">View card</a>").count(), 2, "{html}");
+    assert!(html.contains(r#"href="/items/set-card-1">View card</a>"#), "{html}");
+    // A card shows its lowest price without "From", as marketplace's set cards do.
+    assert!(html.contains(r#"<span class="search-page__strong">$12.50</span>"#) && !html.contains(">From "), "{html}");
+    // The API sent two of three, so the page links to all of them in search.
+    assert!(html.contains(r#"href="/search?reference.expansion=ref_base_set">Browse all 3 cards in this set</a>"#), "{html}");
+    assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/sets/base-set" "#), "{html}");
+    assert!(html.contains(r#""@type":"BreadcrumbList""#) && html.contains(r#""item":"http://localhost:7753/search""#), "{html}");
+    assert!(search_reads(&pilot).is_empty(), "the set's read has its items");
+
+    let (_, _, html) = pilot.send(get("/sets/empty-set", None)).await;
+    assert!(html.contains(">No cards yet</h2>") && html.contains(r#"href="/search">Browse marketplace</a>"#), "{html}");
+}
+
+#[tokio::test]
+async fn an_old_set_slug_moves_with_its_query_an_unknown_set_is_not_found_and_a_failed_read_a_bad_gateway() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/sets/base?ref=nav", None)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::MOVED_PERMANENTLY, "/sets/base-set?ref=nav"));
+    let (status, headers, html) = pilot.send(get("/sets/no-such-set", None)).await;
+    assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()), "{html}");
+    assert_eq!(pilot.send(get("/sets/down", None)).await.0, StatusCode::BAD_GATEWAY);
 }
 
 #[tokio::test]

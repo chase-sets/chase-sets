@@ -322,6 +322,8 @@ const outputs = [
         ["discovery.routes.search.", "route"],
         // The home page's featured categories and new arrivals (`HomeMerchandising`).
         ["discovery.features.home.ui.homeMerchandising.", "home"],
+        // A set's page (`routes/set.tsx`), whose cards are search's.
+        ["discovery.routes.set.", "set"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
         // A result's card (`ListingCard`), its language badge and its picture's words.

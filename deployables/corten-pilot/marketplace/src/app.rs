@@ -90,6 +90,7 @@ pub mod url {
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
     pub use search::Search;
+    pub use sets::{Set, Sets};
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
     /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
@@ -132,6 +133,22 @@ pub mod url {
             pub slug: &'a str,
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+    }
+
+    /// A set's page, public: a handler that shows who is signed in reads
+    /// `Option<Caller<Session>>`.
+    #[corten::routes(state = crate::app::Shared, area = Sets)]
+    pub mod sets {
+        /// The area: its prefix (no page of its own) and stylesheet.
+        #[route("/sets", link)]
+        pub struct Sets;
+
+        /// The set and its cataloged items (`slug` is its slug, or an old one, which moves).
+        #[derive(Clone, Debug)]
+        #[route("/sets/{slug}", get = crate::sets::page)]
+        pub struct Set<'a> {
+            pub slug: &'a str,
         }
     }
 
@@ -363,7 +380,8 @@ pub fn app(config: Config) -> App {
         // components are every page's (todd-skelton/corten#93).
         .components(views::SEARCH)
         .area::<url::Search>(|area| url::search::area(area, shared.clone()))
-        .area::<url::Categories>(|area| url::categories::area(area, shared))
+        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()))
+        .area::<url::Sets>(|area| url::sets::area(area, shared).components(views::SET))
         .error_page(views::error_page)
 }
 
