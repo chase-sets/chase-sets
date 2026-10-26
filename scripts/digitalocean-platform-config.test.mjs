@@ -199,7 +199,7 @@ function operatorGuard(run, name) {
 
 function extractAdvisoryEvaluator() {
   const block = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Configure staging Kubernetes context");
-  const match = String(block).match(/cat > \"\$RUNNER_TEMP\/advisory-window\.mjs\" <<'NODE'\n([\s\S]*?)\n\s*NODE/);
+  const match = String(block).match(/node --input-type=module - wait-admit <<'NODE'\n([\s\S]*?)\n\s*NODE/);
   if (!match) throw new Error("Missing advisory evaluator heredoc");
   return match[1]
     .split("\n")

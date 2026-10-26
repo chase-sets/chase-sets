@@ -167,7 +167,7 @@ jobs:
             exit 1
           fi
           export ADVISORY_WAIT_POLL_MS=30000
-          cat > "$RUNNER_TEMP/advisory-window.mjs" <<'NODE'
+          node --input-type=module - wait-admit <<'NODE'
           import { appendFileSync } from "node:fs";
           import { execFile } from "node:child_process";
           import { promisify } from "node:util";
@@ -347,7 +347,6 @@ jobs:
             }
           }
           NODE
-          node "$RUNNER_TEMP/advisory-window.mjs" wait-admit
 
       - name: Seed staging Kubernetes scenario data
         id: scenario_seed
