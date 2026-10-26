@@ -215,6 +215,7 @@ version = "0.1.0"
 dependencies = [
  "corten",
  "corten-pilot-platform",
+ "futures-util",
  "http-body-util",
  "percent-encoding",
  "reqwest",

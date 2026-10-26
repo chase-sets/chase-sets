@@ -27,11 +27,13 @@ use corten::{
     axum::{
         extract::{Path, State},
         http::{HeaderMap, StatusCode, Uri},
+        response::IntoResponse,
     },
     prelude::*,
     route::Params,
 };
-use platform::receipt::Receipt;
+use futures_util::StreamExt;
+use platform::{realtime::Tick, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -57,6 +59,10 @@ struct Pages(Shared);
 impl url::items::Handlers for Pages {
     fn item(&self) -> MethodRouter {
         get(page).with_state(self.0.clone())
+    }
+
+    fn item_live(&self) -> MethodRouter {
+        get(live).with_state(self.0.clone())
     }
 
     fn item_cart(&self) -> MethodRouter {
@@ -1016,6 +1022,94 @@ pub async fn offer_terms(req: &Req, caller: &Caller<'_>, item: &Item, address: &
     }
 }
 
+/// Who is looking at the page, as far as the page's parts differ for them.
+#[derive(Clone)]
+struct Viewing {
+    viewer: Option<String>,
+    seller_features: bool,
+    listing_features: bool,
+    guest_listing_draft: bool,
+}
+
+impl Viewing {
+    fn of(req: &Req) -> Self {
+        let viewer = match req.context::<Session>() {
+            Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
+            _ => None,
+        };
+        Viewing {
+            viewer,
+            seller_features: selling::seller_features(req),
+            listing_features: listing::listing_features(req),
+            guest_listing_draft: !selling::account_sell_list(req),
+        }
+    }
+
+    fn screen(&self, item: Item, address: &Address) -> ItemScreen {
+        let mut screen = ItemScreen::of(item, address, self.viewer.clone());
+        screen.seller_features = self.seller_features;
+        screen.listing_features = self.listing_features;
+        screen.guest_listing_draft = self.guest_listing_draft;
+        screen
+    }
+}
+
+/// The page's market parts for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` on
+/// the item's topics): on each change to the item (`item:{id}`, which its listings', offers' and
+/// Pricing's market stats' patches name), the item is read again, and its market summary, market
+/// book (with the Sales tab's history when it is the tab shown) and the mobile dock are drawn
+/// again. The rail and the options are not: they hold forms, and a redraw is a read the buyer
+/// did not ask for. Each fragment carries the realtime stream's cursor, so a reconnect goes on
+/// from there. Marketplace also listens to `public:market`, every change in the marketplace;
+/// the item's own topic carries every change the page shows.
+async fn live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: corten::LiveSince,
+    Path(id): Path<String>,
+    Query(raw): Query<Raw>,
+) -> impl IntoResponse {
+    let (t, viewing, address): (ItemMsg, _, _) = (req.t(), Viewing::of(&req), Address::read(&raw));
+    let topic = format!("item:{id}");
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(|tick| {
+            std::future::ready(match tick {
+                Tick::Changed(cursor, _) => Some(cursor),
+                // The page was drawn just now; a reconnect resumes from its last cursor.
+                Tick::Opened(_) | Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let (config, headers, id, address, viewing) =
+                (config.clone(), headers.clone(), id.clone(), address.clone(), viewing.clone());
+            async move {
+                let caller = config.platform.caller(&headers, config.proto, None);
+                let item = match caller.item(&id).await {
+                    Ok(Some(item)) => item,
+                    Ok(None) => return None,
+                    Err(error) => {
+                        tracing::warn!("the item's read for a change failed: {error}");
+                        return None;
+                    }
+                };
+                let history = market_history(&caller, &item, &address).await;
+                let slug = item.slug.clone().unwrap_or_else(|| item.catalog_item_id.clone());
+                let mut screen = viewing.screen(item, &address);
+                screen.history = history;
+                let html = views::item_live_parts(t, &screen, &address, &slug).to_html();
+                Some(match cursor {
+                    Some(cursor) => corten::Fragment::new(html).cursor(cursor),
+                    None => corten::Fragment::new(html),
+                })
+            }
+        })
+        .filter_map(std::future::ready);
+    corten::live(fragments)
+}
+
 /// The page for `item` at `address`, with what a buy or sell write came to, and what the Sell tab
 /// read (`sell_reads`).
 pub fn render(
@@ -1026,15 +1120,8 @@ pub fn render(
     status: StatusCode,
     reads: PageReads,
 ) -> corten::Result {
-    let viewer = match req.context::<Session>() {
-        Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
-        _ => None,
-    };
-    let mut screen = ItemScreen::of(item, address, viewer);
+    let mut screen = Viewing::of(req).screen(item, address);
     screen.offer_terms = reads.terms;
-    screen.seller_features = selling::seller_features(req);
-    screen.listing_features = listing::listing_features(req);
-    screen.guest_listing_draft = !selling::account_sell_list(req);
     screen.listing_setup = reads.setup;
     // A listing still catching up is not "unavailable": the rail says it is on its way.
     screen.stale_listing &= reads.listing_pending.is_none();

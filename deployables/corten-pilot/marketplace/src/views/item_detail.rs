@@ -398,6 +398,18 @@ pub fn ItemDetail<'a>(
             </div>
         </div>
         <Dock t={t} screen={screen} address={address} slug={slug} />
+        // The market parts again on each change to the item (`items::live`).
+        <corten-live src={&url::ItemLive { id: &item.catalog_item_id, state: address.clone() }.href()}></corten-live>
+    }
+}
+
+/// The parts of the page `<corten-live>` draws again on a change to the item: the market
+/// summary, the market book and the mobile dock, each by its id.
+pub fn item_live_parts<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render + 'a {
+    html! {
+        <MarketSummary t={t} screen={screen} />
+        <MarketBook t={t} screen={screen} address={address} slug={slug} />
+        <Dock t={t} screen={screen} address={address} slug={slug} />
     }
 }
 
@@ -420,7 +432,7 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
     };
     let price = price.unwrap_or_else(|| t.view_market_price_unavailable().to_owned());
     html! {
-        <div class={Dock}>
+        <div class={Dock} id="item-dock">
             <nav class={DockBar} aria-label={t.page_choose_market_intent()}>
                 if screen.product_id.is_some() {
                     <p class={DockPrice}>{&price}</p>
@@ -1134,7 +1146,7 @@ fn MarketSummary<'a>(t: ItemMsg, screen: &'a ItemScreen) -> impl Render {
         ]
     };
     html! {
-        <section class={Card} aria-labelledby="market-price">
+        <section class={Card} id="market-summary" aria-labelledby="market-price">
             <p class={Label} id="market-price">{if sell { t.page_best_offer() } else { t.page_lowest_ask() }}</p>
             <p class={Price}>{&price}</p>
             if chosen.is_empty() {
@@ -1903,7 +1915,7 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
             .href()
     });
     html! {
-        <section class={BookSection} aria-labelledby="market-book">
+        <section class={BookSection} id="market-book-section" aria-labelledby="market-book">
             <h2 class={CardTitle} id="market-book">{t.page_market_book()}</h2>
             <nav class={Tabs} aria-label={t.page_market_book()}>
                 <a class={Tab} href={&tab(Book::Listings)} aria-current={current(Book::Listings)}>{t.page_listings_2()}</a>

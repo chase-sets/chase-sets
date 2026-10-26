@@ -379,6 +379,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
         return rollups(rest);
     }
+    if uri.path() == "/api/realtime/public/events" {
+        return realtime();
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         // Discovery has not caught up with a listing published at 44.
         if waits_for(&headers).as_deref() == Some("44") {
@@ -709,6 +712,34 @@ impl Pilot {
         tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
         let router = app(Config { platform: Platform::new(&origin), proto: "http" }).router();
         Pilot { router, stand }
+    }
+
+    /// The first `count` server-sent events of the stream `req` opens (their `event:`, `id:`
+    /// and `data:`), or what came before it ended.
+    async fn events(&self, req: Request<Body>, count: usize) -> Vec<(String, String, String)> {
+        let uri = req.uri().to_string();
+        let res = self.router.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+        assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/event-stream"));
+        let mut body = res.into_body();
+        let (mut text, mut events) = (String::new(), Vec::new());
+        while events.len() < count {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame()).await.expect("an event in time");
+            let Some(frame) = frame else { break };
+            let Ok(data) = frame.unwrap().into_data() else { continue };
+            text.push_str(std::str::from_utf8(&data).unwrap());
+            while let Some(end) = text.find("\n\n") {
+                let block: String = text.drain(..end + 2).collect();
+                let field = |name: &str| {
+                    block.lines().filter_map(|l| l.strip_prefix(name)).map(str::to_owned).collect::<Vec<_>>().join("\n")
+                };
+                let event = field("event: ");
+                if !event.is_empty() {
+                    events.push((event, field("id: "), field("data: ")));
+                }
+            }
+        }
+        events
     }
 
     async fn send(&self, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
@@ -1799,6 +1830,14 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
 const ITEM_PAGE: &str = "/items/charizard";
 
 const ROLLUPS: &str = "/api/marketplace/market-rollups/";
+
+/// The platform's realtime stream: a heartbeat, then one change to Charizard (a listing's
+/// patch), then the stream ends (the client connects again).
+fn realtime() -> Response {
+    let patch = r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#;
+    let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
+    ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+}
 
 /// Pricing's market rollups: Charizard's `lst_vault` product (the raw one the page picks) has
 /// sold in dollars (one sale in 30 days, four units in 90, three days of prices, one with a
@@ -2943,10 +2982,46 @@ async fn the_sales_tab_asks_for_a_product_and_says_when_its_history_cannot_be_re
 }
 
 #[tokio::test]
+async fn a_change_to_the_item_draws_its_market_parts_again_and_a_reconnect_resumes() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/items/charizard?market=sell&book=sales", None)).await;
+    assert!(html.contains(r#"<corten-live src="/items/cat_charizard/live?market=sell&amp;book=sales"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/items/cat_charizard/live?market=sell&book=sales", None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    // The summary, the book (on the Sales tab, its history read again) and the dock, by their ids;
+    // not the rail or the options.
+    for id in [r#"id="market-summary""#, r#"id="market-book-section""#, r#"id="item-dock""#] {
+        assert!(data.contains(id), "{id}: {data}");
+    }
+    assert!(!data.contains(r#"id="rail-title""#) && !data.contains(r#"id="select-options""#), "{data}");
+    assert!(data.contains("Best offer") && data.contains(r#"aria-current="page">Sales</a>"#), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert_eq!(calls.iter().filter(|c| c.path.starts_with("/api/realtime/")).count(), 1);
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=item%3Acat_charizard"), "the item's topic only");
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/items/cat_charizard"), "the item is read again");
+    // A reconnect goes on from the last cursor.
+    let mut again = get("/items/cat_charizard/live?market=sell&book=sales", None);
+    again.headers_mut().insert("last-event-id", "c2".parse().unwrap());
+    pilot.events(again, 1).await;
+    let streams: Vec<_> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/realtime/"))
+        .map(|c| c.path.clone())
+        .collect();
+    assert_eq!(streams[1], "/api/realtime/public/events?topic=item%3Acat_charizard&cursor=c2");
+}
+
+#[tokio::test]
 async fn the_mobile_dock_links_to_the_rail_on_each_side_or_to_the_options() {
     let pilot = Pilot::new().await;
     let dock = |html: &str| {
-        let at = html.find(r#"<div class="item-detail__dock">"#).expect("the dock");
+        let at = html.find(r#"<div class="item-detail__dock" id="item-dock">"#).expect("the dock");
         html[at..].split("</nav>").next().unwrap().to_owned()
     };
     // A product the page names: its price and the rail on each side, the options kept.

@@ -34,7 +34,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
-pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_page, product_json_ld};
+pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use page_actions::PageActions;

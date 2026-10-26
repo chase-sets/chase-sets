@@ -140,6 +140,15 @@ pub mod url {
             pub state: crate::items::Address,
         }
 
+        /// The item page's market parts, drawn again on each change to the item
+        /// (`<corten-live>`); `id` is the item's id, which names its realtime topic.
+        #[route("/items/{id}/live")]
+        pub struct ItemLive<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub state: crate::items::Address,
+        }
+
         /// Add the item's listing or product to the buy cart, or buy the best match.
         #[route("/items/{slug}/cart")]
         pub struct ItemCart<'a> {
