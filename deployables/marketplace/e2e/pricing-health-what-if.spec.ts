@@ -10,7 +10,7 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 const healthApi = "/api/marketplace/account/pricing-health";
 const policiesApi = "/api/marketplace/account/repricing-policies";
 const listingId = "lst_seed_charizard_base_set_psa_8";
-const policyName = "Synthetic Pricing Health what-if";
+const policyName = "Synthetic Pricing Health browser what-if";
 const policyBody = {
   scope: { kind: "listing-set", listingIds: [listingId] },
   excludedListingIds: [],
