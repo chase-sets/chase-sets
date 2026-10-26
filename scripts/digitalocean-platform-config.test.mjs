@@ -4440,6 +4440,30 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(advisoryEvidenceJob).toContain("timeout-minutes: 90");
     expect(advisoryEvidenceJob).toContain("environment: staging");
+    expect(advisoryEvidenceJob).not.toContain("group: platform-deploy-staging");
+    expect(advisoryEvidenceJob).not.toContain("cancel-in-progress: false");
+    expect(advisoryEvidenceJob).toContain("advisory preflight refused: owner-fenced-seed-yield/v1 marker is absent");
+    expect(advisoryEvidenceJob).toContain("owner-fenced-seed-yield/v1");
+    expect(advisoryEvidenceJob).toContain("readHelmOperationCensus");
+    expect(advisoryEvidenceJob).toContain("readGitHubProductionWriterCensus");
+    expect(advisoryEvidenceJob).toContain("platform-staging-rollback-drill.yml");
+    expect(advisoryEvidenceJob).toContain("freshness_status");
+    expect(advisoryEvidenceJob).toContain("if: steps.advisory_preflight.outcome == 'success'");
+    expect(advisoryEvidenceJob).toContain("scenario-seed-release");
+    expect(advisoryEvidenceJob).toContain("--reclaim true");
+    expect(advisoryEvidenceJob).not.toContain("autoscaling\\.keda\\.sh/paused-replicas-");
+    expect(advisoryEvidenceJob).toContain("freshness:{status:$freshnessStatus");
+    expect(advisoryEvidenceJob).toContain("advisory-preflight");
+
+    const oldGroupMutant = advisoryEvidenceJob.replace(
+      "environment: staging",
+      "environment: staging\n    concurrency:\n      group: platform-deploy-staging\n      cancel-in-progress: false",
+    );
+    expect(() => expect(oldGroupMutant).not.toContain("group: platform-deploy-staging")).toThrow();
+    const missingMarkerMutant = advisoryEvidenceJob.replaceAll("owner-fenced-seed-yield/v1", "legacy-seed-yield/v0");
+    expect(() => expect(missingMarkerMutant).toContain("owner-fenced-seed-yield/v1")).toThrow();
+    const unconditionalCleanupMutant = advisoryEvidenceJob.replaceAll("--reclaim true", "--reclaim false");
+    expect(() => expect(unconditionalCleanupMutant).toContain("--reclaim true")).toThrow();
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("group: platform-staging-advisory-evidence");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("cancel-in-progress: false");
     expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
