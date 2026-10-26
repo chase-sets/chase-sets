@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source_base=df45b7593f2f3eb54721aad46ae97faa145a138f
+          source_base=d8b1e71313f5c461f682990f5b201a7438b68b26
           test "$(git rev-parse HEAD^)" = "$source_base"
           test "$(git diff --name-only "$source_base" HEAD)" = '.github/workflows/10404-bootstrap-db-input-capture.yml'
           node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs
@@ -42,7 +42,7 @@ jobs:
           const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
           assert.deepEqual(census.violations, []);
           assert.equal(census.dbEntries.length, 16);
-          console.log(`precheckSCorpus PASS sourceBase=df45b7593f2f3eb54721aad46ae97faa145a138f dbEntries=${census.dbEntries.length}`);
+          console.log(`precheckSCorpus PASS sourceBase=d8b1e71313f5c461f682990f5b201a7438b68b26 dbEntries=${census.dbEntries.length}`);
           NODE
 
   shipped:
@@ -127,7 +127,7 @@ jobs:
       - name: Restore immutable diagnostic-only census helpers
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "df45b7593f2f3eb54721aad46ae97faa145a138f"
+          test "$(git rev-parse HEAD^)" = "d8b1e71313f5c461f682990f5b201a7438b68b26"
           test "$(git rev-parse --is-shallow-repository)" = "false"
           git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
           git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
@@ -179,7 +179,7 @@ jobs:
           // Evidence-only binding for the one #10404 capture of frozen S. Every unit, file,
           // case and command below is S's own, derived from S by the canonical producers
           // before publication; nothing is carried over from an earlier capture's groups.
-          export const frozenS = 'df45b7593f2f3eb54721aad46ae97faa145a138f';
+          export const frozenS = 'd8b1e71313f5c461f682990f5b201a7438b68b26';
           export const frozenGroups = Object.freeze({
             "test:db:1": [
               "bootstrap-production-reconciliation.db.test.ts",
@@ -318,8 +318,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: process.env.GITHUB_SHA,
-            captureParent: 'df45b7593f2f3eb54721aad46ae97faa145a138f',
-            sourceBase: 'df45b7593f2f3eb54721aad46ae97faa145a138f',
+            captureParent: 'd8b1e71313f5c461f682990f5b201a7438b68b26',
+            sourceBase: 'd8b1e71313f5c461f682990f5b201a7438b68b26',
             role: 'current-two-unit',
             jobName: 'Diagnostic API Bootstrap Measurement Only (current two-unit)',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
