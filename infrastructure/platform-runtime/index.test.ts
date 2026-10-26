@@ -28,6 +28,14 @@ import {
 } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(
+    _group: unknown,
+    _signal: AbortSignal | undefined,
+    work: (context: never) => Promise<T>,
+  ): Promise<T> => work(undefined as never),
+};
+
 type FakeQueryResult = Readonly<{
   rows: readonly Readonly<Record<string, unknown>>[];
   rowCount?: number;
@@ -1420,6 +1428,7 @@ describe("platform host api registry", () => {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
       runtimeProfile: "landing",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
 
     expect(policySourceSeed).toHaveBeenCalledTimes(2);
@@ -1478,6 +1487,7 @@ describe("platform host api registry", () => {
     await seedApiHostIfEmpty(registry, "platform-api", runtime, {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
 
     expect(identityProjector.runOnce).not.toHaveBeenCalled();
@@ -1514,6 +1524,7 @@ describe("platform host api registry", () => {
           enabledDataProfiles: productionLikeDataProfiles,
           environmentName: "staging",
           substepTimeoutMs: 50,
+          projectionGroupLeasePort: testProjectionGroupLeasePort,
         }),
       ).rejects.toThrow(/substep 'seed:catalog' exceeded 50ms/);
 
@@ -1567,6 +1578,7 @@ describe("platform host api registry", () => {
     await seedApiHostIfEmpty(registry, "platform-api", runtime, {
       enabledDataProfiles: nonProductionDataProfiles,
       environmentName: "preview",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
 
     expect(identityProjector.runOnce).toHaveBeenCalledTimes(0);
@@ -1612,6 +1624,7 @@ describe("platform host api registry", () => {
     await seedApiHostIfEmpty(registry, "platform-api", runtime, {
       enabledDataProfiles: representativeCommerceStateDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
 
     expect(identitySeed).toHaveBeenCalledTimes(1);
@@ -1639,6 +1652,7 @@ describe("platform host api registry", () => {
       seedApiHostIfEmpty(registry, "platform-api", runtime, {
         enabledDataProfiles: ["representative-catalog"],
         environmentName: "preview",
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
       }),
     ).resolves.toBeUndefined();
 
@@ -1679,6 +1693,7 @@ describe("platform host api registry", () => {
       const seed = seedApiHostIfEmpty(registry, "platform-api", runtime, {
         enabledDataProfiles: productionLikeDataProfiles,
         environmentName: "staging",
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
         schemaBootstrap: {
           lockAcquisitionTimeoutMs: 1,
         },
@@ -1692,6 +1707,26 @@ describe("platform host api registry", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("refuses seed work before bootstrap when the lease port is omitted", async () => {
+    const seed = vi.fn(async () => undefined);
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: { contextName: "catalog", apiDeployables: ["platform-api"] },
+        module: createModule("catalog", { seedProfiles: ["critical-bootstrap"], seed }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", { pools: { catalog: createPool() as never } });
+
+    await expect(
+      seedApiHostIfEmpty(registry, "platform-api", runtime, {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "test",
+      }),
+    ).rejects.toThrow("ProjectionGroupLeasePort");
+    expect(seed).not.toHaveBeenCalled();
   });
 });
 

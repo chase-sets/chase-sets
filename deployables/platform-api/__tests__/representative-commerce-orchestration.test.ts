@@ -7,7 +7,10 @@ import {
   type RepresentativeCommerceStateRunOptions,
 } from "../src/representative-commerce-state";
 
-vi.mock("@chase-sets/platform-runtime/control-plane", () => ({ bootstrapPlatformControlPlane: vi.fn() }));
+vi.mock("@chase-sets/platform-runtime/control-plane", () => ({
+  bootstrapPlatformControlPlane: vi.fn(),
+  createPostgresPlatformControlPlane: vi.fn(() => ({})),
+}));
 vi.mock("@chase-sets/platform-runtime/api", async (original) => ({
   ...(await original<object>()),
   seedApiHostIfEmpty: vi.fn(),

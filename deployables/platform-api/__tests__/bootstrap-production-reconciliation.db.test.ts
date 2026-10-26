@@ -40,6 +40,11 @@ import {
   holdSchemaBootstrapAdvisoryLock,
   listingPhotoStorage,
 } from "./bootstrap-db-test-support";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
 
 const measureAppendTrace = vi.hoisted(() => ({ inputs: null as AppendToStreamInput[] | null }));
@@ -229,6 +234,7 @@ async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createId
     enabledDataProfiles: representativeCommerceStateDataProfiles,
     environmentName: "test",
     runtimeProfile: "public",
+    projectionGroupLeasePort: testProjectionGroupLeasePort,
   });
 }
 
@@ -507,6 +513,7 @@ describe("platform api bootstrap production reconciliation", () => {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
       runtimeProfile: "public",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       schemaBootstrap: {
         lockAcquisitionTimeoutMs: 120_000,
         lockTimeoutMs: 50,
@@ -622,12 +629,14 @@ describe("platform api bootstrap production reconciliation", () => {
     const firstBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", firstRuntime, {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       runtimeProfile: "public",
       schemaBootstrap,
     });
     const secondBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", secondRuntime, {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       runtimeProfile: "public",
       schemaBootstrap,
     });
@@ -661,6 +670,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const bootstrapOptions = {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     } as const;
     const reconciliationAttempts = new Map<string, number[]>();
     const productionSeedContextNames = runtime.mountedContexts
@@ -804,6 +814,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const bootstrapOptions = {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     } as const;
 
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
