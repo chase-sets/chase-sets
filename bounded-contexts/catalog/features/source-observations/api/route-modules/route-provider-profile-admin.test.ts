@@ -14,6 +14,12 @@ import {
   readSseData,
   rolloutDenied,
 } from "./route-test-harness";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  profileReview,
+  sourceObservationScope,
+} from "../../ui/primary-workbench-read-model-test-support";
+import type { CatalogIntegrationControlPlaneOverview } from "../../ui/contracts";
 
 describe("source observation routes: integration discovery and profile administration", () => {
   it("lists integration scopes using provider language and expansion filters", async () => {
@@ -581,6 +587,44 @@ describe("source observation routes: integration discovery and profile administr
     });
     expect(json.unitActivity.units[0].recentJobs[0].result).not.toHaveProperty("outcomes");
     expect(listRecentIntegrationJobs).toHaveBeenCalledWith({ context });
+  });
+
+  it("marks the legacy active-job fallback incomplete and blocks Admin import", async () => {
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-05T00:00:00.000Z",
+      providerUsage: [],
+      rolloutControls: {
+        generatedAt: "2026-06-05T00:00:00.000Z",
+        controls: [],
+      },
+      units: [],
+    }));
+    const listRecentIntegrationJobs = vi.fn(async () => []);
+    const listActiveIntegrationJobs = vi.fn(async () => []);
+    const app = buildApp({
+      getCatalogIntegrationControlPlaneReadiness,
+      listRecentIntegrationJobs,
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request("/source-observations/integration-control-plane/overview");
+
+    expect(response.status).toBe(200);
+    const overview = (await response.json()) as CatalogIntegrationControlPlaneOverview;
+    expect(overview.activeJobs.completeness).toBe("incomplete");
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+    expect(readModel.actions.find((action) => action.key === "scope.import")).toMatchObject({
+      state: "blocked",
+      blockers: expect.arrayContaining(["read-model-unavailable"]),
+    });
+    expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 
   it("keeps active TCGplayer jobs scoped to their selected profile unit", async () => {

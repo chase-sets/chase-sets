@@ -81,7 +81,7 @@ export function sourceObservationRoutes(
         : (services.listActiveIntegrationJobs?.({ context: c.get("context") }) ?? Promise.resolve([])).then(
             (items) => ({
               items,
-              completeness: "complete" as const,
+              completeness: "incomplete" as const,
             }),
           ),
     ]);
