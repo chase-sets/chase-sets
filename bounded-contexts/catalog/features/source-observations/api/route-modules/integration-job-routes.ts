@@ -261,11 +261,19 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
       return permissionError;
     }
 
-    const items = await services.listActiveIntegrationJobs({
-      context: c.get("context"),
-    });
+    const snapshot = services.listActiveIntegrationJobSnapshot
+      ? await services.listActiveIntegrationJobSnapshot({ context: c.get("context") })
+      : {
+          items: await services.listActiveIntegrationJobs({ context: c.get("context") }),
+          completeness: "incomplete" as const,
+        };
 
-    return c.json({ items, total: items.length, count: items.length });
+    return c.json({
+      items: snapshot.items,
+      total: snapshot.items.length,
+      count: snapshot.items.length,
+      completeness: snapshot.completeness,
+    });
   });
 
   app.post("/integration-jobs/:jobId/retry", async (c) => {

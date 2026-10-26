@@ -2618,6 +2618,7 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          trap 'if [ -f artifacts/agent-grant-revocation/staging/activation-status.json ]; then jq -c "{diagnostic, status: {environment,releaseCommit,imageDigest,identity,refusal}}" artifacts/agent-grant-revocation/staging/activation-status.json; fi' EXIT
           node ./scripts/agent-grant-revocation-release.mjs activate \
             --environment staging \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
@@ -4612,6 +4613,7 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          trap 'if [ -f artifacts/agent-grant-revocation/production/activation-status.json ]; then jq -c "{diagnostic, status: {environment,releaseCommit,imageDigest,identity,refusal}}" artifacts/agent-grant-revocation/production/activation-status.json; fi' EXIT
           node ./scripts/agent-grant-revocation-release.mjs activate \
             --environment production \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \

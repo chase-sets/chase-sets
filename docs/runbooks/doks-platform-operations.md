@@ -40,6 +40,23 @@ Re-check and retire one PR by hand (destroys only if it is still an idle draft):
 gh workflow run platform-preview-cleanup.yml --ref main -f pr_number=<n> -f idle_draft_recheck=true
 ```
 
+## Kubernetes Version Changes
+
+Routine patch auto-upgrades are off. DigitalOcean may still force an unsupported-version upgrade or schedule a security patch upgrade, with notice, in the configured maintenance window. Staging uses Sunday at 09:00 UTC and production uses Wednesday at 09:00 UTC so staging is first for risk reduction, not a provider guarantee.
+
+### Planned Upgrade Sequence
+
+1. Read the live version, `auto_upgrade`, surge setting, maintenance policy, and capture time from the Foundation run's `pre-apply-cluster.json`. Read the candidate target from the same run's `get-upgrades` capture; do not infer a target from a local Terraform default.
+2. Dispatch `Platform DOKS Foundation Apply` for staging with `version_change=upgrade` and the listed target slug, at least 2 days before production. The preflight refuses a target absent from `get-upgrades`.
+3. Wait for the staging control plane, CoreDNS, konnectivity, and every workload to report Ready. Run the existing staging smoke and deploy evidence; the host gives a go before production.
+4. Dispatch the production apply with `version_change=upgrade` only after staging evidence and the host go-ahead. Record both workflow URLs and their artifacts against the upgrade notice.
+
+There is no downgrade path. Recovery from a bad version is provider escalation plus the existing Helm rollback or redeploy procedure; do not lower `kubernetes_version` or recreate a protected cluster.
+
+### Steady State And Notice Review
+
+Every DigitalOcean upgrade or end-of-life notice follows the planned sequence before its provider date. An unplanned upgrade is an incident: preserve the pre/post cluster artifacts, record the provider notice, and do not claim that `auto_upgrade=false` prevents provider-forced changes. Monthly, and before an end-of-life date, the host compares the last recorded cluster version with DigitalOcean's public supported-version list and starts a planned upgrade at least 30 days before end of life.
+
 ## Deploy And Status
 
 Routine deploys run through Platform Deploy. For local read-only inspection:
@@ -87,12 +104,15 @@ A refusal prints one `revocation_*` code and fails the run. It never aborts or r
 
 Each `prepare` and `activate` writes a post-command status record. The deploy job uploads the records as the `agent-grant-revocation-status-<environment>` artifact. When activation ran, the artifact also holds `activation.json` and `replay.json`. Each record contains:
 
+- a value-free diagnostic record with `evidenceId`, environment, release commit and image digest, `identity.state`, safe `code`, `sqlstateClass` (the two-character SQLSTATE class or `unknown`), and finite `failureCategory` (`pod_exec`, `rbac`, `database_connectivity`, `schema_permission`, `application`, or `unknown`); the step prints this record before it exits, including on refusal;
 - the refusal code, if any;
 - the floor's minimum commit, its image digests and its frozen flag;
 - Identity's state, the activation event's identity and version, and the nonterminal count and oldest age;
 - a summary of the last 5 minutes of API and worker logs, read with `kubectl logs --since=5m --tail=200` for each pod. The summary keeps line counts, truncation, error counts, and the first and last `auth.agent-grant-revocation-recovery` cycle. It never keeps raw log lines.
 
 Identity reads its status in a read-only transaction and never calls `pending()`. The oldest age runs from the admission of the lowest-position nonterminal operation. When recovery has not adopted that operation yet, it runs from activation instead. A lease rewrite of `next_attempt_at` never resets it. Any section that cannot be read is recorded as `state: unknown` with a code. An unknown section, a truncated log, or an unobserved recovery cycle is never a pass.
+
+Diagnostic records never contain messages, stacks, SQL, URLs, argv, secrets, or raw pod log lines. A missing, unknown, truncated, malformed, or secret-bearing diagnostic is a stop condition, not activation proof. The category is attributed only from typed or explicit evidence; `unknown` must be repaired before any staging activation dispatch.
 
 For the day-after check, read `prepare-status.json` from the first routine deploy at least 24 hours after activation. It passes only when all of these hold:
 

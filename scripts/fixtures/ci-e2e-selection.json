@@ -617,10 +617,10 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:0",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/account-management-interruption\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/(?:account-management-interruption|account-form-pending)\\.spec\\.ts$/",
       "suites": ["marketplace_account"],
       "path": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
-      "trackedCandidates": 1,
+      "trackedCandidates": 2,
       "synthetic": false
     },
     {

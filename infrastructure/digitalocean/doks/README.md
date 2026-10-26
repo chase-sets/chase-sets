@@ -21,6 +21,8 @@ Staging keeps the same 1-node `s-2vcpu-4gb` primary pool so Terraform does not r
 
 `kubernetes_version` is required instead of defaulted. Pick a currently supported DOKS version at live apply time and record it in the operator evidence; offline validation can use any well-formed DigitalOcean version slug.
 
+Routine patch auto-upgrades are disabled in the cluster resource. The maintenance window remains the provider-forced upgrade window: staging is Sunday at 09:00 UTC and production is Wednesday at 09:00 UTC. Use the Foundation workflow's checked `version_change` input for every planned version change, staging first.
+
 ## State Keys
 
 - Staging: `doks/staging.tfstate`

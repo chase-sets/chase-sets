@@ -525,6 +525,11 @@ export type SourceObservationIntegrationJobStore = DurableJobStore<
   SourceObservationIntegrationJob
 >;
 
+export type SourceObservationIntegrationJobActiveSnapshot = Readonly<{
+  items: readonly SourceObservationIntegrationJob[];
+  completeness: "complete" | "incomplete";
+}>;
+
 export type SourceObservationIntegrationWorkUnitStore = DurableJobWorkUnitStore<
   SourceObservationIntegrationJobPayload,
   BulkSourceObservationProgress,
@@ -1102,6 +1107,9 @@ export type IntegrationJobServices = Readonly<{
   listActiveIntegrationJobs: (input: {
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
+  listActiveIntegrationJobSnapshot?: (input: {
+    context?: EventStoreContext | null;
+  }) => Promise<SourceObservationIntegrationJobActiveSnapshot>;
   listRecentIntegrationJobs: (input: {
     context?: EventStoreContext | null;
     limit?: number;
