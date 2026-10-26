@@ -961,7 +961,7 @@ jobs:
             echo "The bounded stale-webhook window contains at least 100 runs; refusing a truncated cleanup set." >&2
             exit 1
           fi
-          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
+          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("gate-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
           {
             echo "matrix=${matrix}"
             echo "target_count=$(jq '.include | length' <<< "$matrix")"

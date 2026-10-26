@@ -172,8 +172,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-session",
     "chase_sets_session",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:87-90",
-      "bounded-contexts/auth/support/auth-support/http.ts:94-97",
+      "bounded-contexts/auth/support/auth-support/http.ts:62-65",
+      "bounded-contexts/auth/support/auth-support/http.ts:69-72",
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ],
@@ -183,8 +183,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-account-selection",
     "chase_sets_account_selection",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:106-109",
-      "bounded-contexts/auth/support/auth-support/http.ts:113-116",
+      "bounded-contexts/auth/support/auth-support/http.ts:81-84",
+      "bounded-contexts/auth/support/auth-support/http.ts:88-91",
       "bounded-contexts/auth/support/request-support/cookies.ts:2",
     ],
     "Auth sets and clears a first-party cookie named chase_sets_account_selection that carries the selected-account token.",
@@ -193,20 +193,19 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-guest-checkout",
     "chase_sets_guest_checkout",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:120-123",
-      "bounded-contexts/auth/support/request-support/cookies.ts:3",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:5",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:88",
+      "bounded-contexts/auth/support/auth-support/http.ts:95-98",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:80-83",
+      "contracts/auth-context/index.ts:4",
     ],
-    "Checkout sets and Auth clears a first-party cookie named chase_sets_guest_checkout carrying the guest-checkout token, with its Max-Age tracking the token's expiry. Two tracked constants declare the same shipped name.",
+    "Checkout sets and Auth clears a first-party cookie named chase_sets_guest_checkout carrying the guest-checkout token, with its Max-Age tracking the token's expiry. One Auth contract constant declares the shipped name.",
   ),
   cookieBinding(
     "cookie-anonymous-cart",
     "chase_sets_anonymous_cart",
     [
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:3",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:64-67",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:92",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:5",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:50-56",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:87",
     ],
     "Checkout sets and clears a first-party cookie named chase_sets_anonymous_cart that identifies a signed-out visitor's cart.",
   ),
@@ -214,9 +213,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-anonymous-sell-list",
     "chase_sets_anonymous_sell_list",
     [
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:4",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:71-74",
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:96",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:6",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:60-66",
+      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:91-94",
     ],
     "Checkout sets and clears a first-party cookie named chase_sets_anonymous_sell_list that identifies a signed-out visitor's sell list.",
   ),
@@ -233,8 +232,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-anonymous-product-alerts",
     "chase_sets_anonymous_product_alerts",
     [
-      "bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:3",
-      "bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:53-56",
+      "bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:39-45",
+      "bounded-contexts/discovery/support/request-support/anonymous-product-alert.ts:4",
     ],
     "Discovery sets a first-party cookie named chase_sets_anonymous_product_alerts that identifies a signed-out visitor's product alerts.",
   ),
@@ -242,8 +241,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-anonymous-listing-drafts",
     "chase_sets_anonymous_listing_drafts",
     [
-      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:3",
-      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:54-57",
+      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:4",
+      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:40-46",
     ],
     "Marketplace sets a first-party cookie named chase_sets_anonymous_listing_drafts that identifies a signed-out visitor's listing drafts.",
   ),
@@ -251,8 +250,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-anonymous-reports",
     "chase_sets_anonymous_reports",
     [
-      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:4",
-      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:70-73",
+      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:5",
+      "bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts:59-65",
     ],
     "Marketplace sets a first-party cookie named chase_sets_anonymous_reports that identifies a signed-out visitor's listing reports.",
   ),
@@ -482,7 +481,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:218-221",
+      "deployables/platform-api/src/main.ts:228-231",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -497,7 +496,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:226-229",
+      "deployables/platform-api/src/main.ts:236-239",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

@@ -103,16 +103,35 @@ describe("createWebApp parity with react-router-serve", () => {
     expect(await identity.text()).toBe(webServerTestAssetBody);
   });
 
-  it("logs routed requests in morgan's tiny format and leaves static files unlogged", async () => {
+  it("logs the pathname without query or referrer", async () => {
     const lines: string[] = [];
     const { origin } = await serve({ logStream: { write: (line) => lines.push(line) } });
 
+    const sentinel = "query-log-sentinel";
+    for (const pathname of [
+      `/invite/ivt_s?invitationId=ivt_s&token=${sentinel}`,
+      `/sign-in/magic?token=${sentinel}`,
+      `/channels/ebay/callback?code=${sentinel}&state=${sentinel}`,
+    ]) {
+      await (
+        await fetch(`${origin}${pathname}`, { headers: { referer: `https://example.test/?code=${sentinel}` } })
+      ).text();
+    }
+    await (await fetch(`${origin}/`)).text();
     await (await fetch(`${origin}/assets/entry.js`)).text();
     await (await fetch(`${origin}/robots.txt`)).text();
-    await (await fetch(`${origin}/`)).text();
 
-    await vi.waitFor(() => expect(lines).toHaveLength(1));
-    expect(lines[0]).toMatch(/^GET \/ 200 (\d+|-) - \d+(\.\d+)? ms\n$/);
+    await vi.waitFor(() => expect(lines).toHaveLength(4));
+    expect(lines).toHaveLength(4);
+    expect(lines.slice(0, 3).every((line) => !line.includes(sentinel) && !line.includes("?"))).toBe(true);
+    expect(lines.slice(0, 3)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^GET \/invite\/ivt_s \d{3} (\d+|-) - \d+(\.\d+)? ms\n$/),
+        expect.stringMatching(/^GET \/sign-in\/magic \d{3} (\d+|-) - \d+(\.\d+)? ms\n$/),
+        expect.stringMatching(/^GET \/channels\/ebay\/callback \d{3} (\d+|-) - \d+(\.\d+)? ms\n$/),
+      ]),
+    );
+    expect(lines[3]).toMatch(/^GET \/ 200 (\d+|-) - \d+(\.\d+)? ms\n$/);
   });
 
   it("renders React Router documents through the build without advertising Express", async () => {

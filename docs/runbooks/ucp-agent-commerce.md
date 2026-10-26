@@ -183,6 +183,23 @@ OAuth identity linking requires Authorization Code with PKCE S256. Token refresh
 
 Authorization GET must redirect to `/account/agents/consent` (or `/sign-in` with the authorize return path), never directly to a callback with a code. Consent displays the client-provided name, redirect origin, active account, and grouped scope labels. Approve or Deny submits a native same-origin POST; only Approve can issue a code. Deny preserves state and returns `access_denied`. A stale, used, foreign-session, or switched-account token must be rejected without a client redirect. Restart from the agent after the ten-minute expiry. Switching accounts restarts authorize and requires a new consent decision. Agent-bearer and guest-checkout actors must sign in interactively instead.
 
+### Operator Connection
+
+Use an operator-only connection for platform administration; do not combine `operations:*` with commerce scopes. The signed-in user must have an active `platform-admin` membership for the selected account and interactive authentication no older than ten minutes. Operator grants expire seven days after approval.
+
+Codex:
+
+```powershell
+codex mcp login <name> --scopes "operations:write"
+```
+
+Claude Code (confirmed at [#9239 Probe: prove an operator agent administers staging end to end](https://github.com/chase-sets/chase-sets/issues/9239)):
+
+```powershell
+claude mcp add-json <name> '{"type":"http","url":"https://<marketplace-host>/mcp","oauth":{"scopes":"operations:write"}}'
+claude mcp login <name>
+```
+
 Do not retain raw consent tokens, callback codes, or full token-bearing URLs in diagnostic logs. Token, refresh, introspection, and revocation behavior is unchanged.
 
 Token support endpoints:

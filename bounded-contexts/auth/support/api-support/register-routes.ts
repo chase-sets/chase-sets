@@ -5,7 +5,7 @@ import {
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import {
   insertCreatedAuthIdentityAccountMirror,
   upsertActiveAuthIdentityMembershipMirror,
@@ -127,7 +127,7 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
           accountId: identity.accountId,
           roleKey: "owner",
           status: "active",
-          rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+          rolePermissions: ROLE_PERMISSIONS.owner,
         },
       ],
     });

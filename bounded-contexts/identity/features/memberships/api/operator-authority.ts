@@ -1,6 +1,5 @@
-import type { OperatorAuthority, OperatorAuthorityDecision } from "@chase-sets/auth-context";
+import { ROLE_PERMISSIONS, type OperatorAuthority, type OperatorAuthorityDecision } from "@chase-sets/auth-context";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
-import { ROLE_PERMISSIONS } from "../read-model/constants";
 import type { MembershipServices } from "./runtime";
 
 export type OperatorGrantCreator = Readonly<{ userId: string; membershipId: string }>;

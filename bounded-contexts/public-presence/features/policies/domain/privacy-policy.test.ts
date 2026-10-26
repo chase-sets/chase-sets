@@ -372,14 +372,14 @@ describe(
     });
 
     it("adjacent-ref control: swapping one evidence ref for a resolving adjacent range fails as stale evidence", () => {
-      const adjacent = "bounded-contexts/checkout/support/request-support/guest-checkout.ts:45-48";
+      const adjacent = "bounded-contexts/checkout/support/request-support/guest-checkout.ts:43-49";
       expect(readCitedSourceSlice(repoRoot, adjacent).error).toBeUndefined();
       const mutantBindings = privacyProductTruthBindings.map((binding) =>
         binding.factId === "cookie-anonymous-cart"
           ? {
               ...binding,
               evidenceRefs: binding.evidenceRefs.map((ref) =>
-                ref === "bounded-contexts/checkout/support/request-support/guest-checkout.ts:64-67" ? adjacent : ref,
+                ref === "bounded-contexts/checkout/support/request-support/guest-checkout.ts:50-56" ? adjacent : ref,
               ),
             }
           : binding,

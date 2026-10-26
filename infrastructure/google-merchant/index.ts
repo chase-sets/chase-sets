@@ -1,5 +1,8 @@
-import type { GoogleShoppingPayloadInput } from "@chase-sets/discovery/server";
-import type { PlatformWorkerGoogleMerchantConfig } from "./config";
+import type { GoogleShoppingPayloadInput, GoogleShoppingSyncMerchantClient } from "@chase-sets/google-shopping-export";
+import type { GoogleMerchantConfig } from "./config";
+
+export { createGoogleMerchantServiceAccountAccessTokenProvider, createServiceAccountJwt } from "./auth";
+export { describeGoogleMerchantConfigForLogs, loadGoogleMerchantConfig, type GoogleMerchantConfig } from "./config";
 
 type FetchFunction = typeof fetch;
 
@@ -76,7 +79,7 @@ export type GoogleMerchantClientLogger = Readonly<{
 }>;
 
 export type GoogleMerchantClientOptions = Readonly<{
-  config: PlatformWorkerGoogleMerchantConfig;
+  config: GoogleMerchantConfig;
   accessTokenProvider: GoogleMerchantAccessTokenProvider;
   fetch?: FetchFunction;
   baseUrl?: string;
@@ -86,7 +89,7 @@ export type GoogleMerchantClientOptions = Readonly<{
   logger?: GoogleMerchantClientLogger;
 }>;
 
-type GoogleMerchantEnabledConfig = Extract<PlatformWorkerGoogleMerchantConfig, { syncEnabled: true }>;
+type GoogleMerchantEnabledConfig = Extract<GoogleMerchantConfig, { syncEnabled: true }>;
 
 type GoogleProductInput = Readonly<{
   offerId: string;
@@ -157,8 +160,8 @@ export function createGoogleMerchantApiClient(options: GoogleMerchantClientOptio
   return new GoogleMerchantApiClient(options);
 }
 
-export class GoogleMerchantApiClient {
-  private readonly config: PlatformWorkerGoogleMerchantConfig;
+export class GoogleMerchantApiClient implements GoogleShoppingSyncMerchantClient {
+  private readonly config: GoogleMerchantConfig;
   private readonly accessTokenProvider: GoogleMerchantAccessTokenProvider;
   private readonly fetch: FetchFunction;
   private readonly baseUrl: string;
@@ -434,7 +437,7 @@ function successResult(
   request: BuiltRequest,
   attempts: number,
   responseBody: unknown,
-  config: PlatformWorkerGoogleMerchantConfig,
+  config: GoogleMerchantConfig,
 ): GoogleMerchantClientResult {
   const response = responseBody && typeof responseBody === "object" ? (responseBody as Record<string, unknown>) : {};
   const productInputName = redactMerchantResourceName(stringOrNull(response.name), config);
@@ -460,7 +463,7 @@ function successResult(
 function productDiagnosticsFromResponse(
   response: Record<string, unknown>,
   productName: string | null,
-  config: PlatformWorkerGoogleMerchantConfig,
+  config: GoogleMerchantConfig,
 ): GoogleMerchantProductDiagnostics {
   const status = response.productStatus && typeof response.productStatus === "object" ? response.productStatus : {};
   const statusRecord = status as Record<string, unknown>;
@@ -539,7 +542,7 @@ function requestSummary(
   };
 }
 
-function requireEnabledConfig(config: PlatformWorkerGoogleMerchantConfig): GoogleMerchantEnabledConfig {
+function requireEnabledConfig(config: GoogleMerchantConfig): GoogleMerchantEnabledConfig {
   if (!config.syncEnabled) {
     throw new Error("Google Merchant client requires enabled Google Merchant config.");
   }
@@ -636,10 +639,7 @@ function logAttributes(result: GoogleMerchantClientResult): Record<string, unkno
   };
 }
 
-function redactError(
-  error: GoogleMerchantClientError,
-  config: PlatformWorkerGoogleMerchantConfig,
-): GoogleMerchantClientError {
+function redactError(error: GoogleMerchantClientError, config: GoogleMerchantConfig): GoogleMerchantClientError {
   if (!config.syncEnabled) {
     return error;
   }
@@ -653,7 +653,7 @@ function redactError(
   };
 }
 
-function redactMerchantResourceName(value: string | null, config: PlatformWorkerGoogleMerchantConfig) {
+function redactMerchantResourceName(value: string | null, config: GoogleMerchantConfig) {
   if (!value || !config.syncEnabled) {
     return value;
   }
@@ -661,7 +661,7 @@ function redactMerchantResourceName(value: string | null, config: PlatformWorker
   return redactText(value, configRedactions(config));
 }
 
-function configRedactions(config: Extract<PlatformWorkerGoogleMerchantConfig, { syncEnabled: true }>) {
+function configRedactions(config: Extract<GoogleMerchantConfig, { syncEnabled: true }>) {
   return [
     [config.merchantAccountId, "[account]"],
     [config.apiDataSourceId, "[data-source]"],

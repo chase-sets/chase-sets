@@ -20,7 +20,7 @@ import {
 } from "../../features/invitation-acceptance/api/journey";
 import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
 import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import {
   consumeChallenge,
   getPasswordCredentialByUserId,
@@ -453,7 +453,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           accountId: invitation.accountId,
           roleKey: invitation.roleKey,
           status: "active",
-          rolePermissions: AUTH_ROLE_PERMISSIONS[invitation.roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [],
+          rolePermissions: ROLE_PERMISSIONS[invitation.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [],
         },
       ],
     });

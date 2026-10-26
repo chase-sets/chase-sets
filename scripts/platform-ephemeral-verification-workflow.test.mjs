@@ -231,11 +231,32 @@ describe("platform ephemeral verification workflow", () => {
     }
     expect(evidence).toContain("persistentStagingRetained: targetsDisposableNamespace");
     expect(evidence).not.toContain("persistentStagingRetained: false");
-    expect(/^chase-sets-verify-[1-9][0-9]*-[1-9][0-9]*$/.test("chase-sets-verify-123-1")).toBe(true);
+    const namespaceGuard = evidence.match(/\/(\^chase-sets-verify-[^/]+)\//u)?.[1];
+    expect(namespaceGuard).toBe("^chase-sets-verify-[1-9][0-9]*-[1-9][0-9]*$");
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123-1")).toBe(true);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-0-1")).toBe(false);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123-0")).toBe(false);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123x-1")).toBe(false);
     expectStepBefore(verification, "Delete verification provider webhooks", "Write ephemeral verification evidence");
     expectStepBefore(verification, "Delete verification Kubernetes namespace", "Write ephemeral verification evidence");
     expectStepBefore(verification, "Write ephemeral verification evidence", "Upload ephemeral verification evidence");
     expect(step(verification, "Upload ephemeral verification evidence")).toContain("if-no-files-found: error");
+  });
+
+  it("uses one numeric gate host label while retaining the verify namespace", () => {
+    expect(verification).toContain("VERIFICATION_SLUG: gate-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(verification).toContain("PREVIEW_IDENTIFIER: gate-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(verification).toContain(
+      "CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(verification).toContain('--runtime-env "PREVIEW_IDENTIFIER=${VERIFICATION_SLUG}"');
+    expect(verification).toContain("https://${VERIFICATION_SLUG}.preview.chasesets.com");
+    expect(verification).toContain("https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com");
+    expect(verification).not.toContain("VERIFICATION_SLUG: verify-");
+    expect(verification).not.toContain("PREVIEW_IDENTIFIER: verify-");
+    expect(step(verification, "Deploy verification Kubernetes release")).not.toContain(
+      "PREVIEW_IDENTIFIER=verify-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
   });
 
   it("reuses preview deployment and always tears down attempted mutations", () => {
@@ -328,7 +349,8 @@ describe("platform ephemeral verification workflow", () => {
     const webhookDelete = job(cleanup, "delete-stale-verification-webhooks");
     expect(webhookDiscovery).toContain("platform-ephemeral-verification.yml/runs?status=completed");
     expect(webhookDiscovery).not.toContain("kubectl");
-    expect(webhookDiscovery).toContain("verify-");
+    expect(webhookDiscovery).toContain('("gate-" + (.id | tostring) + "-" + (.run_attempt | tostring))');
+    expect(webhookDiscovery).not.toContain('("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))');
     expect(webhookDelete).toContain("needs: discover-stale-verification-webhooks");
     expect(webhookDelete).toContain("provider-webhook-lifecycle.mjs delete");
     expect(webhookDelete).not.toContain("discover-stale-verification.outputs");
