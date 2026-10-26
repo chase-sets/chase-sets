@@ -671,7 +671,7 @@ describeDb("account appeal aggregate DB proof", () => {
         await deliverAppeal({
           type: row.event_type,
           streamId: `platform-operations.account-appeal-${enforcementActionId}`,
-          streamVersion: row.stream_version,
+          streamVersion: Number(row.stream_version),
           data: row.payload,
         });
       }
