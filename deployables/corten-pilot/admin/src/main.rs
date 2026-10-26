@@ -7,6 +7,7 @@ mod app;
 mod auth;
 mod catalog;
 mod form;
+mod operations;
 mod text;
 mod views;
 

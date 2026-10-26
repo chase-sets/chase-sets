@@ -38,7 +38,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{jobs::Update, realtime::Tick, receipt::Receipt};
+use platform::{jobs::Update, receipt::Receipt};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -52,7 +52,7 @@ pub mod views;
 
 use crate::{
     api::{Caller, Method, segment},
-    app::{Denied, Shared, read_failed, refused},
+    app::{Denied, Shared, live_rows, read_failed, refused},
     auth::Session,
     text::{Cat, Pilot},
 };
@@ -439,42 +439,6 @@ fn not_offered(p: Pilot) -> Errors {
 /// The Catalog's realtime topic for a list (`catalogRealtimeTopics.adminSurface`).
 const DIMENSIONS_TOPIC: &str = "catalog:admin:dimensions";
 const FIELDS_TOPIC: &str = "catalog:admin:fields";
-
-/// A list's rows for `<corten-live>`, drawn on each change to `topic` until the API refuses the
-/// stream. Each fragment carries the realtime stream's cursor after it, so a browser that
-/// reconnects (`since`, from its `Last-Event-ID`) gets what changed while it was away, and
-/// nothing when nothing did. A first connection has no cursor (the list's read does not give one),
-/// so the rows are drawn once the stream is open: a change after the page was drawn is not missed.
-/// A read that fails sends nothing, and the rows stay as they were.
-fn live_rows<F, Fut>(config: Shared, headers: HeaderMap, since: LiveSince, topic: &'static str, rows: F) -> impl IntoResponse
-where
-    F: Fn(Shared, HeaderMap) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Option<String>> + Send + 'static,
-{
-    let resumed = since.0.is_some();
-    let changes = config.platform.caller(&headers, config.proto, None).changes(&[topic], since.0);
-    let fragments = changes
-        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
-        .filter_map(move |tick| {
-            std::future::ready(match tick {
-                Tick::Opened(_) if resumed => None,
-                Tick::Opened(cursor) | Tick::Changed(cursor, _) => Some(cursor),
-                Tick::Refused(_) => None,
-            })
-        })
-        .then(move |cursor| {
-            let rows = rows(config.clone(), headers.clone());
-            async move {
-                let html = rows.await?;
-                Some(match cursor {
-                    Some(cursor) => Fragment::new(html).cursor(cursor),
-                    None => Fragment::new(html),
-                })
-            }
-        })
-        .filter_map(std::future::ready);
-    corten::live(fragments)
-}
 
 // Dimensions.
 

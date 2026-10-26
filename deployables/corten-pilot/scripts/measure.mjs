@@ -1,13 +1,13 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
 // user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
-// list and a dimension, `screen=catalog`), marketplace's storage locations
+// list and a dimension, `screen=catalog`), admin's operations attention queue (`screen=attention`), marketplace's storage locations
 // (`screen=marketplace`), its cart (`screen=cart`) or an item page (`screen=item`), as the auth seed's collector, cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|marketplace|cart|item] [runs=7] [state=..] [policy=id]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item] [runs=7] [state=..] [policy=id]
 //        [dimension=id] [slug=item slug] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
@@ -36,13 +36,14 @@ const profiles = {
 const screens = {
   admin: { list: "/commerce/postage-policies", sheet: `/commerce/postage-policies?policy=${policy}` },
   catalog: { list: "/catalog/dimensions", ...(dimension ? { detail: `/catalog/dimensions/${dimension}` } : {}) },
+  attention: { queue: "/platform/operations-attention" },
   marketplace: { list: "/account/inventory/locations" },
   cart: { list: "/account/cart" },
   item: { page: `/items/${named.slug ?? "charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"}` },
 };
 for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, marketplace, cart or item`);
+if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, marketplace, cart or item`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));

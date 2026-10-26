@@ -25,7 +25,6 @@ mod dialog;
 mod item_list;
 mod item_page;
 mod list_page;
-mod live_status;
 mod scope_list;
 mod status_pill;
 
@@ -44,7 +43,6 @@ pub use item_page::{
     item_transitions,
 };
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
-pub use live_status::LiveStatus;
 pub use scope_list::{ScopeRowView, scope_list};
 pub use status_pill::{StatusPill, Tone, TonePill};
 
@@ -55,7 +53,6 @@ pub const COMPONENTS: &[Component] = &[
     DetailPage,
     Dialog,
     BulkRows,
-    LiveStatus,
     ScopeRowView,
     AttentionPanel,
     PreviewDialog,

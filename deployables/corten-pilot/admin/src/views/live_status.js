@@ -1,5 +1,5 @@
 // @ts-check
-// LiveStatus (live_status.rs): writes when the list's stream went stale, in the page's locale.
+// LiveStatus (live_status.rs): writes when the stream went stale, in the page's locale.
 // The live, connecting and stale states are CSS on <corten-live>'s `status`.
 /** @import { DateFormat, Message } from "corten" */
 

@@ -6,6 +6,8 @@
 // - admin/locales/catalog.en.json: the catalog area's English catalog (the dimension, field and
 //   catalog item pages, the shared list, detail, lifecycle, bulk lifecycle and realtime reload
 //   controls, and the routes' titles).
+// - admin/locales/operations.en.json: the Operations Attention queue's English catalog
+//   (platformOperations.operationsAttention.*).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -238,6 +240,14 @@ const outputs = [
         ["catalog.routes.admin.catalogItems.catalog.items.catalog.admin", "route.items"],
         ["catalog.routes.admin.catalogItemsDetail.catalog.item.catalog.admin", "route.item"],
         ["catalog.routes.admin.scopeLanding.scopes.catalog.admin", "route.scopes"],
+      ]),
+    ),
+  ],
+  [
+    "admin/locales/operations.en.json",
+    json(
+      await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
+        ["platformOperations.operationsAttention.", "attention"],
       ]),
     ),
   ],

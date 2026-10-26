@@ -15,6 +15,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts |
 | `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the attention queue above the list (its counts, every item, an item's sheet, dismiss, defer and restore, and an alias candidate's accept and reject), the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the all-scopes alias review, and a scope's page, which View opens in admin-web) |
+| `admin/` | Platform > Attention Queue, `/platform/operations-attention` | admin-web | the queue as the Platform Operations API composes it: the four counts, the sources it could not read, each item's severity, words, source, wait and deadline, and Open to the admin-web page that resolves it; the queue drawn again on each change to its realtime topic (`<corten-live>`), which the API refuses for now |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
@@ -120,6 +121,26 @@ postage's sheet, which runs its own script, is later still (1,556 ms). Not profi
 blocking time is only counted up to interactive, so it grows with it and does not say which task
 is slow.
 
+Operations Attention queue (`/platform/operations-attention`, the sandbox's four unreviewed
+feedback items), at the `c919779` pin, the pilot's release build against admin-web's dev server
+(`react-router dev`), so admin-web's bytes and times are high by an unknown amount and are not a
+comparison. admin-web desktop only: its mobile run did not finish one load in 120 s. Measured once,
+7 loads each, on a busy machine.
+
+| Attention queue | admin-web (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 3,552 ms | 725 ms | 1,401 ms |
+| Largest contentful paint | 1,900 ms | 752 ms | 1,212 ms |
+| Server time (document) | 1,693 ms | 59 ms | 65 ms |
+| JavaScript transferred | 7,911,621 B | 8,918 B | 8,918 B |
+| HTML / CSS transferred | 429,249 / 186,139 B | 2,224 / 4,146 B | 2,224 / 4,146 B |
+| Requests | 251 | 11 | 11 |
+
+The pilot's CSS is `style.css` (1,083 B), `components.css` (2,008 B, now with the live status,
+which two areas render) and `sections/platform/operations-attention.css` (1,055 B). Its
+JavaScript includes the live status's script. Interactive waits for it, and the page's stream
+opens and ends at once while the API refuses its topic.
+
 **A change to a catalog list**, measured with one tab watching the dimensions list and another
 creating a dimension through the pilot, 5 changes each (median; `scripts/measure-live.mjs`). Both
 follow the same realtime topic. admin-web here is its dev server (`react-router dev`), not a
@@ -172,6 +193,7 @@ node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimension
 node scripts/smoke-items.mjs           # the catalog items list: create, the changes count, a bulk edit, removing drafts, 390 px
 node scripts/smoke-item.mjs            # a catalog item's page: a draft through every dialog, with and without JavaScript, 390 px
 node scripts/smoke-attention.mjs       # the attention queue beside admin-web's: same items, a sheet, dismiss, defer and restore, no JavaScript, 390 px (parks one item and restores it)
+node scripts/smoke-operations-attention.mjs  # the Operations Attention queue beside admin-web's: the counts, the same rows in order, each Open answering on admin-web, the stream, no JavaScript, 390 px (only reads)
 node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..] [admin-web]): same rows, the filters, View, no JavaScript, 390 px (only reads)
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
@@ -260,7 +282,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
 | `admin/src/catalog/scopes.rs`, `views/scope_list.rs`, `views/scope_row_view.css` | the scopes list: its route and query, the promotion and sync of each row, and its table |
 | `admin/src/catalog/attention.rs`, `views/attention_panel.*` | the Catalog attention queue on the scopes list: an item's sheet, the park and restore routes, the alias commands, and the queue's messages by key |
-| `admin/src/catalog/views/live_status.*` | the items list's stream: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`) |
+| `admin/src/views/live_status.*` | a stream's status, for the catalog items list and the attention queue: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`), each in its screen's words; in `components.css`, since two areas render it |
+| `admin/src/operations/` | the Operations Attention area: its routes and the Open links (`mod.rs`), the queue's read (`api.rs`), and its page, whose stylesheet is `sections/platform/operations-attention.css` |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -785,9 +808,30 @@ forward only on purpose, when a fix the pilot needs lands.
     summary says "1 lines", as marketplace's does
     ([chase-sets/chase-sets#10604 [collections] Say 1 line, not 1 lines, for a Saved List in Add to List](https://github.com/chase-sets/chase-sets/issues/10604)).
 
+44. **The Operations Attention queue draws what the API composed.** admin-web's page renders the
+    API's queue as it is, and so does the pilot. The API reads each source the caller may see,
+    marks the ones it could not read with a reason, orders the items and counts them; the page
+    checks none of it. An item's words are its `summary.code`'s message with the API's arguments
+    (`t.by_key`), or admin-web's key when the catalog has no such message. Its times are
+    `formatDateTime`'s (`parse_timestamp` reads the Postgres form the feedback source sends,
+    `2026-05-04 15:00:00+00`). Open goes to admin-web, since no page it names is ported. The page
+    is an area (`/platform/operations-attention`, guarded by `projection-operations.view`, the
+    permission admin-web's nav entry and section loader ask for) with its own stylesheet. The
+    live status moved out of the catalog, takes each screen's words, and is listed in
+    `App::components`: Corten refuses a component listed in two areas, since its stylesheet is
+    one file (the startup error says so). The page follows admin-web's realtime topic and draws
+    the counts, the missing sources and the rows again on each change. The platform does not
+    register that topic yet (chase-sets/chase-sets#10607), so the stream ends at once and the
+    status shows nothing; admin-web's says Connecting. On a phone the counts are two by two and
+    each row is a card with each cell beside its heading, CSS only, as admin-web's `DataTable`.
+    The degraded line's two arguments are both text, and `t` takes a message's arguments in the
+    order the message names them (`{source} unavailable: {reason}`): the router test caught them
+    swapped. This port merged `origin/main` into the branch first, for the API's runtime reads
+    ([#10557 [platform-operations] Wire projection and wake reads into the platform API and load the admin Operations Attention queue from it](https://github.com/chase-sets/chase-sets/issues/10557)).
+
 ## Corten gaps
 
-Open, filed in Corten (one gap each), at the `de6f039` pin:
+Open, filed in Corten (one gap each), at the `c919779` pin:
 
 1. [todd-skelton/corten#86 A dialog the server draws open (a refused form without JavaScript) is not modal, and every app writes the handler that fixes it](https://github.com/todd-skelton/corten/issues/86). `open` is the non-modal state and the platform has no declarative modal open, so a refused form's dialog does not hold focus or make the page inert. Workaround: the same six-line `modal` handler in `admin/src/catalog/views/dialog.js` and `marketplace/src/views/save_dialog.js`, each naming the issue. Both go once it lands.
 
@@ -799,6 +843,11 @@ browser against the dev sandbox). The pilot shows the refusal in the dialog;
 `scripts/smoke-catalog.mjs` reports the step as blocked by the API, not as passed.
 Filed as [#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520);
 once it lands, the smoke test's reorder step should pass instead of being reported blocked.
+
+Also found in Chase Sets, by the Operations Attention queue's port:
+
+1. [chase-sets/chase-sets#10606 [platform-operations] Give the Operations Attention queue's Open links their admin section (every one is a 404)](https://github.com/chase-sets/chase-sets/issues/10606). The API's hrefs have no admin section, so admin-web's Open goes to a 404. Workaround: `open_href` in [`operations`](admin/src/operations/mod.rs) puts the surface's section in front of a path that has none. Remove it once the issue lands.
+2. [chase-sets/chase-sets#10607 [platform-operations] Register and publish the Operations Attention realtime topic (the API refuses it, so the queue never goes live)](https://github.com/chase-sets/chase-sets/issues/10607). Nothing registers `platform-operations:admin:operations-attention`, so the realtime API answers 403. admin-web's page then says Connecting forever. The pilot's stream ends and the queue stays as drawn. No workaround: the page goes live once the topic is registered and published.
 
 Also found in Chase Sets: a realtime stream the client drops before the response headers arrive
 keeps its stream lease, and the platform API renews the lease for as long as its process runs.

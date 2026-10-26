@@ -9,8 +9,8 @@ use corten::{
 };
 
 use super::{
-    Bar, BulkRows, Candidates, Dialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, LiveStatus, MoreFilters,
-    Pager, Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
+    Bar, BulkRows, Candidates, Dialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters, Pager,
+    Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
 };
 use crate::{
     catalog::{
@@ -19,7 +19,7 @@ use crate::{
         url,
     },
     text::{Cat, Pilot},
-    views::Draft,
+    views::{Draft, LiveStatus, LiveWords},
 };
 
 /// How many records a preview or a result lists (admin-web's dialogs show the first 20).
@@ -223,9 +223,24 @@ pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Patch + 'a {
         let live = url::ItemsLive { query: query.clone() }.href();
         let list = url::Items::default().href();
         let kept = query.kept();
-        <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
+        let words = live_words(t);
+        <LiveStatus words={&words} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
             {item_changes(t, query, Pending::default())}
         </LiveStatus>
+    }
+}
+
+/// The catalog's words for a stream's status (`CatalogRealtimeConnectionStatus`).
+fn live_words(t: Cat) -> LiveWords {
+    use corten::i18n::{DateStyle, TimeStyle};
+    LiveWords {
+        live: t.live_status_live(),
+        connecting: t.live_status_connecting(),
+        stale_since: t.js().live_status_stale_since(),
+        stale: t.live_status_stale_since("").to_string(),
+        stale_description: t.live_status_stale_description(),
+        reload: Some(t.realtime_reload()),
+        date: t.js().date_time(DateStyle::Medium, TimeStyle::Short),
     }
 }
 

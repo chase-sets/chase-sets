@@ -82,6 +82,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             || cookie.contains("chase_sets_session=queue-down")
         {
             actor(&["catalog.view"])
+        } else if cookie.contains("chase_sets_session=ops") {
+            actor(&["projection-operations.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
         } else if cookie.contains("chase_sets_session=down") {
@@ -92,6 +94,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/realtime/public/events" {
         return realtime(cookie);
+    }
+    if uri.path() == "/api/platform/operations-attention" {
+        return operations_attention(cookie);
     }
     if uri.path() == "/api/catalog/scope-records" {
         return scope_records(uri.query().unwrap_or_default());
@@ -631,7 +636,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
 /// connects again). It refuses `catalog-reader`, standing in for a session the API will not stream
 /// (`catalog-viewer` has the same permissions and is streamed).
 fn realtime(cookie: &str) -> Response {
-    if cookie.contains("chase_sets_session=catalog-reader") {
+    if cookie.contains("chase_sets_session=catalog-reader") || cookie.contains("chase_sets_session=ops-refused") {
         return refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden.");
     }
     let patch = r#"{"kind":"projection.patch","context":"catalog","projection":"catalog-dimensions","topics":["catalog:admin:dimensions"],"changes":[{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:x","value":{}},{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:y","value":{}}]}"#;
@@ -1684,4 +1689,169 @@ async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "after a park, a queue still catching up is the page's preparing answer");
+}
+
+// The Operations Attention queue.
+
+/// The queue as the API answers it: `ops-empty` has nothing, `ops-down` fails, any other a
+/// critical, a warning and an info item, with one source unavailable.
+fn operations_attention(cookie: &str) -> Response {
+    if cookie.contains("chase_sets_session=ops-down") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Failed.");
+    }
+    let sources = |wake: Value| {
+        json!([
+            { "id": "projection-poison-event", "status": "available", "itemCount": 1, "total": "unknown" },
+            wake,
+            { "id": "support-request-deadline", "status": "available", "itemCount": 1, "total": 1 },
+            { "id": "platform-feedback-unreviewed", "status": "available", "itemCount": 1, "total": 1 },
+        ])
+    };
+    if cookie.contains("chase_sets_session=ops-empty") {
+        return Json(json!({
+            "items": [],
+            "rollup": { "total": 0, "bySeverity": { "critical": 0, "warning": 0, "info": 0 }, "bySource": {} },
+            "sources": sources(json!({ "id": "wake-stalled-job", "status": "available", "itemCount": 0, "total": "unknown" })),
+            "degraded": false,
+        }))
+        .into_response();
+    }
+    Json(json!({
+        "items": [
+            {
+                "id": "projection-poison-event:ordering-orders:evt_1",
+                "source": "projection-poison-event",
+                "entity": "poison-event",
+                "severity": "critical",
+                "summary": { "code": "poisonEvent", "params": { "eventType": "OrderPlaced", "projectionKey": "ordering-orders", "retryCount": 3 } },
+                "deepLink": { "surface": "projection-operations", "href": "/projections?tab=blocked" },
+                "dueAt": null,
+                "observedAt": "2026-10-25T09:20:00.000Z",
+            },
+            {
+                "id": "support-request-deadline:req_1",
+                "source": "support-request-deadline",
+                "entity": "support-request",
+                "severity": "warning",
+                "summary": { "code": "supportRequest", "params": { "reference": "SR-1042" } },
+                "deepLink": { "surface": "support-operations", "href": "/requests?requestId=req_1" },
+                "dueAt": "2026-10-26T12:00:00.000Z",
+                "observedAt": "2026-10-24 08:00:00+00",
+            },
+            {
+                "id": "platform-feedback-unreviewed:pfb_1",
+                "source": "platform-feedback-unreviewed",
+                "entity": "platform-feedback",
+                "severity": "info",
+                "summary": { "code": "somethingNew", "params": {} },
+                "deepLink": { "surface": "platform-feedback", "href": "/platform-feedback/pfb_1" },
+                "observedAt": "2026-10-23T10:00:00.000Z",
+            },
+        ],
+        "rollup": {
+            "total": 3,
+            "bySeverity": { "critical": 1, "warning": 1, "info": 1 },
+            "bySource": { "projection-poison-event": 1, "support-request-deadline": 1, "platform-feedback-unreviewed": 1 },
+        },
+        "sources": sources(json!({ "id": "wake-stalled-job", "status": "unavailable", "itemCount": 0, "total": "unknown", "reason": "wake status unavailable" })),
+        "degraded": true,
+    }))
+    .into_response()
+}
+
+#[tokio::test]
+async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_in_the_apis_order() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/platform/operations-attention", Some("ops"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("<title>Attention Queue | Chase Sets Admin</title>") && html.contains("<h1>What needs you</h1>"),
+        "{html}"
+    );
+    for (label, count) in [("Total", 3), ("Critical", 1), ("Warning", 1), ("Info", 1)] {
+        assert!(html.contains(&format!("<dt>{label}</dt><dd>{count}</dd>")), "{label}: {html}");
+    }
+    assert!(
+        html.contains("Some sources are unavailable") && html.contains("Wake work unavailable: wake status unavailable"),
+        "{html}"
+    );
+    let rows = [
+        "Poison event OrderPlaced on ordering-orders (retried 3)",
+        "Support case SR-1042 needs review",
+        "platformOperations.operationsAttention.summary.somethingNew",
+    ];
+    let at: Vec<usize> = rows.iter().map(|row| html.find(row).unwrap_or_else(|| panic!("{row}: {html}"))).collect();
+    assert!(at.windows(2).all(|w| w[0] < w[1]), "in the API's order: {at:?}");
+    assert!(
+        html.contains("Oct 25, 2026, 9:20 AM UTC") && html.contains("Oct 24, 2026, 8:00 AM UTC"),
+        "an ISO and a Postgres time: {html}"
+    );
+    assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
+    let origin = crate::app::admin_web_origin();
+    for path in ["/platform/projections?tab=blocked", "/support/requests?requestId=req_1", "/support/platform-feedback/pfb_1"] {
+        assert!(html.contains(&format!(r#"href="{origin}{path}">Open</a>"#)), "{path}: {html}");
+    }
+    assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
+    assert!(html.contains(r#"<div id="attention-queue">"#), "{html}");
+    assert!(
+        html.contains(r#"href="/assets/"#) && html.contains("/sections/platform/operations-attention.css"),
+        "the area's own stylesheet: {html}"
+    );
+    assert!(pilot.calls.lock().unwrap().iter().any(|c| c.path == "/api/platform/operations-attention"
+        && c.headers.get(header::COOKIE).is_some_and(|v| v.to_str().unwrap().contains("chase_sets_session=ops"))));
+
+    let mut req = get("/platform/operations-attention", Some("ops"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["queue"]["items"][0]["severity"], "critical", "{body}");
+    assert_eq!(body["data"]["queue"]["sources"][1]["reason"], "wake status unavailable", "{body}");
+}
+
+#[tokio::test]
+async fn the_attention_queue_is_for_staff_who_may_see_projection_operations() {
+    let pilot = Pilot::new().await;
+    for session in ["catalog-reader", "reader"] {
+        let (status, _, _) = pilot.send(get("/platform/operations-attention", Some(session))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{session}");
+    }
+    let (status, headers, _) = pilot.send(get("/platform/operations-attention", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/access/sign-in?returnTo=%2Fplatform%2Foperations-attention"));
+    assert!(
+        !pilot.calls.lock().unwrap().iter().any(|c| c.path == "/api/platform/operations-attention"),
+        "refused before the read"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_queue_says_so_and_a_queue_the_api_cannot_read_is_an_error() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/platform/operations-attention", Some("ops-empty"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Nothing needs you") && html.contains("<dt>Total</dt><dd>0</dd>"), "{html}");
+    assert!(!html.contains("Some sources are unavailable") && !html.contains("<table"), "{html}");
+    let (status, _, _) = pilot.send(get("/platform/operations-attention", Some("ops-down"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn the_queue_is_drawn_again_on_a_change_and_stays_when_the_api_refuses_the_topic() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events("/platform/operations-attention/live", "ops", 2).await;
+    assert_eq!(events.len(), 2, "on the stream's opening and its change: {events:?}");
+    for (event, data) in &events {
+        assert_eq!(event, "patch");
+        assert!(
+            data.starts_with(r#"<div id="attention-queue">"#) && data.contains("Support case SR-1042 needs review"),
+            "{data}"
+        );
+    }
+    let topics: Vec<String> =
+        pilot.calls.lock().unwrap().iter().filter(|c| c.path.starts_with("/api/realtime")).map(|c| c.path.clone()).collect();
+    assert!(topics.iter().all(|p| p.contains("topic=platform-operations%3Aadmin%3Aoperations-attention")), "{topics:?}");
+
+    let events = pilot.events("/platform/operations-attention/live", "ops-refused", 2).await;
+    let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["end"], "the page's queue stays, and the element stops: {events:?}");
 }

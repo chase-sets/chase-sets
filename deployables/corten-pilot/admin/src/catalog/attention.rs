@@ -319,23 +319,9 @@ fn catalog_key(key: &str) -> Option<String> {
     let mut out = String::from("attention");
     for segment in rest.split('.') {
         out.push('.');
-        out.push_str(&snake(segment));
+        out.push_str(&crate::text::snake_case(segment));
     }
     Some(out)
-}
-
-/// `aliasCandidate` is `alias_candidate`, as `export.mjs` writes a name.
-fn snake(name: &str) -> String {
-    let mut out = String::with_capacity(name.len() + 4);
-    let mut after_word = false;
-    for c in name.chars() {
-        if c.is_ascii_uppercase() && after_word {
-            out.push('_');
-        }
-        after_word = c.is_ascii_lowercase() || c.is_ascii_digit();
-        out.push(c.to_ascii_lowercase());
-    }
-    out
 }
 
 /// An item's message arguments as the API sends them, for `t.by_key`: the item's own and, for a

@@ -12,10 +12,15 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    Fragment, LiveSince,
+    axum::{
+        http::{HeaderMap, StatusCode},
+        response::IntoResponse,
+    },
     prelude::*,
 };
-use platform::{receipt::Receipt, session};
+use futures_util::StreamExt;
+use platform::{realtime::Tick, receipt::Receipt, session};
 use serde::Serialize;
 
 use crate::{
@@ -153,6 +158,7 @@ pub fn app(config: Config) -> App<Session> {
         .area::<url::PostageArea>(|area| {
             routes(area, shared.clone()).components(views::POSTAGE).guard(|session, _| allow(session, VIEW))
         })
+        .area::<crate::operations::url::OperationsArea>(|area| crate::operations::area(area, shared.clone()))
         .area::<catalog::url::Catalog>(|area| {
             catalog::routes(area, shared)
                 .components(catalog::views::COMPONENTS)
@@ -220,6 +226,48 @@ pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> cort
         _ => StatusCode::BAD_GATEWAY,
     };
     Err(corten::Error::new(error).with_status(status))
+}
+
+/// A page's live part for `<corten-live>` (a list's rows, a queue), drawn on each change to `topic`
+/// until the API refuses the stream. Each fragment carries the realtime stream's cursor after it, so a browser that
+/// reconnects (`since`, from its `Last-Event-ID`) gets what changed while it was away, and
+/// nothing when nothing did. A first connection has no cursor (the page's read does not give one),
+/// so the part is drawn once the stream is open: a change after the page was drawn is not missed.
+/// A read that fails sends nothing, and the part stays as it was.
+pub(crate) fn live_rows<F, Fut>(
+    config: Shared,
+    headers: HeaderMap,
+    since: LiveSince,
+    topic: &'static str,
+    rows: F,
+) -> impl IntoResponse
+where
+    F: Fn(Shared, HeaderMap) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Option<String>> + Send + 'static,
+{
+    let resumed = since.0.is_some();
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(move |tick| {
+            std::future::ready(match tick {
+                Tick::Opened(_) if resumed => None,
+                Tick::Opened(cursor) | Tick::Changed(cursor, _) => Some(cursor),
+                Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let rows = rows(config.clone(), headers.clone());
+            async move {
+                let html = rows.await?;
+                Some(match cursor {
+                    Some(cursor) => Fragment::new(html).cursor(cursor),
+                    None => Fragment::new(html),
+                })
+            }
+        })
+        .filter_map(std::future::ready);
+    corten::live(fragments)
 }
 
 /// The screen's view model: what the page shows and what a data client gets.
