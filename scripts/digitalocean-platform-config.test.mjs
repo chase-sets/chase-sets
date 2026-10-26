@@ -979,7 +979,15 @@ function resolveDoksTestJqPath() {
   return jqPath;
 }
 
-function executeDoksPreflight({ providerResponse, providerResponseText, providerReadFails = false }) {
+function executeDoksPreflight({
+  providerResponse,
+  providerResponseText,
+  providerReadFails = false,
+  versionChange = "none",
+  requestedVersion = "1.36.5-do.1",
+  upgradesResponse = [],
+  upgradesReadFails = false,
+}) {
   const root = mkdtempSync(join(tmpdir(), "doks-preflight-control-"));
   const jqPath = resolveDoksTestJqPath();
   const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
@@ -987,11 +995,13 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
   expect(runStart).not.toBe(-1);
   const run = preflightStep
     .slice(runStart + "run: |\n".length)
-    .replaceAll("${{ inputs.version_change }}", "none")
-    .replaceAll("${{ inputs.kubernetes_version }}", "1.36.5-do.1")
+    .replaceAll("${{ inputs.version_change }}", versionChange)
+    .replaceAll("${{ inputs.kubernetes_version }}", requestedVersion)
     .replaceAll("${{ inputs.environment }}", "staging");
   const providerJson = (providerResponseText ?? JSON.stringify(providerResponse)).replaceAll("'", "'\\''");
   const doctlResponse = providerReadFails ? "return 1" : `printf '%s' '${providerJson}'`;
+  const upgradesJson = JSON.stringify(upgradesResponse).replaceAll("'", "'\\''");
+  const doctlUpgradesResponse = upgradesReadFails ? "return 1" : `printf '%s' '${upgradesJson}'`;
   const stubs = `
     date() { printf '2026-10-25T00:00:00Z'; }
     jq() {
@@ -1002,7 +1012,7 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
         -r)
           JQ_FILTER="$2" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(process.env.JQ_FILTER === ".version" ? value.version : Array.isArray(value) ? value.length : 1);' "$3"
           ;;
-        -ce|-e)
+        -ce|-e|.)
           "$DOKS_TEST_JQ_PATH" "$@"
           ;;
         --arg)
@@ -1019,6 +1029,10 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
     doctl() {
       if [[ "$1" == kubernetes && "$2" == cluster && "$3" == get ]]; then
         ${doctlResponse}
+      elif [[ "$1" == kubernetes && "$2" == cluster && "$3" == get-upgrades ]]; then
+        ${doctlUpgradesResponse}
+      else
+        return 1
       fi
     }
   `;
@@ -1030,10 +1044,14 @@ function executeDoksPreflight({ providerResponse, providerResponseText, provider
     });
     if (result.error) throw result.error;
     const artifactPath = join(root, "artifacts/doks-foundation/pre-apply-cluster.json");
+    const upgradesArtifactPath = join(root, "artifacts/doks-foundation/get-upgrades.json");
     return {
       status: result.status,
       output: `${result.stdout}${result.stderr}`,
       artifact: existsSync(artifactPath) ? JSON.parse(readFileSync(artifactPath, "utf8")) : null,
+      upgradesArtifact: existsSync(upgradesArtifactPath)
+        ? JSON.parse(readFileSync(upgradesArtifactPath, "utf8"))
+        : null,
     };
   } finally {
     if (!root.startsWith(join(tmpdir(), "doks-preflight-control-"))) throw new Error("Unexpected control cleanup root");
@@ -3154,7 +3172,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksFoundationMain).toMatch(/auto_upgrade\s*=\s*false/);
     expect(doksFoundationMain).not.toContain("var.auto_upgrade");
     expect(doksFoundationVariables).not.toMatch(/variable\s+"auto_upgrade"/);
-    expect(platformDoksFoundationWorkflow).not.toMatch(/TF_VAR_auto_upgrade|-var(?:=|\s+)auto_upgrade/);
+    const githubFiles = execFileSync("git", ["ls-files", "--", ".github"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .split(/\r?\n/)
+      .filter(Boolean);
+    for (const relativePath of githubFiles) {
+      expect(readFileSync(resolve(relativePath), "utf8"), relativePath).not.toMatch(
+        /TF_VAR_auto_upgrade|-var(?:=|\s+)auto_upgrade|auto_upgrade\s*=/,
+      );
+    }
     const tfvarsFiles = execFileSync("git", ["ls-files", "--", "*.tfvars"], {
       encoding: "utf8",
       maxBuffer: GIT_LISTING_MAX_BUFFER,
@@ -3231,6 +3259,28 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("fails closed for version mismatches, unlisted upgrade targets, and provider read errors", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
+    expect(executeDoksPreflight({ providerResponse: cluster }).status).toBe(0);
+
+    const requestedVersion = "1.37.0-do.0";
+    const mismatch = executeDoksPreflight({ providerResponse: cluster, requestedVersion });
+    expect(mismatch.output).toContain("version_change=none requires the live DOKS version to match");
+    expect(mismatch.status).not.toBe(0);
+
+    const upgrade = { providerResponse: cluster, versionChange: "upgrade", requestedVersion };
+    const upgradesResponse = [{ slug: requestedVersion }];
+    expect(executeDoksPreflight({ ...upgrade, upgradesResponse })).toMatchObject({
+      status: 0,
+      upgradesArtifact: upgradesResponse,
+    });
+    const unlisted = executeDoksPreflight({ ...upgrade, upgradesResponse: [{ slug: cluster.version }] });
+    expect(unlisted.output).toContain("Requested DOKS upgrade target is not listed by get-upgrades.");
+    expect(unlisted.status).not.toBe(0);
+
+    const readError = executeDoksPreflight({ ...upgrade, upgradesResponse, upgradesReadFails: true });
+    expect(readError.output).toContain("DOKS get-upgrades read failed; refusing the version change.");
+    expect(readError.status).not.toBe(0);
+
     const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
     expect(preflightStep).toContain('if [ "$live_version" != "${{ inputs.kubernetes_version }}" ]; then');
     expect(preflightStep).toContain('if ! jq -e --arg target "${{ inputs.kubernetes_version }}"');
