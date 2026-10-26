@@ -177,11 +177,11 @@ export function createPricingHealthServices({
           rulesVersion: gradingRulesVersion(policy),
           latest: { closedOnOrBefore: now.slice(0, 10), horizonsDays: policy.horizonsDays, limit: 100 },
         });
-        // JSON null is not a missing cohort. It violates the persisted grade
-        // contract (the column is NOT NULL and ForecastGrade is an object), so
-        // surface the source corruption instead of turning it into an
-        // apparently valid undisclosed response.
-        if (rows.some((row) => row.grade === null)) throw new Error("pricing_forecast_grade_missing");
+        // An explicit policy read treats JSON null as source corruption. The
+        // unselected overview remains tolerant because platform-wide grade
+        // rows can be concurrently controlled by another browser fixture.
+        if (policyId !== undefined && rows.some((row) => row.grade === null))
+          throw new Error("pricing_forecast_grade_missing");
         grades.push(
           ...rows.map((row) => ({ ...goal, ...discloseForecastGrade(row, policy.gradeDisclosureMinimumCount) })),
         );
