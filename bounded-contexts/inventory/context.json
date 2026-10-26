@@ -224,6 +224,11 @@
       "portName": "draftListingCreator",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
+    },
+    {
+      "portName": "draftListingDelivery",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Delivers Inventory-owned draft listing outbox messages to Marketplace with durable receipt handling."
     }
   ],
   "apiDeployables": ["platform-api"],

@@ -29,7 +29,6 @@ import {
 import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
-  InventoryServices,
 } from "@chase-sets/inventory/server";
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
@@ -146,11 +145,8 @@ import {
 import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import {
-  createInventoryProductResolutionMaintenanceRunners,
-  createRegisteredScheduledRunners,
-  createSupportEvidenceCleanupHostPort,
-} from "./scheduled-runners";
+import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "./scheduled-runners";
+import { createInventoryJobRunners } from "./inventory-job-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -456,7 +452,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
-  ? createInventoryJobRunners(runtime.services, config)
+  ? createInventoryJobRunners(runtime.services, config, logger)
   : [];
 const bulkJobRunners = [
   ...createCatalogBulkJobRunners(runtime.services, config),
@@ -1487,59 +1483,6 @@ function createCatalogBulkJobRunners(
     );
   }
 
-  return runners;
-}
-
-function createInventoryJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "inventoryImportBatchJobLaneCount"
-    | "inventoryImportBatchJobWorkflowMaxActiveClaims"
-    | "inventoryImportBatchJobMaxActiveClaimsPerJob"
-  >,
-): readonly WorkerRunner[] {
-  const inventory = services.inventory as InventoryServices | undefined;
-  const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
-  const processNextProductResolutionMaintenanceJob =
-    inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
-  const processNextImportDraftListingDelivery = inventory?.importBatches?.processNextImportDraftListingDelivery;
-
-  if (
-    !processNextImportBatchJob &&
-    !processNextProductResolutionMaintenanceJob &&
-    !processNextImportDraftListingDelivery
-  ) {
-    return [];
-  }
-
-  const runners: WorkerRunner[] = [];
-  if (processNextImportBatchJob || processNextImportDraftListingDelivery) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "inventory.import-batch-jobs",
-        laneCount: input.inventoryImportBatchJobLaneCount,
-        runLane: async (lane) => ({
-          processed:
-            (processNextImportBatchJob
-              ? await processNextImportBatchJob({
-                  claimOwnerId: `${input.workerId}:${lane.laneName}`,
-                  claimTtlMs: input.leaseTtlMs * 4,
-                  workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-                  jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-                  laneName: lane.laneName,
-                  signal: lane.runnerContext?.signal,
-                  throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-                })
-              : 0) + (processNextImportDraftListingDelivery ? await processNextImportDraftListingDelivery() : 0),
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
-  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
   return runners;
 }
 
