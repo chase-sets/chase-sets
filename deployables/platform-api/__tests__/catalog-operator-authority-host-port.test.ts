@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CatalogOperatorAuthority } from "../../../bounded-contexts/catalog/features/operator-session/api/grants";
+import type { CatalogOperatorAuthority } from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { IdentityServices } from "@chase-sets/identity/server";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
-import type { MembershipCommand } from "../../../bounded-contexts/identity/features/memberships/domain/domain";
-import { createMembershipRuntime } from "../../../bounded-contexts/identity/features/memberships/api/runtime";
+import { createMembershipRuntime, type MembershipCommand } from "@chase-sets/identity/server";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";

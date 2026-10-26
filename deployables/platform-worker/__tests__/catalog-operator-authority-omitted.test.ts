@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createOperatorSessionGrants } from "../../../bounded-contexts/catalog/features/operator-session/api/grants";
+import { createOperatorSessionGrants } from "@chase-sets/catalog/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
