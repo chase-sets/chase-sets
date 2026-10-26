@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { activationRefusalCode, runActivationCommand } from "../scripts/activate-agent-grant-revocation.mjs";
+import {
+  activationDiagnostic,
+  activationRefusalCode,
+  runActivationCommand,
+} from "../scripts/activate-agent-grant-revocation.mjs";
 import type { AgentGrantRevocations, RevocationActivationProof } from "@chase-sets/identity/server";
 
 function proof(): RevocationActivationProof {
@@ -107,11 +111,55 @@ describe("revocation-floor activation command", () => {
   ])("crosses the pod boundary with only a bounded code for %s", (_name, error, code) => {
     expect(activationRefusalCode(error)).toBe(code);
   });
+  it("extracts only a typed SQLSTATE class and finite category", () => {
+    const error = Object.assign(new Error(`raw ${"secret-marker"}`), {
+      code: "42501",
+      failureCategory: "schema_permission",
+    });
+    expect(activationDiagnostic(error, proof())).toMatchObject({
+      code: "revocation_activation_refused",
+      sqlstateClass: "42",
+      failureCategory: "schema_permission",
+      identity: { state: "unknown" },
+    });
+    expect(JSON.stringify(activationDiagnostic(error, proof()))).not.toContain("secret-marker");
+    expect(activationDiagnostic(new Error("raw secret-marker"), proof()).sqlstateClass).toBe("unknown");
+    expect(activationDiagnostic(new Error("raw secret-marker"), proof()).failureCategory).toBe("unknown");
+  });
+  it("retains validated proof identity in the entrypoint refusal diagnostic", async () => {
+    const captured = proof();
+    const failure = new Error("raw secret-marker");
+    await expect(
+      runActivationCommand({
+        owner: {
+          activationProof: async () => undefined,
+          activate: async () => {
+            throw failure;
+          },
+        },
+        environment: captured.environment,
+        readProof: async () => captured,
+        write: vi.fn(),
+      }),
+    ).rejects.toBe(failure);
+    const emitted = JSON.parse(JSON.stringify(activationDiagnostic(failure)));
+    expect(emitted).toMatchObject({
+      environment: captured.environment,
+      releaseCommit: captured.releaseCommit,
+      imageDigest: captured.imageDigest,
+    });
+    expect(JSON.stringify(emitted)).not.toContain("secret-marker");
+  });
   it("prints the bounded code, never a generic or raw refusal, from the entrypoint", () => {
     const source = readFileSync(new URL("../scripts/activate-agent-grant-revocation.mts", import.meta.url), "utf8");
-    expect(source.replaceAll("\r\n", "\n")).toContain(
+    const normalized = source.replaceAll("\r\n", "\n");
+    expect(normalized).toContain(
       "main().catch((error: unknown) => {\n    process.stderr.write(`${activationRefusalCode(error)}\\n`);",
     );
+    expect(normalized.indexOf("process.stderr.write(`${activationRefusalCode(error)}\\n`);")).toBeLessThan(
+      normalized.indexOf("process.exitCode = 1;"),
+    );
+    expect(normalized).toContain("process.stderr.write(`${JSON.stringify(activationDiagnostic(error))}\\n`);");
   });
   it.each(["foreign", "old-worker", "incomplete", "stale"])(
     "refuses %s proof without an Identity activation call",
