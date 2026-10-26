@@ -3,8 +3,6 @@ import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime
 import {
   cancelProjectionOperation,
   loadProjectionOperationsConsoleSnapshot,
-  loadProjectionOperationsSnapshot,
-  loadWakeStatusSnapshot,
   loadWakeStatusConsoleSnapshot,
   readProjectionOperationsFilters,
   rebuildProjectionContext,
@@ -149,32 +147,6 @@ describe("projection operations API client", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://platform-api:8080/api/platform/projections/refresh");
   });
 
-  it("loads and normalizes the wake status snapshot", async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
-      async () =>
-        new Response(
-          JSON.stringify({
-            generatedAt: "2026-06-11T12:00:00.000Z",
-            wakeStore: { available: true, intentSummary: { queuedCount: 2 } },
-            relay: { available: true, lease: null, cursors: [] },
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const request = new Request("https://admin.example.com/platform/projections", {
-      headers: { cookie: "session=abc" },
-    });
-
-    const snapshot = await loadWakeStatusSnapshot(request);
-
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://admin.example.com/api/platform/projections/wake-status");
-    expect(snapshot).toMatchObject({
-      wakeStore: { available: true, intentSummary: { queuedCount: 2 } },
-      relay: { available: true, lease: null },
-    });
-  });
-
   it("loads API-owned projection triage once and preserves raw loader normalization", async () => {
     const body = {
       summary: { totalGroups: 1 },
@@ -194,17 +166,13 @@ describe("projection operations API client", () => {
     const request = new Request("https://admin.example.com/platform/projections");
 
     const consoleSnapshot = await loadProjectionOperationsConsoleSnapshot(request);
-    const rawSnapshot = await loadProjectionOperationsSnapshot(request);
-
     expect(consoleSnapshot).toMatchObject({
       attentionItems: body.attentionItems,
       repairQueue: body.repairQueue,
       activeWorkerCount: 3,
       staleWorkerCount: 1,
     });
-    expect(rawSnapshot).not.toHaveProperty("attentionItems");
-    expect(rawSnapshot).not.toHaveProperty("repairQueue");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -249,24 +217,5 @@ describe("projection operations API client", () => {
     await expect(loadWakeStatusConsoleSnapshot(request)).resolves.toMatchObject({
       attentionItems: [{ id: "wake-api" }],
     });
-  });
-
-  it("degrades to null when the wake status endpoint is missing or failing", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("not found", { status: 404 })),
-    );
-    const request = new Request("https://admin.example.com/platform/projections");
-
-    await expect(loadWakeStatusSnapshot(request)).resolves.toBeNull();
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("connection refused");
-      }),
-    );
-
-    await expect(loadWakeStatusSnapshot(request)).resolves.toBeNull();
   });
 });

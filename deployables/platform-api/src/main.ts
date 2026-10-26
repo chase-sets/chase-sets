@@ -120,6 +120,16 @@ const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
+  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
+    ? {
+        readConsistencyGateway: {
+          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
+          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
+        },
+      }
+    : {}),
+});
 const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
   ? createPostgresEvidenceWindowRegistration(pools.control)
   : undefined;
@@ -326,6 +336,8 @@ const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
   runtimeLifecycle,
+  controlPlane,
+  workSignalStore,
   hostPorts: {
     ...capabilityAdministrationPorts,
     deploymentEnvironment: config.deploymentEnvironment,
@@ -615,16 +627,6 @@ const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control,
   mandateResolver: agentGrantConsent.resolveMandate,
 });
 const drainState = createProcessDrainState();
-const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
-  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
-    ? {
-        readConsistencyGateway: {
-          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
-          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
-        },
-      }
-    : {}),
-});
 const ucpProfileResolver = createUcpProfileResolver({
   db: pools.control,
   onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
