@@ -220,17 +220,12 @@ pub fn item_list<'a>(
 /// (`ids::LIVE`). Reload draws both again, so the count starts over with a new stream.
 pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Patch + 'a {
     html! {
-        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
-        match () {
-            () => {
-                let live = url::ItemsLive { query: query.clone() }.href();
-                let list = url::Items::default().href();
-                let kept = query.kept();
-                <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
-                    {item_changes(t, query, Pending::default())}
-                </LiveStatus>
-            }
-        }
+        let live = url::ItemsLive { query: query.clone() }.href();
+        let list = url::Items::default().href();
+        let kept = query.kept();
+        <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
+            {item_changes(t, query, Pending::default())}
+        </LiveStatus>
     }
 }
 
@@ -461,52 +456,47 @@ pub fn ItemPreviewDialog<'a>(
     };
     // The view owns what its dialog borrows: the title and description move into the markup.
     html! {
-        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
-        match () {
-            () => {
-                let (title, description) = (title, description);
-                <Dialog
-                    id={ids::PREVIEW_DIALOG}
-                    title={&title}
-                    description={description.as_deref()}
-                    open
-                    close={p.catalog_close()}
-                >
-                    if let Some(note) = note {
-                        <p class={Note}>{note}</p>
-                    }
-                    if let Some(ItemPreview::Publish(v)) = preview {
-                        <PublishTable t={t} candidates={&v.candidates} />
-                    }
-                    if let Some(ItemPreview::Edit(v)) = preview {
-                        <EditTable t={t} candidates={&v.candidates} />
-                    }
-                    if let Some(ItemPreview::Lifecycle(v)) = preview {
-                        <Candidates t={t} candidates={&v.candidates} />
-                    }
-                    <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
-                        {errors.form_message()}
-                        {e.message(f.blueprint_id)}
-                        {e.message(f.category_id)}
-                        {e.message(f.tags)}
-                        <input type="hidden" name={f.action} value={&input.action}>
-                        <input type="hidden" name={f.mode} value={mode}>
-                        for id in ids {
-                            <input type="hidden" name={f.ids} value={id}>
-                        }
-                        <input type="hidden" name={f.blueprint_id} value={&input.blueprint_id}>
-                        <input type="hidden" name={f.category_id} value={&input.category_id}>
-                        <input type="hidden" name={f.tags} value={&input.tags}>
-                        <div class={Footer}>
-                            <button type="submit" class={Small} disabled={!ready}>{confirm_label}</button>
-                            <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
-                                {t.item_list_cancel()}
-                            </button>
-                        </div>
-                    </form>
-                </Dialog>
+        let (title, description) = (title, description);
+        <Dialog
+            id={ids::PREVIEW_DIALOG}
+            title={&title}
+            description={description.as_deref()}
+            open
+            close={p.catalog_close()}
+        >
+            if let Some(note) = note {
+                <p class={Note}>{note}</p>
             }
-        }
+            if let Some(ItemPreview::Publish(v)) = preview {
+                <PublishTable t={t} candidates={&v.candidates} />
+            }
+            if let Some(ItemPreview::Edit(v)) = preview {
+                <EditTable t={t} candidates={&v.candidates} />
+            }
+            if let Some(ItemPreview::Lifecycle(v)) = preview {
+                <Candidates t={t} candidates={&v.candidates} />
+            }
+            <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
+                {errors.form_message()}
+                {e.message(f.blueprint_id)}
+                {e.message(f.category_id)}
+                {e.message(f.tags)}
+                <input type="hidden" name={f.action} value={&input.action}>
+                <input type="hidden" name={f.mode} value={mode}>
+                for id in ids {
+                    <input type="hidden" name={f.ids} value={id}>
+                }
+                <input type="hidden" name={f.blueprint_id} value={&input.blueprint_id}>
+                <input type="hidden" name={f.category_id} value={&input.category_id}>
+                <input type="hidden" name={f.tags} value={&input.tags}>
+                <div class={Footer}>
+                    <button type="submit" class={Small} disabled={!ready}>{confirm_label}</button>
+                    <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
+                        {t.item_list_cancel()}
+                    </button>
+                </div>
+            </form>
+        </Dialog>
     }
 }
 
@@ -585,34 +575,29 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
     let f = ItemBulkInput::FIELDS;
     let ready = !ids.is_empty() && errors.is_empty();
     html! {
-        // A block, so the `let`s and the component are a patch (todd-skelton/corten#82).
-        match () {
-            () => {
-                let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
-                <Dialog
-                    id={ids::PREVIEW_DIALOG}
-                    title={t.item_list_remove_draft_catalog_items()}
-                    description={ready.then_some(description.as_str())}
-                    open
-                    close={p.catalog_close()}
-                >
-                    <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
-                        {errors.form_message()}
-                        for id in ids {
-                            <input type="hidden" name={f.ids} value={id}>
-                        }
-                        <div class={Footer}>
-                            <button type="submit" class={(Small, Danger)} disabled={!ready}>
-                                {t.item_list_remove_drafts_from_selected()}
-                            </button>
-                            <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
-                                {t.item_list_cancel()}
-                            </button>
-                        </div>
-                    </form>
-                </Dialog>
-            }
-        }
+        let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
+        <Dialog
+            id={ids::PREVIEW_DIALOG}
+            title={t.item_list_remove_draft_catalog_items()}
+            description={ready.then_some(description.as_str())}
+            open
+            close={p.catalog_close()}
+        >
+            <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
+                {errors.form_message()}
+                for id in ids {
+                    <input type="hidden" name={f.ids} value={id}>
+                }
+                <div class={Footer}>
+                    <button type="submit" class={(Small, Danger)} disabled={!ready}>
+                        {t.item_list_remove_drafts_from_selected()}
+                    </button>
+                    <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
+                        {t.item_list_cancel()}
+                    </button>
+                </div>
+            </form>
+        </Dialog>
     }
 }
 
