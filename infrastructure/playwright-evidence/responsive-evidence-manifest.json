@@ -133,6 +133,96 @@
     },
     {
       "kind": "claim",
+      "id": "pricing-health-what-if-360",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-390",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-populated-0",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",

@@ -29,6 +29,17 @@ describe("Forecast Grade disclosure", () => {
     expect(html).not.toContain("29");
   });
 
+  it("keeps malformed missing grades undisclosed", () => {
+    const grade = discloseForecastGrade({ ...stored, grade: null as never }, 30);
+    expect(grade).toEqual({
+      closedOn: stored.closedOn,
+      forecastKind: "curve",
+      horizonDays: 21,
+      model: stored.model,
+      status: "undisclosed",
+    });
+  });
+
   it("sends exactly the four disclosed values at 30 and labels the platform cohort", () => {
     const grade = discloseForecastGrade({ ...stored, grade: { ...stored.grade, count: 30 } }, 30);
     expect(grade).toEqual({

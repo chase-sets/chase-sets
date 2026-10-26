@@ -20,12 +20,18 @@ function PortfolioWhatIfPanel({ portfolio }: Readonly<{ portfolio: PricingHealth
   const horizonPoints = portfolio.horizon.samples.map((sample) => ({
     x: sample.horizonDays,
     y: Number(sample.valueAmount),
-    label: `${sample.horizonDays.toFixed(1)} days: ${formatMoney(sample.valueAmount, currency)}`,
+    label: copy("whatIf.horizon.point", {
+      days: number(sample.horizonDays),
+      value: formatMoney(sample.valueAmount, currency),
+    }),
   }));
   const hurdlePoints = portfolio.hurdle.scenarios.map((scenario) => ({
     x: scenario.dailyReturnHurdle,
     y: scenario.dailyReturn ?? Number.NaN,
-    label: `${percent(scenario.dailyReturn)} at ${percent(scenario.dailyReturnHurdle)} hurdle`,
+    label: copy("whatIf.hurdle.point", {
+      returnValue: percent(scenario.dailyReturn),
+      hurdle: percent(scenario.dailyReturnHurdle),
+    }),
   }));
   const best = portfolio.hurdle.best;
   return (
