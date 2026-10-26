@@ -160,10 +160,11 @@ jobs:
           captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           preflight="artifacts/doks-foundation/pre-apply-cluster.json"
           cluster_read="$(mktemp)"
+          cluster_normalized="$(mktemp)"
           cluster_error="$(mktemp)"
           upgrades_read="$(mktemp)"
           state_list="$(mktemp)"
-          trap 'rm -f "$cluster_read" "$cluster_error" "$upgrades_read" "$state_list"' EXIT
+          trap 'rm -f "$cluster_read" "$cluster_normalized" "$cluster_error" "$upgrades_read" "$state_list"' EXIT
 
           version_change="${{ inputs.version_change }}"
           if ! terraform state list > "$state_list" 2> "$cluster_error"; then
@@ -188,12 +189,21 @@ jobs:
             exit 1
           fi
 
-          if [ "$(jq -r 'if type == "array" then length else 1 end' "$cluster_read")" = "0" ]; then
-            jq -n --arg capturedAt "$captured_at" '{state: "absent", captured_at: $capturedAt}' > "$preflight"
-            exit 0
+          if ! jq -ce '
+            if type == "array" then
+              if length == 1 then .[0] else error("expected exactly one cluster") end
+            elif type == "object" then .
+            else error("expected an object or one-element array")
+            end
+            | if type == "object" and (.id | type == "string") and (.version | type == "string") then .
+              else error("cluster response is missing required fields")
+              end
+          ' "$cluster_read" > "$cluster_normalized" 2> "$cluster_error"; then
+            jq -n --arg capturedAt "$captured_at" '{state: "read-error", captured_at: $capturedAt}' > "$preflight"
+            echo "DOKS cluster response was not exactly one valid object; refusing to classify the state as absent." >&2
+            exit 1
           fi
 
-          jq -e 'type == "object" and (.id | type == "string") and (.version | type == "string")' "$cluster_read" >/dev/null
           jq --arg capturedAt "$captured_at" '{
             state: "present",
             id: .id,
@@ -203,7 +213,7 @@ jobs:
             maintenance_policy: .maintenance_policy,
             updated_at: .updated_at,
             captured_at: $capturedAt
-          }' "$cluster_read" > "$preflight"
+          }' "$cluster_normalized" > "$preflight"
 
           live_version="$(jq -r '.version' "$preflight")"
           if [ "$version_change" = "none" ]; then

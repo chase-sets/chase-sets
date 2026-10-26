@@ -970,6 +970,66 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function executeDoksPreflight({ providerResponse, providerResponseText, providerReadFails = false }) {
+  const root = mkdtempSync(join(tmpdir(), "doks-preflight-control-"));
+  const preflightStep = workflowStep(platformDoksFoundationWorkflow, "Preflight DOKS version change");
+  const runStart = preflightStep.indexOf("run: |\n");
+  expect(runStart).not.toBe(-1);
+  const run = preflightStep
+    .slice(runStart + "run: |\n".length)
+    .replaceAll("${{ inputs.version_change }}", "none")
+    .replaceAll("${{ inputs.kubernetes_version }}", "1.36.5-do.1")
+    .replaceAll("${{ inputs.environment }}", "staging");
+  const providerJson = (providerResponseText ?? JSON.stringify(providerResponse)).replaceAll("'", "'\\''");
+  const doctlResponse = providerReadFails ? "return 1" : `printf '%s' '${providerJson}'`;
+  const stubs = `
+    date() { printf '2026-10-25T00:00:00Z'; }
+    jq() {
+      case "$1" in
+        -n)
+          JQ_CAPTURED_AT="$4" JQ_FILTER="$5" node -e 'const state = process.env.JQ_FILTER.includes("read-error") ? "read-error" : "absent"; console.log(JSON.stringify({ state, captured_at: process.env.JQ_CAPTURED_AT }));'
+          ;;
+        -r)
+          JQ_FILTER="$2" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(process.env.JQ_FILTER === ".version" ? value.version : Array.isArray(value) ? value.length : 1);' "$3"
+          ;;
+        -ce|-e)
+          JQ_FILTER="$2" node -e 'const fs = require("node:fs"); let value; try { value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(1); } const validFields = (candidate) => candidate && typeof candidate === "object" && typeof candidate.id === "string" && typeof candidate.version === "string"; const candidate = Array.isArray(value) && value.length === 1 ? value[0] : value; const ok = Array.isArray(value) ? value.length === 1 && validFields(candidate) : validFields(value); if (!ok) process.exit(1); console.log(JSON.stringify(candidate));' "$3"
+          ;;
+        --arg)
+          JQ_CAPTURED_AT="$3" node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const candidate = Array.isArray(value) ? value[0] : value; console.log(JSON.stringify({ state: "present", id: candidate.id, version: candidate.version, captured_at: process.env.JQ_CAPTURED_AT }));' "$5"
+          ;;
+      esac
+    }
+    terraform() {
+      case "$1 $2" in
+        'state list') printf 'digitalocean_kubernetes_cluster.platform\\n' ;;
+        'output -raw') printf 'synthetic-cluster-id\\n' ;;
+      esac
+    }
+    doctl() {
+      if [[ "$1" == kubernetes && "$2" == cluster && "$3" == get ]]; then
+        ${doctlResponse}
+      fi
+    }
+  `;
+  try {
+    const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    if (result.error) throw result.error;
+    const artifactPath = join(root, "artifacts/doks-foundation/pre-apply-cluster.json");
+    return {
+      status: result.status,
+      output: `${result.stdout}${result.stderr}`,
+      artifact: existsSync(artifactPath) ? JSON.parse(readFileSync(artifactPath, "utf8")) : null,
+    };
+  } finally {
+    if (!root.startsWith(join(tmpdir(), "doks-preflight-control-"))) throw new Error("Unexpected control cleanup root");
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 function workflowEnvironmentExpression(step, variableName) {
   const match = step.match(new RegExp(`^\\s+${variableName}:\\s+(.+)$`, "m"));
   expect(match).not.toBeNull();
@@ -3130,6 +3190,33 @@ describe("DigitalOcean platform configuration", () => {
     expect(planIndex).toBeLessThan(inspectIndex);
     expect(inspectIndex).toBeLessThan(applyIndex);
     expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
+  });
+
+  it("executes the preflight against provider object and array response shapes", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
+    const oneElement = executeDoksPreflight({ providerResponse: [cluster] });
+    expect(oneElement).toMatchObject({
+      status: 0,
+      artifact: { state: "present", id: cluster.id, version: cluster.version },
+    });
+    expect(executeDoksPreflight({ providerResponse: cluster })).toMatchObject({
+      status: 0,
+      artifact: { state: "present", id: cluster.id, version: cluster.version },
+    });
+    const empty = executeDoksPreflight({ providerResponse: [] });
+    expect(empty.status).not.toBe(0);
+    expect(empty.artifact).toMatchObject({ state: "read-error" });
+    const multiple = executeDoksPreflight({
+      providerResponse: [cluster, { id: "other-cluster", version: cluster.version }],
+    });
+    expect(multiple.status).not.toBe(0);
+    expect(multiple.artifact).toMatchObject({ state: "read-error" });
+    const malformed = executeDoksPreflight({ providerResponse: null, providerResponseText: "not-json" });
+    expect(malformed.status).not.toBe(0);
+    expect(malformed.artifact).toMatchObject({ state: "read-error" });
+    const readError = executeDoksPreflight({ providerResponse: null, providerReadFails: true });
+    expect(readError.status).not.toBe(0);
+    expect(readError.artifact).toMatchObject({ state: "read-error" });
   });
 
   it("fails closed for version mismatches, unlisted upgrade targets, and provider read errors", () => {
