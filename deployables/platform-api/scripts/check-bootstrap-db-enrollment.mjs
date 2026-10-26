@@ -31,7 +31,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 9477,
-        identity: "fcf65b142a0bbe05",
+        identity: "eb26893b2802a2d8",
       },
       {
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
@@ -81,7 +81,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
         referenceDurationMs: 84803,
-        identity: "534d5752dbc527b6",
+        identity: "fc9c67744e82c259",
       },
       {
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",

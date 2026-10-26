@@ -261,6 +261,7 @@ describe("platform api bootstrap production reconciliation", () => {
         enabledDataProfiles: productionLikeDataProfiles,
         environmentName: "production",
         runtimeProfile: "landing",
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
       } as const;
       const settlementContext = runtime.mountedContexts.find((context) => context.contextName === "settlement");
       if (!settlementContext) throw new Error("Expected Settlement to be mounted in the landing profile.");
@@ -1261,6 +1262,7 @@ describe("platform api bootstrap production reconciliation", () => {
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
       enabledDataProfiles: nonProductionDataProfiles,
       environmentName: "test",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
     await drainContextRuntime(runtime);
     await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
