@@ -39,6 +39,8 @@ jobs:
           set -euo pipefail
           candidate_head="$(git rev-parse HEAD)"
           source_base="$(git rev-parse HEAD^)"
+          candidate_parents="$(git rev-parse HEAD^@)"
+          test "$candidate_parents" = "$source_base"
           export SOURCE_BASE="$source_base"
           test "$candidate_head" = "${{ github.sha }}"
           test "$source_base" = "$(git rev-parse HEAD^)"
@@ -47,7 +49,7 @@ jobs:
           test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
           test -n "${{ inputs.host_ticket }}"
           printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
-            "$candidate_head" "$source_base" "$source_base" "$source_base" \
+            "$candidate_head" "$source_base" "$source_base" "$candidate_parents" \
             "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
             > candidate-binding.json
           node --input-type=module <<'NODE'
@@ -180,13 +182,15 @@ jobs:
           set -euo pipefail
           candidate_head="$(git rev-parse HEAD)"
           source_base="$(git rev-parse HEAD^)"
+          candidate_parents="$(git rev-parse HEAD^@)"
+          test "$candidate_parents" = "$source_base"
           test "$candidate_head" = "${{ github.sha }}"
           test "$source_base" = "$(git rev-parse HEAD^)"
           test "${{ github.repository }}" = "${{ inputs.repository }}"
           test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
           test -n "${{ inputs.host_ticket }}"
           printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
-            "$candidate_head" "$source_base" "$source_base" "$source_base" \
+            "$candidate_head" "$source_base" "$source_base" "$candidate_parents" \
             "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
             > artifacts/10404-reference-capture/candidate-binding.json
           test "$(git rev-parse --is-shallow-repository)" = "false"
