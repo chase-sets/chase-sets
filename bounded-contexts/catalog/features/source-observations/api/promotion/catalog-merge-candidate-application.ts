@@ -140,10 +140,6 @@ type ResolvedMember = Readonly<{
   normalized: CatalogItemPromotableSourceObservationNormalized;
   version: CatalogProviderIntegrationProfileVersionRecord;
   mapping: CatalogProviderPromotionResolvedCatalogMapping;
-  /** Provider identity used for the item promotion, which may be a reviewed
-   * external reference provider when the retained member is reference-only. */
-  promotionProviderKey: string;
-  promotionExternalKey: string;
 }>;
 
 /**
@@ -184,15 +180,6 @@ export async function applyCatalogMergeCandidatePromotion(
 
   const approvalVersion = state.status === "promoted" ? loaded.approvalVersion! : loaded.version + 1;
   const prepared = await prepareApplicationPlan(ports, unit, state.snapshot, approvalVersion);
-  if ("nonItemReason" in prepared) {
-    return unappliedOutcome(
-      unit.candidateId,
-      "skipped-not-eligible",
-      prepared.nonItemReason,
-      undefined,
-      "reference-only",
-    );
-  }
   let version = loaded.version;
   const now = new Date().toISOString();
   if (state.status === "ready") {
@@ -298,52 +285,29 @@ async function prepareApplicationPlan(
   unit: ApplicationUnit,
   snapshot: CatalogMergeCandidateReviewSnapshot,
   approvalVersion: number,
-): Promise<
-  | Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>
-  | Readonly<{ nonItemReason: string }>
-> {
+): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
   const { deps } = ports;
   const members = await resolveApprovedMemberRevisions(deps.eventStore, snapshot);
   const resolved: ResolvedMember[] = [];
-  let referenceOnlyMembers = 0;
   for (const revision of members) {
     const normalized = promotableNormalized(revision);
-    if (!normalized) {
-      if (isReferenceOnlyProfileUnit(await ports.profileVersions.listProfileVersions(revision.providerKey))) {
-        referenceOnlyMembers += 1;
-        continue;
-      }
-      throw blocked(
-        "promotion-profile-incompatible",
-        `Source Observation '${revision.id ?? revision.externalKey}' does not contain Catalog Item facts for its provider/unit role`,
-      );
+    if (!normalized) continue;
+    let version: CatalogProviderIntegrationProfileVersionRecord;
+    try {
+      version = await requireCatalogPromotionProfileVersion(ports.profileVersions, revision.providerKey, normalized);
+    } catch (error) {
+      throw blocked("promotion-profile-unavailable", errorText(error));
     }
-    const roleAware = await resolveRoleAwarePromotionProfile(ports.profileVersions, revision, normalized, snapshot);
-    if (!roleAware) {
-      referenceOnlyMembers += 1;
-      continue;
-    }
-    const { version, providerKey, externalKey } = roleAware;
     assertCatalogIntegrationProfileUnitAllowed(ports.rolloutControlPolicy, "promotion", version);
     resolved.push({
       revision,
       normalized,
       version,
       mapping: await loadCatalogItemPromotionProfile(deps, version.profile),
-      promotionProviderKey: providerKey,
-      promotionExternalKey: externalKey,
     });
   }
   const primary = resolved[0];
-  if (!primary) {
-    if (referenceOnlyMembers > 0) {
-      return {
-        nonItemReason:
-          "reference-only-member: approved membership has no reviewed provider/unit role that can promote a Catalog Item",
-      };
-    }
-    throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
-  }
+  if (!primary) throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
   if (
     resolved.some(
       (member) =>
@@ -379,8 +343,8 @@ async function prepareApplicationPlan(
     const duplicate = await resolveCatalogProviderDuplicatePrevention({
       db: deps.db,
       profile: member.version.profile,
-      providerKey: member.promotionProviderKey,
-      externalKey: member.promotionExternalKey,
+      providerKey: member.revision.providerKey,
+      externalKey: member.revision.externalKey,
       normalized: member.normalized,
       catalog: primary.mapping,
     });
@@ -751,86 +715,6 @@ async function resolveApprovedMemberRevisions(
   return revisions;
 }
 
-/**
- * A retained member can be a reference-only observation.  Its provider is
- * still part of immutable membership/provenance, but it is not allowed to
- * author an Item.  When that member carries a reviewed external Catalog Item
- * reference, resolve the active Item profile for that referenced provider and
- * use that provider identity for the application.  No provider is inferred
- * from a bare string: the reference must be present in both the reviewed
- * snapshot and the retained normalized observation.
- */
-export async function resolveRoleAwarePromotionProfile(
-  profileVersions: CatalogProviderIntegrationProfileVersionReader,
-  revision: SourceObservationState,
-  normalized: CatalogItemPromotableSourceObservationNormalized,
-  snapshot: CatalogMergeCandidateReviewSnapshot,
-): Promise<Readonly<{
-  version: CatalogProviderIntegrationProfileVersionRecord;
-  providerKey: string;
-  externalKey: string;
-}> | null> {
-  try {
-    const version = await requireCatalogPromotionProfileVersion(profileVersions, revision.providerKey, normalized);
-    return { version, providerKey: revision.providerKey, externalKey: revision.externalKey };
-  } catch (error) {
-    const versions = await profileVersions.listProfileVersions(revision.providerKey);
-    if (!isReferenceOnlyProfileUnit(versions)) throw blocked("promotion-profile-unavailable", errorText(error));
-
-    const normalizedReferences = new Set(
-      (normalized.externalCatalogItemReferences ?? []).map(
-        (reference) => `${reference.providerKey.toLowerCase()}:${reference.externalKey.toLowerCase()}`,
-      ),
-    );
-    const reviewedReferences = snapshot.proposedExternalCatalogItemReferences.filter((reference) =>
-      normalizedReferences.has(`${reference.providerKey.toLowerCase()}:${reference.externalKey.toLowerCase()}`),
-    );
-    if (reviewedReferences.length === 0) return null;
-
-    const candidates: Array<
-      Readonly<{ version: CatalogProviderIntegrationProfileVersionRecord; providerKey: string; externalKey: string }>
-    > = [];
-    const failures: string[] = [];
-    for (const reference of reviewedReferences) {
-      try {
-        const version = await requireCatalogPromotionProfileVersion(profileVersions, reference.providerKey, normalized);
-        if (
-          !candidates.some(
-            (candidate) =>
-              candidate.providerKey === version.providerKey && candidate.externalKey === reference.externalKey,
-          )
-        ) {
-          candidates.push({ version, providerKey: version.providerKey, externalKey: reference.externalKey });
-        }
-      } catch (referenceError) {
-        failures.push(`${reference.providerKey}: ${errorText(referenceError)}`);
-      }
-    }
-    if (candidates.length > 1)
-      throw blocked("promotion-profile-ambiguous", candidates.map((candidate) => candidate.providerKey).join(", "));
-    if (candidates.length === 0) {
-      const detail = failures.join("; ") || "no reviewed external Item provider profile is eligible";
-      const code = failures.some((failure) => failure.includes("multiple active"))
-        ? "promotion-profile-ambiguous"
-        : failures.some((failure) => failure.includes("not compatible"))
-          ? "promotion-profile-incompatible"
-          : "promotion-profile-unavailable";
-      throw blocked(code, detail);
-    }
-    return candidates[0]!;
-  }
-}
-
-function isReferenceOnlyProfileUnit(versions: readonly CatalogProviderIntegrationProfileVersionRecord[]): boolean {
-  return (
-    versions.some(
-      (version) =>
-        version.ingestionUnitIdentity?.ingestionPurpose === "reference-data" ||
-        version.profileKey.toLowerCase().includes("reference-data"),
-    ) && !versions.some((version) => version.profile.capabilities.includes("catalog-item-promotion"))
-  );
-}
-
 function promotableNormalized(
   revision: SourceObservationState,
 ): CatalogItemPromotableSourceObservationNormalized | null {
@@ -902,7 +786,7 @@ async function prepareCandidateAssets(
       deps,
       catalogItemId,
       normalized: source.member.normalized,
-      providerKey: source.member.promotionProviderKey,
+      providerKey: source.member.revision.providerKey,
       providerProfile: source.member.version.profile,
       sourceUpdatedAt: source.member.revision.sourceUpdatedAt,
       observedAt: source.member.revision.observedAt ?? new Date(0).toISOString(),
@@ -1019,7 +903,6 @@ export function unappliedOutcome(
   status: Exclude<CatalogMergeCandidateBulkUnitResult["status"], "promoted" | "deferred">,
   reason: string,
   diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode,
-  disposition?: CatalogMergeCandidateBulkUnitResult["disposition"],
 ): CatalogMergeCandidateBulkUnitResult {
   return {
     candidateId,
@@ -1030,7 +913,6 @@ export function unappliedOutcome(
     appliedMode: null,
     approvalVersion: null,
     planFingerprint: null,
-    ...(disposition ? { disposition } : {}),
     ...(diagnosticCode ? { diagnosticCode } : {}),
   };
 }

@@ -268,8 +268,6 @@ export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-f
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   candidateId: string;
   status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
-  /** Explicitly records retained reference evidence that is not an Item author. */
-  disposition?: "reference-only";
   /** Historical matched Catalog Item from the reviewed snapshot; never application authority. */
   catalogItemId: string | null;
   reason: string | null;

@@ -705,7 +705,6 @@ function requireCatalogMergeCandidateBulkJobResult(
 }
 
 function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitResult): boolean {
-  if (outcome.disposition !== undefined && outcome.disposition !== "reference-only") return false;
   if (outcome.diagnosticCode !== undefined && outcome.diagnosticCode !== "asset-processing-failed") return false;
   switch (outcome.status) {
     case "promoted":
@@ -717,8 +716,7 @@ function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitRe
         (outcome.approvalVersion ?? 0) > 0 &&
         typeof outcome.planFingerprint === "string" &&
         outcome.planFingerprint.length > 0 &&
-        outcome.diagnosticCode === undefined &&
-        outcome.disposition === undefined
+        outcome.diagnosticCode === undefined
       );
     case "failed":
     case "skipped-not-eligible":
@@ -726,8 +724,7 @@ function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitRe
         outcome.appliedCatalogItemId === null &&
         outcome.appliedMode === null &&
         outcome.approvalVersion === null &&
-        outcome.planFingerprint === null &&
-        (outcome.disposition === undefined || outcome.disposition === "reference-only")
+        outcome.planFingerprint === null
       );
     default:
       // A promotion unit never defers; any other or missing status is not an outcome.
