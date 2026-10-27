@@ -2170,19 +2170,50 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: /home/runner/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
+        id: staging-playwright-install
+        timeout-minutes: 11
+        continue-on-error: true
         env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
+          PLAYWRIGHT_INSTALL_ATTEMPT: "1"
+        run: |
+          set +e
+          mkdir -p artifacts/release-health
+          node scripts/playwright-chromium-install.mjs 2>&1 | tee artifacts/release-health/staging-browser-install.txt
+          status=${PIPESTATUS[0]}
+          reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' artifacts/release-health/staging-browser-install.txt | tail -n 1)"
+          case "$reason" in
+            timeout|partial-download|cache-restore-failure|incomplete-cache) retryable=true ;;
+            *) retryable=false ;;
+          esac
+          printf 'retryable=%s\n' "$retryable" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Retry Playwright Chromium install for staging critical flows
+        id: staging-playwright-retry
+        if: env.SHOULD_DEPLOY != 'false' && steps.staging-playwright-install.outcome == 'failure' && steps.staging-playwright-install.outputs.retryable == 'true'
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
+          PLAYWRIGHT_INSTALL_ATTEMPT: "2"
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/release-health
+          sleep 5
+          node scripts/playwright-chromium-install.mjs 2>&1 | tee -a artifacts/release-health/staging-browser-install.txt
+
+      - name: Require staging Playwright Chromium install
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.staging-playwright-install.outcome == 'failure' && steps.staging-playwright-retry.outcome != 'success'
+        run: exit 1
 
       - name: Await staging projection convergence
         id: projection_convergence_gate
@@ -2350,7 +2381,7 @@ jobs:
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"
@@ -2715,6 +2746,7 @@ jobs:
             --diagnostics artifacts/agent-grant-revocation/staging/replay-status.json \
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-browser-install.txt \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
             --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
             --diagnostics artifacts/release-health/account-buy-now-freshness-probe.json \

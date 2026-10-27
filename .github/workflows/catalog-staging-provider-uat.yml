@@ -162,7 +162,7 @@ jobs:
     name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
     needs: [admit-reviewed-sha, resolve-provider-uat-plan]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 61
     environment: staging
     if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     strategy:
@@ -200,21 +200,23 @@ jobs:
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: ~/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium
+        timeout-minutes: 11
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-staging-provider-uat
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging provider sync UAT
         id: provider-uat
-        timeout-minutes: 55
+        timeout-minutes: 50
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
 
       # Scope Sync Batch preview probe (#9244): publish only the exact receipt,
@@ -272,13 +274,19 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scope-sync-count-lifecycle
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture count lifecycle without confirmation
         id: capture
+        timeout-minutes: 4
         env:
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec tsx scripts/catalog-staging-count-lifecycle.mjs capture
       - name: Validate exact runner-scanned receipt
         id: capture-receipt
@@ -323,13 +331,19 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-coordinate-preview
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex coordinate preview
         id: capture
+        timeout-minutes: 9
         env:
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec tsx scripts/catalog-staging-scrydex-coordinate-preview.mjs capture
       - name: Validate exact runner-sealed coordinate preview
         id: receipt
@@ -392,13 +406,19 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-cache-capture
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex option cache without refresh
         id: capture
+        timeout-minutes: 9
         env:
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs capture
       - name: Validate exact runner-sealed capture
         id: capture-receipt
@@ -450,13 +470,19 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-force-refresh-bounded
+        run: node scripts/playwright-chromium-install.mjs
       - name: Run bounded Scrydex force refresh
         id: refresh
+        timeout-minutes: 9
         env:
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec tsx scripts/catalog-staging-scrydex-option-refresh.mjs
       - name: Validate bounded refresh receipt
         id: refresh-receipt

@@ -125,10 +125,12 @@ export async function installPlaywrightChromium({
     ...env,
     INSTALLER_TIMEOUT_SECONDS: "600",
   };
+  const identity = identityFromEnvironment(callerEnv);
   const explicitEnv = {
     PLAYWRIGHT_BROWSERS_PATH: cachePath,
     PLAYWRIGHT_INSTALL_SITE: site,
     PLAYWRIGHT_INSTALL_ATTEMPT: attempt,
+    BOUNDARY_HEAD_SHA: identity.headSha,
   };
   let result;
   try {
@@ -137,7 +139,7 @@ export async function installPlaywrightChromium({
       if (typeof line !== "string" || !line.startsWith(TIMING_RECORD_PREFIX)) write(line);
     };
     result = await runInstallerImpl({
-      identity: identityFromEnvironment(callerEnv),
+      identity,
       env: callerEnv,
       installerCommand: invocation.command,
       installerArgs: invocation.args,

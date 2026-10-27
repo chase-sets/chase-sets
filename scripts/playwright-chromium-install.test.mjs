@@ -36,6 +36,34 @@ afterEach(() => {
 });
 
 describe("Playwright Chromium installer primitive", () => {
+  it("AC1/AC2 inventories every scoped caller, budgets its envelope, and leaves E2E separate", () => {
+    const workflow = (name) => readFileSync(`.github/workflows/${name}`, "utf8");
+    const catalog = workflow("catalog-staging-provider-uat.yml");
+    const advisory = workflow("platform-staging-advisory-evidence.yml");
+    const route = workflow("platform-staging-route-matrix-evidence.yml");
+    const wake = workflow("platform-staging-wake-drills.yml");
+    const production = workflow("platform-production.yml");
+    const platformPr = workflow("platform-pr.yml");
+    for (const source of [catalog, advisory, route, wake, production]) {
+      expect(source).toContain("node scripts/playwright-chromium-install.mjs");
+      expect(source).not.toMatch(/^ {6}[A-Z_]+: \$\{\{ runner\.temp \}\}/m);
+    }
+    expect(catalog).toContain("timeout-minutes: 61");
+    expect(catalog).toContain('CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"');
+    expect(catalog).toContain("timeout-minutes: 50");
+    expect(advisory).toContain("timeout-minutes: 90");
+    expect(advisory).toContain("timeout-minutes: 11");
+    expect(advisory).toContain("timeout-minutes: 79");
+    expect(route).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-route-matrix-evidence");
+    expect(wake).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-wake-drills");
+    expect(production).toContain("id: staging-playwright-retry");
+    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT: "2"');
+    expect(production).toContain("staging-browser-install.txt");
+    expect(platformPr).toContain("PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture");
+    expect(platformPr).toContain("timeout-minutes: 15");
+    expect(platformPr).toContain("pnpm exec playwright install --with-deps chromium");
+  });
+
   it.each(["relative/cache", "~/cache", path.parse(process.cwd()).root])(
     "refuses unsafe cache path: %s",
     async (cachePath) => {
@@ -260,6 +288,7 @@ describe("Playwright Chromium installer primitive", () => {
         PLAYWRIGHT_BROWSERS_PATH: path.resolve(cache),
         PLAYWRIGHT_INSTALL_SITE: "staging-uat",
         PLAYWRIGHT_INSTALL_ATTEMPT: "2",
+        BOUNDARY_HEAD_SHA: "0".repeat(40),
       },
     ]);
     expect(lines.join("\n")).not.toMatch(/PRIVATE|provider response|<html>/);
