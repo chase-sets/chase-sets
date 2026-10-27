@@ -773,21 +773,22 @@ describe("cleanup workflow bounded footprint pins", () => {
     expect(destructive).not.toContain("--retention-days");
   });
 
-  it("pins exactly the three declared managed-authority step-anchor shifts", () => {
+  it("pins exactly the four declared managed-authority step-anchor shifts", () => {
     const manifest = JSON.parse(readFileSync(resolve("scripts/managed-postgres-authority-manifest.json"), "utf8"));
     const anchors = manifest.grants.map(
       (entry) => `${entry.file}|${entry.jobId}|${entry.stepAnchor}|${entry.secretName}`,
     );
     const expected = [
-      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Cleanup registry tags#7|DIGITALOCEAN_REGISTRY_TOKEN",
+      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Resolve registry identity#5|DIGITALOCEAN_REGISTRY_TOKEN",
+      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Cleanup registry tags#8|DIGITALOCEAN_REGISTRY_TOKEN",
       ".github/workflows/platform-production-restore-point-cleanup.yml|cleanup|name:Cleanup restore-point forks#4|DIGITALOCEAN_ACCESS_TOKEN",
       ".github/workflows/platform-production-restore-point-cleanup.yml|cleanup|name:Summarize cleanup#5|DIGITALOCEAN_ACCESS_TOKEN",
     ];
     for (const anchor of expected) expect(anchors.filter((candidate) => candidate === anchor)).toHaveLength(1);
     for (const predecessor of [
-      expected[0].replace("#7", "#6"),
-      expected[1].replace("#4", "#3"),
-      expected[2].replace("#5", "#4"),
+      expected[1].replace("#8", "#7"),
+      expected[2].replace("#4", "#3"),
+      expected[3].replace("#5", "#4"),
     ]) {
       expect(anchors).not.toContain(predecessor);
     }
