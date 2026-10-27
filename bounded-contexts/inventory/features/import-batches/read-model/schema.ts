@@ -97,6 +97,22 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
   created_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inventory_import_commit_inputs (
+  input_id text PRIMARY KEY,
+  tenant_id text NOT NULL,
+  actor_user_id text NOT NULL,
+  account_id text NOT NULL,
+  batch_id text NOT NULL REFERENCES inventory_import_batches(batch_id) ON DELETE CASCADE,
+  snapshot_version integer NOT NULL CHECK (snapshot_version = 1),
+  snapshot_hash text NOT NULL CHECK (snapshot_hash ~ '^[a-f0-9]{64}$'),
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  accepted_rows jsonb NOT NULL,
+  created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_import_commit_inputs_batch_idx
+  ON inventory_import_commit_inputs (account_id, batch_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS inventory_import_batch_job_inputs_account_idx
   ON inventory_import_batch_job_inputs (account_id, created_at DESC);
 
@@ -163,6 +179,26 @@ ${inventoryDraftListingOutboxSchemaSql}
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261027_inventory_import_commit_inputs",
+    description: "Persist immutable accepted import rows for durable commit jobs.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS inventory_import_commit_inputs (
+  input_id text PRIMARY KEY,
+  tenant_id text NOT NULL,
+  actor_user_id text NOT NULL,
+  account_id text NOT NULL,
+  batch_id text NOT NULL REFERENCES inventory_import_batches(batch_id) ON DELETE CASCADE,
+  snapshot_version integer NOT NULL CHECK (snapshot_version = 1),
+  snapshot_hash text NOT NULL CHECK (snapshot_hash ~ '^[a-f0-9]{64}$'),
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  accepted_rows jsonb NOT NULL,
+  created_at timestamptz NOT NULL
+);`,
+      `CREATE INDEX IF NOT EXISTS inventory_import_commit_inputs_batch_idx
+        ON inventory_import_commit_inputs (account_id, batch_id, created_at DESC)`,
+    ],
+  },
   {
     migrationId: "20261016_inventory_import_safe_snapshots",
     description: "Install safe versioned import source readers and bounded row storage before writer cutover.",

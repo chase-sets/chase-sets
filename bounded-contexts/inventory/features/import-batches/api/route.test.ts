@@ -65,6 +65,31 @@ describe("inventory import batch routes", () => {
     expect((await app.request("/imb_synthetic?limit=101")).status).toBe(400);
     expect((await app.request("/imb_synthetic?offset=NaN")).status).toBe(400);
   });
+
+  it("requires and forwards the caller attempt for commit acceptance", async () => {
+    const enqueueCommitBatchJob = vi.fn(
+      async (_params, context) =>
+        ({
+          jobId: "job_commit",
+          jobKind: "commit",
+          payload: { accountId: "acc_synthetic", batchId: "imb_synthetic" },
+          progress: { phase: "queued", completed: 0, total: 0, currentRowId: null, message: null },
+          eventContext: context,
+          status: "queued",
+        }) as unknown as InventoryImportBatchJob,
+    );
+    const app = privateApp({ enqueueCommitBatchJob });
+    expect((await app.request("/imb_synthetic/commit", { method: "POST" })).status).toBe(400);
+    const response = await app.request("/imb_synthetic/commit", {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": "d4f4f6bc-6e5f-4f8f-9cc1-6c5f2e4a4f3a" },
+    });
+    expect(response.status).toBe(202);
+    expect(enqueueCommitBatchJob).toHaveBeenCalledWith(
+      { accountId: "acc_synthetic", batchId: "imb_synthetic" },
+      expect.objectContaining({ tenantId: "tnt_synthetic" }),
+    );
+  });
   it("downloads the account native CSV template as an attachment", async () => {
     const getNativeCsvTemplate = vi.fn(async () => "catalogItemId,storageLocationId\ncat_example,loc_1");
     const getNativeCsvExport = vi.fn();
