@@ -207,6 +207,145 @@ function extractAdvisoryEvaluator() {
     .join("\n");
 }
 
+function extractAdvisoryPostWindowEvaluator() {
+  const block = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Run post-window evaluator");
+  const match = String(block).match(/node --input-type=module - post-window <<'NODE'\n([\s\S]*?)\n\s*NODE/u);
+  if (!match) throw new Error("Missing post-window evaluator heredoc");
+  return match[1]
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/u, ""))
+    .join("\n");
+}
+
+async function executeAdvisoryPostWindow({ token = true, overlap = false, superseded = false, capped = false } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-post-window-"));
+  const script = join(root, "advisory-post-window.mjs");
+  const output = join(root, "output");
+  const helm = join(root, "helm.mjs");
+  const image = {
+    global: {
+      image: {
+        registry: "registry.digitalocean.com",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: superseded ? "c".repeat(40) : "a".repeat(40),
+        digest: `sha256:${(superseded ? "d" : "b").repeat(64)}`,
+      },
+    },
+  };
+  const evaluator = extractAdvisoryPostWindowEvaluator().replace(
+    'execFileAsync("helm", [',
+    "execFileAsync(process.execPath, [process.env.HELM_STUB, ",
+  );
+  writeFileSync(script, evaluator);
+  writeFileSync(helm, `process.stdout.write(${JSON.stringify(JSON.stringify(image))});\n`);
+  const members = [
+    "platform-preview-wildcard-tls.yml",
+    "platform-production.yml",
+    "platform-staging-admin-qa-actor-fixtures.yml",
+    "platform-staging-bootstrap-hook-drill.yml",
+    "platform-staging-cluster-addons.yml",
+    "platform-staging-evidence-window.yml",
+    "platform-staging-helm-recovery.yml",
+    "platform-staging-representative-commerce-state.yml",
+    "platform-staging-reset.yml",
+    "platform-staging-rollback-drill.yml",
+  ];
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const route = `${url.pathname}${url.search}`.replace("/repos/synthetic/chase-sets/", "");
+    const send = (body, status = 200) => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(body));
+    };
+    if (request.headers.authorization !== "Bearer synthetic-token") return send({ message: "Bad credentials" }, 401);
+    const workflow = route.match(/^actions\/workflows\/([^/]+)\/runs\?/u);
+    if (workflow) {
+      if (capped)
+        return send({
+          total_count: 101,
+          workflow_runs: Array.from({ length: 101 }, (_, index) => ({
+            id: 3000 + index,
+            path: `.github/workflows/${workflow[1]}`,
+            run_attempt: 1,
+          })),
+        });
+      if (!overlap) return send({ total_count: 0, workflow_runs: [] });
+      return send({
+        total_count: 1,
+        workflow_runs: [{ id: 2001, path: `.github/workflows/${workflow[1]}`, run_attempt: 1, status: "completed" }],
+      });
+    }
+    const jobs = route.match(/^actions\/runs\/2001\/attempts\/1\/jobs\?/u);
+    if (jobs) {
+      return send({
+        total_count: 1,
+        jobs: [
+          {
+            name: "Deploy Staging",
+            status: "completed",
+            conclusion: "success",
+            started_at: new Date(Date.now() - 60_000).toISOString(),
+            completed_at: new Date(Date.now() - 1_000).toISOString(),
+          },
+        ],
+      });
+    }
+    return send({ total_count: 0, workflow_runs: [] });
+  });
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  try {
+    const env = {
+      ...process.env,
+      PATH: `${root}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+      ...(process.platform === "win32"
+        ? {
+            Path: `${root};${process.env.Path ?? process.env.PATH ?? ""}`,
+            PATHEXT: process.env.PATHEXT,
+            SystemRoot: process.env.SystemRoot,
+          }
+        : {}),
+      GITHUB_WORKSPACE: resolve("."),
+      GITHUB_REPOSITORY: "synthetic/chase-sets",
+      GITHUB_RUN_ID: "999",
+      GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+      GITHUB_OUTPUT: output,
+      HELM_STUB: helm,
+      GH_TOKEN: "synthetic-token",
+      GITHUB_TOKEN: "synthetic-token",
+      RELEASE_COMMIT: "a".repeat(40),
+      PLATFORM_IMAGE: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"a".repeat(40)}`,
+      PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+      ADMISSION_AT: new Date(Date.now() - 120_000).toISOString(),
+    };
+    if (!token) delete env.GH_TOKEN;
+    const result = await new Promise((resolveChild, rejectChild) => {
+      const child = spawn(process.execPath, [script, "post-window"], { cwd: resolve("."), env });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      child.on("error", rejectChild);
+      child.on("close", (status) => resolveChild({ status, stdout, stderr }));
+    });
+    const evidence = existsSync(output) ? readFileSync(output, "utf8") : "";
+    const outputs = Object.fromEntries(
+      evidence
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const separator = line.indexOf("=");
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        }),
+    );
+    return { ...result, evidence, outputs };
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function executeAdvisoryWait({
   token = true,
   dispatcherDoneAfter = 0,
@@ -4873,10 +5012,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).not.toContain("group: platform-deploy-staging");
     expect(advisoryEvidenceJob).not.toContain("cancel-in-progress: false");
     expect(advisoryEvidenceJob).not.toContain("github.run_started_at");
-    expect(advisoryEvidenceJob).not.toContain("post-window evaluator");
+    expect(advisoryEvidenceJob).toContain("post-window evaluator");
     expect(advisoryEvidenceJob).not.toContain('mode === "test-output"');
     expect(advisoryEvidenceJob).not.toContain('mode === "test-census"');
-    expect(advisoryEvidenceJob).not.toContain('mode === "post-window"');
+    expect(advisoryEvidenceJob).toContain('mode === "post-window"');
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("group: platform-staging-advisory-evidence");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("cancel-in-progress: false");
     expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
@@ -4886,7 +5025,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(advisoryEvidenceJob).toContain("Fail scenario-seed advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail marketplace E2E advisory signal");
-    expect(advisoryEvidenceJob).toContain("Fail interim advisory freshness signal");
+    expect(advisoryEvidenceJob).toContain("Fail post-window advisory freshness signal");
+    expect(advisoryEvidenceJob).toContain("steps.post_window.outputs.freshness_status");
+    expect(advisoryEvidenceJob).toContain("GH_TOKEN: ${{ github.token }}");
+    expect(advisoryEvidenceJob).toContain("window_census");
+    expect(advisoryEvidenceJob).toContain("observed_superseding_identity");
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
@@ -5189,6 +5332,32 @@ describe("DigitalOcean platform configuration", () => {
     // M7 wait-gate removal would admit instead of reaching this stale refusal.
   });
 
+  it("executes real post-window mode and fails closed for token, overlap, supersession and census caps", async () => {
+    const missingToken = await executeAdvisoryPostWindow({ token: false });
+    expect(missingToken.status).not.toBe(0);
+    expect(missingToken.outputs.freshness_status).toBe("unknown");
+
+    const clean = await executeAdvisoryPostWindow();
+    expect(clean.status, clean.stderr).toBe(0);
+    expect(clean.outputs.freshness_status).toBe("fresh");
+    expect(clean.outputs.observed_release_commit).toBe("a".repeat(40));
+    expect(clean.outputs.window_census).toContain('"overlaps":[]');
+
+    const overlap = await executeAdvisoryPostWindow({ overlap: true });
+    expect(overlap.status).not.toBe(0);
+    expect(overlap.outputs.freshness_status).toBe("stale");
+
+    const superseded = await executeAdvisoryPostWindow({ superseded: true });
+    expect(superseded.status).not.toBe(0);
+    expect(superseded.outputs.freshness_status).toBe("stale");
+    expect(superseded.outputs.observed_release_commit).toBe("c".repeat(40));
+    expect(superseded.outputs.observed_superseding_identity).toBe("true");
+
+    const capped = await executeAdvisoryPostWindow({ capped: true });
+    expect(capped.status).not.toBe(0);
+    expect(capped.outputs.freshness_status).toBe("unknown");
+  });
+
   it("refuses advisory legacy or unavailable markers before seed admission", () => {
     const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
     const seed = job.steps.find((step) => step.id === "scenario_seed");
@@ -5235,7 +5404,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(Number(preflight.run.match(/export ADVISORY_WAIT_POLL_MS=(\d+)/u)?.[1])).toBe(30_000);
   });
 
-  it("evaluates advisory Playwright gates and the interim non-fresh signal", () => {
+  it("evaluates advisory Playwright gates and the final non-fresh signal", () => {
     const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
     const gates = job.steps.filter((step) =>
       [
@@ -5259,14 +5428,15 @@ describe("DigitalOcean platform configuration", () => {
       };
       for (const gate of gates) expect(advisoryCondition(gate.if, steps), gate.name).toBe(expected);
     }
-    const signal = job.steps.find((step) => step.name === "Fail interim advisory freshness signal");
+    const signal = job.steps.find((step) => step.name === "Fail post-window advisory freshness signal");
     for (const [status, expected] of [
       ["unknown", true],
       ["stale", true],
       ["fresh", false],
     ]) {
       const steps = {
-        advisory_preflight: { outcome: "success", outputs: { freshness_status: status } },
+        advisory_preflight: { outcome: "success" },
+        post_window: { outcome: status === "fresh" ? "success" : "failure", outputs: { freshness_status: status } },
         scenario_seed: { outcome: "success" },
         marketplace_e2e: { outcome: "success" },
       };
