@@ -1,5 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { MoneyAmount } from "@chase-sets/primitives/money";
+import {
+  centsToMoneyAmount,
+  centsToSignedMoneyAmount,
+  moneyToCents,
+  type MoneyAmount,
+  type SignedMoneyAmount,
+} from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
 import { toEconomicsForPricingGoal, type EconomicsResolution } from "../../economics/domain/resolution";
 import {
@@ -14,6 +20,7 @@ import {
   type HurdleSweepListing,
 } from "../../repricing-policies/domain/portfolio/preview";
 import type { GoalCurve } from "../../repricing-policies/domain/goals/registry";
+import { netProceedsAtPrice } from "../../repricing-policies/domain/goals/curve-math";
 import { assemblePortfolio } from "../../repricing-policies/domain/portfolio/assemble";
 import { readCatalogItemProductLineInputs } from "../../recommendations/read-model/queries";
 
@@ -41,6 +48,7 @@ export type PricingHealthWhatIfPortfolio = Readonly<{
   label: string;
   productLineReferenceId: string | null;
   listingCount: number;
+  excludedCurrencyCount: number;
   currencyCode: string;
   snapshotHash: string | null;
   horizon: Readonly<{
@@ -56,12 +64,13 @@ export type PricingHealthWhatIfPortfolio = Readonly<{
       valueAmount: MoneyAmount;
       waitDays: number | null;
     }> | null;
-    valueDeltaAmount: number | null;
+    valueDeltaAmount: SignedMoneyAmount | null;
     waitDeltaDays: number | null;
   }>;
 }>;
 
 export type PricingHealthWhatIf = Readonly<{ portfolios: readonly PricingHealthWhatIfPortfolio[] }>;
+export type PricingHealthWhatIfResult = PricingHealthWhatIf | Readonly<{ status: "unavailable" }>;
 
 /**
  * Pricing Health's only portfolio adapter. It reads the caller's complete
@@ -141,6 +150,7 @@ export function createPricingHealthWhatIfAdapter({
         }),
       );
       const byLine = new Map<string, WhatIfListing[]>();
+      const scenarioByListing = new Map<string, HurdleScenario>();
       for (const listing of prepared) {
         const ref = linesByCatalogItem.get(listing.catalogItemId)?.referenceId ?? null;
         const key = ref ?? "__none__";
@@ -169,7 +179,8 @@ export function createPricingHealthWhatIfAdapter({
         listings: readonly WhatIfListing[],
       ): PricingHealthWhatIfPortfolio {
         const currency = listings.find((listing) => listing.currency)?.currency ?? "USD";
-        const normalized = listings.map((listing) => ({
+        const included = listings.filter((listing) => listing.currency === currency);
+        const normalized = included.map((listing) => ({
           listingId: listing.listingId,
           currentPriceAmount: listing.currentPriceAmount,
           curve: listing.curve,
@@ -178,18 +189,18 @@ export function createPricingHealthWhatIfAdapter({
         const horizon = portfolioHorizonModel({ currencyCode: currency, listings: normalized });
         const sweep = sweepDailyReturnHurdles({
           currencyCode: currency,
-          listings: normalized.map((listing) => ({
-            ...listing,
-            economics: listings.find((entry) => entry.listingId === listing.listingId)!.economics,
-          })),
+          listings: normalized,
         });
+        const cycles = new Map(
+          sweep.scenarios.map((scenario) => [scenario.dailyReturnHurdle, scenarioCycle(scenario, included)]),
+        );
         const scenarios = sweep.scenarios.map((scenario) => ({
           ...scenario,
-          dailyReturn: scenarioDailyReturn(scenario, listings),
+          dailyReturn: cycles.get(scenario.dailyReturnHurdle)!.dailyReturn,
         }));
         const configured = [
           ...new Set(
-            listings.flatMap((listing) => {
+            included.flatMap((listing) => {
               const hurdle = listing.economics?.dailyReturnHurdle.effectiveValue;
               return hurdle !== undefined && Number.isFinite(hurdle) ? [hurdle] : [];
             }),
@@ -199,21 +210,18 @@ export function createPricingHealthWhatIfAdapter({
           .filter((scenario) => scenario.dailyReturn !== null && scenario.dailyReturn > 0)
           .sort((left, right) => (right.dailyReturn ?? -Infinity) - (left.dailyReturn ?? -Infinity))[0];
         const configuredScenario =
-          configured.length === 0 || scenarios.length === 0
+          configured.length !== 1
             ? null
-            : scenarios.reduce(
-                (closest, scenario) =>
-                  Math.abs(scenario.dailyReturnHurdle - configured[0]!) <
-                  Math.abs(closest.dailyReturnHurdle - configured[0]!)
-                    ? scenario
-                    : closest,
-                scenarios[0]!,
-              );
+            : sweepDailyReturnHurdles({ currencyCode: currency, listings: normalized, dailyReturnHurdles: configured })
+                .scenarios[0]!;
+        const configuredCycle = configuredScenario ? scenarioCycle(configuredScenario, included) : null;
+        const bestCycle = best ? cycles.get(best.dailyReturnHurdle)! : null;
         return {
           key,
           label,
           productLineReferenceId,
           listingCount: listings.length,
+          excludedCurrencyCount: listings.length - included.length,
           currencyCode: currency,
           snapshotHash: sweep.snapshotHash,
           horizon: { samples: horizon.samples, kneeDays: horizon.kneeDays },
@@ -224,19 +232,68 @@ export function createPricingHealthWhatIfAdapter({
               ? {
                   dailyReturnHurdle: best.dailyReturnHurdle,
                   dailyReturn: best.dailyReturn!,
-                  valueAmount: best.oneCopyValueAmount,
-                  waitDays: best.wait?.medianDays ?? null,
+                  valueAmount: bestCycle!.valueAmount,
+                  waitDays: bestCycle!.waitDays,
                 }
               : null,
             valueDeltaAmount:
-              best && configuredScenario
-                ? Number(best.oneCopyValueAmount) - Number(configuredScenario.oneCopyValueAmount)
+              bestCycle && configuredCycle
+                ? centsToSignedMoneyAmount(
+                    moneyToCents(bestCycle.valueAmount) - moneyToCents(configuredCycle.valueAmount),
+                  )
                 : null,
             waitDeltaDays:
-              best && configuredScenario && best.wait && configuredScenario.wait
-                ? best.wait.medianDays - configuredScenario.wait.medianDays
+              bestCycle && configuredCycle && bestCycle.waitDays !== null && configuredCycle.waitDays !== null
+                ? bestCycle.waitDays - configuredCycle.waitDays
                 : null,
           },
+        };
+      }
+
+      function scenarioCycle(scenario: HurdleScenario, listings: readonly WhatIfListing[]) {
+        let valueCents = 0n;
+        let costSubCents = 0n;
+        let netProceeds = 0;
+        let turnaround = 0;
+        let count = 0;
+        const waits: number[] = [];
+        for (const listing of listings) {
+          if (
+            listing.economicsResolution?.kind !== "resolved" ||
+            listing.economics?.availability !== "resolved" ||
+            listing.currentPriceAmount === null
+          )
+            continue;
+          const cacheKey = `${listing.listingId}\u0000${scenario.dailyReturnHurdle}`;
+          let single = scenarioByListing.get(cacheKey);
+          if (!single) {
+            single = sweepDailyReturnHurdles({
+              currencyCode: listing.currency!,
+              listings: [listing],
+              dailyReturnHurdles: [scenario.dailyReturnHurdle],
+            }).scenarios[0]!;
+            scenarioByListing.set(cacheKey, single);
+          }
+          valueCents += moneyToCents(single.oneCopyValueAmount);
+          netProceeds += netProceedsAtPrice(Number(single.oneCopyValueAmount), listing.economics);
+          const facts = listing.economicsResolution.economics.facts;
+          costSubCents +=
+            moneyToCents(listing.currentPriceAmount) * BigInt(facts.costBasisShareOfMarketBps.effectiveValue) -
+            moneyToCents(facts.costBasisDiscountPerUnitAmount.effectiveValue.amount) * 10_000n;
+          turnaround += facts.turnaroundDays.effectiveValue;
+          count += 1;
+          if (single.wait) waits.push(single.wait.medianDays);
+        }
+        waits.sort((left, right) => left - right);
+        const waitDays = waits.length ? waits[Math.ceil(waits.length / 2) - 1]! : null;
+        const cycle =
+          count && waitDays !== null
+            ? capitalCycle(netProceeds, Number(costSubCents) / 1_000_000, waitDays, turnaround / count)
+            : null;
+        return {
+          valueAmount: centsToMoneyAmount(valueCents),
+          waitDays,
+          dailyReturn: cycle && Number.isFinite(cycle.dailyReturn) ? cycle.dailyReturn : null,
         };
       }
     },
@@ -247,29 +304,7 @@ function identityKey(curve: DemandCurveWithPoints): string {
   return `${curve.catalogItemId}\u0000${curve.productId}`;
 }
 
-function toGoalCurve(curve: DemandCurveWithPoints, currency: string): GoalCurve {
-  return { currencyCode: curve.currencyCode?.toUpperCase() ?? currency, version: curve.version, points: curve.points };
-}
-
-function scenarioDailyReturn(scenario: HurdleScenario, listings: readonly WhatIfListing[]): number | null {
-  const resolved = listings.filter((listing) => listing.economicsResolution?.kind === "resolved");
-  if (resolved.length === 0 || scenario.wait === null) return null;
-  const cost = resolved.reduce((sum, listing) => {
-    const economics = listing.economicsResolution!;
-    if (economics.kind !== "resolved") return sum;
-    const facts = economics.economics.facts;
-    const market = Number(listing.currentPriceAmount ?? "0");
-    return (
-      sum +
-      (market * facts.costBasisShareOfMarketBps.effectiveValue) / 10_000 -
-      Number(facts.costBasisDiscountPerUnitAmount.effectiveValue.amount)
-    );
-  }, 0);
-  const turnaround =
-    resolved.reduce((sum, listing) => {
-      const economics = listing.economicsResolution!;
-      return economics.kind === "resolved" ? sum + economics.economics.facts.turnaroundDays.effectiveValue : sum;
-    }, 0) / resolved.length;
-  const cycle = capitalCycle(Number(scenario.oneCopyValueAmount), cost, scenario.wait.medianDays, turnaround);
-  return Number.isFinite(cycle.dailyReturn) ? cycle.dailyReturn : null;
+function toGoalCurve(curve: DemandCurveWithPoints, currency: string): GoalCurve | null {
+  if (curve.currencyCode?.trim().toUpperCase() !== currency) return null;
+  return { currencyCode: currency, version: curve.version, points: curve.points };
 }

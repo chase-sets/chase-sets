@@ -91,8 +91,12 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.whatIf.bestHurdle": "Best positive hurdle",
   "pricing.features.pricingHealth.whatIf.valueDelta": "Value delta versus configured",
   "pricing.features.pricingHealth.whatIf.waitDelta": "Wait delta versus configured",
-  "pricing.features.pricingHealth.whatIf.snapshot": "Preview snapshot",
+  "pricing.features.pricingHealth.whatIf.snapshot": "Preview snapshot (per request)",
   "pricing.features.pricingHealth.whatIf.none": "None",
+  "pricing.features.pricingHealth.whatIf.error":
+    "Portfolio previews are unavailable. Your verdict and saved policy are unchanged.",
+  "pricing.features.pricingHealth.whatIf.excludedCurrency":
+    "{count} listings excluded from this {currency} preview because their currency differs or is missing.",
   "pricing.features.pricingHealth.grades.title": "Platform Forecast Grades",
   "pricing.features.pricingHealth.grades.platform":
     "Forecast accuracy across all sellers using this goal version, not your seller performance. No seller drilldown.",

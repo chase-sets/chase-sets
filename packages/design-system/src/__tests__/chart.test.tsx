@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   NumericSeriesChart,
@@ -242,9 +242,10 @@ describe("NumericSeriesChart", () => {
             id: "value",
             name: "Portfolio value",
             points: [
-              { x: 1, y: 10, label: "1 day: $10" },
-              { x: Number.NaN, y: 20 },
               { x: 3, y: 30 },
+              { x: Number.NaN, y: 20 },
+              { x: 1, y: 10, label: "1 day: $10" },
+              { x: 2, y: Number.POSITIVE_INFINITY },
             ],
             markers: [{ x: 3, y: 30, label: "Best cycle" }],
           },
@@ -256,6 +257,19 @@ describe("NumericSeriesChart", () => {
     expect(screen.getByRole("table", { name: "Chart samples" })).toBeTruthy();
     expect(screen.getByText("1 day: $10")).toBeTruthy();
     expect(screen.getAllByRole("row")).toHaveLength(3);
+    const rows = within(screen.getByRole("table", { name: "Chart samples" }))
+      .getAllByRole("row")
+      .slice(1);
+    expect(rows.map((row) => Number(within(row).getAllByRole("cell")[0]!.textContent))).toEqual([1, 3]);
+    const path = container.querySelector("svg > path")!.getAttribute("d")!;
+    expect(path).not.toMatch(/NaN|Infinity/);
+    const vertices = [...path.matchAll(/[ML]\s*([\d.-]+)[, ]+([\d.-]+)/g)].map((match) => [
+      Number(match[1]),
+      Number(match[2]),
+    ]);
+    expect(vertices).toHaveLength(rows.length);
+    expect(vertices[0]![0]).toBeLessThan(vertices[1]![0]!);
+    expect(vertices[0]![1]).toBeGreaterThan(vertices[1]![1]!);
   });
 
   it("renders distinct empty, insufficient, and error states", () => {

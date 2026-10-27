@@ -23,7 +23,6 @@ export function discloseForecastGrade(row: StoredForecastGrade, minimumCount: nu
     model: row.model,
     horizonDays: row.horizonDays,
   };
-  if (row.grade === null) return { ...identity, status: "undisclosed" };
   const { count, soldShare, expectedShare, brier, baseRateBrier } = row.grade;
   if (!Number.isSafeInteger(count) || count < minimumCount) return { ...identity, status: "undisclosed" };
   return { ...identity, status: "disclosed", values: { soldShare, expectedShare, brier, baseRateBrier } };

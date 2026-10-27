@@ -577,7 +577,9 @@ export function NumericSeriesChart({
   const nativeProps = toMotionDomProps(rest);
   const finiteSeries = series.map((entry) => ({
     ...entry,
-    points: entry.points.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)),
+    points: entry.points
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .sort((left, right) => left.x - right.x),
     markers: (entry.markers ?? []).filter((marker) => Number.isFinite(marker.x) && Number.isFinite(marker.y)),
   }));
   const maxSamples = finiteSeries.reduce((max, entry) => Math.max(max, entry.points.length), 0);
@@ -719,7 +721,7 @@ function NumericSampleTable({
   formatY: (value: number) => string;
 }>) {
   return (
-    <table className="mt-3 w-full text-left text-xs" aria-label="Chart samples">
+    <table className="mt-3 w-full text-left text-xs" aria-label="Chart samples" tabIndex={0}>
       <caption className="sr-only">Chart samples</caption>
       <thead>
         <tr>

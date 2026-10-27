@@ -22,7 +22,7 @@ import {
   type GoalChoice,
   type Recommendation,
 } from "./goal-comparison";
-import { createPricingHealthWhatIfAdapter, type PricingHealthWhatIf } from "./portfolio-what-if";
+import { createPricingHealthWhatIfAdapter, type PricingHealthWhatIfResult } from "./portfolio-what-if";
 import type { EconomicsServices } from "../../economics/api/services";
 
 export class PricingHealthCandidateRefusedError extends Error {
@@ -93,6 +93,14 @@ export function createPricingHealthServices({
   economics?: Pick<EconomicsServices, "resolve">;
 }>) {
   const whatIf = economics ? createPricingHealthWhatIfAdapter({ db, economics }) : null;
+  const readWhatIf = async (accountId: string, now: string): Promise<PricingHealthWhatIfResult | null> => {
+    if (!whatIf) return null;
+    try {
+      return await whatIf.get(accountId, now);
+    } catch {
+      return { status: "unavailable" };
+    }
+  };
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);
     const state = loaded?.state;
@@ -177,11 +185,6 @@ export function createPricingHealthServices({
           rulesVersion: gradingRulesVersion(policy),
           latest: { closedOnOrBefore: now.slice(0, 10), horizonsDays: policy.horizonsDays, limit: 100 },
         });
-        // An explicit policy read treats JSON null as source corruption. The
-        // unselected overview remains tolerant because platform-wide grade
-        // rows can be concurrently controlled by another browser fixture.
-        if (policyId !== undefined && rows.some((row) => row.grade === null))
-          throw new Error("pricing_forecast_grade_missing");
         grades.push(
           ...rows.map((row) => ({ ...goal, ...discloseForecastGrade(row, policy.gradeDisclosureMinimumCount) })),
         );
@@ -200,7 +203,7 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
-          whatIf: whatIf ? await whatIf.get(accountId, now) : null,
+          whatIf: await readWhatIf(accountId, now),
         };
       const goalChoices = await choices();
       const currentFacts = stored.run
@@ -251,7 +254,7 @@ export function createPricingHealthServices({
         run: currentHealth ? stored.run : null,
         computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
-        whatIf: whatIf ? await whatIf.get(accountId, now) : null,
+        whatIf: await readWhatIf(accountId, now),
       };
     },
     compute: async (
@@ -427,6 +430,6 @@ export type PricingHealthData = Readonly<{
   recommendation?: Recommendation;
   branch?: "comparison" | "advanced-editor" | "create-editor";
   canCompute?: boolean;
-  whatIf?: PricingHealthWhatIf | null;
+  whatIf?: PricingHealthWhatIfResult | null;
 }>;
 export type PricingHealthServices = ReturnType<typeof createPricingHealthServices>;

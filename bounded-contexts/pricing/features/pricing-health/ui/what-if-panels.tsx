@@ -1,10 +1,12 @@
 import { formatMoney } from "@chase-sets/localization";
 import { Banner, Card, KeyValueList, NumericSeriesChart, Stack } from "@chase-sets/design-system";
-import type { PricingHealthWhatIf, PricingHealthWhatIfPortfolio } from "../api/portfolio-what-if";
+import type { PricingHealthWhatIfResult, PricingHealthWhatIfPortfolio } from "../api/portfolio-what-if";
 import { healthCopy as copy, healthNumber as number, healthPercent as percent } from "./copy";
 
-export function PricingHealthWhatIfPanels({ data }: Readonly<{ data: PricingHealthWhatIf | null | undefined }>) {
+export function PricingHealthWhatIfPanels({ data }: Readonly<{ data: PricingHealthWhatIfResult | null | undefined }>) {
   if (!data) return null;
+  if ("status" in data)
+    return <NumericSeriesChart label={copy("whatIf.title")} series={[]} error={copy("whatIf.error")} />;
   if (data.portfolios.length === 0) return <Banner tone="info" title={copy("whatIf.empty")} />;
   return (
     <Stack gap={4} data-testid="pricing-health-what-if">
@@ -44,6 +46,12 @@ function PortfolioWhatIfPanel({ portfolio }: Readonly<{ portfolio: PricingHealth
       </Card.Header>
       <Card.Body>
         <Stack gap={4}>
+          {portfolio.excludedCurrencyCount > 0 ? (
+            <Banner
+              tone="info"
+              title={copy("whatIf.excludedCurrency", { count: number(portfolio.excludedCurrencyCount), currency })}
+            />
+          ) : null}
           <NumericSeriesChart
             label={copy("whatIf.horizon.label", { portfolio: portfolio.label })}
             title={copy("whatIf.horizon.title")}
@@ -103,7 +111,7 @@ function PortfolioWhatIfPanel({ portfolio }: Readonly<{ portfolio: PricingHealth
                 value:
                   portfolio.hurdle.valueDeltaAmount === null
                     ? copy("unavailable")
-                    : formatMoney(portfolio.hurdle.valueDeltaAmount.toFixed(2), currency),
+                    : formatMoney(portfolio.hurdle.valueDeltaAmount, currency),
               },
               {
                 key: copy("whatIf.waitDelta"),
