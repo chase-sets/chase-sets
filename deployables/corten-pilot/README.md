@@ -663,6 +663,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `a12c78b` | Corten `main` with [todd-skelton/corten#144 html! and corten fmt read a pattern with braces as Rust does](https://github.com/todd-skelton/corten/pull/144), closing [todd-skelton/corten#142 html! if let cannot take a struct pattern: the pattern's braces are read as the body](https://github.com/todd-skelton/corten/issues/142). Not breaking. The workaround is removed: Create listing's view matches `if let Catalog::Chosen { item, picks, reset } = &screen.catalog`, and `Catalog::chosen()` is gone. |
 | `07d7f65` | Corten `main` with [todd-skelton/corten#145 ClientIp: the visitor's address, from the peer or a trusted proxy's X-Forwarded-For](https://github.com/todd-skelton/corten/pull/145), closing [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120). Not breaking. public's Join takes `Option<corten::ClientIp>`; `platform::client` (the `CHASE_SETS_TRUST_FORWARDED_HEADERS` reader) is gone, and a deploy lists its proxies in `PROXIES`. The router tests give the request a connection address (`ConnectInfo`) and check that, with no proxy listed, the browser's `X-Forwarded-For` is not read. |
 | `76eda4f` | Corten `main` with [todd-skelton/corten#146 A patch keeps the files chosen in a file input it replaces](https://github.com/todd-skelton/corten/pull/146), closing [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143). Not breaking. The workaround is removed: Create listing's photo fieldset is a patched part (`PhotosPart`), its input marked `aria-invalid` and described by its message after a refusal, and `PhotoErrorPart` is gone. Its smoke now checks that the refused input keeps its file, is invalid and names the message. That check found [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): the input writes its own `aria-describedby` until it is fixed. `corten check` passed at admin 62, marketplace 195, platform 8, public 19 |
+| `12e0695` | Corten `main` with [todd-skelton/corten#148 Upload<T>: a multipart form's files as they arrive, then its fields by Form's rules](https://github.com/todd-skelton/corten/pull/148), closing [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140). Not breaking. The multer workaround is removed: `uploads::read` takes an `Upload<Raw>` (the form's fields read as the address is), limits the body with `upload.limit`, reads each photo up to its limit with `bytes_up_to` and reads past the rest, and Create listing's and a seller's listing's photo handlers take it in place of the raw body. Moving it found [todd-skelton/corten#150 A handler cannot read an Error's status, so an upload over Upload::limit (413) cannot draw the form again with a message](https://github.com/todd-skelton/corten/issues/150): a body over the limit is refused by its `Content-Length` first. `corten check` passed at admin 62, marketplace 205, platform 10, public 19 |
 
 **Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
 ([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
@@ -1510,10 +1511,13 @@ postage, storage locations, cart, item and Add to List. What changed:
     created from Marketplace's snapshot (`createListingFromMarketplaceSupplySnapshot`). Create and
     publish publishes after the create; publication blocked by missing evidence goes to the listing
     with `evidenceEvent=publication_blocked`. Any other refusal keeps the draft and says so with a
-    link to it. Photos are read from the raw body with multer until Corten's `Form` takes
-    multipart ([todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140)).
-    multer keeps only the photo input's files, up to the policy's limits, and holds each file in
-    memory, about 60 MB per request at most. Each file's first bytes must say JPEG, PNG or WebP,
+    link to it. Photos are read with Corten's `Upload<Raw>` (since the `12e0695` pin; multer before
+    it, until [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140) closed): the whole body is limited to 60 MB, each photo is read up to 10 MB
+    (`bytes_up_to`) and kept only if it is from the photo input and within the count, and a file
+    over its limit is read past, not kept. The photos kept are held in memory, since the API takes
+    them in one request after their first bytes are checked. A body whose `Content-Length` is over
+    60 MB is refused before it is read, so the page can say so: `Upload`'s 413 cannot be told from
+    its other errors ([todd-skelton/corten#150 A handler cannot read an Error's status, so an upload over Upload::limit (413) cannot draw the form again with a message](https://github.com/todd-skelton/corten/issues/150)). Each file's first bytes must say JPEG, PNG or WebP,
     because the API answers 500 for anything it cannot decode
     ([chase-sets/chase-sets#10649 [marketplace] Refuse a listing photo the API cannot decode instead of answering 500](https://github.com/chase-sets/chase-sets/issues/10649)).
     A 5xx from a create with photos is drawn as "the photos could not be processed, nothing was
@@ -1546,8 +1550,8 @@ postage, storage locations, cart, item and Add to List. What changed:
     Classify names the slot, and the pilot reads the slot's view from the listing's policy, as
     marketplace does. Reorder sends the new order as comma-separated ids from its hidden field
     (marketplace's is JSON); the API gets the same list. Add photos and Replace post
-    `multipart/form-data` to `/account/listings/{id}/photos`, read with multer like Create
-    listing's (todd-skelton/corten#140), under the same limits and picture check; a 5xx from them
+    `multipart/form-data` to `/account/listings/{id}/photos`, read with `Upload` like Create
+    listing's, under the same limits and picture check; a 5xx from them
     reads as "the photos could not be processed" (chase-sets/chase-sets#10649). Withdraw asks
     first in a `<dialog>` its button opens with `command="show-modal"`, no script. The pilot
     sends no analytics: marketplace's `trackListingEvidenceEvent` pushes to `window.dataLayer`
@@ -1583,11 +1587,13 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open at the `76eda4f` pin, each with its workaround in the pilot:
+Open at the `12e0695` pin, each with its workaround in the pilot:
 
-1. [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140): Create listing and a seller's listing's photo writes read their bodies with multer (`uploads::read`), keeping each file in memory.
+1. [todd-skelton/corten#150 A handler cannot read an Error's status, so an upload over Upload::limit (413) cannot draw the form again with a message](https://github.com/todd-skelton/corten/issues/150): `uploads::read` refuses a body whose `Content-Length` is over its limit before `Upload` reads it, so Create listing and a seller's listing's photo writes can say the photos were too large; a body with no length that is too large ends at the error page.
 2. [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): Create listing's photo input writes `aria-invalid` and one `aria-describedby` (its hint and the message's id, `{form}-{field}-error`, built by hand) instead of `e.aria` (`PhotosPart`).
 3. [todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149): the seller's listings fill an away window's instants in the browser (`seller_listings_page.js`), and refuse the window without a script (decision 54).
+
+Closed since the `76eda4f` pin, at `12e0695`: [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140), its workaround (multer) removed for `Upload<Raw>` in `uploads::read`.
 
 Closed since the `07d7f65` pin, at `76eda4f`: [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143), its workaround (`PhotoErrorPart`) removed.
 

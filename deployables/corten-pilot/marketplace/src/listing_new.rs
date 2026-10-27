@@ -18,16 +18,12 @@
 //! The create is one attempt (the form's `SubmitKey`): the Listing stock's ensure applies once
 //! per attempt and the listing's id is made from it (`listingIdOverride`), so the same form sent
 //! again is the same listing, where marketplace's creates another. The form posts its photos as
-//! `multipart/form-data`, which Corten cannot read yet (todd-skelton/corten#140): `uploads`
-//! reads it. marketplace's own create with photos is refused (chase-sets/chase-sets#10650); the
+//! `multipart/form-data`, read with Corten's `Upload` (`uploads::read`). marketplace's own create with photos is refused (chase-sets/chase-sets#10650); the
 //! pilot sends the purchase limits as their own fields.
 use std::time::Duration;
 
 use corten::{
-    axum::{
-        body::Body,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::http::{HeaderMap, StatusCode},
     prelude::*,
     security::cookie,
 };
@@ -610,20 +606,20 @@ pub(crate) async fn create(
     Caller(ListingSeller(viewer)): Caller<ListingSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    body: Body,
+    upload: Upload<Raw>,
 ) -> HtmlResult {
     let (t, p): (ListingNewMsg, Pilot) = (req.t(), req.t());
     let f = ListingFields::FIELDS;
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut errors = Errors::new();
-    let posted = match uploads::read(&headers, body, LIMITS).await {
+    let posted = match uploads::read(&headers, upload, LIMITS).await {
         Ok(posted) => posted,
         Err(Unread::TooLarge) => {
             // What came after the limit is lost, the fields too: the form starts again.
             errors.add(f.evidence, p.listing_new_photos_too_large());
             return refuse(&req, &viewer, &caller, Draft::default(), errors, false, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
-        Err(Unread::NotMultipart | Unread::Broken) => return Err(corten::Error::status(StatusCode::BAD_REQUEST)),
+        Err(Unread::Refused(error)) => return Err(error),
     };
     // Only the photo input's files are photos.
     let mut posted = posted;

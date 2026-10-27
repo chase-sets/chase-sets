@@ -10,7 +10,6 @@ corten.workspace = true
 corten-ui.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
-multer.workspace = true
 percent-encoding.workspace = true
 platform.workspace = true
 reqwest.workspace = true

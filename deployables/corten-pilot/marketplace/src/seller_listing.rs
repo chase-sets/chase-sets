@@ -5,13 +5,11 @@
 //! classify, replace, remove and reorder). A write that applied goes back to the page with its
 //! receipt (`afterWrite`) and what came of the evidence (`evidenceEvent`), as marketplace's
 //! does; one refused is the page again with the API's words. The two photo writes post
-//! `multipart/form-data` to `/photos`, read with multer until Corten's `Form` can
-//! (todd-skelton/corten#140).
+//! `multipart/form-data` to `/photos`, read with Corten's `Upload` (`uploads::read`).
 use std::time::Duration;
 
 use corten::{
     axum::{
-        body::Body,
         extract::{Path, Query, State},
         http::{HeaderMap, StatusCode},
     },
@@ -28,6 +26,7 @@ use crate::{
     },
     app::{Shared, read_failed, sign_in, url},
     auth::{ListingManager, Viewer},
+    items::Raw,
     listing_new::LIMITS,
     text::{Pilot, SellerListingMsg},
     uploads::{self, Over, Unread},
@@ -444,25 +443,25 @@ fn failed_read(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
     }
 }
 
-/// Add photos and Replace photo: `multipart/form-data`, read with multer (todd-skelton/corten#140).
+/// Add photos and Replace photo: `multipart/form-data`, read with Corten's `Upload` (`uploads::read`).
 pub(crate) async fn photos(
     req: Req,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    body: Body,
+    upload: Upload<Raw>,
 ) -> HtmlResult {
     let p: Pilot = req.t();
     let f = ListingForm::FIELDS;
-    let posted = match uploads::read(&headers, body, LIMITS).await {
+    let posted = match uploads::read(&headers, upload, LIMITS).await {
         Ok(posted) => posted,
         Err(Unread::TooLarge) => {
             let mut edits = Edits { photos_lost: true, ..Edits::default() };
             edits.errors.add_form(p.seller_listing_photos_too_large());
             return render(&req, &viewer, &config, &headers, &id, (None, None), edits, None, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
-        Err(Unread::NotMultipart | Unread::Broken) => return Err(corten::Error::status(StatusCode::BAD_REQUEST)),
+        Err(Unread::Refused(error)) => return Err(error),
     };
     let first = |name: FieldName| crate::listing_new::first(&posted.fields, name.as_str());
     let form = ListingForm {
