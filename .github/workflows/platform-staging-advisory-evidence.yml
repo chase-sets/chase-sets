@@ -36,9 +36,9 @@ jobs:
       post_window_error: ${{ steps.post_window.outputs.error }}
       freshness_status: ${{ steps.post_window.outputs.freshness_status || 'unknown' }}
       freshness_reason: ${{ steps.post_window.outputs.freshness_reason || 'post-window did not complete' }}
-      observed_release_commit: ${{ steps.post_window.outputs.observed_release_commit || steps.advisory_preflight.outputs.observed_release_commit || '' }}
-      observed_platform_image: ${{ steps.post_window.outputs.observed_platform_image || steps.advisory_preflight.outputs.observed_platform_image || '' }}
-      observed_platform_image_digest: ${{ steps.post_window.outputs.observed_platform_image_digest || steps.advisory_preflight.outputs.observed_platform_image_digest || '' }}
+      observed_release_commit: ${{ steps.post_window.outputs.observed_release_commit || '' }}
+      observed_platform_image: ${{ steps.post_window.outputs.observed_platform_image || '' }}
+      observed_platform_image_digest: ${{ steps.post_window.outputs.observed_platform_image_digest || '' }}
       post_window_publication_at: ${{ steps.post_window.outputs.publication_at || '' }}
     env:
       TF_IN_AUTOMATION: "true"
@@ -547,6 +547,9 @@ jobs:
           PLATFORM_IMAGE: ${{ inputs.platform_image }}
           PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
           ADMISSION_AT: ${{ steps.advisory_preflight.outputs.admission_at || '' }}
+          SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
+          AWAIT_SCENARIO_SEED_OUTCOME: ${{ steps.await_scenario_seed.outcome || 'skipped' }}
+          SCENARIO_SEED_CLEANUP_OUTCOME: ${{ steps.await_scenario_seed.outputs.cleanup_outcome || '' }}
         run: |
           set -euo pipefail
           node --input-type=module - post-window <<'NODE'
@@ -555,7 +558,7 @@ jobs:
           import { promisify } from "node:util";
           import { pathToFileURL } from "node:url";
 
-          const { parsePlatformImageRef } = await import(
+          const { parsePlatformImageRef, readGitHubProductionWriterCensus } = await import(
             pathToFileURL(`${process.env.GITHUB_WORKSPACE ?? process.cwd()}/scripts/platform-kubernetes-deployment.mjs`)
           );
           const execFileAsync = promisify(execFile);
@@ -578,6 +581,7 @@ jobs:
             "platform-staging-reset.yml",
             "platform-staging-rollback-drill.yml",
           ];
+          const memberSet = new Set(members);
           const workflowName = (run) => String(run.path ?? "").split("/").at(-1);
           const scopeJobs = (workflow, jobs) =>
             workflow === "platform-production.yml" ? jobs.filter((job) => productionStagingJobs.has(job.name)) : jobs;
@@ -597,7 +601,7 @@ jobs:
             return response.json();
           };
           const queryRuns = async (workflow, from) => {
-            const created = encodeURIComponent(`>=${new Date(from - 90 * 60 * 1000).toISOString()}`);
+            const created = encodeURIComponent(`>=${new Date(from - 30 * 24 * 60 * 60 * 1000).toISOString()}`);
             const page = await api(`actions/workflows/${workflow}/runs?created=${created}&per_page=100&page=1`);
             if (!Array.isArray(page.workflow_runs) || !Number.isSafeInteger(page.total_count) || page.total_count < 0 || page.total_count > 100 || page.workflow_runs.length !== page.total_count) {
               throw new Error(`GitHub authority census is incomplete for ${workflow}`);
@@ -630,18 +634,42 @@ jobs:
             if (from === null) throw new Error("advisory post-window authority unknown: admission timestamp missing");
             const publicationAt = new Date().toISOString();
             const to = parseTime(publicationAt);
-            const { observed, superseded } = await observedIdentity();
             output("publication_at", publicationAt);
+            const seedOutcome = process.env.SCENARIO_SEED_OUTCOME ?? "skipped";
+            const awaitOutcome = process.env.AWAIT_SCENARIO_SEED_OUTCOME ?? "skipped";
+            const cleanupOutcome = process.env.SCENARIO_SEED_CLEANUP_OUTCOME ?? "";
+            if (seedOutcome !== "success" || awaitOutcome !== "success" || cleanupOutcome === "stale") {
+              const reason = cleanupOutcome === "stale"
+                ? "scenario-seed cleanup was stale or preempted"
+                : `scenario-seed evidence was not successful (seed=${seedOutcome}, cleanup=${awaitOutcome})`;
+              output("freshness_status", "stale");
+              output("freshness_reason", reason);
+              output("error", reason);
+              throw new Error(`advisory post-window stale: ${reason}`);
+            }
+            const { observed, superseded } = await observedIdentity();
             output("observed_release_commit", observed.releaseCommit);
             output("observed_platform_image", observed.platformImage);
             output("observed_platform_image_digest", observed.platformImageDigest);
             output("observed_superseding_identity", superseded ? "true" : "false");
             const census = [];
             let staleReason = superseded ? "applied staging identity was superseded during the evidence window" : "";
+            const writerCensus = await readGitHubProductionWriterCensus({
+              env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN },
+            });
+            const activeMemberRuns = new Map();
+            for (const run of writerCensus.runs ?? []) {
+              const workflow = workflowName(run);
+              if (memberSet.has(workflow) && String(run.id) !== String(process.env.GITHUB_RUN_ID)) activeMemberRuns.set(String(run.id), { run, workflow });
+            }
             for (const workflow of members) {
               for (const run of await queryRuns(workflow, from)) {
                 if (String(run.id) === String(process.env.GITHUB_RUN_ID)) continue;
                 if (!Number.isSafeInteger(run.id) || !run.path || !run.run_attempt) throw new Error(`GitHub authority census returned malformed ${workflow} run`);
+                const runStarted = parseTime(run.run_started_at);
+                const updated = parseTime(run.updated_at);
+                const candidate = activeMemberRuns.has(String(run.id)) || (updated !== null && updated > from) || (runStarted !== null && runStarted < to && runStarted > from);
+                if (!candidate) continue;
                 const jobs = await jobsFor(run, workflow);
                 for (const job of jobs) {
                   const started = parseTime(job.started_at);
@@ -649,7 +677,6 @@ jobs:
                   if (started === null || (completed !== null && completed < started)) throw new Error(`GitHub authority job census returned unsafe timestamps for ${workflow} run ${run.id}`);
                   const active = activeJobStatuses.has(job.status) || (activeRunStatuses.has(run.status) && completed === null && !job.conclusion);
                   const overlap = started < to && (completed === null || completed > from);
-                  if (overlap) staleReason ||= `${workflow} run ${run.id} job ${job.name} overlaps the evidence window`;
                   if (active && overlap) staleReason ||= `${workflow} run ${run.id} remained active at publication`;
                   if (overlap && (job.conclusion === "cancelled" || job.conclusion === "failure" || job.conclusion === "timed_out")) {
                     staleReason ||= `${workflow} run ${run.id} job ${job.name} ended ${job.conclusion} in the evidence window`;
@@ -657,8 +684,15 @@ jobs:
                   if (overlap && /rollback|recovery|reset|seed|bootstrap|\bca\b|certificate/i.test(`${workflow} ${job.name}`)) {
                     staleReason ||= `${workflow} run ${run.id} job ${job.name} mutated staging during the evidence window`;
                   }
+                  if (overlap) staleReason ||= `${workflow} run ${run.id} job ${job.name} overlaps the evidence window`;
                   if (overlap) census.push({ workflow, runId: run.id, job: job.name, conclusion: job.conclusion ?? null, status: job.status });
                 }
+              }
+            }
+            for (const { run, workflow } of activeMemberRuns.values()) {
+              const jobs = await jobsFor(run, workflow);
+              if (jobs.some((job) => activeJobStatuses.has(job.status) || activeRunStatuses.has(run.status))) {
+                staleReason ||= `${workflow} run ${run.id} remained active at publication`;
               }
             }
             output("window_census", JSON.stringify({ admissionAt: new Date(from).toISOString(), publicationAt, overlaps: census }));
@@ -677,7 +711,7 @@ jobs:
           } catch (error) {
             const message = String(error?.message ?? error);
             const stale = message.startsWith("advisory post-window stale:");
-            const reason = stale ? message.slice("advisory post-window stale: ".length) : message.startsWith("advisory post-window authority unknown:") ? message : `advisory post-window authority unknown: ${message}`;
+            const reason = stale ? message.slice("advisory post-window stale: ".length) : message.startsWith("advisory post-window authority unknown:") ? message : "advisory post-window authority unknown: GitHub authority read failed";
             output("freshness_status", stale ? "stale" : "unknown");
             output("freshness_reason", reason);
             output("error", reason);
@@ -701,10 +735,10 @@ jobs:
           ADVISORY_PREFLIGHT_ERROR: ${{ steps.advisory_preflight.outputs.error || 'none captured' }}
           POST_WINDOW_ERROR: ${{ steps.post_window.outputs.error || 'none captured' }}
           WINDOW_CENSUS: ${{ steps.post_window.outputs.window_census || '{}' }}
-          OBSERVED_RELEASE_COMMIT: ${{ steps.post_window.outputs.observed_release_commit || steps.advisory_preflight.outputs.observed_release_commit || '' }}
-          OBSERVED_PLATFORM_IMAGE: ${{ steps.post_window.outputs.observed_platform_image || steps.advisory_preflight.outputs.observed_platform_image || '' }}
-          OBSERVED_PLATFORM_IMAGE_DIGEST: ${{ steps.post_window.outputs.observed_platform_image_digest || steps.advisory_preflight.outputs.observed_platform_image_digest || '' }}
-          OBSERVED_SUPERSEDING_IDENTITY: ${{ steps.post_window.outputs.observed_superseding_identity || 'false' }}
+          OBSERVED_RELEASE_COMMIT: ${{ steps.post_window.outputs.observed_release_commit || '' }}
+          OBSERVED_PLATFORM_IMAGE: ${{ steps.post_window.outputs.observed_platform_image || '' }}
+          OBSERVED_PLATFORM_IMAGE_DIGEST: ${{ steps.post_window.outputs.observed_platform_image_digest || '' }}
+          OBSERVED_SUPERSEDING_IDENTITY: ${{ steps.post_window.outputs.observed_superseding_identity || '' }}
           POST_WINDOW_PUBLICATION_AT: ${{ steps.post_window.outputs.publication_at || '' }}
         run: |
           set -euo pipefail
@@ -740,8 +774,8 @@ jobs:
              --arg postWindow "${POST_WINDOW_OUTCOME:-skipped}" \
              --arg postWindowError "${POST_WINDOW_ERROR:-none captured}" \
              --arg publicationAt "${POST_WINDOW_PUBLICATION_AT:-}" \
-             --arg observedSupersedingIdentity "${OBSERVED_SUPERSEDING_IDENTITY:-false}" \
-             --arg windowCensus "${WINDOW_CENSUS:-{}}" \
+             --arg observedSupersedingIdentity "${OBSERVED_SUPERSEDING_IDENTITY:-}" \
+             --arg windowCensus "${WINDOW_CENSUS}" \
             --arg admissionOutcome "${ADMISSION_OUTCOME:-unknown}" \
             --arg freshnessStatus "${FRESHNESS_STATUS:-unknown}" \
             --arg freshnessReason "${FRESHNESS_REASON:-preflight did not complete}" \
@@ -751,7 +785,7 @@ jobs:
             --arg scenarioSeed "${SCENARIO_SEED_OUTCOME:-skipped}" \
             --arg marketplaceE2e "${MARKETPLACE_E2E_OUTCOME:-skipped}" \
             --argjson failedPhases "$failed_phases" \
-             '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,admission:{outcome:$admissionOutcome,error:$advisoryPreflightError},freshness:{status:$freshnessStatus,reason:$freshnessReason,requested:{releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest},observed:{releaseCommit:$observedReleaseCommit,platformImage:$observedPlatformImage,platformImageDigest:$observedPlatformImageDigest,supersedingIdentity:($observedSupersedingIdentity == "true")},publicationAt:$publicationAt,windowCensus:($windowCensus|fromjson)},postWindow:{outcome:$postWindow,error:$postWindowError},scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}' \
+             '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,admission:{outcome:$admissionOutcome,error:$advisoryPreflightError},freshness:{status:$freshnessStatus,reason:$freshnessReason,requested:{releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest},observed:{releaseCommit:$observedReleaseCommit,platformImage:$observedPlatformImage,platformImageDigest:$observedPlatformImageDigest,supersedingIdentity:(if $observedSupersedingIdentity == "true" then true elif $observedSupersedingIdentity == "false" then false else null end)},publicationAt:$publicationAt,windowCensus:($windowCensus|fromjson)},postWindow:{outcome:$postWindow,error:$postWindowError},scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}' \
             > artifacts/staging-advisory-evidence/summary.json
           {
             echo "## Staging advisory evidence"
@@ -762,8 +796,9 @@ jobs:
             echo "| Marketplace deployed E2E | ${MARKETPLACE_E2E_OUTCOME} | Advisory |"
             echo ""
             echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"
-            echo "Advisory preflight: ${ADVISORY_PREFLIGHT_OUTCOME:-unknown} (${FRESHNESS_STATUS:-unknown}) — ${FRESHNESS_REASON:-preflight did not complete}"
+            echo "Post-window freshness: ${FRESHNESS_STATUS:-unknown} — ${FRESHNESS_REASON:-post-window did not complete}"
             echo "Observed release: ${OBSERVED_RELEASE_COMMIT:-unknown}@${OBSERVED_PLATFORM_IMAGE_DIGEST:-unknown}"
+            echo "Published at (UTC): ${POST_WINDOW_PUBLICATION_AT:-unknown}"
             echo ""
             echo "Release: $RELEASE_COMMIT@${{ inputs.platform_image_digest }}"
             echo ""

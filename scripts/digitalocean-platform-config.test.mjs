@@ -137,6 +137,17 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
     MARKETPLACE_E2E_OUTCOME: "success",
     ADVISORY_RESULT: "failure",
     SCENARIO_SEED_ERROR: "",
+    WINDOW_CENSUS: "{}",
+    POST_WINDOW_OUTCOME: "skipped",
+    POST_WINDOW_ERROR: "none captured",
+    POST_WINDOW_PUBLICATION_AT: "",
+    OBSERVED_RELEASE_COMMIT: "",
+    OBSERVED_PLATFORM_IMAGE: "",
+    OBSERVED_PLATFORM_IMAGE_DIGEST: "",
+    OBSERVED_SUPERSEDING_IDENTITY: "",
+    ADMISSION_OUTCOME: "unknown",
+    FRESHNESS_STATUS: "unknown",
+    FRESHNESS_REASON: "post-window did not complete",
     RUN_URL: "https://example.invalid/synthetic-run",
     ARTIFACTS_URL: "https://example.invalid/synthetic-artifacts",
     ...overrides,
@@ -217,7 +228,57 @@ function extractAdvisoryPostWindowEvaluator() {
     .join("\n");
 }
 
-async function executeAdvisoryPostWindow({ token = true, overlap = false, superseded = false, capped = false } = {}) {
+function extractWorkflowRun(stepName) {
+  const block = workflowStep(platformStagingAdvisoryEvidenceWorkflow, stepName);
+  const match = String(block).match(/run: \|\n([\s\S]*?)(?=\n\s+- name:|$)/u);
+  if (!match) throw new Error(`Missing run block for ${stepName}`);
+  return match[1]
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/u, ""))
+    .join("\n");
+}
+
+function resolveAdvisoryEnvValue(value, { inputs, steps, token }) {
+  if (typeof value !== "string") return value;
+  return value.replace(/\$\{\{\s*([^}]+?)\s*\}\}/gu, (_whole, expression) => {
+    const normalized = expression.trim();
+    const fallback = normalized.split("||").map((part) => part.trim());
+    for (const candidate of fallback) {
+      const match = candidate.match(/^github\.token$/u);
+      if (match) return token;
+      const input = candidate.match(/^inputs\.([\w-]+)$/u);
+      if (input && inputs[input[1]] !== undefined && inputs[input[1]] !== "") return inputs[input[1]];
+      const output = candidate.match(/^steps\.([\w-]+)\.outputs\.([\w-]+)$/u);
+      if (
+        output &&
+        steps[output[1]]?.outputs?.[output[2]] !== undefined &&
+        steps[output[1]]?.outputs?.[output[2]] !== ""
+      ) {
+        return steps[output[1]].outputs[output[2]];
+      }
+      const outcome = candidate.match(/^steps\.([\w-]+)\.outcome$/u);
+      if (outcome && steps[outcome[1]]?.outcome !== undefined) return steps[outcome[1]].outcome;
+      if (/^'[^']*'$/u.test(candidate)) return candidate.slice(1, -1);
+    }
+    return "";
+  });
+}
+
+async function executeAdvisoryPostWindow({
+  token = true,
+  overlap = false,
+  superseded = false,
+  capped = false,
+  cancelled = false,
+  preempted = false,
+  seedFailure = false,
+  driftOnly = false,
+  unreadable = false,
+  unsafeTimestamp = false,
+  rerun = false,
+  active = false,
+  mutator = false,
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), "advisory-post-window-"));
   const script = join(root, "advisory-post-window.mjs");
   const output = join(root, "output");
@@ -233,6 +294,7 @@ async function executeAdvisoryPostWindow({ token = true, overlap = false, supers
       },
     },
   };
+  if (unreadable) image.global.image = { registry: "registry.digitalocean.com", tag: "not-a-release" };
   const evaluator = extractAdvisoryPostWindowEvaluator().replace(
     'execFileAsync("helm", [',
     "execFileAsync(process.execPath, [process.env.HELM_STUB, ",
@@ -260,33 +322,109 @@ async function executeAdvisoryPostWindow({ token = true, overlap = false, supers
     };
     if (request.headers.authorization !== "Bearer synthetic-token") return send({ message: "Bad credentials" }, 401);
     const workflow = route.match(/^actions\/workflows\/([^/]+)\/runs\?/u);
+    const activeRuns =
+      active && new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("status") === "in_progress";
+    if (route.startsWith("actions/runs?") && activeRuns) {
+      return send({
+        total_count: 2,
+        workflow_runs: [
+          {
+            id: 999,
+            name: "Platform Deploy",
+            path: ".github/workflows/platform-production.yml",
+            workflow_id: 1,
+            run_attempt: 1,
+            status: "in_progress",
+            event: "workflow_dispatch",
+            head_sha: "a".repeat(40),
+            head_branch: "main",
+            created_at: new Date(Date.now() - 120_000).toISOString(),
+            run_started_at: new Date(Date.now() - 120_000).toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: 3001,
+            name: "Platform Staging Reset",
+            path: ".github/workflows/platform-staging-reset.yml",
+            workflow_id: 2,
+            run_attempt: 1,
+            status: "in_progress",
+            event: "workflow_dispatch",
+            head_sha: "a".repeat(40),
+            head_branch: "main",
+            created_at: new Date(Date.now() - 120_000).toISOString(),
+            run_started_at: new Date(Date.now() - 120_000).toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      });
+    }
+    if (route.startsWith("actions/runs?") && !activeRuns) return send({ total_count: 0, workflow_runs: [] });
+    if (route === "actions/runs/999") {
+      return send({
+        id: 999,
+        name: "Platform Deploy",
+        path: ".github/workflows/platform-production.yml",
+        workflow_id: 1,
+        run_attempt: 1,
+        status: "in_progress",
+        event: "workflow_dispatch",
+        head_sha: "a".repeat(40),
+        head_branch: "main",
+      });
+    }
     if (workflow) {
-      if (capped)
+      if (capped) {
         return send({
           total_count: 101,
           workflow_runs: Array.from({ length: 101 }, (_, index) => ({
             id: 3000 + index,
             path: `.github/workflows/${workflow[1]}`,
             run_attempt: 1,
+            created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            updated_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            run_started_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
           })),
         });
-      if (!overlap) return send({ total_count: 0, workflow_runs: [] });
+      }
+      if (driftOnly && workflow[1] !== "platform-production.yml") return send({ total_count: 0, workflow_runs: [] });
+      if (!overlap && !cancelled && !unsafeTimestamp && !rerun && !driftOnly && !mutator)
+        return send({ total_count: 0, workflow_runs: [] });
+      const workflowRun = rerun
+        ? {
+            id: 2002,
+            path: `.github/workflows/${workflow[1]}`,
+            run_attempt: 2,
+            status: "completed",
+            created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            updated_at: new Date().toISOString(),
+            run_started_at: new Date(Date.now() - 60_000).toISOString(),
+          }
+        : {
+            id: 2001,
+            path: `.github/workflows/${workflow[1]}`,
+            run_attempt: 1,
+            status: "completed",
+            created_at: new Date(Date.now() - 60_000).toISOString(),
+            updated_at: new Date().toISOString(),
+            run_started_at: new Date(Date.now() - 60_000).toISOString(),
+          };
       return send({
         total_count: 1,
-        workflow_runs: [{ id: 2001, path: `.github/workflows/${workflow[1]}`, run_attempt: 1, status: "completed" }],
+        workflow_runs: [workflowRun],
       });
     }
-    const jobs = route.match(/^actions\/runs\/2001\/attempts\/1\/jobs\?/u);
+    const jobs = route.match(/^actions\/runs\/(2001|2002|3001|3\d{3})\/attempts\/(1|2)\/jobs\?/u);
     if (jobs) {
       return send({
         total_count: 1,
         jobs: [
           {
-            name: "Deploy Staging",
-            status: "completed",
-            conclusion: "success",
-            started_at: new Date(Date.now() - 60_000).toISOString(),
-            completed_at: new Date(Date.now() - 1_000).toISOString(),
+            name: driftOnly ? "Deploy Preview" : mutator ? "Reset staging" : "Deploy Staging",
+            status: active ? "in_progress" : "completed",
+            conclusion: active ? null : cancelled ? "cancelled" : "success",
+            started_at: unsafeTimestamp ? "not-a-time" : new Date(Date.now() - 60_000).toISOString(),
+            completed_at: active ? null : new Date(Date.now() - 1_000).toISOString(),
           },
         ],
       });
@@ -295,6 +433,31 @@ async function executeAdvisoryPostWindow({ token = true, overlap = false, supers
   });
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   try {
+    const declaredWorkflow = parse(platformStagingAdvisoryEvidenceWorkflow);
+    const postWindowStep = declaredWorkflow.jobs["staging-advisory-evidence"].steps.find(
+      (step) => step.id === "post_window",
+    );
+    const declaredJobEnv = declaredWorkflow.jobs["staging-advisory-evidence"].env ?? {};
+    const declaredStepEnv = postWindowStep.env ?? {};
+    const inputs = {
+      release_commit: "a".repeat(40),
+      platform_image: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"a".repeat(40)}`,
+      platform_image_digest: `sha256:${"b".repeat(64)}`,
+    };
+    const steps = {
+      advisory_preflight: {
+        outcome: "success",
+        outputs: { admission_at: new Date(Date.now() - 120_000).toISOString() },
+      },
+      scenario_seed: { outcome: seedFailure ? "failure" : "success" },
+      await_scenario_seed: { outcome: "success", outputs: { cleanup_outcome: preempted ? "stale" : "" } },
+    };
+    const resolvedEnv = Object.fromEntries(
+      Object.entries({ ...declaredJobEnv, ...declaredStepEnv }).map(([name, value]) => [
+        name,
+        resolveAdvisoryEnvValue(value, { inputs, steps, token: "synthetic-token" }),
+      ]),
+    );
     const env = {
       ...process.env,
       PATH: `${root}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
@@ -305,20 +468,25 @@ async function executeAdvisoryPostWindow({ token = true, overlap = false, supers
             SystemRoot: process.env.SystemRoot,
           }
         : {}),
+      ...resolvedEnv,
       GITHUB_WORKSPACE: resolve("."),
       GITHUB_REPOSITORY: "synthetic/chase-sets",
       GITHUB_RUN_ID: "999",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_WORKFLOW: "Platform Deploy",
       GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
       GITHUB_OUTPUT: output,
       HELM_STUB: helm,
-      GH_TOKEN: "synthetic-token",
-      GITHUB_TOKEN: "synthetic-token",
+      GH_TOKEN: token ? "synthetic-token" : "",
+      GITHUB_TOKEN: token ? "synthetic-token" : "",
       RELEASE_COMMIT: "a".repeat(40),
       PLATFORM_IMAGE: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"a".repeat(40)}`,
       PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
       ADMISSION_AT: new Date(Date.now() - 120_000).toISOString(),
+      SCENARIO_SEED_OUTCOME: seedFailure ? "failure" : "success",
+      AWAIT_SCENARIO_SEED_OUTCOME: "success",
+      SCENARIO_SEED_CLEANUP_OUTCOME: preempted ? "stale" : "",
     };
-    if (!token) delete env.GH_TOKEN;
     const result = await new Promise((resolveChild, rejectChild) => {
       const child = spawn(process.execPath, [script, "post-window"], { cwd: resolve("."), env });
       let stdout = "";
@@ -342,6 +510,107 @@ async function executeAdvisoryPostWindow({ token = true, overlap = false, supers
     return { ...result, evidence, outputs };
   } finally {
     server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function executeAdvisorySummary({
+  postWindow = "success",
+  freshness = "fresh",
+  census = '{"admissionAt":"2026-10-27T00:00:00.000Z","publicationAt":"2026-10-27T01:00:00.000Z","overlaps":[]}',
+} = {}) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-summary-"));
+  const output = join(root, "output");
+  const summary = join(root, "summary");
+  const artifact = join(root, "artifacts", "staging-advisory-evidence");
+  mkdirSync(artifact, { recursive: true });
+  const run = extractWorkflowRun("Summarize staging advisory evidence")
+    .replaceAll(
+      "${{ inputs.platform_image }}",
+      `registry.digitalocean.com/chase-sets/chase-sets-platform:${"a".repeat(40)}`,
+    )
+    .replaceAll("${{ inputs.platform_image_digest }}", `sha256:${"b".repeat(64)}`);
+  const env = {
+    ...process.env,
+    RELEASE_COMMIT: "a".repeat(40),
+    SCENARIO_SEED_OUTCOME: "success",
+    MARKETPLACE_E2E_OUTCOME: "success",
+    ADVISORY_PREFLIGHT_OUTCOME: "success",
+    POST_WINDOW_OUTCOME: postWindow,
+    ADMISSION_OUTCOME: "admitted",
+    FRESHNESS_STATUS: freshness,
+    FRESHNESS_REASON:
+      freshness === "fresh"
+        ? "complete staging evidence window contained no staging-scope overlap"
+        : "synthetic non-fresh case",
+    ADVISORY_PREFLIGHT_ERROR: "none captured",
+    POST_WINDOW_ERROR: postWindow === "success" ? "none captured" : "synthetic post-window error",
+    WINDOW_CENSUS: census,
+    OBSERVED_RELEASE_COMMIT: postWindow === "success" ? "a".repeat(40) : "",
+    OBSERVED_PLATFORM_IMAGE:
+      postWindow === "success" ? `registry.digitalocean.com/chase-sets/chase-sets-platform:${"a".repeat(40)}` : "",
+    OBSERVED_PLATFORM_IMAGE_DIGEST: postWindow === "success" ? `sha256:${"b".repeat(64)}` : "",
+    OBSERVED_SUPERSEDING_IDENTITY: postWindow === "success" ? "false" : "",
+    POST_WINDOW_PUBLICATION_AT: "2026-10-27T01:00:00.000Z",
+    GITHUB_OUTPUT: output,
+    GITHUB_STEP_SUMMARY: summary,
+  };
+  try {
+    const result = spawnSync(operatorBash, ["-c", run], { cwd: root, env, encoding: "utf8" });
+    const artifactPath = join(artifact, "summary.json");
+    return {
+      ...result,
+      output: `${result.stdout}${result.stderr}`,
+      artifact: existsSync(artifactPath) ? JSON.parse(readFileSync(artifactPath, "utf8")) : null,
+      evidence: existsSync(output) ? readFileSync(output, "utf8") : "",
+      summary: existsSync(summary) ? readFileSync(summary, "utf8") : "",
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function executeAdvisoryNotify({ result = "failure", postWindowError = "synthetic post-window error" } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-notify-"));
+  const trace = join(root, "trace");
+  const run = extractWorkflowRun("Create, update, or resolve advisory evidence incident");
+  const stubs = `
+    gh() {
+      printf '%s\n' "$*" >> "$TRACE_FILE"
+      case "$1 $2" in
+        "issue list") printf '123\n' ;;
+      esac
+    }
+  `;
+  const env = {
+    ...process.env,
+    PATH: process.env.PATH,
+    TRACE_FILE: trace,
+    ADVISORY_RESULT: result,
+    SCENARIO_SEED_ERROR: "none captured",
+    ADVISORY_PREFLIGHT_ERROR: "none captured",
+    POST_WINDOW_ERROR: postWindowError,
+    FRESHNESS_STATUS: result === "success" ? "fresh" : "unknown",
+    FRESHNESS_REASON: result === "success" ? "complete" : "synthetic failure",
+    OBSERVED_RELEASE_COMMIT: "",
+    OBSERVED_PLATFORM_IMAGE: "",
+    OBSERVED_PLATFORM_IMAGE_DIGEST: "",
+    POST_WINDOW_PUBLICATION_AT: "2026-10-27T01:00:00.000Z",
+    RELEASE_COMMIT: "a".repeat(40),
+    GITHUB_REPOSITORY: "synthetic/chase-sets",
+    RUN_URL: "https://example.invalid/run",
+    ARTIFACTS_URL: "https://example.invalid/artifacts",
+    GH_TOKEN: "synthetic-token",
+  };
+  try {
+    const command = `${stubs}\n${run}`;
+    const resultProcess = spawnSync(operatorBash, ["-c", command], { cwd: root, env, encoding: "utf8" });
+    return {
+      ...resultProcess,
+      output: `${resultProcess.stdout}${resultProcess.stderr}`,
+      trace: existsSync(trace) ? readFileSync(trace, "utf8") : "",
+    };
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -5012,10 +5281,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).not.toContain("group: platform-deploy-staging");
     expect(advisoryEvidenceJob).not.toContain("cancel-in-progress: false");
     expect(advisoryEvidenceJob).not.toContain("github.run_started_at");
-    expect(advisoryEvidenceJob).toContain("post-window evaluator");
-    expect(advisoryEvidenceJob).not.toContain('mode === "test-output"');
-    expect(advisoryEvidenceJob).not.toContain('mode === "test-census"');
-    expect(advisoryEvidenceJob).toContain('mode === "post-window"');
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("group: platform-staging-advisory-evidence");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("cancel-in-progress: false");
     expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
@@ -5026,10 +5291,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("Fail scenario-seed advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail marketplace E2E advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail post-window advisory freshness signal");
-    expect(advisoryEvidenceJob).toContain("steps.post_window.outputs.freshness_status");
-    expect(advisoryEvidenceJob).toContain("GH_TOKEN: ${{ github.token }}");
-    expect(advisoryEvidenceJob).toContain("window_census");
-    expect(advisoryEvidenceJob).toContain("observed_superseding_identity");
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
@@ -5356,6 +5617,80 @@ describe("DigitalOcean platform configuration", () => {
     const capped = await executeAdvisoryPostWindow({ capped: true });
     expect(capped.status).not.toBe(0);
     expect(capped.outputs.freshness_status).toBe("unknown");
+  });
+
+  it("executes each post-window guard against the declared YAML environment", async () => {
+    const preempted = await executeAdvisoryPostWindow({ preempted: true });
+    expect(preempted.status).not.toBe(0);
+    expect(preempted.outputs.freshness_status).toBe("stale");
+    expect(preempted.outputs.freshness_reason).toContain("preempted");
+
+    const seedFailure = await executeAdvisoryPostWindow({ seedFailure: true });
+    expect(seedFailure.status).not.toBe(0);
+    expect(seedFailure.outputs.freshness_status).toBe("stale");
+    expect(seedFailure.outputs.freshness_reason).toContain("not successful");
+
+    const cancelled = await executeAdvisoryPostWindow({ cancelled: true });
+    expect(cancelled.status).not.toBe(0);
+    expect(cancelled.outputs.freshness_reason).toContain("cancelled");
+
+    const mutator = await executeAdvisoryPostWindow({ mutator: true });
+    expect(mutator.status).not.toBe(0);
+    expect(mutator.outputs.freshness_reason).toContain("mutated staging");
+
+    const driftOnly = await executeAdvisoryPostWindow({ driftOnly: true });
+    expect(driftOnly.status).toBe(0);
+    expect(driftOnly.outputs.freshness_status).toBe("fresh");
+
+    const unreadable = await executeAdvisoryPostWindow({ unreadable: true });
+    expect(unreadable.status).not.toBe(0);
+    expect(unreadable.outputs.freshness_status).toBe("unknown");
+    expect(unreadable.outputs.observed_release_commit).toBeUndefined();
+
+    const unsafe = await executeAdvisoryPostWindow({ unsafeTimestamp: true });
+    expect(unsafe.status).not.toBe(0);
+    expect(unsafe.outputs.freshness_status).toBe("unknown");
+
+    const rerun = await executeAdvisoryPostWindow({ rerun: true });
+    expect(rerun.status).not.toBe(0);
+    expect(rerun.outputs.freshness_status).toBe("stale");
+
+    const active = await executeAdvisoryPostWindow({ active: true });
+    expect(active.status).not.toBe(0);
+    expect(active.outputs.freshness_status).toBe("stale");
+  });
+
+  it("publishes a parseable v2 summary for every post-window outcome", () => {
+    for (const freshness of ["fresh", "stale", "unknown"]) {
+      const result = executeAdvisorySummary({ freshness, postWindow: freshness === "fresh" ? "success" : "failure" });
+      expect(result.status, result.output).toBe(0);
+      expect(result.artifact?.schemaVersion).toBe("staging-advisory-evidence/v2");
+      expect(result.artifact?.freshness?.status).toBe(freshness);
+      expect(result.artifact?.freshness?.windowCensus?.overlaps).toEqual([]);
+      expect(result.artifact?.postWindow?.outcome).toBe(freshness === "fresh" ? "success" : "failure");
+    }
+  });
+
+  it("signals absent and cancelled post-window steps and keeps incident error input", () => {
+    const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+    const signal = job.steps.find((step) => step.name === "Fail post-window advisory freshness signal");
+    for (const outcome of ["skipped", "cancelled", "failure"]) {
+      expect(advisoryCondition(signal.if, { post_window: { outcome } })).toBe(true);
+    }
+    const outputExpression = job.outputs.freshness_status;
+    const evaluateOutput = (expression, steps) => {
+      const match = String(expression).match(/steps\.post_window\.outputs\.freshness_status \|\| '([^']+)'/u);
+      if (!match) throw new Error("Unexpected freshness output contract");
+      return steps.post_window?.outputs?.freshness_status || match[1];
+    };
+    expect(evaluateOutput(outputExpression, { post_window: { outputs: {} } })).toBe("unknown");
+    expect(evaluateOutput(outputExpression, { post_window: { outputs: { freshness_status: "fresh" } } })).toBe("fresh");
+    const success = executeAdvisoryNotify({ result: "success" });
+    expect(success.status, success.output).toBe(0);
+    expect(success.trace).toContain("issue close");
+    const failure = executeAdvisoryNotify({ result: "failure" });
+    expect(failure.status, failure.output).toBe(0);
+    expect(failure.trace).toContain("synthetic post-window error");
   });
 
   it("refuses advisory legacy or unavailable markers before seed admission", () => {
