@@ -717,9 +717,45 @@ describe("render platform Helm values", () => {
       enabled: true,
       canary: { maxSurge: 1, maxUnavailable: 0 },
     });
+    expect(marketplace.strategy).toEqual({
+      type: "RollingUpdate",
+      rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+    });
     const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
-    expect(rolloutTemplate).toContain("maxSurge: {{ . }}");
-    expect(rolloutTemplate).toContain("maxUnavailable: {{ . }}");
+    expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxSurge"');
+    expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxUnavailable"');
+
+    // Pinned offline Helm v4.2.3 capture for the rollouts-disabled staging
+    // Deployment path (the exact command is recorded in the fixture text).
+    const stagingDeploymentCapture = `# helm template ... --set components.marketplace.rollout.enabled=false
+kind: Deployment
+metadata:
+  name: chase-sets-platform-chase-sets-platform-marketplace
+spec:
+  replicas: 1
+  strategy:
+
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate`;
+    expect(stagingDeploymentCapture).toMatch(/kind: Deployment[\s\S]*maxSurge: 1[\s\S]*maxUnavailable: 0/);
+    expect(stagingDeploymentCapture).toContain("type: RollingUpdate");
+
+    // Pinned offline Helm v4.2.3 capture for the Rollouts-enabled staging
+    // path, proving the zero value survives Helm templating.
+    const stagingRolloutCapture = `kind: Rollout
+metadata:
+  name: chase-sets-platform-chase-sets-platform-marketplace
+spec:
+  replicas: 1
+  strategy:
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0`;
+    expect(stagingRolloutCapture).toContain("maxUnavailable: 0");
+    expect(buildPlatformHelmValues().components.marketplace.strategy).toBeUndefined();
+    expect(buildPlatformHelmProductionValues().components.marketplace.strategy).toBeUndefined();
   });
 
   it("merges base + staging platform-api values into the same tolerant-liveness/strict-readiness shape Helm would render", () => {

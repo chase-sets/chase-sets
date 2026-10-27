@@ -432,6 +432,10 @@ export function buildPlatformHelmStagingValues(options = {}) {
       },
       marketplace: {
         replicas: 1,
+        strategy: {
+          type: "RollingUpdate",
+          rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+        },
         resources: {
           // Retained staging eviction evidence observed 1091900Ki usage with
           // a zero request. Keep the request above that peak and the limit

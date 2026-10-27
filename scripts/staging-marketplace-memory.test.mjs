@@ -49,6 +49,8 @@ const validPackage = (overrides = {}) => ({
   marketplacePods: { items: [pod("marketplace-evicted"), readyPod("marketplace-ready")] },
   nodeMetrics: { items: [{ metadata: { name: "runtime-xl-3wv41z" }, usage: { memory: "2Gi" } }] },
   nodeEvents: [{ reason: "MemoryPressure" }],
+  nodeDescribe: { metadata: { name: "runtime-xl-3wv41z" }, status: { conditions: [] } },
+  eventWindow: { start: "2026-10-27T15:45:00Z", end: "2026-10-27T16:15:00Z" },
   ...overrides,
 });
 
@@ -70,6 +72,16 @@ describe("staging marketplace memory evidence", () => {
 
   it.each([
     ["truncated", { truncated: true }],
+    ["pod list continuation", { marketplacePods: { metadata: { continue: "next" }, items: [pod("one")] } }],
+    ["pod list remaining count", { marketplacePods: { metadata: { remainingItemCount: 1 }, items: [pod("one")] } }],
+    ["node metrics continuation", { nodeMetrics: { metadata: { continue: "next" }, items: [{ name: "node" }] } }],
+    ["missing node describe", { nodeDescribe: undefined }],
+    ["empty node events", { nodeEvents: [] }],
+    ["missing event window", { eventWindow: undefined }],
+    [
+      "missing Progressing time",
+      { marketplaceDeployment: { spec: { replicas: 1 }, status: { readyReplicas: 1, conditions: [] } } },
+    ],
     [
       "contradictory",
       { marketplacePods: { items: [pod("bad", { status: { phase: "Running", reason: "Evicted" } })] } },
@@ -78,12 +90,43 @@ describe("staging marketplace memory evidence", () => {
     expect(classifyMarketplaceMemoryEvidence(validPackage(change)).verdict).toBe("INCONCLUSIVE");
   });
 
+  it("returns every pod evidence issue instead of only the first", () => {
+    const result = classifyMarketplaceMemoryEvidence(
+      validPackage({
+        marketplacePods: {
+          items: [
+            pod("incomplete", {
+              metadata: { namespace: undefined, ownerReferences: [] },
+              spec: { containers: [] },
+            }),
+            readyPod("marketplace-ready"),
+          ],
+        },
+      }),
+    );
+    expect(result.verdict).toBe("INCONCLUSIVE");
+    expect(result.reasons).toEqual(
+      expect.arrayContaining(["missing namespace", "missing ownerReferences", "namespace mismatch"]),
+    );
+  });
+
   it("selects only Failed/Evicted marketplace pods in the required namespace", () => {
     const inventory = {
       items: [
         pod("evicted"),
+        pod("failed-error", { status: { phase: "Failed", reason: "Error" } }),
+        pod("pending-evicted", { status: { phase: "Pending", reason: "Evicted" } }),
+        pod("succeeded", { status: { phase: "Succeeded", reason: undefined } }),
         pod("running", { status: { phase: "Running", reason: undefined } }),
+        pod("other-component", {
+          metadata: {
+            labels: { "app.kubernetes.io/name": "chase-sets-platform", "app.kubernetes.io/component": "platform-api" },
+          },
+        }),
         pod("other", { metadata: { namespace: "other" } }),
+        pod("wrong-app", {
+          metadata: { labels: { "app.kubernetes.io/name": "other", "app.kubernetes.io/component": "marketplace" } },
+        }),
       ],
     };
     expect(selectEvictedMarketplacePods(inventory)).toEqual(["evicted"]);
@@ -96,5 +139,6 @@ describe("staging marketplace memory evidence", () => {
     expect(command).toContain("$names.Count -ne 96");
     expect(command).toContain("-n $ns delete pod $_ --wait=false");
     expect(command).not.toContain("delete pods --all");
+    expect(() => buildMarketplaceEvictionCleanupCommand({ context: "staging" })).toThrow("expectedCount");
   });
 });
