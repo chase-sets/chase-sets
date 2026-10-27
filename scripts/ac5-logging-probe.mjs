@@ -733,6 +733,7 @@ async function executeProbe(options, dependencies) {
       options.marketplaceNamespace,
       "-l",
       "app.kubernetes.io/name=chase-sets-platform,app.kubernetes.io/component=marketplace",
+      "--field-selector=status.phase=Running",
       "-o",
       "json",
     ]),
