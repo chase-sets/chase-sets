@@ -167,7 +167,7 @@ describeDb("issue-9503-c51a frozen commit input", () => {
       subscriptionRunners: resolveModuleSubscriptions([
         {
           contextName: "inventory",
-          module: { ...inventoryModule, buildSubscriptions: () => [] },
+          module: { ...inventoryModule, buildSubscriptions: () => [], eventSubscriptions: [], eventReactions: [] },
           services: inventory,
           pool: pools.inventory,
           projectionHandlerSets: inventoryModule.projectionHandlerSets?.(inventory) ?? [],
