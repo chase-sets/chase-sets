@@ -302,9 +302,14 @@ jobs:
 
       - name: Install Playwright Chromium for canary writes
         if: inputs.drill == 'load' || !inputs.skip_canary_write
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-staging-wake-drills
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging wake drill
+        timeout-minutes: 34
         env:
           WAKE_DRILL_CORRELATION_PREFIX: wake-drill-${{ github.run_id }}-${{ github.run_attempt }}
           WAKE_DRILL_CONVERGENCE_BUDGET_MS: ${{ inputs.convergence_budget_ms }}
@@ -321,6 +326,7 @@ jobs:
           MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           pnpm run wake:drills "${{ inputs.drill }}" \

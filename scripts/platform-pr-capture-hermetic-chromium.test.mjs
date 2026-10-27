@@ -72,13 +72,16 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     expect(job.steps).toHaveLength(4);
     const proof = job.steps[3];
     expect(proof.shell).toBe("bash");
-    expect(proof.env).toEqual({ PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright" });
+    expect(proof.env).toEqual({
+      PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright",
+      PLAYWRIGHT_INSTALL_SITE: "platform-pr-synthetic-capture",
+    });
     for (const fragment of [
       "set -euo pipefail",
       'test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"',
       'test "${CHASE_SETS_LANE_MODE+x}" != x',
       "AC4 source=%s run=%s attempt=%s job=%s",
-      "pnpm exec playwright install --with-deps chromium",
+      "node scripts/playwright-chromium-install.mjs",
       "CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum",
       "pnpm --filter @chase-sets/channels run test:unit",
       "features/connector-client/integrations/order-authority-probe/capture.test.ts",

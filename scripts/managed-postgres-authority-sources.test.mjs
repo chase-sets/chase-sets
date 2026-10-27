@@ -539,6 +539,10 @@ const collectionsCutoverAuthorityCaptureDelta = [
 const reviewedRetiredVerifierRemovals = new Set([
   210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 712, 956, 957, 958, 959, 1391, 1419, 1483,
 ]);
+// #10626 reviewed removal: the deploy-staging installer no longer receives infrastructure secrets because the
+// supervisor-backed primitive has no provider boundary. Keep the immutable indices explicit so parity proves the
+// removal rather than silently accepting a generated count change.
+const reviewedStagingBrowserInstallRemovals = new Set([1026, 1027, 1028]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
@@ -945,8 +949,10 @@ describe("managed Postgres authority source generator", () => {
     expectParity(original, historicalGenerated);
 
     for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
-    const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRetiredVerifierRemovals.size);
+    for (const index of reviewedStagingBrowserInstallRemovals) expect(original.grants[index]).toBeDefined();
+    const reviewedRemovals = new Set([...reviewedRetiredVerifierRemovals, ...reviewedStagingBrowserInstallRemovals]);
+    const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRemovals.has(index));
+    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
