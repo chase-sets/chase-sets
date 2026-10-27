@@ -108,7 +108,7 @@ pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use home::Home;
-    pub use inventory::{Archive, Location, Locations, Restock, Restocked, WrittenOff};
+    pub use inventory::{Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, WrittenOff};
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
     pub use new_listing::NewListing;
@@ -333,14 +333,28 @@ pub mod url {
 
     /// The seller's inventory screens: every handler takes a `Seller` (`inventory.view` to read,
     /// `inventory.manage` to write).
-    #[corten::routes(state = crate::app::Shared, area = InventoryArea, caller = crate::auth::Seller)]
+    #[corten::routes(state = crate::app::Shared, area = Inventory, caller = crate::auth::Seller)]
     pub mod inventory {
-        /// The area's prefix: only the start of its paths. No page is served at `/account/inventory` (marketplace
-        /// answers its not-found page), so it names no handler and nothing can link to it.
-        #[route("/account/inventory")]
-        pub struct InventoryArea;
-
         use crate::recovery::Check;
+
+        /// The inventory items (a page of them, the Record sale open and what the last sale did),
+        /// Create inventory item, and the write to confirm.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/inventory", get = crate::inventory_list::list, post = crate::inventory_list::create)]
+        pub struct Inventory {
+            #[route(query)]
+            pub place: crate::inventory_list::Place,
+            #[route(query)]
+            pub check: Check,
+        }
+
+        /// Record an offline sale of the item, from the list's page.
+        #[route("/account/inventory/items/{id}/offline-sales", post = crate::inventory_list::sale)]
+        pub struct OfflineSale<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::inventory_list::Place,
+        }
 
         /// The storage locations, and the write to confirm.
         #[derive(Clone, Debug, Default)]

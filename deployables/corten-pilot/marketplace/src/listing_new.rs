@@ -391,7 +391,7 @@ impl NewListingScreen {
 }
 
 /// The catalog picker for the draft: the chosen item, or the search's matches.
-async fn catalog(caller: &crate::api::Caller<'_>, draft: &Draft) -> Catalog {
+pub(crate) async fn catalog(caller: &crate::api::Caller<'_>, draft: &Draft) -> Catalog {
     let exact = |words: &str| words.starts_with("cat_") && !words.contains(char::is_whitespace);
     if !draft.catalog_item_id.is_empty() {
         return match caller.catalog_item(&draft.catalog_item_id).await {

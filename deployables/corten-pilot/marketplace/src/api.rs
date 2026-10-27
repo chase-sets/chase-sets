@@ -179,6 +179,125 @@ impl Inventory for Caller<'_> {
     }
 }
 
+/// An inventory item as the list reads it (`InventoryItemListItem`), the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InventoryItem {
+    pub item_id: String,
+    pub catalog_catalog_item_id: String,
+    #[serde(default)]
+    pub item_title: Option<String>,
+    #[serde(default)]
+    pub item_subtitle: Option<String>,
+    #[serde(default)]
+    pub language_code: Option<String>,
+    #[serde(default)]
+    pub product_summary: Option<String>,
+    pub storage_location_name: String,
+    pub total_quantity: i64,
+    pub held_quantity: i64,
+    pub available_quantity: i64,
+    #[serde(default)]
+    pub acquisition_cost_amount: Option<String>,
+    #[serde(default)]
+    pub acquisition_cost_currency_code: Option<String>,
+}
+
+/// A page of the account's inventory items (`GET /api/inventory/items?limit=&offset=`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct InventoryItems {
+    pub items: Vec<InventoryItem>,
+    pub total: u64,
+    pub limit: u64,
+    pub offset: u64,
+}
+
+/// What Create inventory item sends (`InventoryCreateItemRequest`), the fields its form has.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemCommand {
+    pub catalog_item_id: String,
+    pub selected_options: Vec<Selected>,
+    pub storage_location_id: String,
+    pub total_quantity: u64,
+    pub acquisition_cost_amount: Option<String>,
+    pub acquisition_cost_currency_code: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreatedItem {
+    id: String,
+}
+
+/// An offline sale (`InventoryOfflineSaleRequest`): the API refuses any other key.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleCommand {
+    pub quantity: u64,
+    pub sale_price_amount: Option<String>,
+    pub channel: String,
+    pub note: Option<String>,
+    pub collision_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirm_seller_cannot_fulfill: Option<bool>,
+    pub idempotency_key: String,
+}
+
+/// What an offline sale did (`InventoryOfflineSaleResult`), the fields the page says.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleResult {
+    pub item_id: String,
+    pub requested_quantity: u64,
+    pub applied_quantity: u64,
+    pub refused_quantity: u64,
+    #[serde(default)]
+    pub collision: Option<Collision>,
+}
+
+/// The orders an honored offline sale took stock from (`InventoryHoldCollisionPlan`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collision {
+    #[serde(default)]
+    pub affected_orders: Vec<AffectedOrder>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AffectedOrder {
+    pub order_id: String,
+}
+
+/// The inventory list's calls.
+pub trait InventoryList {
+    async fn inventory_items(&self, limit: u64, offset: u64) -> Result<InventoryItems, ApiError>;
+    async fn inventory_item(&self, id: &str) -> Result<InventoryItem, ApiError>;
+    /// The new item's id and the write's receipt.
+    async fn create_item(&self, attempt: &str, body: &ItemCommand) -> Result<(String, Option<Receipt>), ApiError>;
+    async fn offline_sale(&self, id: &str, body: &SaleCommand) -> Result<(SaleResult, Option<Receipt>), ApiError>;
+}
+
+impl InventoryList for Caller<'_> {
+    async fn inventory_items(&self, limit: u64, offset: u64) -> Result<InventoryItems, ApiError> {
+        self.read(&format!("/api/inventory/items?limit={limit}&offset={offset}"), INVENTORY).await
+    }
+
+    async fn inventory_item(&self, id: &str) -> Result<InventoryItem, ApiError> {
+        self.read(&format!("/api/inventory/items/{}", segment(id)), INVENTORY).await
+    }
+
+    async fn create_item(&self, attempt: &str, body: &ItemCommand) -> Result<(String, Option<Receipt>), ApiError> {
+        let req = self.request(Method::POST, "/api/inventory/items", INVENTORY).header(ATTEMPT_HEADER, attempt).json(body);
+        let (created, receipt): (CreatedItem, _) = self.write(req).await?;
+        Ok((created.id, receipt))
+    }
+
+    async fn offline_sale(&self, id: &str, body: &SaleCommand) -> Result<(SaleResult, Option<Receipt>), ApiError> {
+        let path = format!("/api/inventory/items/{}/offline-sales", segment(id));
+        self.write(self.request(Method::POST, &path, INVENTORY).json(body)).await
+    }
+}
+
 /// The account's cart (`GET /api/marketplace/account/cart`): its lines and the readiness the
 /// Checkout API computed for them.
 #[derive(Clone, Debug, Deserialize, Serialize)]

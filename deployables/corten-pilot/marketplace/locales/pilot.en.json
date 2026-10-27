@@ -167,5 +167,20 @@
     "open_for": "Open your Offer for {title}",
     "rating": "{rating} out of 5 from {reviews} reviews",
     "unknown_action": "That change is not one an Offer takes."
+  },
+  "inventory": {
+    "quantity": "Enter a whole number of 1 or more.",
+    "price": "Enter a price like 12.50.",
+    "honor_role": "Only an account owner or manager can honor an offline sale.",
+    "honor_confirm": "Confirm what honoring this sale means for the affected orders.",
+    "items_slow": "Inventory items are taking longer than expected. Reload this page in a moment.",
+    "locations_slow": "Storage locations are taking longer than expected. Reload this page in a moment.",
+    "pages": "Inventory item pages",
+    "previous": "Previous page",
+    "next": "Next page",
+    "page_of": "Page {page} of {pages}",
+    "record_sale_for": "Record sale for {item}",
+    "options": "Product options",
+    "choose_option": "Choose an option"
   }
 }

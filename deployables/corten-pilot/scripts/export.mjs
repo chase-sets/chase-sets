@@ -19,6 +19,9 @@
 // - marketplace/locales/restock.en.json: the restock decisions screen's English catalog
 //   (inventory.features.restockDecisions.ui.queue.*, the route's title and description, and the
 //   resource route's "could not be verified").
+// - marketplace/locales/inventory.en.json: the inventory list's English catalog
+//   (inventory.features.inventoryItems.ui.inventoryItemListPage.* as list.*, .offlineSaleForm.* as sale.*,
+//   inventory.routes.marketplace.accountInventory.* as route.*, and the language labels).
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
@@ -335,6 +338,17 @@ const outputs = [
       ])),
       // What marketplace's resource route says when the read after a write fails for good.
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.routeResource.unverified", "unverified"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/inventory.en.json",
+    json({
+      ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [
+        ["inventory.features.inventoryItems.ui.inventoryItemListPage.", "list"],
+        ["inventory.features.inventoryItems.ui.offlineSaleForm.", "sale"],
+        ["inventory.routes.marketplace.accountInventory.", "route"],
+      ])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
   ],
   [

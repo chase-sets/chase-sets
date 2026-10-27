@@ -350,6 +350,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
+    if uri.path() == "/api/auth/session" && session == "keeper" {
+        // An account owner, who may honor an offline sale over its orders.
+        let permissions = ["inventory.view", "inventory.manage"];
+        return Json(json!({ "actor": { "userId": "usr_owner", "accountId": "acc_seller", "roleKey": "owner", "permissions": permissions } }))
+            .into_response();
+    }
     if uri.path() == "/api/auth/session" {
         let actor = |permissions: &[&str]| {
             Json(json!({ "actor": { "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "seller", "permissions": permissions } }))
@@ -483,6 +489,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
+        return answer;
+    }
+    if let Some(answer) = inventory_items(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(RESTOCK) {
@@ -7435,4 +7444,292 @@ async fn a_change_to_the_accounts_offers_draws_the_counts_and_rows_again() {
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
     assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);
+}
+
+const INVENTORY_ITEMS: &str = "/api/inventory/items";
+const INVENTORY_SCREEN: &str = "/account/inventory";
+
+fn inventory_item(id: &str, title: Option<&str>, available: i64, cost: Option<(&str, Option<&str>)>) -> Value {
+    json!({
+        "item_id": id, "catalog_catalog_item_id": format!("cat_{id}"), "item_title": title, "item_subtitle": title.map(|_| "Base Set 4/102"),
+        "language_code": title.map(|_| "en"), "product_summary": title.map(|_| "Form: Raw | Condition: Near Mint"),
+        "storage_location_name": "Main shelf", "total_quantity": 3, "held_quantity": 3 - available, "available_quantity": available,
+        "acquisition_cost_amount": cost.map(|c| c.0), "acquisition_cost_currency_code": cost.and_then(|c| c.1),
+    })
+}
+
+/// The inventory items, as the stand-in answers them: two items, a page as the address asks; a
+/// read waiting for 43 is still catching up. A create at `loc_refused` is refused; a sale with the
+/// note `Refused` is refused, and one of 5 records 2 and takes stock from `ord_1`.
+fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix(INVENTORY_ITEMS)?;
+    let receipt = || {
+        let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+        [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)]
+    };
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => {
+            if waits_for(headers).as_deref() == Some("43") {
+                return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            }
+            let all = [
+                inventory_item("inv_1", Some("Charizard"), 2, Some(("4.25", Some("USD")))),
+                inventory_item("inv_2", None, 0, Some(("5.00", None))),
+            ];
+            let q = query(&uri.to_string());
+            let limit: usize = q.get("limit").and_then(|l| l.parse().ok()).unwrap_or(50);
+            let offset: usize = q.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
+            let page: Vec<Value> = all.iter().skip(offset).take(limit).cloned().collect();
+            Json(json!({ "items": page, "total": 2, "count": page.len(), "limit": limit, "offset": offset })).into_response()
+        }
+        ("GET", "/inv_1") => Json(inventory_item("inv_1", Some("Charizard"), 1, Some(("4.25", Some("USD"))))).into_response(),
+        ("POST", "") => {
+            let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+            if sent["storageLocationId"] == "loc_refused" {
+                return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
+            }
+            stand.applied.lock().unwrap().insert(attempt, ("item-create".into(), "draft".into()));
+            (StatusCode::CREATED, receipt(), Json(json!({ "id": "inv_new", "version": 1, "status": "created" }))).into_response()
+        }
+        ("POST", path) if path.ends_with("/offline-sales") => {
+            if sent["note"] == "Refused" {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "validation_failed",
+                    "Offline sales require a positive whole-number quantity.",
+                ));
+            }
+            let id = path.trim_start_matches('/').trim_end_matches("/offline-sales");
+            let requested = sent["quantity"].as_u64().unwrap_or_default();
+            let (applied, collision) = if requested == 5 {
+                (2, json!({ "affectedOrders": [{ "orderId": "ord_1" }] }))
+            } else {
+                (requested, Value::Null)
+            };
+            let result = json!({ "itemId": id, "version": 4, "requestedQuantity": requested, "appliedQuantity": applied, "refusedQuantity": requested - applied, "collision": collision });
+            (StatusCode::OK, receipt(), Json(result)).into_response()
+        }
+        _ => return None,
+    })
+}
+
+/// The attempt Create inventory item was drawn with.
+fn item_attempt(html: &str) -> String {
+    let input = r#"name="inventoryMutationAttemptId" data-submit value=""#;
+    let at = html.find(input).expect("Create inventory item's form") + input.len();
+    html[at..].split('"').next().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn the_inventory_list_shows_each_item_and_data_clients_get_the_screen() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(INVENTORY_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for shown in ["Charizard", "English", "Base Set 4/102", "Near Mint", "$4.25", "5.00 (currency not recorded)", "Main shelf"] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(html.contains(r#"href="/account/inventory/locations""#), "Manage locations is the pilot's: {html}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/inventory/items/inv_1""#), "Open is marketplace's");
+    assert!(html.contains(r#"href="/account/listings/new?inventoryItemId=inv_1""#), "Create listing for an available item");
+    assert!(!html.contains("inventoryItemId=inv_2"), "none for an item with nothing available");
+    assert!(html.contains(r#"href="/account/inventory?sale=inv_1""#), "Record sale opens its dialog: {html}");
+    assert!(!html.contains("<dialog"), "no dialog until one is asked for");
+    let reads: Vec<_> = pilot.inventory_calls().into_iter().filter(|c| c.path.starts_with(INVENTORY_ITEMS)).collect();
+    assert_eq!(reads[0].path, "/api/inventory/items?limit=100&offset=0", "marketplace's page");
+    let (status, _, body) = pilot.send(get_json(INVENTORY_SCREEN)).await;
+    assert_eq!(status, StatusCode::OK);
+    let data: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["data"]["items"]["total"], 2, "{body}");
+    assert_eq!(data["data"]["locations"].as_array().unwrap().len(), 1, "archived locations are left out: {body}");
+}
+
+#[tokio::test]
+async fn the_inventory_list_pages_and_a_slow_read_says_so() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/inventory?limit=1", Some("seller"))).await;
+    assert!(text(&html).contains("Page 1 of 2"), "{html}");
+    assert!(html.contains(r#"href="/account/inventory?limit=1&amp;offset=1""#), "{html}");
+    assert!(!text(&html).contains("5.00 (currency not recorded)"));
+    let (status, _, html) =
+        pilot.send(get(&format!("/account/inventory?after_write={}", receipt_at("43")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Inventory items are taking longer than expected."), "{html}");
+}
+
+#[tokio::test]
+async fn the_inventory_list_needs_inventory_view_and_record_sale_inventory_manage() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(INVENTORY_SCREEN, Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("?sale="), "a reader records no sale");
+    let (status, _, _) = pilot.send(get("/account/inventory?sale=inv_1", Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(get(INVENTORY_SCREEN, Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(INVENTORY_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("/sign-in?returnTo=%2Faccount%2Finventory"));
+}
+
+#[tokio::test]
+async fn create_inventory_item_finds_chooses_and_sends_the_options() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/inventory?q=twilight&redraw=1", Some("seller"))).await;
+    assert!(text(&html).contains("Twilight Masquerade Elite Trainer Box"), "{html}");
+    assert!(html.contains(r#"name="choose" value="cat_etb""#), "{html}");
+    // With the script, the picker's GET is the form only.
+    let mut req = get("/account/inventory?choose=cat_card", Some("seller"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.contains_key("corten-patch") || !html.contains("<html"), "a patch: {html}");
+    assert!(html.contains(r#"name="option.dim_form""#) && html.contains(r#"name="option.dim_condition""#), "{html}");
+    assert!(!html.contains(r#"name="option.dim_grade""#), "a grade applies only to graded cards");
+    let attempt = item_attempt(&html);
+    let body = format!(
+        "inventoryMutationAttemptId={attempt}&catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp\
+         &storageLocationId=loc_main&totalQuantity=2&acquisitionCostAmount=4.25&acquisitionCostCurrencyCode=USD\
+         &returnTo=%2Faccount%2Flistings%2Fnew"
+    );
+    let (status, headers, _) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/account/listings/new?afterWrite="), "the returnTo, with the receipt: {to}");
+    let sent = pilot.writes();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].headers["inventory-mutation-attempt"], attempt.as_str());
+    let command: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(
+        command,
+        json!({
+            "catalogItemId": "cat_card",
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" }],
+            "storageLocationId": "loc_main", "totalQuantity": 2, "acquisitionCostAmount": "4.25", "acquisitionCostCurrencyCode": "USD",
+        })
+    );
+    // Without a returnTo, the new item's page.
+    let body =
+        format!("inventoryMutationAttemptId={}&catalogItemId=cat_etb&storageLocationId=loc_main&totalQuantity=1", new_attempt());
+    let (_, headers, _) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
+    assert!(
+        headers[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .starts_with("http://localhost:7753/account/inventory/items/inv_new?afterWrite=")
+    );
+}
+
+#[tokio::test]
+async fn a_refused_create_is_the_form_again_with_why() {
+    let pilot = Pilot::new().await;
+    // The pilot's own checks: nothing is sent.
+    let body = format!("inventoryMutationAttemptId={}&catalogItemId=cat_etb&storageLocationId=&totalQuantity=0", new_attempt());
+    let (status, _, html) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let page = text(&html);
+    assert!(page.contains("Enter a value.") && page.contains("Enter a whole number of 1 or more."), "{page}");
+    assert!(html.contains(r#"name="catalogItemId" value="cat_etb""#), "the chosen item stays: {html}");
+    let (status, _, html) =
+        pilot.send(post(INVENTORY_SCREEN, "seller", "inventoryMutationAttemptId=x&totalQuantity=1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        text(&html).contains("This form is out of date.")
+            && text(&html).contains("Choose the catalog item from the visible search results.")
+    );
+    assert!(pilot.writes().is_empty());
+    // The API's refusal, as a patch with the script.
+    let attempt = new_attempt();
+    let body =
+        format!("inventoryMutationAttemptId={attempt}&catalogItemId=cat_etb&storageLocationId=loc_refused&totalQuantity=1");
+    let (status, _, html) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!html.contains("<html"), "a patch: {html}");
+    assert!(text(&html).contains("Storage location is archived."), "{html}");
+    assert_ne!(item_attempt(&html), attempt, "a new attempt");
+    assert!(
+        pilot.inventory_calls().iter().any(|c| c.path == format!("{ATTEMPTS}{attempt}")),
+        "the refusal's attempt was checked"
+    );
+}
+
+#[tokio::test]
+async fn record_sale_is_a_dialog_on_the_list_and_honoring_is_the_owners() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/inventory?sale=inv_1", Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("<dialog") && text(&html).contains("Record a sale for Charizard without leaving Inventory."), "{html}");
+    assert!(html.contains(r#"action="/account/inventory/items/inv_1/offline-sales?sale=inv_1""#), "{html}");
+    assert!(!text(&html).contains("Order commitments"), "a seller cannot honor a sale");
+    assert!(html.contains(r#"name="collisionMode" value="protect-orders""#));
+    let (_, _, html) = pilot.send(get("/account/inventory?sale=inv_1", Some("keeper"))).await;
+    assert!(text(&html).contains("Order commitments") && html.contains(r#"value="honor-offline""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_recorded_sale_goes_back_to_the_list_which_says_what_it_did() {
+    let pilot = Pilot::new().await;
+    let sale = |quantity: u32| {
+        format!(
+            "idempotencyKey={}&quantity={quantity}&salePriceAmount=3.5&channel=in-store&note=&collisionMode=protect-orders",
+            new_attempt()
+        )
+    };
+    let (status, headers, _) =
+        pilot.send(post("/account/inventory/items/inv_1/offline-sales?sale=inv_1", "seller", &sale(2), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let q = query(&to);
+    assert!(to.starts_with("/account/inventory?"), "{to}");
+    assert_eq!((q["offlineSaleItemId"].as_str(), q["applied"].as_str(), q["refused"].as_str()), ("inv_1", "2", "0"));
+    assert!(!q.contains_key("sale"), "the dialog is closed: {to}");
+    let sent: Value = serde_json::from_str(&pilot.writes()[0].body).unwrap();
+    assert_eq!(sent["salePriceAmount"], "3.50", "a canonical amount");
+    assert_eq!((sent["channel"].as_str(), sent["collisionMode"].as_str()), (Some("in-store"), Some("protect-orders")));
+    assert!(sent.get("confirmSellerCannotFulfill").is_none());
+    let (_, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    let page = text(&html);
+    assert!(page.contains("Completed: 2 units recorded as sold. Authoritative available quantity: 1."), "{page}");
+    let fresh =
+        pilot.inventory_calls().into_iter().find(|c| c.path == "/api/inventory/items/inv_1").expect("the item read again");
+    assert_eq!(waits_for(&fresh.headers).as_deref(), Some("42"), "after the sale's receipt");
+    // Five asked, two recorded: the order it took stock from.
+    let (_, headers, _) = pilot.send(post("/account/inventory/items/inv_1/offline-sales", "seller", &sale(5), false)).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (_, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    assert!(text(&html).contains("Recorded 2 units. 3 units were not recorded."), "{html}");
+    assert!(html.contains(r#"href="/account/sales/ord_1""#), "{html}");
+    // Without the receipt, the page cannot say.
+    let (_, _, html) =
+        pilot.send(get("/account/inventory?offlineSaleItemId=inv_1&requested=2&applied=2&refused=0", Some("seller"))).await;
+    assert!(text(&html).contains("The sale result could not be verified."), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_sale_is_its_dialog_again() {
+    let pilot = Pilot::new().await;
+    let url = "/account/inventory/items/inv_1/offline-sales?sale=inv_1";
+    let key = new_attempt();
+    let body = format!("idempotencyKey={key}&quantity=0&salePriceAmount=3.999&channel=&collisionMode=honor-offline");
+    let (status, _, html) = pilot.send(post(url, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let page = text(&html);
+    for why in [
+        "Enter a whole number of 1 or more.",
+        "Enter a price like 12.50.",
+        "Enter a value.",
+        "Only an account owner or manager can honor an offline sale.",
+    ] {
+        assert!(page.contains(why), "{why}: {page}");
+    }
+    assert!(html.contains("<dialog") && html.contains(r#"value="3.999""#), "the dialog, as typed: {html}");
+    let (_, _, html) =
+        pilot.send(post(url, "keeper", &body.replace("quantity=0", "quantity=1").replace("3.999", ""), true)).await;
+    assert!(!html.contains("<html") && text(&html).contains("Confirm what honoring this sale means"), "{html}");
+    assert!(pilot.writes().is_empty(), "nothing was sent");
+    let body = format!("idempotencyKey={key}&quantity=1&channel=other&note=Refused&collisionMode=protect-orders");
+    let (status, _, html) = pilot.send(post(url, "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Offline sales require a positive whole-number quantity."), "{html}");
 }

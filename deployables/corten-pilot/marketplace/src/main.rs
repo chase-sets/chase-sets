@@ -15,6 +15,7 @@ mod buying;
 mod cart;
 mod cart_attempt;
 mod form;
+mod inventory_list;
 mod items;
 mod listing;
 mod listing_new;

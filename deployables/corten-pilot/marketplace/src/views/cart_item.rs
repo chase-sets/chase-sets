@@ -21,7 +21,7 @@ pub fn link(path: &str) -> String {
 
 /// The option values a product summary names (`productOptionsFromSummary`): "Form: Raw |
 /// Condition: Excellent" is Raw and Excellent.
-fn options(summary: Option<&str>) -> Vec<&str> {
+pub(crate) fn options(summary: Option<&str>) -> Vec<&str> {
     let Some(summary) = summary else { return Vec::new() };
     summary
         .split(['|', '/', ',', '\u{2022}'])

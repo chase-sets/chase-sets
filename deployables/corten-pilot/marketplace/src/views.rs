@@ -25,6 +25,7 @@ mod account_page;
 mod address_page;
 mod cart_item;
 mod decision_card;
+mod inventory_page;
 mod item_detail;
 mod listing_new_page;
 mod listing_page;
@@ -50,6 +51,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
+pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
@@ -72,7 +74,18 @@ pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
 
 /// The inventory screens' components (`/account/inventory`).
-pub const INVENTORY: &[Component] = &[PageActions, Recovery, handlers::COMPONENT, LocationCard, DecisionCard];
+/// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
+/// makes Record sale's dialog modal.
+pub const INVENTORY: &[Component] = &[
+    PageActions,
+    Recovery,
+    handlers::COMPONENT,
+    LocationCard,
+    DecisionCard,
+    InventoryPage,
+    listing_new_page::handlers::COMPONENT,
+    corten_ui::dialog::COMPONENT,
+];
 
 /// The cart's components (`/account/cart`).
 pub const CART: &[Component] = &[CartItem];

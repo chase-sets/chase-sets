@@ -18,6 +18,10 @@ export function redraw(event) {
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let typing;
 
+// A match chosen (or any other submit) before typing settles: the search it would send would
+// answer after the choice and draw the matches over it.
+document.addEventListener("submit", () => clearTimeout(typing), true);
+
 /**
  * Words typed in the catalog search: find matches once typing settles, from two characters (or a
  * pasted catalog id), as marketplace's picker does.

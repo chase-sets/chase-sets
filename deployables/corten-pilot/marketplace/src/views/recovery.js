@@ -1,7 +1,7 @@
 // @ts-check
 
 /** The kinds of write the screen sends (`InventoryMutationFamily`). */
-const families = ["location-create", "location-update", "location-archive", "restock-record"];
+const families = ["location-create", "location-update", "location-archive", "restock-record", "item-create"];
 
 /** marketplace's sessionStorage key for an account's pending write of one kind. */
 function key(/** @type {string} */ account, /** @type {string} */ family) {
@@ -57,6 +57,17 @@ export function restore(check, account, settled, unsettled) {
     check.family.value = family;
     check.target.value = text(record?.targetId);
     check.user.value = text(record?.actorUserId);
+    // The check is a GET of the page, so it carries the page's own place (an open Record sale, the
+    // list's page) along; otherwise checking a write would close what the seller opened.
+    const here = new URLSearchParams(location.search);
+    for (const name of ["attempt", "family", "target", "user"]) here.delete(name);
+    for (const [name, value] of here) {
+      const field = document.createElement("input");
+      field.type = "hidden";
+      field.name = name;
+      field.value = value;
+      check.form.append(field);
+    }
     // Before the page's load event this is a full page load, not a swap (Corten's on:connect).
     check.form.requestSubmit();
     return;
@@ -77,6 +88,10 @@ export function restore(check, account, settled, unsettled) {
  */
 export function remember(event, account, user, family, target, unavailable) {
   const form = /** @type {HTMLFormElement} */ (event.target);
+  // A button that asks the page again (`formmethod="get"`) writes nothing, so there is nothing
+  // to remember.
+  const submitter = /** @type {SubmitEvent} */ (event).submitter;
+  if ((submitter?.getAttribute("formmethod") ?? form.method).toLowerCase() === "get") return;
   const attempt = /** @type {HTMLInputElement | null} */ (form.querySelector("input[data-submit]"))?.value ?? "";
   const record = {
     version: 1,
