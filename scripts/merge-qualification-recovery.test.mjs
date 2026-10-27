@@ -588,8 +588,7 @@ describe("original revision recovery", () => {
         policyRevision: revision,
         ...override,
       });
-      if (override.policyRevision) expect(result.errors).toEqual([]);
-      else expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors.length).toBeGreaterThan(0);
     }
   });
   it("recovers original disabled policy without discovering a candidate", () => {

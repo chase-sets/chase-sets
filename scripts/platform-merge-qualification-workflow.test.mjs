@@ -69,6 +69,29 @@ describe("genuinely advisory workflow topology", () => {
   });
 });
 
+describe("producer-loss authority pins", () => {
+  it("inspects only image-eligible producers and uses the advisory run head for recovery", () => {
+    const inspect = step(observer, "Inspect joined producer candidate and policy");
+    expect(step(observer, "Inventory completed producer attempts missing advisory dispatch")).toContain(
+      "producer-inventory",
+    );
+    expect(inspect).toContain(
+      'git merge-base --is-ancestor "$policy_revision" "origin/${{ github.event.repository.default_branch }}"',
+    );
+    const recovery = step(observer, "Inspect complete advisory run evidence");
+    expect(recovery).toContain("revision=\"$(jq -r '.head_sha' artifacts/merge-qualification/run.json)\"");
+    const decision = step(advisory, "Persist original run-attempt decision");
+    expect(decision).toContain('--policy-revision "${{ github.workflow_sha }}"');
+  });
+
+  it("keeps producer terminal publication pinned to cleanup ordering", () => {
+    const inspect = step(observer, "Inspect joined producer candidate and policy");
+    expect(inspect).toContain("--advisory-run artifacts/merge-qualification-producer/advisory.json");
+    expect(inspect).toContain("--advisory-cleanup-complete");
+    expect(inspect).toContain("conflict_settled");
+  });
+});
+
 describe("exact candidate image handoff", () => {
   const docker = job(platformPr, "docker-image");
   const push = step(platformPr, "Push boot-smoked merge-group image");

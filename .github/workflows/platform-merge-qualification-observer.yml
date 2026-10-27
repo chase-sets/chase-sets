@@ -121,14 +121,26 @@ jobs:
             --repository "${{ github.repository }}" \
             --default-branch "${{ github.event.repository.default_branch }}" \
             --producer artifacts/merge-qualification-producer/producer.json \
+            --advisory-run artifacts/merge-qualification-producer/advisory.json \
             --out artifacts/merge-qualification-producer/terminal/records.json || exit $?
           existing_arg=()
-          if [ "$(jq '[.records[]] | unique | length' artifacts/merge-qualification-producer/terminal/records.json)" = "1" ]; then
+          terminal_state="$(jq -r '.state' artifacts/merge-qualification-producer/terminal/records.json)"
+          if [ "$terminal_state" = "unknown" ]; then
+            echo "Producer terminal inventory refused." >&2
+            exit 1
+          fi
+          if [ "$(jq '.records | length' artifacts/merge-qualification-producer/terminal/records.json)" -gt 0 ]; then
             jq -r '.records[0]' artifacts/merge-qualification-producer/terminal/records.json > artifacts/merge-qualification-producer/terminal/event.json
             existing_arg=(--existing-terminal artifacts/merge-qualification-producer/terminal/event.json)
-          elif [ "$(jq '.records | length' artifacts/merge-qualification-producer/terminal/records.json)" != "0" ]; then
-            echo "Conflicting producer terminal records were found." >&2
-            exit 1
+          fi
+          cleanup_arg=()
+          if [ "$terminal_state" = "advisory_cleanup_complete" ] || [ "$terminal_state" = "conflict_settled" ]; then
+            cleanup_arg=(--advisory-cleanup-complete)
+          fi
+          terminals_arg=()
+          if [ "$(jq '.records | length' artifacts/merge-qualification-producer/terminal/records.json)" -gt 0 ]; then
+            jq '.records | map(fromjson)' artifacts/merge-qualification-producer/terminal/records.json > artifacts/merge-qualification-producer/terminal/events.json
+            terminals_arg=(--existing-terminals artifacts/merge-qualification-producer/terminal/events.json)
           fi
           node ./scripts/merge-qualification.mjs producer-reconcile \
             --producer artifacts/merge-qualification-producer/producer.json \
@@ -136,6 +148,8 @@ jobs:
             --policy artifacts/merge-qualification-producer/policy.json \
             --advisory-run artifacts/merge-qualification-producer/advisory.json \
             "${existing_arg[@]}" \
+            "${terminals_arg[@]}" \
+            "${cleanup_arg[@]}" \
             --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --out artifacts/merge-qualification-producer/event.json \
             --github-output "$GITHUB_OUTPUT"
@@ -216,7 +230,7 @@ jobs:
             gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification/decision
             echo "decision=artifacts/merge-qualification/decision/decision.json" >> "$GITHUB_OUTPUT"
           else
-            revision="$(jq -r '.policyRevision // empty' artifacts/merge-qualification/candidate/candidate.json)"
+            revision="$(jq -r '.head_sha' artifacts/merge-qualification/run.json)"
             [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
             git fetch --no-tags origin "$revision"
             scope_name="merge-qualification-scope-${RUN_ID}-${RUN_ATTEMPT}"
