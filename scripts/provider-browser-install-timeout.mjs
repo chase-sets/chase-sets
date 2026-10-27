@@ -212,6 +212,11 @@ export function runInstaller({
   identity,
   env = process.env,
   cacheHit = false,
+  installerCommand = "bash",
+  installerArgs = ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
+  installerEnv = {},
+  requireComplete = true,
+  cancelSignal,
   now = () => new Date(),
   spawnImpl = spawn,
   signalGroupImpl = signalGroup,
@@ -233,15 +238,15 @@ export function runInstaller({
   if (!isValidTimingRecord(base) || env.INSTALLER_TIMEOUT_SECONDS !== "600") {
     throw new Error("provider-browser-install authority or 600-second bound refused");
   }
-  const childEnv = buildMinimalProcessEnvironment(
-    env,
-    Object.fromEntries(
+  const childEnv = buildMinimalProcessEnvironment(env, {
+    ...Object.fromEntries(
       ["GITHUB_ACTIONS", "RUNNER_ENVIRONMENT", "ImageOS", "ImageVersion", "BOUNDARY_HEAD_SHA"].map((name) => [
         name,
         env[name],
       ]),
     ),
-  );
+    ...installerEnv,
+  });
   let phase = "runner-identity";
   let cache = "not-applicable";
   let source = "provider-download";
@@ -253,12 +258,14 @@ export function runInstaller({
   let child;
   let installerStatus;
   let released = false;
+  let abortListener;
 
   return new Promise((resolve) => {
     const finish = (status) => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      if (abortListener && cancelSignal) cancelSignal.removeEventListener("abort", abortListener);
       const endedAt = now().toISOString();
       const record = {
         ...base,
@@ -294,7 +301,11 @@ export function runInstaller({
       }, INSTALLER_TIMEOUT_GRACE_MS);
     };
     try {
-      child = spawnImpl(process.execPath, [fileURLToPath(import.meta.url), supervisorArgument], {
+      const installerSpec = Buffer.from(
+        JSON.stringify({ command: installerCommand, args: installerArgs }),
+        "utf8",
+      ).toString("base64url");
+      child = spawnImpl(process.execPath, [fileURLToPath(import.meta.url), supervisorArgument, installerSpec], {
         detached: true,
         env: childEnv,
         stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -313,7 +324,7 @@ export function runInstaller({
     }
 
     const releaseIfComplete = () => {
-      if (!released && !stopping && !settled && installerStatus === 0 && complete && !failure) {
+      if (!released && !stopping && !settled && installerStatus === 0 && (!requireComplete || complete) && !failure) {
         released = true;
         clearTimeout(deadline);
         child.send("release");
@@ -356,6 +367,11 @@ export function runInstaller({
     consume(child.stdout);
     consume(child.stderr);
     deadline = setTimeout(() => stop("timeout"), INSTALLER_TIMEOUT_MS);
+    if (cancelSignal) {
+      abortListener = () => stop("cancelled");
+      if (cancelSignal.aborted) abortListener();
+      else cancelSignal.addEventListener("abort", abortListener, { once: true });
+    }
     child.once("message", (message) => {
       if (stopping || settled) return;
       installerStatus = message?.installerStatus;
@@ -371,7 +387,7 @@ export function runInstaller({
     });
     child.once("close", (status) => {
       if (stopping || settled) return;
-      if (status !== 0 || !released || !complete || failure) {
+      if (status !== 0 || !released || (requireComplete && !complete) || failure) {
         stop(failure ?? "refused");
         return;
       }
@@ -380,11 +396,17 @@ export function runInstaller({
   });
 }
 
-export function superviseInstaller({ runtime = process, spawnImpl = spawn, signalGroupImpl = signalGroup } = {}) {
+export function superviseInstaller({
+  runtime = process,
+  spawnImpl = spawn,
+  signalGroupImpl = signalGroup,
+  installerCommand = "bash",
+  installerArgs = ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
+} = {}) {
   // This detached group leader survives TERM and installer exit until the
   // owner releases it or kills the group, reserving its group id during grace.
   runtime.on("SIGTERM", () => {});
-  const installer = spawnImpl("bash", ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"], {
+  const installer = spawnImpl(installerCommand, installerArgs, {
     stdio: ["ignore", "inherit", "inherit"],
   });
   installer.once("error", () => runtime.send({ installerStatus: 1 }));
@@ -407,7 +429,18 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href &&
   process.argv[2] === supervisorArgument
 ) {
-  superviseInstaller();
+  let installerSpec = {};
+  try {
+    installerSpec = process.argv[3] ? JSON.parse(Buffer.from(process.argv[3], "base64url").toString("utf8")) : {};
+  } catch {
+    process.exitCode = 1;
+  }
+  if (process.exitCode !== 1) {
+    superviseInstaller({
+      installerCommand: installerSpec.command,
+      installerArgs: installerSpec.args,
+    });
+  }
 } else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = (await runHostedInstaller()).status;
 }
