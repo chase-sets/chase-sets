@@ -289,6 +289,11 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   expect(receipt.pages).toContainEqual(
     expect.objectContaining({ path: "/account/channels/<connectionId>", status: 200, host: stagingHost }),
   );
+  // The stored page is opened before Generate, after its form redirect, in the popup, and for Unpair.
+  // Requiring four document rows makes the popup capture discriminating; the earlier observer rows alone are only three.
+  expect(
+    receipt.pages.filter(({ path, status }) => path === "/account/channels/<connectionId>" && status === 200),
+  ).toHaveLength(4);
   expect(receipt.generateToClickMs).toBeLessThanOrEqual(600_000);
 
   // AC2: only the staging host was served, by Chromium, with the browser's cookie; everything else was aborted.
