@@ -1236,14 +1236,15 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         popupResponse = response;
       };
       const bindPopupDocument = () => {
-        if (popupDocument !== undefined || popupPage === undefined || popupResponse === undefined) return false;
+        if (popupDocument !== undefined || popupResponse === undefined) return false;
         let responsePage: Page;
         try {
           responsePage = popupResponse.frame().page();
         } catch {
           return false;
         }
-        if (responsePage !== popupPage || !context.pages().includes(popupPage)) return false;
+        if (responsePage === page || (popupPage !== undefined && responsePage !== popupPage)) return false;
+        popupPage ??= responsePage;
         const response = popupResponse;
         const request = response.request();
         const url = new URL(request.url());
@@ -1273,6 +1274,28 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           () => bindPopupDocument() && popupDocument?.status === 200 && popupDocument.at >= reopenedAt,
         );
       } finally {
+        if (!reopened) {
+          let framePageUrl: string | null = null;
+          let framePageError: string | null = null;
+          if (popupResponse !== undefined) {
+            try {
+              framePageUrl = popupResponse.frame().page().url();
+            } catch (error) {
+              framePageError = error instanceof Error ? error.name : "unknown";
+            }
+          }
+          console.log(
+            `CONNECTOR_DRILL_POPUP_DIAGNOSTIC ${JSON.stringify({
+              responseSeen: popupResponse !== undefined,
+              responseUrl: popupResponse?.url() ?? null,
+              responseStatus: popupResponse?.status() ?? null,
+              framePageUrl,
+              framePageError,
+              pageEventSeen: popupPage !== undefined,
+              contextPageUrls: context.pages().map((candidate) => candidate.url()),
+            })}`,
+          );
+        }
         context.off("page", observePopupPage);
         context.off("response", observePopupResponse);
       }
