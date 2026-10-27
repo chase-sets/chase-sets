@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, useLocation, useNavigate } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -48,5 +48,22 @@ describe("Pricing Health goal parameter controls", () => {
     const search = screen.getByTestId("location-search").textContent ?? "";
     expect(search).toContain("goals=");
     expect(decodeURIComponent(search)).toContain('"percentile":70');
+  });
+
+  it("gives every open same-titled goal disclosure a unique region name", async () => {
+    cleanup();
+    const user = userEvent.setup();
+    const [goal] = goals;
+    const sameTitledGoals = [1, 2, 3].map((goalVersion) => ({ ...goal!, goalVersion }));
+    render(<GoalPicker goals={sameTitledGoals} />);
+
+    const picker = screen.getByTestId("pricing-health-goal-picker");
+    const disclosures = screen.getAllByRole("button", { name: "Advanced controls and provenance" });
+    expect(disclosures.every((trigger) => trigger.getAttribute("aria-expanded") === "false")).toBe(true);
+    for (const disclosure of disclosures) await user.click(disclosure);
+    const regions = Array.from(picker.querySelectorAll('[role="region"]'));
+    expect(regions).toHaveLength(disclosures.length);
+    expect(new Set(regions.map((region) => region.getAttribute("aria-label"))).size).toBe(regions.length);
+    expect(disclosures.every((trigger) => trigger.getAttribute("aria-expanded") === "true")).toBe(true);
   });
 });

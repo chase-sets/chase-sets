@@ -69,7 +69,10 @@ export function GoalPicker({
               return (
                 <Fieldset key={key} legend={goalLabel({ ...goal, parameters: current })}>
                   <Text size="sm">{goalExplanation({ ...goal, parameters: current })}</Text>
-                  <ProgressiveDisclosure title={copy("goals.advanced")}>
+                  <ProgressiveDisclosure
+                    title={copy("goals.advanced")}
+                    panelLabel={`${goalLabel({ ...goal, parameters: current })} (${goal.goalId}@${goal.goalVersion})`}
+                  >
                     <Stack gap={2}>
                       {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
                         const value = current[parameter] ?? bounds.default;
