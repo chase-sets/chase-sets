@@ -45,6 +45,7 @@ import {
 import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../features/account-appeals/api/runtime";
 import type { ProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
 import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
+import { buildAccountAppealProjectionHandlerSet } from "../../features/account-appeals/read-model/projection";
 
 export type OperationsAttentionRuntimeReads = Readonly<{
   loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
@@ -243,6 +244,7 @@ export function createPlatformOperationsServices(
       ...riskAlerts.projectors,
       ...supportRequests.projectors,
       ...policies.projectors,
+      buildAccountAppealProjectionHandlerSet(db),
     ],
     accountAppeals,
     operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,

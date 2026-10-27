@@ -2972,7 +2972,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
         "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
         "bootstrap-db-capture-39187412107.json": "3a3afe4966627e94f7cb08f30fcaf6a55237e0446c5899d1f9804ef3286e047c",
-        "bootstrap-db-capture-40252660960-paired.json": "97dd9b20d7ecc20dcd5291176b1555b83845dfc4bef89047106ce95721d6198c",
+        "bootstrap-db-capture-40252660960-paired.json":
+          "97dd9b20d7ecc20dcd5291176b1555b83845dfc4bef89047106ce95721d6198c",
         "bootstrap-db-capture-40252660960.json": "5b25ed93307194d218319c093f5e42db227457481551d00583da0164bd020a9d",
         ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
         ...Object.fromEntries(
@@ -3996,9 +3997,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const omitted = withBindings(baseline, (bindings) =>
         bindings.filter(([section, key]) => !(section === "W2 file" && key === paymentSupportPath)),
       );
-      expect(check(omitted)).toEqual(
-        [...knownCurrentCaptureDrift, added(`W2 file ${paymentSupportPath}`)].sort(),
-      );
+      expect(check(omitted)).toEqual([...knownCurrentCaptureDrift, added(`W2 file ${paymentSupportPath}`)].sort());
 
       const { bindings: _bindings, ...withoutBindings } = baseline;
       expect(check(withoutBindings)).toContain("baseline bindings are missing or empty");
@@ -4084,7 +4083,10 @@ describe("Platform API bootstrap DB enrollment", () => {
         ),
       ) as BootstrapDbWorkloadBaseline;
       const currentBindings = currentBaseline().bindings.map((binding) => {
-        if (binding[0] !== "W3 file" || !knownCurrentCaptureDrift.some((entry) => entry.startsWith(`${binding[0]} ${binding[1]}`))) {
+        if (
+          binding[0] !== "W3 file" ||
+          !knownCurrentCaptureDrift.some((entry) => entry.startsWith(`${binding[0]} ${binding[1]}`))
+        ) {
           return binding;
         }
         return derivation.bindings.find(([section, key]) => section === binding[0] && key === binding[1]) ?? binding;
