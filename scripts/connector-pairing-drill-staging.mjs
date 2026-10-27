@@ -1,5 +1,5 @@
 // Composes the `pairing-drill:staging` command: the product drill entry plus the delivery-owned deploy-authority
-// adapter. Staging persona sign-in (#10640) supplies `signIn`; until it does, a pairing run refuses
+// adapter. Staging persona sign-in supplies `signIn`; until it does, a pairing run refuses
 // `connector-drill-sign-in-unavailable` before any read, and only `--smoke` can run.
 import { resolve } from "node:path";
 import { PairingDrillRefusal } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill.ts";

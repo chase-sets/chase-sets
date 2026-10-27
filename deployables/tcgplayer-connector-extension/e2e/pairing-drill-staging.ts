@@ -50,7 +50,7 @@ export type DeployBindingResult = Readonly<{ binding: PairingDrillDeployBinding 
 export type StagingDrillPorts = Readonly<{
   /** The delivery-owned deploy-authority adapter: product code never reads GitHub itself. */
   resolveDeployBinding(request: DeployBindingRequest): Promise<DeployBindingResult>;
-  /** Persona sign-in; absent until staging sign-in (#10640) wires it, so a pairing run refuses before any read. */
+  /** Persona sign-in; absent until staging persona sign-in wires it, so a pairing run refuses before any read. */
   signIn?: (context: BrowserContext, personaAlias: string) => Promise<void>;
   dist: string;
   outputDir: string;
@@ -157,7 +157,7 @@ function probe(url: URL, resolver?: PairingDrillResolver) {
 }
 
 /**
- * The edge rows carried from #9986 Scope item 1: the unauthenticated authorize mount, the registered client's
+ * The edge rows carried verbatim from the deployed drill's preflight: the unauthenticated authorize mount, the registered client's
  * no-follow refusal to the pinned callback, and an unregistered client's 400. Each records host, path, status,
  * content type and body code; a redirect records only its host and `error_description`.
  */

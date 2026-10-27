@@ -732,7 +732,7 @@ const generateButton = 'form:has(input[name="intent"][value="connector-code"]) b
 const unpairButton = 'form:has(input[name="intent"][value="connector-unpair"]) button[type="submit"]';
 const claimPath = /^\/channel-connector\/oauth\/connections\/[^/]+\/claim$/;
 const pairingWindowMs = 600_000;
-/** Issues whose closing-PR merges the deployed commit must contain: #10110, #9985, this drill and staging sign-in. */
+/** Issues whose closing-PR merges the deployed commit must contain: client registration, the pinned callback route, this drill and staging sign-in. */
 export const deployedRequiredIssues = { pairing: [10110, 9985, 10639, 10640], smoke: [10639] } as const;
 /** Marker names no retained deployed receipt may contain, before any caller-held literal. */
 export const retainedSecretMarkers = ["access_token", "refresh_token", "code_verifier", "Bearer ", "cc_at_", "cc_rt_"];

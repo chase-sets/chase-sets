@@ -1,4 +1,4 @@
-// Delivery-owned deploy authority for the connector pairing drill (#10639), and the only drill code that reads
+// Delivery-owned deploy authority for the connector pairing drill, and the only drill code that reads
 // GitHub Actions. The owning Deploy Staging job comes from the shared staging deploy generation (newest applied
 // job; a newer unfinished or indeterminate deploy, a skipped or incomplete listing refuses), the requested run and
 // commit must be that job's, and each required issue's closing-PR merge commit is compared with its deployed head.
