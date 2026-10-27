@@ -40,12 +40,12 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const awaitStep = advisorySteps.find((step) => step.name === "Await staging scenario-seed Job termination");
   const awaitRun = String(awaitStep?.run ?? "");
   const advisoryResumesWorkerBeforeRbacRemoval =
-    awaitRun.includes("autoscaling.keda.sh/paused-replicas-") &&
-    awaitRun.indexOf("autoscaling.keda.sh/paused-replicas-") <
-      awaitRun.indexOf("kubectl delete rolebinding,role,serviceaccount");
+    awaitRun.includes("scenario-seed-release") &&
+    awaitRun.indexOf("scenario-seed-release") < awaitRun.indexOf("kubectl delete rolebinding,role,serviceaccount");
   const seedEnv = manifest.spec.template.spec.containers[0].env;
-  const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group;
-  const doesNotCancel = (workflow, job) => workflow.jobs[job]?.concurrency?.["cancel-in-progress"] === false;
+  const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group ?? workflow.concurrency?.group;
+  const doesNotCancel = (workflow, job) =>
+    (workflow.jobs[job]?.concurrency ?? workflow.concurrency)?.["cancel-in-progress"] === false;
   const capacity = buildPushWakeCapacityEvidence(loadPushWakeCapacityInputs(repoRoot));
   return {
     pooled: capacity.environments.doksStaging.pgbouncerServerBackendAllocation,
@@ -111,6 +111,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     bootstrapUsesDedicatedLockPool:
       bootstrapSource.includes("createSeedCommandPools(config)") &&
       bootstrapSource.includes("schemaBootstrapLockPool: pools.schemaBootstrapLockPool"),
+    bootstrapUsesFullSpanLock:
+      bootstrapSource.includes("withSchemaBootstrapLock(") &&
+      bootstrapSource.includes('await runBootstrapPhase("seed-api-host"'),
     serializedGroups: [
       groupFor(advisory, "staging-advisory-evidence"),
       groupFor(deploy, "deploy-staging"),
@@ -133,7 +136,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
 
 export function enforceStagingConnectionEnvelope(input) {
   if (!input.advisoryAwaitsSeedJobTermination || !input.advisoryResumesWorkerBeforeRbacRemoval) {
-    throw new Error("Advisory scenario seed must hold platform-deploy-staging until its Kubernetes Job terminates.");
+    throw new Error(
+      "Advisory scenario seed must await its Job termination and owner-fenced release before RBAC removal.",
+    );
   }
   if (input.directUrls !== input.contextCount || input.directUrls < 1) {
     throw new Error("Staging bootstrap direct URL inventory does not match the context/control budget.");
@@ -142,14 +147,18 @@ export function enforceStagingConnectionEnvelope(input) {
     !input.bootstrapQuiescesWorkers ||
     !input.bootstrapBeforeRollout ||
     !input.bootstrapUsesDedicatedLockPool ||
+    !input.bootstrapUsesFullSpanLock ||
     !input.seedPoolsCapped ||
     !input.scenarioQuiescesWorkers ||
     !input.scenarioRestoresWorkers ||
     !input.dispatchesWithinDeploy ||
     !input.serializedJobsDoNotCancel ||
-    input.serializedGroups.some((group) => group !== stagingGroup)
+    input.serializedGroups[0] !== "platform-staging-advisory-evidence" ||
+    input.serializedGroups.slice(1).some((group) => group !== stagingGroup)
   ) {
-    throw new Error("Staging bootstrap, advisory, seed commands, and rollout must retain their enforced phases.");
+    throw new Error(
+      "Staging bootstrap, advisory owner-fenced seed yield, and rollout must retain their enforced phases.",
+    );
   }
   if (
     !Number.isInteger(input.bootstrapPoolMax) ||
