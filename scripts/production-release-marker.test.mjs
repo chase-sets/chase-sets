@@ -23,6 +23,7 @@ import {
 } from "./production-release-marker.mjs";
 import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
 import { releaseLockRefusal, runReleaseLockCheck } from "./release-lock.mjs";
+import { ACTIVE_GC_NOT_FOUND_PHRASE } from "./digitalocean-registry-gc-gate.mjs";
 
 // Every mutable control below has unmistakably synthetic identities, never a real hosted job identity.
 const commit = "a".repeat(40);
@@ -201,6 +202,15 @@ describe("publication interruption and unknown response", () => {
       marker: { marker_updated: "false", marker_phase: "publication" },
     });
     expect(io.publishGit).toHaveBeenCalledTimes(3);
+  });
+  it("lets a registry GC gate refusal escape the authoritative publication catch", async () => {
+    const { io } = publication();
+    const refusal = new Error("registry GC active");
+    refusal.code = "registry-gc-read-only";
+    io.assertRegistryWritable = vi.fn().mockRejectedValue(refusal);
+    await expect(publishReleaseMarker(identity, io)).rejects.toMatchObject({ code: "registry-gc-read-only" });
+    expect(io.assertRegistryWritable).toHaveBeenCalledOnce();
+    expect(io.publishRegistry).not.toHaveBeenCalled();
   });
   it.each(["fetch", "registry", "ancestry", "freshness"])("refuses %s failure before mutation", async (failure) => {
     const { io } = publication();
@@ -871,6 +881,71 @@ describe("registry reads through the real command adapter", () => {
     expect(io.publishRegistry).toHaveBeenCalledOnce();
   });
 
+  it("fails closed when the scoped registry credential is withheld", async () => {
+    const runCommand = vi.fn(async () => {
+      throw failure(`ERROR: ${ref}: not found\n`);
+    });
+    const adapter = markerIo(release, {}, async () => {}, runCommand);
+    await expect(adapter.assertRegistryWritable()).rejects.toMatchObject({
+      code: "unknown",
+      registryGcGate: { reason: "missing-registry-credential", result: "refused" },
+    });
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    io.assertRegistryWritable = adapter.assertRegistryWritable;
+    await expect(publishReleaseMarker(release, io)).rejects.toThrow("unknown");
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+    expect(runCommand).toHaveBeenCalled();
+  });
+
+  it("surfaces provider-error refusal with the unknown code before publication", async () => {
+    const providerError = failure("500 provider unavailable\n");
+    const runCommand = vi.fn(async (program) => {
+      if (program === "docker") throw failure(`ERROR: ${ref}: not found\n`);
+      throw providerError;
+    });
+    const adapter = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    io.assertRegistryWritable = adapter.assertRegistryWritable;
+    await expect(publishReleaseMarker(release, io)).rejects.toMatchObject({ code: "unknown" });
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+  });
+
+  it("names registry-gc-read-only in the marker refusal message; F3 message mutant turns red", async () => {
+    const runCommand = vi.fn(async (program, args) => {
+      if (program === "git" && args[0] === "ls-remote") {
+        return { stdout: `${previousCommit} refs/heads/production\n` };
+      }
+      if (program === "docker") throw failure(`ERROR: ${ref}: not found\n`);
+      if (program === "doctl") {
+        return {
+          stdout: JSON.stringify([
+            {
+              uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+              registry_name: "synthetic",
+              status: "scanning for unreferenced blobs",
+            },
+          ]),
+        };
+      }
+      return { stdout: "" };
+    });
+    const adapter = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+    const publishRegistry = vi.spyOn(adapter, "publishRegistry");
+    const publishGit = vi.spyOn(adapter, "publishGit");
+
+    await expect(publishReleaseMarker(release, adapter)).rejects.toSatisfy((error) => {
+      expect(error).toMatchObject({ code: "registry-gc-read-only" });
+      expect(error.message).toContain("registry-gc-read-only");
+      return true;
+    });
+    expect(publishRegistry).not.toHaveBeenCalled();
+    expect(publishGit).not.toHaveBeenCalled();
+  });
+
   it.each([`error: ${ref}: not found\r\n`, "manifest unknown", "ERROR: manifest unknown: manifest unknown\n"])(
     "retains supported tag-absence wording %s",
     async (stderr) => {
@@ -979,6 +1054,11 @@ describe("publication interruption through the real command adapter", () => {
             stdout: args.includes("--raw") ? Buffer.concat([state.registry, Buffer.from("\n")]) : `${digest}\n`,
           };
         }
+        if (program === "doctl") {
+          const error = new Error("synthetic no active GC");
+          error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+          throw error;
+        }
         expect(program).toBe("git");
         if (args[0] === "fetch") {
           state.fetched = args.at(-1).startsWith("refs/tags/") ? state.tag : state.production;
@@ -1023,7 +1103,7 @@ describe("publication interruption through the real command adapter", () => {
         image: "registry.digitalocean.com/synthetic/chase-sets-platform",
         createdAt: run.created_at,
       };
-      const io = markerIo(release, {}, async () => {}, runCommand);
+      const io = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
       expect(await publishReleaseMarker(release, io)).toMatchObject({
         marker_updated: "true",
         production_marker_commit: commit,

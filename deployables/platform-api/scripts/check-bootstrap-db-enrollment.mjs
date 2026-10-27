@@ -153,7 +153,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "connector-mount-gate-isolation.db.test.ts": {
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "connector_composed_7993",
     bootBearingCases: "all",
     cases: [
@@ -210,7 +210,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "bootstrap-lock-contention.db.test.ts": {
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_bootstrap_lock_contention",
     bootBearingCases: "all",
     cases: [
@@ -247,7 +247,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "seed-command-full-pools.db.test.ts": {
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_seed_command_full_pools",
     bootBearingCases: "all",
     cases: [
@@ -355,7 +355,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "inventory-seed-resume.db.test.ts": {
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_inventory_seed_resume",
     bootBearingCases: "all",
     cases: [
@@ -402,7 +402,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "catalog-seed-interruption-resume.db.test.ts": {
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_catalog_seed_interruption_resume",
     bootBearingCases: "all",
     cases: [
@@ -454,7 +454,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "authoritative-seed-resume-recovery.db.test.ts": {
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_authoritative_seed_resume_recovery",
     bootBearingCases: "all",
     cases: [
@@ -472,9 +472,12 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
   },
 });
 
+// Capture preparation: these partitions are not enrolled by the historical
+// two-unit model below. Enrollment remains stale until their admitted capture.
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
-  "test:db:1": 36,
-  "test:db:2": 33,
+  "test:db:1": 18,
+  "test:db:2": 32,
+  "test:db:3": 19,
 });
 
 /**
