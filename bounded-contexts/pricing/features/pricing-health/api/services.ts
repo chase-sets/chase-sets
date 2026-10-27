@@ -342,10 +342,7 @@ export function createPricingHealthServices({
     ) => {
       const target = await currentTarget(accountId, policyId);
       if (!target || !isOneRuleUnconditional(target.rules)) return null;
-      const goalChoices = validateGoalParameterRequests(
-        await choices(accountId, target, new Date().toISOString()),
-        parameterRequests,
-      );
+      const goalChoices = validateGoalParameterRequests(await choices(), parameterRequests);
       const runs = [];
       for (const choice of goalChoices) {
         const body = buildCandidateBody(target.body, choice);

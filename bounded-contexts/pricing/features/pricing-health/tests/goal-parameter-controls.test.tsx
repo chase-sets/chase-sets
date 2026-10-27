@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, useLocation, useNavigate } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -44,6 +44,7 @@ describe("Pricing Health goal parameter controls", () => {
     expect(screen.getByTestId("location-search").textContent).toBe("?policyId=pol_synthetic");
     expect(screen.getByText("Enter a value within the allowed range.")).toBeTruthy();
     fireEvent.change(input, { target: { value: "70" } });
+    await waitFor(() => expect(screen.getByTestId("location-search").textContent).toContain("goals="));
     const search = screen.getByTestId("location-search").textContent ?? "";
     expect(search).toContain("goals=");
     expect(decodeURIComponent(search)).toContain('"percentile":70');
