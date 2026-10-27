@@ -7,8 +7,15 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import { drainContextRuntime, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
+import {
+  createProjectionGroupLeasePort,
+  representativeCommerceStateDataProfiles,
+  seedApiHostIfEmpty,
+} from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
@@ -366,6 +373,7 @@ export async function runRepresentativeCommerceState(
     runRepresentativeStep(stepName, run, stepOptions, progress);
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
     const paymentProcessorGateway =
       config?.paymentProcessor.kind === "stripe"
         ? createStripePaymentProcessorGateway({
@@ -434,6 +442,8 @@ export async function runRepresentativeCommerceState(
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
           schemaBootstrapLockPool: seedPools?.schemaBootstrapLockPool,
+          projectionGroupLeasePort: createProjectionGroupLeasePort(controlPlane, "platform-api"),
+          substepTimeoutMs: MAX_STEP_TIMEOUT_MS,
           // Preserve pre-seed visibility and interrupted-state reconciliation
           // without spending the canary's budget on unrelated runtime drains.
           seedContextDrain: true,

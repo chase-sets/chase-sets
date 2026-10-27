@@ -26,6 +26,11 @@ import {
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
 
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
 const contentionBootstrapOptions = {
   lockTimeoutMs: 100,
   lockTimeoutRetryBudgetMs: 2_000,
@@ -152,6 +157,7 @@ describe("platform api bootstrap lock contention", () => {
       environmentName: "test",
       schemaBootstrapLockPool: seedPools.schemaBootstrapLockPool,
       schemaBootstrap: { lockAcquisitionTimeoutMs: 100 },
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     };
     try {
       await withSchemaBootstrapLock(seedPools.schemaBootstrapLockPool, {}, async (schemaBootstrapLockAcquisition) => {

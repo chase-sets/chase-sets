@@ -1757,8 +1757,9 @@ export async function retryLocalProjectionBlockedStream(
 export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,
-): Promise<void> {
+): Promise<number> {
   let processed = 0;
+  let totalProcessed = 0;
 
   do {
     processed = 0;
@@ -1767,8 +1768,10 @@ export async function drainContextProcesses(
       context?.throwIfLeaseLost?.();
       const result = await runner.runOnce(context);
       processed += result.processed;
+      totalProcessed += result.processed;
     }
   } while (processed > 0);
+  return totalProcessed;
 }
 
 export async function syncContextSubscriptions(

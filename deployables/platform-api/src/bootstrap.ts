@@ -1,8 +1,12 @@
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups, withSchemaBootstrapLock } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane, recordWorkerQuiesce } from "@chase-sets/platform-runtime/control-plane";
-import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+  recordWorkerQuiesce,
+} from "@chase-sets/platform-runtime/control-plane";
+import { createProjectionGroupLeasePort, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import {
   PLATFORM_WORKER_KIND,
   quiescedDeploymentsIncludePlatformWorker,
@@ -33,6 +37,7 @@ async function bootstrap() {
 
   try {
     await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
     // The deployment quiesce sets this only after it confirmed that no platform worker pod remains, which
     // retires every earlier worker for producers gated on worker event capability.
     if (quiescedDeploymentsIncludePlatformWorker(process.env.CHASE_SETS_QUIESCED_DEPLOYMENTS)) {
@@ -71,6 +76,7 @@ async function bootstrap() {
           seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
             schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
             schemaBootstrapLockAcquisition,
+            projectionGroupLeasePort: createProjectionGroupLeasePort(controlPlane, "platform-api"),
             enabledDataProfiles: config.dataProfiles ?? [],
             environmentName: config.deploymentEnvironment ?? null,
             runtimeProfile: config.runtimeProfile,

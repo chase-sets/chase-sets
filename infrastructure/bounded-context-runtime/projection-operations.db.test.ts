@@ -42,6 +42,11 @@ import {
 import { withProjectionTransaction } from "./projection-transactions";
 import { createProjectionGroupWorkerRunner } from "../platform-runtime/worker";
 import { createApiHost, seedApiHostIfEmpty, type ApiContextRegistry } from "../platform-runtime/api";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 import {
   createCheckpointKey,
   saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
@@ -549,7 +554,11 @@ describeDb("projection operations Postgres integration", () => {
       },
     ];
     const mount = () => createApiHost(registry, "platform-api", { pools: { target: pools.target } });
-    const options = { enabledDataProfiles: ["critical-bootstrap" as const], environmentName: null };
+    const options = {
+      enabledDataProfiles: ["critical-bootstrap" as const],
+      environmentName: null,
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
+    };
     await createPostgresEventStore({ pool: pools.target }).appendToStream({
       streamId: "target.item-bootstrap",
       expectedVersion: "no_stream",

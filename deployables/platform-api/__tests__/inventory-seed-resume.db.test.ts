@@ -18,6 +18,11 @@ import {
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
 
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
 /**
  * The confirmed #4906 failure and its resume/fail-closed controls, scoped to
  * the smallest mount set that can seed them: `catalog` (the projected catalog
@@ -30,9 +35,10 @@ const activeContextNames = ["catalog", "inventory", "checkout"] as const satisfi
 const scopedRegistry = apiContextRegistry.filter((context) =>
   (activeContextNames as readonly string[]).includes(context.contextName),
 );
-const seedOptions: BcSeedOptions = {
-  enabledDataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"],
-  environmentName: "test",
+const seedOptions = {
+  enabledDataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"] as const,
+  environmentName: "test" as const,
+  projectionGroupLeasePort: testProjectionGroupLeasePort,
 };
 
 const northShelfStream = `inventory.storage-location-${inventorySeedIds.storageLocations.northShelf}`;
@@ -61,6 +67,13 @@ function createScopedHost() {
     },
   });
   const included = (contextName: string) => (activeContextNames as readonly string[]).includes(contextName);
+  const projectionGroups = runtime.projectionGroups.filter(
+    (group) =>
+      included(group.targetContextName) && group.sourceContextNames.every((sourceName) => included(sourceName)),
+  );
+  const groupedRunnerKeys = new Set(
+    projectionGroups.flatMap((group) => group.subscriptionRunners.map((runner) => runner.checkpointKey)),
+  );
 
   return {
     ...runtime,
@@ -68,12 +81,12 @@ function createScopedHost() {
     mountedModules: runtime.mountedModules.filter((entry) => included(entry.module.contextName)),
     // Groups fed by a context outside this partition would read an event-store
     // head from a database the scoped harness never provisioned.
-    projectionGroups: runtime.projectionGroups.filter(
-      (group) =>
-        included(group.targetContextName) && group.sourceContextNames.every((sourceName) => included(sourceName)),
-    ),
+    projectionGroups,
     subscriptionRunners: runtime.subscriptionRunners.filter(
-      (runner) => included(runner.targetContextName) && included(runner.sourceContextName),
+      (runner) =>
+        included(runner.targetContextName) &&
+        included(runner.sourceContextName) &&
+        groupedRunnerKeys.has(runner.checkpointKey),
     ),
   };
 }
