@@ -1201,7 +1201,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.expectedCaseCount).toBe(71);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
-    expect(result.partitionUnitCount).toBe(2);
+    expect(result.partitionUnitCount).toBe(3);
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
@@ -2605,7 +2605,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       jobWallMs: number;
       sourceBindings: Record<string, string>;
       acceptedAssignment: Record<string, string>;
-      acceptedBootBearingCeilings: Record<string, number>;
+      acceptedBootBearingCaseCeilings: Record<string, number>;
       measuredUnits: { unit: string; observedDurationMs: number; longestWorkerChainMs: number; residualMs: number }[];
       files: {
         fileName: string;
@@ -2948,6 +2948,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
         "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
         "bootstrap-db-capture-39187412107.json": "3a3afe4966627e94f7cb08f30fcaf6a55237e0446c5899d1f9804ef3286e047c",
+        "bootstrap-db-capture-40217094516.json": "93c49b3ff67b8d1cbefd810f13af1a64c57259f67799f060e924256d5e53dd47",
         ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
         ...Object.fromEntries(
           Object.values(historicalMeasuredFloorCaptures).map(({ fileName, fixtureSha256 }) => [
@@ -3783,8 +3784,8 @@ describe("Platform API bootstrap DB enrollment", () => {
             source
               .replace("__tests__/seed-command-catalog.db.test.ts", "")
               .replace(
-                "__tests__/seed-command-full-pools.db.test.ts --maxWorkers=3",
-                "__tests__/seed-command-full-pools.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
+                "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+                "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
               ),
         },
         expected: [changed("W1 partition test:db:1")],
@@ -3794,16 +3795,16 @@ describe("Platform API bootstrap DB enrollment", () => {
         edits: {
           "deployables/platform-api/package.json": (source: string) =>
             source.replace(
-              "seed-command-full-pools.db.test.ts --maxWorkers=3",
-              "seed-command-full-pools.db.test.ts --testTimeout=1 --maxWorkers=3",
+              "operator-session/operator-session-push.db.test.ts --maxWorkers=3",
+              "operator-session/operator-session-push.db.test.ts --testTimeout=1 --maxWorkers=3",
             ),
         },
-        expected: [changed("W1 partition test:db:1"), changed("W4 unit test:db:1")],
+        expected: [changed("W1 partition test:db:2"), changed("W4 unit test:db:2")],
       },
       {
         label: "a hosted shared-config default",
         edits: { "vitest.shared.mjs": replaceOnce("      hookTimeout: 120_000,\n", "      hookTimeout: 60_000,\n") },
-        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
       },
       {
         label: "a workspace Vitest override",
@@ -3813,7 +3814,7 @@ describe("Platform API bootstrap DB enrollment", () => {
             "    globals: true,\n    retry: 1,\n",
           ),
         },
-        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
       },
       {
         label: "a hosted PostgreSQL setting",
@@ -4707,13 +4708,12 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
     const result = runFixture(fixture);
 
-    expect(result.partitionUnitCount).toBe(3);
+    expect(result.partitionUnitCount).toBe(4);
     expect(result.schedule.observedUnitCount).toBe(3);
     expect(result.violations).toEqual([
       "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
-      minimalityViolationFor(3, currentMinimumUnitCount),
     ]);
     await editScripts(fixture, (scripts) => {
       delete scripts["test:db:5"];
@@ -5657,8 +5657,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(enrollment.result.schedule).toMatchObject({
         measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model),
         minimumUnitCount: currentMinimumUnitCount,
-        effectiveMinimumUnitCount: 2,
-        observedUnitCount: 2,
+        effectiveMinimumUnitCount: 3,
+        observedUnitCount: 3,
       });
       expect(enrollment.result.violations).toEqual([]);
       expectDefaultPathFloorRole(enrollment);
@@ -5698,7 +5698,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     /**
      * The current manifest and census under the accepted model's timing and
      * ceilings with unmistakably synthetic provenance, which the declared floor
-     * does not bind, and the model's own minimum is the shipped two units.
+     * does not bind, and the model's own minimum is the shipped three units.
      */
     function naturallyMinimalDefaultPathEnrollment() {
       const scheduleModel = {
@@ -5706,7 +5706,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         ...syntheticScheduleModelProvenance,
         executionUnitFixedCostMs: 0,
       };
-      naturallyMinimalEnrollment ??= defaultPathEnrollment(2, {
+      naturallyMinimalEnrollment ??= defaultPathEnrollment(3, {
         scheduleModel,
         nonBootstrapCensus: {
           ...platformApiNonBootstrapDbCensus,
@@ -5735,7 +5735,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         applied: false,
         reason: declaredFloorUnbound,
       });
-      expect(enrollment.result.schedule.minimumUnitCount).toBe(2);
+      expect(enrollment.result.schedule.minimumUnitCount).toBe(3);
       expect(
         enrollment.result.schedule.units.every((unit) => unit.makespanMs <= enrollment.model.executionUnitCeilingMs),
       ).toBe(true);
@@ -5910,7 +5910,7 @@ describe("bootstrap DB evidence", () => {
   it("keeps the guard prefix and both reporters on every numbered DB script", () => {
     const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
     const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
-    expect(units).toEqual(["test:db:1", "test:db:2"]);
+    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
     for (const name of units) {
       expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
       expect(scripts[name]).toContain(

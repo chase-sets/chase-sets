@@ -267,7 +267,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // state, or gates release qualification) or ci (advisory/reporting only).
   // Unknown workflows fail closed.
   workflows: Object.freeze({
-    "10404-bootstrap-db-input-capture.yml": "ci",
     "backlog-roadmap-status.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
