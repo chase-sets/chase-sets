@@ -274,16 +274,26 @@ describe("NumericSeriesChart", () => {
 
   it("renders distinct empty, insufficient, and error states", () => {
     expect(
-      renderWithRoot(<NumericSeriesChart label="Empty" series={[{ id: "x", name: "X", points: [] }]} />).container
-        .textContent,
+      renderWithRoot(
+        <NumericSeriesChart label="Empty" title="Empty chart title" series={[{ id: "x", name: "X", points: [] }]} />,
+      ).container.textContent,
     ).toContain("No data yet");
     expect(
       renderWithRoot(
-        <NumericSeriesChart label="Insufficient" series={[{ id: "x", name: "X", points: [{ x: 1, y: 2 }] }]} />,
+        <NumericSeriesChart
+          label="Insufficient"
+          title="Insufficient chart title"
+          series={[{ id: "x", name: "X", points: [{ x: 1, y: 2 }] }]}
+        />,
       ).container.textContent,
     ).toContain("Not enough data yet");
     expect(
-      renderWithRoot(<NumericSeriesChart label="Error" error="Synthetic outage" series={[]} />).container.textContent,
+      renderWithRoot(
+        <NumericSeriesChart label="Error" title="Error chart title" error="Synthetic outage" series={[]} />,
+      ).container.textContent,
     ).toContain("Synthetic outage");
+    expect(screen.getByText("Empty chart title")).toBeTruthy();
+    expect(screen.getByText("Insufficient chart title")).toBeTruthy();
+    expect(screen.getByText("Error chart title")).toBeTruthy();
   });
 });

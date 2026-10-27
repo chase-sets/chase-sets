@@ -590,6 +590,7 @@ export function NumericSeriesChart({
   if (error) {
     return (
       <div {...nativeProps} role="alert">
+        {title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null}
         <EmptyState icon="chart" title={errorTitle} description={error} />
       </div>
     );
@@ -597,6 +598,7 @@ export function NumericSeriesChart({
   if (!hasAnyData || maxSamples < minimumSamples) {
     return (
       <div {...nativeProps}>
+        {title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null}
         <EmptyState
           icon="chart"
           title={hasAnyData ? insufficientTitle : emptyTitle}
