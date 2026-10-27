@@ -835,11 +835,12 @@ jobs:
           fi
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
             --registry="$registry_name" \
-            --out=artifacts/release-health/registry-gc-gate.json || true
+            --out=artifacts/release-health/registry-gc-build-image-probe.json || true
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase build-image \
             --diagnostics artifacts/release-health/registry-gc-gate.json \
+            --diagnostics artifacts/release-health/registry-gc-build-image-probe.json \
             --out artifacts/release-health/build-image-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
@@ -4848,7 +4849,7 @@ jobs:
           registry_name="${registry_name%%/*}"
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
             --registry="$registry_name" \
-            --out artifacts/release-health/registry-gc-gate.json || true
+            --out=artifacts/release-health/registry-gc-probe.json || true
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase "$DEPLOY_ROOT_CAUSE_PHASE" \
@@ -4860,6 +4861,7 @@ jobs:
             --diagnostics artifacts/release-health/production-rollback.json \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-attempts.json \
             --diagnostics artifacts/release-health/registry-gc-gate.json \
+            --diagnostics artifacts/release-health/registry-gc-probe.json \
             --out artifacts/release-health/production-deploy-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"

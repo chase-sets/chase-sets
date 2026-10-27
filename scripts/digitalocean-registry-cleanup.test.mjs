@@ -55,9 +55,10 @@ describe("digitalocean-registry-cleanup", () => {
     expect(parseGarbageCollectionRecord(JSON.stringify([]), "chase-sets").reason).toBe("malformed");
   });
 
-  it("keeps provider errors and malformed observations in the wait until budget", async () => {
+  it("keeps provider errors and malformed observations in the wait until budget; m3 cannot spin", async () => {
     let nowValue = 0;
     let probes = 0;
+    let sleeps = 0;
     const error = Object.assign(new Error("provider failure"), { stderr: "500 internal failure" });
     const result = await waitForRegistryGarbageCollection(
       { repository: "chase-sets", uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", maxWaitMs: 60_000 },
@@ -68,12 +69,15 @@ describe("digitalocean-registry-cleanup", () => {
         },
         now: () => nowValue,
         sleep: async (ms) => {
+          sleeps += 1;
+          if (sleeps > 2) throw new Error("m3 budget mutant exceeded bounded poll count");
           nowValue += ms;
         },
       },
     );
     expect(result).toMatchObject({ result: "refused", reason: "wait-timeout" });
     expect(probes).toBe(2);
+    expect(sleeps).toBe(1);
     expect(result.records.every((record) => record.reason === "provider-error")).toBe(true);
   });
 

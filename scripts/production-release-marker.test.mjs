@@ -914,6 +914,38 @@ describe("registry reads through the real command adapter", () => {
     expect(io.publishGit).not.toHaveBeenCalled();
   });
 
+  it("names registry-gc-read-only in the marker refusal message; F3 message mutant turns red", async () => {
+    const runCommand = vi.fn(async (program, args) => {
+      if (program === "git" && args[0] === "ls-remote") {
+        return { stdout: `${previousCommit} refs/heads/production\n` };
+      }
+      if (program === "docker") throw failure(`ERROR: ${ref}: not found\n`);
+      if (program === "doctl") {
+        return {
+          stdout: JSON.stringify([
+            {
+              uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+              registry_name: "synthetic",
+              status: "scanning for unreferenced blobs",
+            },
+          ]),
+        };
+      }
+      return { stdout: "" };
+    });
+    const adapter = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+    const publishRegistry = vi.spyOn(adapter, "publishRegistry");
+    const publishGit = vi.spyOn(adapter, "publishGit");
+
+    await expect(publishReleaseMarker(release, adapter)).rejects.toSatisfy((error) => {
+      expect(error).toMatchObject({ code: "registry-gc-read-only" });
+      expect(error.message).toContain("registry-gc-read-only");
+      return true;
+    });
+    expect(publishRegistry).not.toHaveBeenCalled();
+    expect(publishGit).not.toHaveBeenCalled();
+  });
+
   it.each([`error: ${ref}: not found\r\n`, "manifest unknown", "ERROR: manifest unknown: manifest unknown\n"])(
     "retains supported tag-absence wording %s",
     async (stderr) => {
