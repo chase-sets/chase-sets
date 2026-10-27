@@ -842,7 +842,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
