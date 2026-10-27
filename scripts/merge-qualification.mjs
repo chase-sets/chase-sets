@@ -1363,12 +1363,12 @@ function readHistoricalProducerPolicy({ run, defaultBranch = "main" } = {}) {
   return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
 }
 
-async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, windowStart, kind }) {
+async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, windowStart, kind, event }) {
   const runs = [];
   let total;
   for (let page = 1; page <= RUN_SEARCH_RESULT_CEILING / 100; page += 1) {
     const payload = await requestJson(
-      `repos/${repository}/actions/workflows/${workflowPath}/runs?created=%3E%3D${windowStart}&per_page=100&page=${page}`,
+      `repos/${repository}/actions/workflows/${workflowPath}/runs?created=%3E%3D${windowStart}${event ? `&event=${event}` : ""}&per_page=100&page=${page}`,
     );
     if (
       !Number.isSafeInteger(payload?.total_count) ||
@@ -1410,6 +1410,7 @@ export async function inventoryMergeQualificationProducerAttempts({
         requestJson,
         windowStart,
         kind: "producer",
+        event: "merge_group",
       }),
       inventoryWorkflowRuns({
         repository,
@@ -1469,7 +1470,7 @@ export async function inventoryMergeQualificationProducerAttempts({
         conclusion: run.conclusion,
         historicalPolicyRevision: historical?.revision ?? null,
         historicalPolicyState: policyDecision.enabled === true ? "enabled" : "unknown",
-        advisoryRun,
+        advisoryRunPresent: Boolean(advisoryRun),
         eligibleAfterTick,
       });
     }
@@ -1680,12 +1681,11 @@ export function reconcileMergeQualificationProducerAttempt({
     };
   }
   const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
-  const startedMs = parseTimezoneInstantMs(producer.run_started_at);
+  const startedMs = parseTimezoneInstantMs(producer.updated_at);
   if (!Number.isFinite(nowMs) || startedMs === null)
     return { state: "unknown", reason: "producer_time_invalid", event: null };
   if (advisoryRun && !existingTerminal) return { state: "advisory_present", reason: "owned_by_advisory", event: null };
-  const completedMs = parseTimezoneInstantMs(producer.updated_at);
-  if (!advisoryRun && (completedMs === null || nowMs - completedMs < MERGE_QUALIFICATION_PRODUCER_TICK_MS)) {
+  if (!advisoryRun && nowMs - startedMs < MERGE_QUALIFICATION_PRODUCER_TICK_MS) {
     return { state: "awaiting_tick", reason: "awaiting_advisory_dispatch_tick", event: null };
   }
   const terminalErrors = existingTerminal ? validateMergeQualificationProducerTerminal(existingTerminal) : [];
@@ -1698,8 +1698,8 @@ export function reconcileMergeQualificationProducerAttempt({
     existingTerminal.producerHeadSha === lowerTrim(producer.head_sha) &&
     existingTerminal.policyRevision === lowerTrim(candidate?.policyRevision);
   if (existingTerminal && !terminalBound) return { state: "unknown", reason: "terminal_identity_invalid", event: null };
-  if (terminalBound && !advisoryRun)
-    return { state: "idempotent", reason: "dispatch_loss_already_settled", event: null };
+  const terminal = terminalBound ? existingTerminal : null;
+  if (terminal && !advisoryRun) return { state: "idempotent", reason: "dispatch_loss_already_settled", event: null };
   const event = producerTerminalFields(
     { repository, producer, candidate, now: nowMs },
     advisoryRun ? "conflict" : "infrastructure_error",

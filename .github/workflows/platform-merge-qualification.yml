@@ -77,6 +77,7 @@ jobs:
           {
             echo "workflow_id=$(jq -r '.workflow_id' <<<"$own_json")"
             echo "workflow_path=$(jq -r '.path' <<<"$own_json")"
+            echo "head_sha=$(jq -r '.head_sha' <<<"$own_json")"
             echo "started_at=$(jq -r '.run_started_at' <<<"$own_json")"
           } >> "$GITHUB_OUTPUT"
 

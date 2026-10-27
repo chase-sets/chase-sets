@@ -4,6 +4,7 @@ import {
   inventoryMergeQualificationProducerAttempts,
   reconcileMergeQualificationProducerAttempt,
   validateMergeQualificationCandidate,
+  validateMergeQualificationProducerTerminal,
 } from "./merge-qualification.mjs";
 
 const sha = "a".repeat(40);
@@ -65,7 +66,7 @@ describe("producer dispatch-loss reconciliation", () => {
     expect(calls[0]).toContain("platform-pr.yml/runs");
     expect(calls[1]).toContain("platform-merge-qualification.yml/runs");
     expect(result.errors).toEqual([]);
-    expect(result.attempts).toMatchObject([{ run_id: "4000", run_attempt: "1", advisoryRun: null }]);
+    expect(result.attempts).toMatchObject([{ run_id: "4000", run_attempt: "1", advisoryRunPresent: false }]);
   });
 
   it("does not read candidate or policy before a missing-advisory join", async () => {
@@ -180,6 +181,54 @@ describe("producer dispatch-loss reconciliation", () => {
     expect(replay).toMatchObject({ state: "idempotent", event: null });
   });
 
+  it("refuses producer page drift, the search ceiling, and matrix overflow", async () => {
+    const drift = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) => {
+        const page = Number(new URL(endpoint, "https://api.invalid").searchParams.get("page"));
+        return endpoint.includes("platform-pr.yml")
+          ? page === 1
+            ? {
+                total_count: 101,
+                workflow_runs: Array.from({ length: 100 }, (_, index) => producer({ id: 6000 + index })),
+              }
+            : { total_count: 100, workflow_runs: [producer({ id: 7000 })] }
+          : { total_count: 0, workflow_runs: [] };
+      },
+    });
+    expect(drift.errors).toEqual(["producer_inventory_incomplete"]);
+    const ceiling = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? {
+              total_count: 1000,
+              workflow_runs: Array.from({ length: 100 }, (_, index) => producer({ id: 8000 + index })),
+            }
+          : { total_count: 0, workflow_runs: [] },
+    });
+    expect(ceiling.errors).toEqual(["producer_inventory_incomplete"]);
+    const overflowRuns = Array.from({ length: 257 }, (_, index) => producer({ id: 9000 + index }));
+    const overflow = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) => {
+        if (!endpoint.includes("platform-pr.yml")) return { total_count: 0, workflow_runs: [] };
+        const page = Number(new URL(endpoint, "https://api.invalid").searchParams.get("page"));
+        return { total_count: 257, workflow_runs: overflowRuns.slice((page - 1) * 100, page * 100) };
+      },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: "{}",
+        decision: { enabled: true },
+      }),
+    });
+    expect(overflow.errors).toEqual(["producer_worker_capacity_exceeded"]);
+    expect(validateMergeQualificationProducerTerminal({ cleanupLegs: 1 })).not.toEqual([]);
+  });
+
   it("names awaiting, ineligible, advisory-present, and late-race conflict states", () => {
     expect(
       reconcileMergeQualificationProducerAttempt({
@@ -218,6 +267,24 @@ describe("producer dispatch-loss reconciliation", () => {
         now,
       }),
     ).toMatchObject({ state: "conflict", event: { terminalState: "conflict" } });
+  });
+
+  it("rejects a terminal from another producer identity", () => {
+    const terminal = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      now,
+    }).event;
+    expect(
+      reconcileMergeQualificationProducerAttempt({
+        producer: producer({ id: 4001 }),
+        candidate: { ...candidate, runId: "4001" },
+        policy: { enabled: true },
+        existingTerminal: terminal,
+        now,
+      }),
+    ).toMatchObject({ state: "unknown", reason: "terminal_identity_invalid", event: null });
   });
 
   it("rejects absent or substituted policy revision and malformed producer pages", () => {

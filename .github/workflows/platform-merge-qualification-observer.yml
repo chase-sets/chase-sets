@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification-producer/candidate artifacts/merge-qualification-producer/terminal
-          gh api "repos/${{ github.repository }}/actions/runs/${PRODUCER_RUN_ID}" > artifacts/merge-qualification-producer/producer.json
+          gh api "repos/${{ github.repository }}/actions/runs/${PRODUCER_RUN_ID}/attempts/${PRODUCER_RUN_ATTEMPT}" > artifacts/merge-qualification-producer/producer.json
           candidate_name="merge-qualification-candidate-${PRODUCER_RUN_ID}-${PRODUCER_RUN_ATTEMPT}"
           gh run download "$PRODUCER_RUN_ID" --name "$candidate_name" --dir artifacts/merge-qualification-producer/candidate || true
           policy_revision=""
