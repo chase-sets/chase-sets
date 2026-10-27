@@ -250,10 +250,20 @@ describe("Catalog Merge Candidate matcher", () => {
 
     expect(result.exclusions).toEqual([]);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]?.snapshot.membership).toEqual([
-      expect.objectContaining({ observationId: "obs_mtgjson_tsp_157", providerKey: "mtgjson" }),
-      expect.objectContaining({ observationId: "obs_scryfall_tsp_157", providerKey: "scryfall" }),
-    ]);
+    const member = (row: SourceObservationListRow) => ({
+      observationId: row.observation_id,
+      syncRunId: row.sync_run_id,
+      providerKey: row.provider_key,
+      externalKey: row.external_key,
+      sourceRecordHash: row.source_record_hash,
+      sourceProfileKey: row.source_profile_key,
+      sourceProfileVersion: row.source_profile_version,
+      sourceMappingFingerprint: row.source_mapping_fingerprint,
+      observedAt: row.observed_at,
+      addedAt: "2026-07-14T12:00:00.000Z",
+    });
+    expect(result.candidates[0]?.snapshot.identity.scopeRecordId).toBe("ref_seed_set_time_spiral");
+    expect(result.candidates[0]?.snapshot.membership).toEqual([member(mtgjson), member(scryfall)]);
   });
 
   it("keeps provider scope matching fail-closed and does not widen setCode to other providers", () => {
