@@ -17,6 +17,7 @@ pub use notifications::NotificationsMsg;
 pub use offer_matches::OfferMatchesMsg;
 pub use orders::OrdersMsg;
 pub use pilot::Pilot;
+pub use repricing::RepricingMsg;
 pub use restock::Restock;
 pub use search::SearchMsg;
 pub use seller_listing::SellerListingMsg;
@@ -27,6 +28,12 @@ pub use submitted_offers::SubmittedOffersMsg;
 mod desk {
     corten::i18n::messages! {
         pub struct DeskMsg { "en" => "locales/desk.en.json" }
+    }
+}
+
+mod repricing {
+    corten::i18n::messages! {
+        pub struct RepricingMsg { "en" => "locales/repricing.en.json" }
     }
 }
 

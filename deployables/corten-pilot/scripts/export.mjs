@@ -65,6 +65,9 @@
 // - marketplace/locales/desk.en.json: the Seller Desk home's English catalog (marketplace.features.sellerDesk.*,
 //   and the channel words its summaries use: channels.manualSync.attention.* as manual.*,
 //   channels.attention.reason.* as channel_reason.*, and the order counts).
+// - marketplace/locales/repricing.en.json: the Seller Desk repricing page's English catalog
+//   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
+//   editor.* and activity.*, the route's words as route.*, and the two links' labels).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -539,6 +542,20 @@ const outputs = [
         ["channels.attention.ordersOverflow", "orders_overflow"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/repricing.en.json",
+    json(
+      await catalog("pricing.ts", "pricingEnglishTranslations", [
+        ["pricing.features.repricingPolicies.ui.shared.", "shared"],
+        ["pricing.features.repricingPolicies.ui.policyList.", "list"],
+        ["pricing.features.repricingPolicies.ui.editor.", "editor"],
+        ["pricing.features.repricingPolicies.ui.activity.", "activity"],
+        ["pricing.routes.marketplace.accountDeskRepricing.", "route"],
+        ["pricing.features.pricingHealth.title", "pricing_health"],
+        ["pricing.features.recommendations.ui.recommendationListPage.recommendations", "recommendations"],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/offer-matches.en.json",

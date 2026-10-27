@@ -39,6 +39,7 @@ mod order_page;
 mod packing_page;
 mod page_actions;
 mod recovery;
+mod repricing_page;
 mod search_page;
 mod seller_listing_page;
 mod seller_listings_page;
@@ -67,6 +68,7 @@ pub use order_page::{OrderList, OrderPage};
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
+pub use repricing_page::{RepricingPage, repricing_dry_run_part};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
@@ -126,6 +128,10 @@ pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_p
 
 /// The Seller Desk home (`/account/desk`).
 pub const DESK: &[Component] = &[DeskPage];
+
+/// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
+/// editor's choice as it changes.
+pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];

@@ -28,6 +28,7 @@ mod orders;
 mod packing;
 mod public_listing;
 mod recovery;
+mod repricing;
 mod restock;
 mod saving;
 mod search;

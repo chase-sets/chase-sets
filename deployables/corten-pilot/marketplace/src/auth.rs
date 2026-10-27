@@ -17,7 +17,7 @@ use crate::{
     api::{Identity, segment},
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
+        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE, PRICING_VIEW, Shared, VIEW, sign_in_at,
     },
     views,
 };
@@ -118,6 +118,27 @@ impl Identify<Shared> for DeskSeller {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer) => Ok(DeskSeller(viewer)),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller on the Seller Desk's repricing page (marketplace's `account-desk-repricing`): reading
+/// needs `pricing.view`, as the loader requires, and writing `pricing.manage`, as the action does
+/// (the API checks again). Anyone not signed in is sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct PricingManager(pub Viewer);
+
+impl Identify<Shared> for PricingManager {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer)
+                if viewer.actor.can(PRICING_VIEW) && (parts.method.is_safe() || viewer.actor.can(PRICING_MANAGE)) =>
+            {
+                Ok(PricingManager(viewer))
+            }
+            Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }

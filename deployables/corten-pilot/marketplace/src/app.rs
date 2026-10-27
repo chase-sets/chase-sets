@@ -66,6 +66,9 @@ pub const ORDERS_MANAGE: &str = "orders.manage";
 pub const LISTINGS_VIEW: &str = "listings.view";
 /// Creating a listing (marketplace's `account-listings-new` action).
 pub const LISTINGS_MANAGE: &str = "listings.manage";
+/// The Seller Desk's repricing page: to see its policies, and to change them or the halt.
+pub const PRICING_VIEW: &str = "pricing.view";
+pub const PRICING_MANAGE: &str = "pricing.manage";
 /// The seller's offer matches: to see them, and to add one to the sell list or decline it.
 pub const OFFERS_VIEW: &str = "offers.view";
 pub const OFFERS_MANAGE: &str = "offers.manage";
@@ -119,6 +122,7 @@ pub mod url {
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
+    pub use repricing::{Repricing, RepricingDryRunLive};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
@@ -560,6 +564,28 @@ pub mod url {
         pub struct Desk;
     }
 
+    /// The Seller Desk's repricing page (marketplace's `account-desk-repricing`): the policies, the
+    /// halt, the dry runs and the preset editor, its writes, and a dry run's status relayed live
+    /// (see `repricing`). Every handler takes a `PricingManager`.
+    #[corten::routes(state = crate::app::Shared, area = Repricing, caller = crate::auth::PricingManager)]
+    pub mod repricing {
+        /// The page, and the editor when the address opens it; every write posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/repricing", get = crate::repricing::page, post = crate::repricing::write)]
+        pub struct Repricing {
+            #[route(query)]
+            pub place: crate::repricing::Place,
+        }
+
+        /// A dry run's part, drawn again on each status its stream sends, for the editor at `place`.
+        #[route("/account/desk/repricing/dry-runs/{id}/live", get = crate::repricing::live)]
+        pub struct RepricingDryRunLive<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::repricing::Place,
+        }
+    }
+
     /// The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`):
     /// the list, drawn again live, and a match's page with its writes (see `offer_matches`). Every
     /// handler takes an `OfferReviewer`.
@@ -813,6 +839,7 @@ pub fn app(config: Config) -> App {
                 .deadline(crate::seller_listing::DEADLINE)
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
+        .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))
         .area(|area| {

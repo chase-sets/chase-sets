@@ -1,0 +1,881 @@
+//! The Seller Desk's repricing page (marketplace's `PricingRepricingPolicyListPage` and
+//! `PolicyEditorDrawer`'s preset tier): the header with Pricing Health, Recommendations and Create
+//! repricing policy, what a write was refused for, the halt with its confirmation, the editor when
+//! the address opens it, the policies with Pause and Resume, and the recent dry runs.
+//!
+//! Every action is a form and works without JavaScript; the editor's controls are a GET form, so
+//! its address holds the policy (`repricing`). The page's script applies a choice as it changes.
+//! A dry run that has not finished is relayed live (`<corten-live>`), and its part says the preview
+//! is running with a link to read the page again for a reader without a script. One column on a
+//! phone, where the tables are a card per row; the editor's controls beside its preview from
+//! 64rem.
+use corten::{
+    i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
+    prelude::*,
+};
+
+use crate::{
+    api::{RepricingDryRun, RepricingPolicyRow, RepricingScope, RepricingTrace, segment},
+    app::url,
+    repricing::{DryRunView, EditorPart, EditorScreen, Floor, Place, Policies, Preset, RepricingScreen, Traces, WriteForm},
+    text::{Pilot, RepricingMsg},
+};
+
+corten::script::script!(pub mod handlers = "repricing_page.js");
+
+/// The editor's form, which Activate in the dry run's part also posts.
+#[derive(Id, Clone, Copy)]
+pub struct EditorFormId;
+/// The dry run's part, which its live relay draws again.
+#[derive(Id)]
+pub struct DryRunPartId;
+/// The halt's confirmation.
+#[derive(Id, Clone, Copy)]
+pub struct HaltDialogId;
+
+/// No arguments, for a message found by its key that takes none.
+const NONE: [(&str, &str); 0] = [];
+
+/// A message found by its key, or the key's last part when the catalog has none.
+fn keyed(t: RepricingMsg, key: &str) -> String {
+    t.by_key(key, &NONE).map_or_else(|| key.rsplit('.').next().unwrap_or(key).to_owned(), |m| m.to_string())
+}
+
+/// A time the API sent (ISO 8601 or Postgres's text), written as marketplace's `formatDateTime` does.
+fn when(t: RepricingMsg, at: &str) -> String {
+    parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
+}
+
+fn count(t: RepricingMsg, n: u64) -> String {
+    t.number(n).to_string()
+}
+
+/// An amount in the rule's currency, or the bare amount without one (`formatRepricingMoney`).
+fn money(t: RepricingMsg, amount: &str, currency: Option<&str>) -> String {
+    match (platform::money::decimal(amount), currency.and_then(|c| Currency::parse(c.trim()))) {
+        (Some(value), Some(currency)) => t.money(value, currency).to_string(),
+        _ => amount.to_owned(),
+    }
+}
+
+/// A policy's status badge: an active policy reads Paused by halt while the halt is engaged
+/// (`repricingStatusBadge`).
+fn status(t: RepricingMsg, status: &str, halted: bool) -> (&'static str, &'static str) {
+    match status {
+        "active" if halted => (t.shared_status_halt_paused(), "warning"),
+        "active" => (t.shared_status_active(), "success"),
+        "paused" => (t.shared_status_paused(), "neutral"),
+        _ => (t.shared_status_deleted(), "neutral"),
+    }
+}
+
+/// The scope's words (`repricingScopeLabel`).
+fn scope(t: RepricingMsg, scope: Option<&RepricingScope>) -> String {
+    match scope {
+        Some(RepricingScope::CatalogFilter { category_ids }) => {
+            t.shared_scope_catalog_filter(&count(t, category_ids.len() as u64)).to_string()
+        }
+        Some(RepricingScope::ListingSet { listing_ids }) => {
+            t.shared_scope_listing_set(&count(t, listing_ids.len() as u64)).to_string()
+        }
+        Some(RepricingScope::AllListings) | None => t.shared_scope_all_listings().to_owned(),
+    }
+}
+
+/// The day's changes against the cap (`repricingBudgetLabel`).
+fn budget(t: RepricingMsg, policy: &RepricingPolicyRow) -> String {
+    let used = count(t, policy.changes_used_today);
+    match policy.max_changes_per_day {
+        Some(cap) => t.shared_budget_capped(&used, &count(t, cap)).to_string(),
+        None => t.shared_budget_uncapped(&used).to_string(),
+    }
+}
+
+fn dry_run_status(t: RepricingMsg, status: &str) -> (&'static str, &'static str) {
+    match status {
+        "queued" => (t.list_dry_runs_status_queued(), "info"),
+        "running" => (t.list_dry_runs_status_running(), "info"),
+        "completed" => (t.list_dry_runs_status_completed(), "success"),
+        _ => (t.list_dry_runs_status_failed(), "danger"),
+    }
+}
+
+/// A policy's own page, marketplace's (not ported).
+fn policy_href(id: &str) -> String {
+    super::on_marketplace(&format!("/account/desk/repricing/{}", segment(id)))
+}
+
+/// A sample's result: its skip reason when it skipped, else its outcome (`repricingResultCopyKey`).
+fn result(t: RepricingMsg, trace: &RepricingTrace) -> String {
+    match (trace.outcome.as_str(), trace.skip_reason.as_deref()) {
+        ("skipped", Some(reason)) => keyed(t, &format!("activity.skip.{}", reason.replace('-', "_"))),
+        (outcome, _) => keyed(t, &format!("activity.outcome.{}", outcome.replace('-', "_"))),
+    }
+}
+
+/// The stratum a sample anchored to, in words that never name a competitor
+/// (`resolveRepricingAnchorWording`).
+fn anchor(t: RepricingMsg, trace: &RepricingTrace) -> String {
+    let Some(anchor) = &trace.anchor else {
+        return t.editor_mode_none().to_owned();
+    };
+    let key = match anchor.stratum.as_str() {
+        "hard-ask" if anchor.source == "comp-percentile" => "activity.stratum.manual_listing_percentile",
+        "hard-ask" => "activity.stratum.lowest_manual_listing",
+        "any-ask" if trace.flags.iter().any(|f| f == "band-binding") => "activity.stratum.lowest_any_listing_band_floor",
+        "any-ask" => "activity.stratum.lowest_any_listing",
+        "market-estimate"
+            if trace
+                .exhausted_anchors
+                .iter()
+                .any(|a| matches!(a.source.as_str(), "lowest-competing-ask" | "comp-percentile")) =>
+        {
+            "activity.stratum.market_estimate_no_manual_listings"
+        }
+        "market-estimate" => "activity.stratum.market_estimate",
+        "last-sold" => "activity.stratum.last_sold",
+        "curve-objective" => "activity.anchor.goal_solved",
+        _ => return t.editor_mode_none().to_owned(),
+    };
+    keyed(t, key)
+}
+
+/// The price limits a sample met, in words, joined.
+fn clamps(t: RepricingMsg, trace: &RepricingTrace) -> String {
+    let c = &trace.clamps;
+    [
+        (c.floor, t.activity_clamp_floor()),
+        (c.ceiling, t.activity_clamp_ceiling()),
+        (c.max_move, t.activity_clamp_max_move()),
+        (c.evidence_floor, t.activity_clamp_evidence_floor()),
+    ]
+    .into_iter()
+    .filter_map(|(met, label)| met.then_some(label))
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+/// The currency a sample's rule prices in, from the run's body.
+fn rule_currency(run: &RepricingDryRun, rule: usize) -> Option<&str> {
+    run.body["rules"].get(rule).and_then(|r| r["directive"]["currencyCode"].as_str())
+}
+
+/// The page.
+#[component(css)]
+pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen) -> impl Render {
+    let editing = screen.editor.is_some();
+    let create = url::Repricing { place: Place::create() };
+    let health = super::on_marketplace("/account/desk/pricing-health");
+    let recommendations = super::on_marketplace("/account/repricing");
+    html! {
+        <header class={Header}>
+            <p class={Eyebrow}>{t.list_eyebrow()}</p>
+            <h1 class={Title}>{t.list_caption()}</h1>
+            <p class={Muted}>{t.list_description()}</p>
+            <nav class={Row} aria-label={p.repricing_pages()}>
+                <a class={(Button, Secondary)} href={url::Desk}>{p.repricing_desk()}</a>
+                <a class={(Button, Secondary)} href={&health}>{t.pricing_health()}</a>
+                <a class={(Button, Secondary)} href={&recommendations}>{t.recommendations()}</a>
+                if screen.manage && !editing {
+                    <a class={Button} href={&create}>{t.editor_create()}</a>
+                }
+            </nav>
+        </header>
+        if let Some((message, details)) = &screen.refusal {
+            <div class={Banner} data-tone="danger" role="alert">
+                <p class={Strong}>{message}</p>
+                if !details.is_empty() {
+                    <ul class={Plain}>
+                        for detail in details {
+                            <li>{detail}</li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
+        <HaltPart t={t} screen={screen} />
+        if let Some(editor) = &screen.editor {
+            <EditorSection t={t} p={p} part={editor} />
+        }
+        <PoliciesPart t={t} screen={screen} />
+        <DryRunsPart t={t} runs={&screen.dry_runs} />
+    }
+}
+
+/// The halt: a warning while engaged, and its switch, which asks first (`RepricingHaltControl`).
+#[component(css = RepricingPage)]
+fn HaltPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
+    let halt = &screen.halt;
+    let engaged = halt.engaged;
+    let since = halt.engaged_at.as_deref().map(|at| when(t, at)).unwrap_or_default();
+    let (title, description) = if engaged {
+        (t.shared_halt_engaged_title().to_owned(), t.shared_halt_engaged_description(&since).to_string())
+    } else {
+        (t.shared_halt_released_title().to_owned(), t.shared_halt_released_description().to_owned())
+    };
+    let (ask, asked, confirm, intent) = if engaged {
+        (t.shared_halt_release_title(), t.shared_halt_release_description(), t.shared_halt_release_confirm(), "release-halt")
+    } else {
+        (t.shared_halt_engage_title(), t.shared_halt_engage_description(), t.shared_halt_engage_confirm(), "engage-halt")
+    };
+    let f = WriteForm::FIELDS;
+    html! {
+        <section
+            class={(Banner, Halt)}
+            data-tone={if engaged { "warning" } else { "info" }}
+            aria-labelledby="repricing-halt-title"
+            data-repricing-halt={if engaged { "engaged" } else { "released" }}
+        >
+            <div class={Tight}>
+                <h2 id="repricing-halt-title" class={PartTitle}>{&title}</h2>
+                <p>{&description}</p>
+            </div>
+            if screen.manage {
+                <button
+                    type="button"
+                    class={(Button, Secondary)}
+                    role="switch"
+                    aria-checked={if engaged { "true" } else { "false" }}
+                    disabled={screen.halt_failed}
+                    command="show-modal"
+                    commandfor={HaltDialogId}
+                >
+                    {t.shared_halt_switch()}
+                </button>
+                <dialog
+                    id={HaltDialogId}
+                    class={Dialog}
+                    aria-labelledby="repricing-halt-ask"
+                    aria-describedby="repricing-halt-asked"
+                >
+                    <h2 id="repricing-halt-ask" class={PartTitle}>{ask}</h2>
+                    <p id="repricing-halt-asked" class={Muted}>{asked}</p>
+                    <form class={Actions} method="post" action={url::Repricing::default()}>
+                        <button type="button" class={(Button, Secondary)} command="close" commandfor={HaltDialogId}>
+                            {t.shared_cancel()}
+                        </button>
+                        <button type="submit" class={(Button, Caution)} name={f.intent} value={intent}>{confirm}</button>
+                    </form>
+                </dialog>
+            }
+        </section>
+    }
+}
+
+/// The policies (`DataTable` of name, status, scope, daily changes and Pause or Resume).
+#[component(css = RepricingPage)]
+fn PoliciesPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
+    let f = WriteForm::FIELDS;
+    let halted = screen.halt.engaged;
+    let (rows, failed, catching_up): (&[RepricingPolicyRow], bool, bool) = match &screen.policies {
+        Policies::Read(rows) if !screen.halt_failed => (rows, false, false),
+        Policies::CatchingUp => (&[], false, true),
+        Policies::Read(_) | Policies::Failed => (&[], true, false),
+    };
+    html! {
+        <section class={Section} aria-labelledby="repricing-policies-title">
+            <h2 id="repricing-policies-title" class={PartTitle}>{t.list_caption()}</h2>
+            if failed {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.list_error_title()}</p>
+                    <p>{t.list_error_description()}</p>
+                </div>
+            } else if catching_up {
+                <div class={Banner} data-tone="info" role="status" data-repricing-catching-up="true">
+                    <p class={Strong}>{t.shared_catching_up_title()}</p>
+                    <p>{t.shared_catching_up_description()}</p>
+                </div>
+            } else if rows.is_empty() {
+                <div class={(Card, Empty)} data-repricing-policies-empty="true">
+                    <p class={Strong}>{t.list_empty_title()}</p>
+                    <p class={Muted}>{t.list_empty_description()}</p>
+                </div>
+            } else {
+                <table class={Table} data-repricing-policies="true">
+                    <caption class={Hidden}>{t.list_caption()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.list_column_name()}</th>
+                            <th scope="col">{t.list_column_status()}</th>
+                            <th scope="col">{t.list_column_scope()}</th>
+                            <th scope="col">{t.list_column_budget()}</th>
+                            if screen.manage {
+                                <th scope="col"><span class={Hidden}>{t.list_column_actions()}</span></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for policy in rows {
+                            <PolicyRow
+                                t={t}
+                                policy={policy}
+                                halted={halted}
+                                manage={screen.manage}
+                                intent={f.intent}
+                                id_field={f.policy_id}
+                            />
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+    }
+}
+
+#[component(css = RepricingPage)]
+fn PolicyRow<'a>(
+    t: RepricingMsg,
+    policy: &'a RepricingPolicyRow,
+    halted: bool,
+    manage: bool,
+    intent: FieldName,
+    id_field: FieldName,
+) -> impl Render {
+    let id = policy.policy_id.as_deref().unwrap_or_default();
+    let (label, tone) = status(t, &policy.status, halted);
+    let name = policy.name.as_deref().unwrap_or(t.list_unnamed());
+    let change = match policy.status.as_str() {
+        "active" => Some(("pause-policy", t.shared_pause())),
+        "paused" => Some(("resume-policy", t.shared_resume())),
+        _ => None,
+    };
+    html! {
+        <tr data-repricing-policy={id}>
+            <th scope="row" data-label={t.list_column_name()}><a href={&policy_href(id)}>{name}</a></th>
+            <td data-label={t.list_column_status()}><span class={Badge} data-tone={tone}>{label}</span></td>
+            <td data-label={t.list_column_scope()}>{scope(t, policy.scope.as_ref())}</td>
+            <td data-label={t.list_column_budget()}>{budget(t, policy)}</td>
+            if manage {
+                <td class={Act}>
+                    if let Some((value, words)) = change {
+                        <form method="post" action={url::Repricing::default()}>
+                            <input type="hidden" name={id_field} value={id}>
+                            <button
+                                type="submit"
+                                class={(Button, Secondary)}
+                                name={intent}
+                                value={value}
+                                aria-label={format!("{words} {name}")}
+                            >
+                                {words}
+                            </button>
+                        </form>
+                    }
+                </td>
+            }
+        </tr>
+    }
+}
+
+/// The recent dry runs (requested, status, listings evaluated).
+#[component(css = RepricingPage)]
+fn DryRunsPart<'a>(t: RepricingMsg, runs: &'a [RepricingDryRun]) -> impl Render {
+    html! {
+        <section class={Section} aria-labelledby="repricing-runs-title">
+            <h2 id="repricing-runs-title" class={PartTitle}>{t.list_dry_runs_title()}</h2>
+            if runs.is_empty() {
+                <div class={(Card, Empty)}>
+                    <p class={Strong}>{t.list_dry_runs_empty_title()}</p>
+                    <p class={Muted}>{t.list_dry_runs_empty_description()}</p>
+                </div>
+            } else {
+                <table class={Table} data-repricing-dry-runs="true">
+                    <caption class={Hidden}>{t.list_dry_runs_caption()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.list_dry_runs_column_requested()}</th>
+                            <th scope="col">{t.list_dry_runs_column_status()}</th>
+                            <th scope="col" class={Number}>{t.list_dry_runs_column_evaluated()}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for run in runs {
+                            <tr>
+                                <th scope="row" data-label={t.list_dry_runs_column_requested()}>{when(t, &run.requested_at)}</th>
+                                <td data-label={t.list_dry_runs_column_status()}>
+                                    <span class={Badge} data-tone={dry_run_status(t, &run.status).1}>
+                                        {dry_run_status(t, &run.status).0}
+                                    </span>
+                                </td>
+                                <td class={Number} data-label={t.list_dry_runs_column_evaluated()}>
+                                    {run.summary.as_ref().map_or_else(|| t.list_dry_runs_not_finished().to_owned(), |s| count(t, s.listings_evaluated))}
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+    }
+}
+
+/// The editor (`PolicyEditorDrawer`'s preset tier), or that it could not read what it starts from.
+#[component(css = RepricingPage)]
+fn EditorSection<'a>(t: RepricingMsg, p: Pilot, part: &'a EditorPart) -> impl Render {
+    html! {
+        <section class={(Section, Editor)} aria-labelledby="repricing-editor-title" data-repricing-editor="true">
+            <div class={EditorHead}>
+                <h2 id="repricing-editor-title" class={PartTitle}>{t.editor_create()}</h2>
+                <a class={(Button, Secondary)} href={url::Repricing::default()}>{p.repricing_close()}</a>
+            </div>
+            if let EditorPart::Ready(screen) = part {
+                <EditorBody t={t} p={p} screen={screen} />
+            } else {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.editor_prerequisites_error()}</p>
+                    <p><a href={url::Repricing { place: Place::create() }}>{t.editor_retry()}</a></p>
+                </div>
+            }
+        </section>
+    }
+}
+
+#[component(css = RepricingPage)]
+fn EditorBody<'a>(t: RepricingMsg, p: Pilot, screen: &'a EditorScreen) -> impl Render {
+    let e = &screen.editor;
+    let f = Place::FIELDS;
+    let w = WriteForm::FIELDS;
+    let (min, max, _) = e.preset.knob();
+    let knob_label = match e.preset {
+        Preset::Track => t.editor_adjust(),
+        Preset::Beat => t.editor_undercut(),
+        Preset::Premium => t.editor_premium(),
+        Preset::Slow => t.editor_markdown(),
+    };
+    let promise = match e.preset {
+        Preset::Track => t.editor_promise_track(),
+        Preset::Beat => t.editor_promise_beat(),
+        Preset::Premium => t.editor_promise_premium(),
+        Preset::Slow => t.editor_promise_slow(),
+    };
+    let scope_kind = match &e.scope {
+        RepricingScope::AllListings => "all-listings",
+        RepricingScope::CatalogFilter { .. } => "catalog-filter",
+        RepricingScope::ListingSet { .. } => "listing-set",
+    };
+    let chosen =
+        |id: &str| matches!(&e.scope, RepricingScope::CatalogFilter { category_ids } if category_ids.iter().any(|c| c == id));
+    let listings = match &e.scope {
+        RepricingScope::ListingSet { listing_ids } => listing_ids.join(","),
+        _ => String::new(),
+    };
+    let (cost, amount, margin, fallback) = match &e.floor {
+        Floor::Absolute { amount } => (false, amount.clone(), "10".to_owned(), String::new()),
+        Floor::CostPlus { margin, fallback } => (true, String::new(), margin.to_string(), fallback.clone()),
+    };
+    let codes = &screen.facts.listing_currency_codes;
+    let run_id = screen.run.as_ref().map(|run| run.run.dry_run_id.as_str());
+    html! {
+        if !screen.errors.is_empty() {
+            <div class={Banner} data-tone="danger" role="alert" data-repricing-errors="true">
+                <p class={Strong}>{t.editor_validation_title()}</p>
+                <ul class={Plain}>
+                    for error in &screen.errors {
+                        <li>{error}</li>
+                    }
+                </ul>
+            </div>
+        }
+        <div class={EditorGrid}>
+            // A POST form whose Apply gets (todd-skelton/corten#190): the runtime takes a
+            // navigation's method from Chromium's formData, which follows the form, so a POST button
+            // in a GET form would be sent as a GET with nothing in it.
+            <form
+                id={EditorFormId}
+                class={EditorForm}
+                method="post"
+                action={url::Repricing::default()}
+                data-keep-place
+                on:change={handlers::apply(event)}
+            >
+                <input type="hidden" name={f.create} value="1">
+                <input type="hidden" name={f.from} value={e.preset.key()}>
+                if let Some(id) = run_id {
+                    <input type="hidden" name={f.dry_run} value={id}>
+                }
+                <fieldset class={Fieldset}>
+                    <legend class={PartTitle}>{t.editor_presets()}</legend>
+                    <label class={Field}>
+                        <span class={Label}>{t.editor_name()}</span>
+                        <input
+                            class={Input}
+                            type="text"
+                            name={f.name}
+                            value={&e.name}
+                            autocomplete="off"
+                            data-repricing-name="true"
+                        >
+                    </label>
+                    <label class={Field}>
+                        <span class={Label}>{t.editor_strategy()}</span>
+                        <select class={Input} name={f.preset}>
+                            for preset in Preset::ALL {
+                                <option value={preset.key()} selected={preset == e.preset}>{preset.title(t)}</option>
+                            }
+                        </select>
+                        <span class={Hint}>{promise}</span>
+                    </label>
+                    <label class={Field}>
+                        <span class={Label}>{knob_label}</span>
+                        <input
+                            class={Input}
+                            type="number"
+                            inputmode="numeric"
+                            name={f.knob}
+                            value={e.knob.to_string()}
+                            min={min.to_string()}
+                            max={max.to_string()}
+                            step="1"
+                        >
+                    </label>
+                    if e.preset == Preset::Slow {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_age()}</span>
+                            <input
+                                class={Input}
+                                type="number"
+                                inputmode="numeric"
+                                name={f.age}
+                                value={e.age.to_string()}
+                                min="14"
+                                max="180"
+                                step="1"
+                            >
+                        </label>
+                    }
+                    if codes.is_empty() {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_currency()}</span>
+                            <input
+                                class={Input}
+                                type="text"
+                                name={f.currency}
+                                value={&e.currency}
+                                maxlength="3"
+                                autocapitalize="characters"
+                                autocomplete="off"
+                            >
+                            <span class={Hint}>{t.editor_currency_empty()}</span>
+                        </label>
+                    } else {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_currency()}</span>
+                            <select class={Input} name={f.currency}>
+                                <option value="" selected={e.currency.is_empty()}>{t.editor_choose()}</option>
+                                for code in codes {
+                                    <option value={code} selected={*code == e.currency}>{code}</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    <label class={Field}>
+                        <span class={Label}>{t.editor_floor()}</span>
+                        <select class={Input} name={f.floor}>
+                            <option value="absolute" selected={!cost}>{t.editor_floor_absolute()}</option>
+                            <option value="cost-basis-plus-margin" selected={cost}>{t.editor_floor_cost()}</option>
+                        </select>
+                    </label>
+                    if cost {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_floor_margin()}</span>
+                            <input class={Input} type="number" inputmode="decimal" name={f.margin} value={&margin} step="any">
+                        </label>
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_floor_fallback()}</span>
+                            <input
+                                class={Input}
+                                type="text"
+                                inputmode="decimal"
+                                name={f.fallback}
+                                value={&fallback}
+                                autocomplete="off"
+                            >
+                            <span class={Hint}>{t.editor_floor_cost_help()}</span>
+                        </label>
+                    } else {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_floor_amount()}</span>
+                            <input
+                                class={Input}
+                                type="text"
+                                inputmode="decimal"
+                                name={f.amount}
+                                value={&amount}
+                                autocomplete="off"
+                            >
+                        </label>
+                    }
+                    <label class={Field}>
+                        <span class={Label}>{t.editor_scope()}</span>
+                        <select class={Input} name={f.scope}>
+                            <option value="all-listings" selected={scope_kind == "all-listings"}>{t.editor_scope_all()}</option>
+                            <option value="catalog-filter" selected={scope_kind == "catalog-filter"}>
+                                {t.editor_scope_categories()}
+                            </option>
+                            <option value="listing-set" selected={scope_kind == "listing-set"}>
+                                {t.editor_scope_listings()}
+                            </option>
+                        </select>
+                    </label>
+                    if scope_kind == "catalog-filter" {
+                        <fieldset class={Checks}>
+                            <legend class={Label}>{t.editor_scope_categories()}</legend>
+                            for category in &screen.categories {
+                                <label class={Check}>
+                                    <input
+                                        type="checkbox"
+                                        name={f.categories}
+                                        value={&category.id}
+                                        checked={chosen(&category.id)}
+                                    >
+                                    <span>{&category.name}</span>
+                                </label>
+                            }
+                        </fieldset>
+                    }
+                    if scope_kind == "listing-set" {
+                        <label class={Field}>
+                            <span class={Label}>{t.editor_scope_listing_ids()}</span>
+                            <input class={Input} type="text" name={f.listings} value={&listings} autocomplete="off">
+                        </label>
+                    }
+                </fieldset>
+                <div class={Actions}>
+                    <button type="submit" class={(Button, Secondary)} formmethod="get" data-repricing-apply="true">
+                        {p.repricing_apply()}
+                    </button>
+                    <button
+                        type="submit"
+                        class={Button}
+                        name={w.intent}
+                        value="preview"
+                        data-repricing-preview="true"
+                    >
+                        {t.editor_preview_start()}
+                    </button>
+                </div>
+            </form>
+            <div class={Tight}>
+                <ScopePreview t={t} screen={screen} />
+                if let Some(run) = &screen.run {
+                    if run.run.finished() {
+                        {repricing_dry_run_part(t, p, run)}
+                    } else {
+                        // Drawn again on each status the run's stream sends (`repricing::live`).
+                        <corten-live
+                            class={Live}
+                            src={&url::RepricingDryRunLive { id: &run.run.dry_run_id, place: run.place.clone() }.href()}
+                        >
+                            {repricing_dry_run_part(t, p, run)}
+                        </corten-live>
+                    }
+                }
+            </div>
+        </div>
+    }
+}
+
+/// What the scope matches and whose listings those are now (`ScopePreviewPanel`).
+#[component(css = RepricingPage)]
+fn ScopePreview<'a>(t: RepricingMsg, screen: &'a EditorScreen) -> impl Render {
+    html! {
+        if let Some(preview) = &screen.preview {
+            <section class={Card} aria-labelledby="repricing-scope-title" data-repricing-scope="true">
+                <h3 id="repricing-scope-title" class={Hidden}>{t.editor_scope()}</h3>
+                <dl class={Stats}>
+                    <div class={Stat}>
+                        <dt>{t.editor_scope_matching()}</dt>
+                        <dd>{count(t, preview.matching)}</dd>
+                    </div>
+                    <div class={Stat}>
+                        <dt>{t.editor_scope_governed()}</dt>
+                        <dd>{count(t, preview.governed)}</dd>
+                    </div>
+                </dl>
+                if !preview.shadowed_by.is_empty() {
+                    <p class={Strong}>{t.editor_scope_shadowed()}</p>
+                    <ul class={Plain}>
+                        for policy in &preview.shadowed_by {
+                            <li>{&policy.name}{": "}{count(t, policy.count)}</li>
+                        }
+                    </ul>
+                }
+                if !preview.taken_from.is_empty() {
+                    <p class={Strong}>{t.editor_scope_taken()}</p>
+                    <ul class={Plain}>
+                        for policy in &preview.taken_from {
+                            <li>{&policy.name}{": "}{count(t, policy.count)}</li>
+                        }
+                    </ul>
+                }
+            </section>
+        } else {
+            <div class={Banner} data-tone="danger" role="status">
+                <p>{t.editor_scope_error()}</p>
+            </div>
+        }
+    }
+}
+
+/// The dry run's part, drawn on the page and again by its live relay (`DryRunResult`): the run's
+/// state, then, once it completed, its counts, the price change distribution, the samples (100 at
+/// a time) and Activate.
+pub fn repricing_dry_run_part<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Render + 'a {
+    html! { <DryRunPart t={t} p={p} view={view} /> }
+}
+
+#[component(css = RepricingPage)]
+fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Render {
+    let run = &view.run;
+    let summary = run.summary.as_ref().filter(|_| run.status == "completed");
+    let w = WriteForm::FIELDS;
+    let flag = move |key: &str| summary.and_then(|s| s.flags.get(key)).copied().unwrap_or_default();
+    let outcome = move |key: &str| summary.and_then(|s| s.outcomes.get(key)).copied().unwrap_or_default();
+    let skipped = move |key: &str| summary.and_then(|s| s.skip_reasons.get(key)).copied().unwrap_or_default();
+    let bucket = move |i: usize| summary.and_then(|s| s.delta_buckets.get(&i.to_string())).copied().unwrap_or_default();
+    let next = match &view.traces {
+        Traces::Read(traces) if traces.len() == 100 => traces.last().map(|last| {
+            let mut place = view.place.clone();
+            place.after = Some(last.listing_id.clone());
+            url::Repricing { place }
+        }),
+        _ => None,
+    };
+    let again = url::Repricing { place: view.place.clone() };
+    html! {
+        <section id={DryRunPartId} class={(Card, Run)} aria-labelledby="repricing-run-title" data-repricing-run={&run.status}>
+            <h3 id="repricing-run-title" class={PartTitle}>{t.editor_preview_samples()}</h3>
+            if run.status == "failed" {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p>{t.editor_preview_failed()}</p>
+                </div>
+            } else if let Some(summary) = summary {
+                <p class={Muted}>
+                    {t.editor_preview_completed(&when(t, run.completed_at.as_deref().unwrap_or(&run.updated_at)), &count(t, summary.listings_evaluated))}
+                </p>
+                if summary.listings_evaluated == 0 {
+                    <div class={Banner} data-tone="info"><p>{t.editor_preview_empty()}</p></div>
+                }
+                if !view.current {
+                    <div class={Banner} data-tone="warning" role="status" data-repricing-stale="true">
+                        <p>{p.repricing_changed()}</p>
+                    </div>
+                }
+                <dl class={Stats}>
+                    <div class={Stat}>
+                        <dt>{t.editor_preview_evaluated()}</dt>
+                        <dd>{count(t, summary.listings_evaluated)}</dd>
+                    </div>
+                    <div class={Stat}>
+                        <dt>{t.editor_preview_changed()}</dt>
+                        <dd data-repricing-changed="true">{count(t, outcome("changed"))}</dd>
+                    </div>
+                    <div class={Stat}>
+                        <dt>{t.editor_preview_tolerance()}</dt>
+                        <dd>{count(t, summary.within_tolerance)}</dd>
+                    </div>
+                </dl>
+                <dl class={Facts}>
+                    <div>
+                        <dt>{t.activity_clamp_floor()}</dt>
+                        <dd>{count(t, flag("floor-binding"))}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.activity_clamp_ceiling()}</dt>
+                        <dd>{count(t, flag("ceiling-binding"))}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.activity_clamp_max_move()}</dt>
+                        <dd>{count(t, flag("max-move-binding"))}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.editor_preview_paused()}</dt>
+                        <dd>{count(t, outcome("pause-requested"))}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.editor_preview_notified()}</dt>
+                        <dd>{count(t, outcome("notify-only"))}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.editor_preview_held()}</dt>
+                        <dd>{count(t, skipped("terminal-hold"))}</dd>
+                    </div>
+                </dl>
+                <table class={Table}>
+                    <caption class={Strong}>{t.editor_preview_buckets()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.editor_preview_delta()}</th>
+                            <th scope="col" class={Number}>{t.editor_preview_count()}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for i in 0..9usize {
+                            <tr>
+                                <th scope="row" data-label={t.editor_preview_delta()}>
+                                    {keyed(t, &format!("editor.bucket.{i}"))}
+                                </th>
+                                <td class={Number} data-label={t.editor_preview_count()}>{count(t, bucket(i))}</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                if let Traces::Failed = &view.traces {
+                    <div class={Banner} data-tone="danger" role="alert">
+                        <p>{t.editor_preview_samples_failed()}</p>
+                        <p><a href={&again}>{t.editor_retry()}</a></p>
+                    </div>
+                }
+                if let Traces::Read(traces) = &view.traces {
+                    <table class={Table} data-repricing-samples="true">
+                        <caption class={Strong}>{t.editor_preview_samples()}</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">{t.editor_preview_listing()}</th>
+                                <th scope="col">{t.editor_preview_result()}</th>
+                                <th scope="col">{t.editor_anchor()}</th>
+                                <th scope="col" class={Number}>{t.editor_preview_price()}</th>
+                                <th scope="col">{t.editor_preview_clamps()}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            for trace in traces {
+                                <tr>
+                                    <th scope="row" class={Code} data-label={t.editor_preview_listing()}>{&trace.listing_id}</th>
+                                    <td data-label={t.editor_preview_result()}>{result(t, trace)}</td>
+                                    <td data-label={t.editor_anchor()}>{anchor(t, trace)}</td>
+                                    <td class={Number} data-label={t.editor_preview_price()}>
+                                        {money(t, trace.target_price_amount.as_deref().unwrap_or(&trace.current_price_amount), rule_currency(run, trace.rule_index))}
+                                    </td>
+                                    <td data-label={t.editor_preview_clamps()}>{clamps(t, trace)}</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    if let Some(next) = &next {
+                        <p><a class={(Button, Secondary)} href={next}>{t.editor_preview_more()}</a></p>
+                    }
+                }
+                <div class={Actions}>
+                    <button
+                        type="submit"
+                        class={Button}
+                        form={EditorFormId}
+                        name={w.intent}
+                        value="create-policy"
+                        disabled={!view.activates()}
+                        data-repricing-activate="true"
+                    >
+                        {t.editor_activate()}
+                    </button>
+                </div>
+            } else {
+                <div class={Banner} data-tone="info" role="status">
+                    <p class={Strong}>{t.editor_preview_running()}</p>
+                    <p class={Reconnecting}>{t.editor_preview_reconnecting()}</p>
+                    <noscript><p><a href={&again}>{p.repricing_refresh()}</a></p></noscript>
+                </div>
+            }
+        </section>
+    }
+}

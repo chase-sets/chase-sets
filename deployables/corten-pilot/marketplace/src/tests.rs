@@ -52,6 +52,8 @@ struct Stand {
     listings: Arc<Mutex<HashMap<String, Value>>>,
     /// The Listing stock ensures applied, by attempt.
     ensured: Arc<Mutex<HashMap<String, Value>>>,
+    /// The repricing dry runs started here, by id: the body Pricing keeps (without its name).
+    runs: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 const OVERLAY: &str = "/api/marketplace/items/charizard/seller-overlay";
@@ -388,6 +390,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "tracker" => actor(&["fulfillment.view"]),
             // An account that may change its shipping addresses (`watcher` may only read them).
             "addresser" => actor(&["accounts.view", "accounts.manage"]),
+            // The Seller Desk's repricing: `pricer` may change policies, `price_reader` may only
+            // read them (and its halt is engaged).
+            "pricer" => actor(&["pricing.view", "pricing.manage"]),
+            "price_reader" => actor(&["pricing.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -407,6 +413,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return Json(json!({ "userId": "usr_1", "locale": "en", "timeZone": zone })).into_response();
     }
     if let Some(answer) = identity(&method, &uri, &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = repricing(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = offer_matches(&method, uri.path()) {
@@ -8133,4 +8142,313 @@ async fn the_desk_is_for_anyone_signed_in() {
     assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fdesk"));
     let (status, _, _) = pilot.send(get(DESK, Some("reader"))).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+const REPRICING_API: &str = "/api/marketplace/account/repricing-policies";
+const REPRICING_SCREEN: &str = "/account/desk/repricing";
+
+/// Pricing's repricing routes, as the stand-in answers them: two policies (one active, one
+/// paused), the halt (engaged for `price_reader`), one finished dry run, USD and a cost basis, two
+/// categories and a scope that matches 12. A dry run is kept as Pricing keeps it (its body without
+/// the name) and is complete when read; one whose floor is `0` is refused with its details. A
+/// policy's pause answers position 42, its resume 43 (a read still catching up).
+fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = percent_encoding::percent_decode_str(uri.path()).decode_utf8().ok()?;
+    let rest = path.strip_prefix(REPRICING_API)?;
+    let run = |id: &str, body: Value, status: &str| {
+        json!({
+            "dryRunId": id, "body": body, "status": status,
+            "requestedAt": "2026-10-27 22:01:22.251019+00", "completedAt": "2026-10-27 22:01:22.836702+00", "consumedAt": null,
+            "summary": { "flags": { "max-move-binding": 1 }, "outcomes": { "changed": 7, "skipped": 2 }, "skipReasons": { "terminal-hold": 2 },
+                         "deltaBuckets": { "1": 4, "2": 2, "3": 1 }, "withinTolerance": 0, "listingsEvaluated": 9 },
+            "updatedAt": "2026-10-27 22:01:22.836702+00",
+        })
+    };
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
+        ("GET", "") => Json(json!([
+            { "policyId": "pol_1", "name": "Track", "scope": { "kind": "all-listings" }, "status": "active", "maxChangesPerDay": 250, "changesUsedToday": 3 },
+            { "policyId": "pol_2", "name": "Cards", "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1", "cat-2"] }, "status": "paused", "maxChangesPerDay": null, "changesUsedToday": 0 },
+        ]))
+        .into_response(),
+        ("GET", "/halt") => Json(json!({ "engaged": session == "price_reader", "engagedAt": "2026-10-27T12:00:00.000Z", "releasedAt": null })).into_response(),
+        ("POST", "/halt") => Json(serde_json::from_str::<Value>(body).unwrap()).into_response(),
+        ("GET", "/dry-runs") => Json(json!([run("repricing-dry-run:old", json!({}), "completed")])).into_response(),
+        ("GET", "/authoring-prerequisites") => Json(json!({ "listingCurrencyCodes": ["USD"], "hasCostBasis": true })).into_response(),
+        ("GET", "/categories") => Json(json!([{ "id": "cat-1", "name": "Pokemon" }, { "id": "cat-2", "name": "Magic" }])).into_response(),
+        ("POST", "/scope-preview") => {
+            Json(json!({ "matching": 12, "governed": 12, "shadowedBy": [{ "name": "Track", "count": 3 }], "takenFrom": [] })).into_response()
+        }
+        ("POST", "/dry-runs") => {
+            let mut sent: Value = serde_json::from_str(body).unwrap();
+            if sent["rules"][0]["directive"]["floor"]["amount"] == json!("0") {
+                let details = json!([{ "path": "rules.0.directive.floor.amount", "message": "Floor must be above zero." }]);
+                return Some(
+                    (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
+                        .into_response(),
+                );
+            }
+            sent.as_object_mut().unwrap().remove("name");
+            stand.runs.lock().unwrap().insert("repricing-dry-run:new".into(), sent.clone());
+            (StatusCode::ACCEPTED, Json(run("repricing-dry-run:new", sent, "queued"))).into_response()
+        }
+        ("GET", "/dry-runs/repricing-dry-run:new") => {
+            let body = stand.runs.lock().unwrap().get("repricing-dry-run:new").cloned()?;
+            Json(run("repricing-dry-run:new", body, "completed")).into_response()
+        }
+        // A run still running at its first read, done at its second.
+        ("GET", "/dry-runs/repricing-dry-run:slow") => {
+            let mut runs = stand.runs.lock().unwrap();
+            let reads = runs.entry("slow-reads".into()).or_insert(json!(0));
+            *reads = json!(reads.as_u64().unwrap_or_default() + 1);
+            let status = if reads.as_u64() == Some(1) { "running" } else { "completed" };
+            let body = runs.get("repricing-dry-run:new").cloned().unwrap_or_default();
+            Json(run("repricing-dry-run:slow", body, status)).into_response()
+        }
+        ("GET", "/dry-runs/repricing-dry-run:slow/traces") => Json(json!([])).into_response(),
+        ("GET", "/dry-runs/repricing-dry-run:slow/events") => (
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            "id: 1\nevent: status\ndata: {\"status\":\"running\"}\n\nid: 2\nevent: status\ndata: {\"status\":\"completed\"}\n\nid: 3\nevent: status\ndata: {\"status\":\"completed\"}\n\n",
+        )
+            .into_response(),
+        ("GET", "/dry-runs/repricing-dry-run:new/traces") => Json(json!([
+            { "listingId": "lst_1", "ruleIndex": 0, "outcome": "changed", "skipReason": null, "anchor": { "source": "lowest-competing-ask", "stratum": "hard-ask" },
+              "exhaustedAnchors": [], "flags": [], "clamps": { "floor": false, "ceiling": false, "maxMove": true, "evidenceFloor": false },
+              "targetPriceAmount": "9.80", "currentPriceAmount": "10.00" },
+            { "listingId": "lst_2", "ruleIndex": 0, "outcome": "skipped", "skipReason": "terminal-hold", "anchor": null,
+              "exhaustedAnchors": [{ "source": "lowest-competing-ask" }], "flags": [], "clamps": {},
+              "targetPriceAmount": null, "currentPriceAmount": "4.00" },
+        ]))
+        .into_response(),
+        ("GET", "/dry-runs/repricing-dry-run:new/events") => (
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            "id: 1\nevent: status\ndata: {\"status\":\"queued\"}\n\nid: 2\nevent: status\ndata: {\"status\":\"completed\"}\n\n",
+        )
+            .into_response(),
+        ("POST", "") => {
+            let sent: Value = serde_json::from_str(body).unwrap();
+            if sent["dryRunId"] != json!("repricing-dry-run:new") {
+                return Some(refusal(StatusCode::CONFLICT, "dry_run_mismatch", "That preview cannot be activated."));
+            }
+            committed(StatusCode::CREATED, "pricing", "42", json!({ "policyId": "pol_3" }))
+        }
+        ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
+        ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
+        _ => return None,
+    })
+}
+
+/// The repricing calls the pilot made (method, path and body).
+fn pricing_calls(pilot: &Pilot) -> Vec<(Method, String, String)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with(REPRICING_API))
+        .map(|c| (c.method.clone(), c.path.clone(), c.body.clone()))
+        .collect()
+}
+
+/// The editor's controls for #7905's example (Beat the lowest listing, 2%, USD, cost plus 10%,
+/// 4.00), named as the form names them.
+const BEAT: &str = "create=1&name=Beat&preset=beat-lowest&from=beat-lowest&knob=2&currency=USD&floor=cost-basis-plus-margin&margin=10&fallback=4.00&scope=all-listings";
+
+#[tokio::test]
+async fn the_repricing_page_is_for_a_seller_with_pricing_view_and_its_writes_need_pricing_manage() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(REPRICING_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fdesk%2Frepricing"));
+    let (status, _, _) = pilot.send(get(REPRICING_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no pricing.view");
+
+    let (status, _, html) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    for text in [
+        "Track",
+        "Cards",
+        "Active",
+        "Paused",
+        "3 of 250 account-wide changes today",
+        "Categories (2)",
+        "Halt all repricing",
+        "Recent dry runs",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"value="pause-policy""#) && html.contains(r#"value="resume-policy""#), "Pause and Resume");
+    assert!(html.contains(r#"value="engage-halt""#), "the halt asks first, in its dialog");
+    assert!(html.contains("/account/desk/repricing?create=1"), "Create repricing policy");
+
+    // A reader sees the policies (Paused by halt while the halt is engaged) and changes nothing.
+    let (status, _, html) = pilot.send(get(REPRICING_SCREEN, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Paused by halt") && html.contains("Repricing is halted"), "{html}");
+    assert!(
+        !html.contains("pause-policy")
+            && !html.contains("engage-halt")
+            && !html.contains("release-halt")
+            && !html.contains("create=1")
+    );
+    let (status, _, _) = pilot.send(post(REPRICING_SCREEN, "price_reader", "intent=pause-policy&policyId=pol_1", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(pricing_calls(&pilot).iter().all(|(method, _, _)| *method == Method::GET), "no write was sent");
+}
+
+#[tokio::test]
+async fn pause_and_resume_go_back_to_the_list_with_their_receipt_and_a_list_catching_up_says_the_change_is_saved() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=pause-policy&policyId=pol_1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/desk/repricing?afterWrite="), "{to}");
+    assert!(pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_1/pause")));
+    let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Track") && !html.contains("Your change is saved"));
+
+    let (_, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=resume-policy&policyId=pol_2", false)).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Your change is saved") && html.contains("data-corten-read-again"), "{html}");
+
+    // A policy Pricing cannot find is the list again with its words.
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=pause-policy&policyId=pol_9", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("That change didn&#39;t go through") || html.contains("That change didn't go through"), "{html}");
+    assert!(html.contains("That policy is gone."));
+}
+
+#[tokio::test]
+async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=engage-halt", false)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/desk/repricing"));
+    let calls = pricing_calls(&pilot);
+    let (_, _, body) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/halt")).expect("the halt's write");
+    assert_eq!(serde_json::from_str::<Value>(body).unwrap(), json!({ "engaged": true }));
+    let (status, _, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=nonsense", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_preview() {
+    let pilot = Pilot::new().await;
+    // The editor at its address: the account's currency and cost basis, the scope's preview.
+    let (status, _, html) = pilot.send(get("/account/desk/repricing?create=1", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    for text in [
+        "Create repricing policy",
+        "Track the market",
+        r#"<option value="USD" selected"#,
+        "Cost plus margin",
+        "Matching listings",
+        "Track: 3",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+
+    let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=preview&{BEAT}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let at = query(&to);
+    assert_eq!(
+        (at["create"].as_str(), at["dryRun"].as_str(), at["preset"].as_str()),
+        ("1", "repricing-dry-run:new", "beat-lowest")
+    );
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    assert_eq!(
+        serde_json::from_str::<Value>(sent).unwrap(),
+        json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
+          "rules": [ { "conditions": [], "directive": {
+            "currencyCode": "USD",
+            "anchorChain": [ { "source": "lowest-competing-ask" }, { "source": "market-estimate" } ],
+            "offset": { "mode": "percent", "percent": -2 },
+            "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
+            "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 }, "rounding": { "mode": "none" },
+            "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ] }),
+        "chase-sets/chase-sets#7905's compiled example"
+    );
+
+    // The editor with its finished run: the counts, the samples in words, and Activate on.
+    let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    for text in [
+        "Prices that would change",
+        "Anchored to the lowest manual listing",
+        "Kept the current price",
+        "$9.80",
+        "Max move",
+        "-10% to below -5%",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(!html.contains("<corten-live"), "a finished run is not relayed");
+    let activate = html.split("data-repricing-activate").next().unwrap();
+    assert!(!activate.ends_with("disabled "), "Activate is on");
+    assert!(!html.contains("data-repricing-stale"));
+
+    // A setting changed after the preview: the run no longer previews it, and Activate is refused.
+    let changed = to.replace("knob=2", "knob=3");
+    let (_, _, html) = pilot.send(get(&changed, Some("pricer"))).await;
+    assert!(html.contains("data-repricing-stale"), "{html}");
+    let body = format!("intent=create-policy&{}&dryRun=repricing-dry-run%3Anew", BEAT.replace("knob=2", "knob=3"));
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Your settings changed since this preview"), "{html}");
+    assert!(!pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p == REPRICING_API), "nothing activated");
+
+    // Activate: the run and the name, then the list read after the new policy.
+    let body = format!("intent=create-policy&{BEAT}&dryRun=repricing-dry-run%3Anew");
+    let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing?afterWrite="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p == REPRICING_API).expect("the activation");
+    assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), json!({ "dryRunId": "repricing-dry-run:new", "name": "Beat" }));
+}
+
+#[tokio::test]
+async fn a_refused_preview_is_the_editor_again_with_pricings_details() {
+    let pilot = Pilot::new().await;
+    let body = "intent=preview&create=1&name=Zero&preset=track-market&from=track-market&knob=0&currency=USD&floor=absolute&amount=0&scope=all-listings";
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Check your policy") && html.contains("Floor must be above zero."), "{html}");
+    assert!(html.contains(r#"value="Zero""#), "the editor keeps what was sent");
+
+    // Without a floor's amount nothing is sent: the prompt is not complete.
+    let before = pricing_calls(&pilot).len();
+    let body =
+        "intent=preview&create=1&preset=track-market&from=track-market&currency=USD&floor=absolute&amount=&scope=all-listings";
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The policy could not be accepted."), "{html}");
+    let sent = pricing_calls(&pilot);
+    assert!(!sent[before..].iter().any(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")));
+}
+
+#[tokio::test]
+async fn a_running_dry_run_is_relayed_until_it_finishes() {
+    let pilot = Pilot::new().await;
+    pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=preview&{BEAT}"), false)).await;
+    let live = format!("/account/desk/repricing/dry-runs/repricing-dry-run:new/live?{BEAT}");
+    let events = pilot.events(get(&live, Some("pricer")), 3).await;
+    // The run reads as completed at its first status: one redraw, and the stream ends with the run.
+    let kinds: Vec<&str> = events.iter().map(|(event, _, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "{events:?}");
+    let data = &events[0].2;
+    assert!(data.contains(r#"data-repricing-run="completed""#) && data.contains("Prices that would change"), "{data}");
+    assert!(data.contains("data-repricing-activate"), "Activate comes with the result: {data}");
+
+    // A run still running at its first status: that redraw says so, the next draws the result,
+    // and nothing is sent after it.
+    let live = format!("/account/desk/repricing/dry-runs/repricing-dry-run:slow/live?{BEAT}");
+    let events = pilot.events(get(&live, Some("pricer")), 4).await;
+    let kinds: Vec<&str> = events.iter().map(|(event, _, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "patch", "end"], "{events:?}");
+    assert!(events[0].2.contains(r#"data-repricing-run="running""#) && events[0].2.contains("Preview in progress"));
+    assert!(events[1].2.contains(r#"data-repricing-run="completed""#));
 }

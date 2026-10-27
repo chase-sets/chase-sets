@@ -184,5 +184,14 @@
     "delta": "Enter a whole number other than 0, like -1 or 5.",
     "item_unverified": "Inventory item update could not be verified. Reload this page and try again.",
     "ledger_offline_sale": "Sold offline"
+  },
+  "repricing": {
+    "pages": "Repricing pages",
+    "desk": "Seller Desk",
+    "close": "Close",
+    "apply": "Apply",
+    "refresh": "Refresh to see the result",
+    "preview_first": "Preview this policy and let the preview finish before you activate it.",
+    "changed": "Your settings changed since this preview. Preview again to activate them."
   }
 }

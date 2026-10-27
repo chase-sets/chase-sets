@@ -3899,3 +3899,280 @@ impl DeskCalls for Caller<'_> {
         self.read(&format!("{ACCOUNT}/seller-attention-queue"), MARKETPLACE).await
     }
 }
+
+const REPRICING: &str = "/api/marketplace/account/repricing-policies";
+
+/// A policy's scope (`RepricingPolicyScope`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RepricingScope {
+    AllListings,
+    #[serde(rename_all = "camelCase")]
+    CatalogFilter {
+        category_ids: Vec<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    ListingSet {
+        listing_ids: Vec<String>,
+    },
+}
+
+/// A row of the policy list (`RepricingPolicyListRow`): the fields the list shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingPolicyRow {
+    pub policy_id: Option<String>,
+    pub name: Option<String>,
+    pub scope: Option<RepricingScope>,
+    /// `active`, `paused` or `deleted`.
+    pub status: String,
+    pub max_changes_per_day: Option<u64>,
+    #[serde(default)]
+    pub changes_used_today: u64,
+}
+
+/// The account-wide halt (`RepricingHaltState`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingHalt {
+    pub engaged: bool,
+    pub engaged_at: Option<String>,
+    pub released_at: Option<String>,
+}
+
+/// A dry run's counts (`RepricingDryRunSummary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingDryRunSummary {
+    pub flags: BTreeMap<String, u64>,
+    pub outcomes: BTreeMap<String, u64>,
+    pub skip_reasons: BTreeMap<String, u64>,
+    pub delta_buckets: BTreeMap<String, u64>,
+    pub within_tolerance: u64,
+    pub listings_evaluated: u64,
+}
+
+/// A dry run (`RepricingDryRun`): the body it evaluated, as the API keeps it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingDryRun {
+    pub dry_run_id: String,
+    #[serde(default)]
+    pub body: serde_json::Value,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    pub requested_at: String,
+    pub completed_at: Option<String>,
+    pub consumed_at: Option<String>,
+    pub summary: Option<RepricingDryRunSummary>,
+    pub updated_at: String,
+}
+
+impl RepricingDryRun {
+    pub fn finished(&self) -> bool {
+        matches!(self.status.as_str(), "completed" | "failed")
+    }
+}
+
+/// The anchor a listing's evaluation used (`RepricingPolicyListingTrace.anchor`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingTraceAnchor {
+    pub source: String,
+    /// `hard-ask`, `any-ask`, `market-estimate`, `last-sold` or `curve-objective`.
+    pub stratum: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RepricingExhaustedAnchor {
+    pub source: String,
+}
+
+/// Which price limits a listing's evaluation met (`RepricingClampTrace`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingClamps {
+    pub floor: bool,
+    pub ceiling: bool,
+    pub max_move: bool,
+    pub evidence_floor: bool,
+}
+
+/// One listing's result in a dry run (`RepricingPolicyListingTrace`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingTrace {
+    pub listing_id: String,
+    #[serde(default)]
+    pub rule_index: usize,
+    /// `changed`, `skipped`, `pause-requested` or `notify-only`.
+    pub outcome: String,
+    pub skip_reason: Option<String>,
+    pub anchor: Option<RepricingTraceAnchor>,
+    #[serde(default)]
+    pub exhausted_anchors: Vec<RepricingExhaustedAnchor>,
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default)]
+    pub clamps: RepricingClamps,
+    pub target_price_amount: Option<String>,
+    pub current_price_amount: String,
+}
+
+/// A policy a scope would overlap, and how many listings (`RepricingScopePreview`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RepricingOverlap {
+    pub name: String,
+    pub count: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingScopePreview {
+    pub matching: u64,
+    pub governed: u64,
+    pub shadowed_by: Vec<RepricingOverlap>,
+    pub taken_from: Vec<RepricingOverlap>,
+}
+
+/// What the editor starts from (`RepricingAuthoringPrerequisites`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingPrerequisites {
+    pub listing_currency_codes: Vec<String>,
+    pub has_cost_basis: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingCategory {
+    pub id: String,
+    pub name: String,
+}
+
+/// A refused dry run or write: the API's error and the messages its `details` carry
+/// (`pricingValidationMessages`).
+#[derive(Debug)]
+pub struct PricingRefusal {
+    pub error: ApiError,
+    pub details: Vec<String>,
+}
+
+impl From<ApiError> for PricingRefusal {
+    fn from(error: ApiError) -> Self {
+        PricingRefusal { error, details: Vec::new() }
+    }
+}
+
+/// A write's receipt, or what the API refused it for, with its details.
+async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Value, Option<Receipt>), PricingRefusal> {
+    let res = req.send().await.map_err(ApiError::from)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let receipt = Receipt::from_response(res.headers());
+    let body: serde_json::Value = res.json().await.unwrap_or_default();
+    if status.is_success() {
+        return Ok((body, receipt));
+    }
+    let error = &body["error"];
+    let details = error["details"]
+        .as_array()
+        .map(|details| details.iter().filter_map(|d| d["message"].as_str().map(str::to_owned)).collect())
+        .unwrap_or_default();
+    let error = ApiError::Status {
+        status,
+        code: error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned),
+        message: error["message"].as_str().unwrap_or_default().to_owned(),
+    };
+    Err(PricingRefusal { error, details })
+}
+
+/// The Seller Desk repricing page's calls (Pricing's `repricing-policies` routes).
+pub trait RepricingCalls {
+    async fn repricing_policies(&self) -> Result<Vec<RepricingPolicyRow>, ApiError>;
+    async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError>;
+    async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError>;
+    async fn repricing_prerequisites(&self) -> Result<RepricingPrerequisites, ApiError>;
+    async fn repricing_categories(&self) -> Result<Vec<RepricingCategory>, ApiError>;
+    /// How many listings a scope matches and whose they are now (a read, posted).
+    async fn repricing_scope_preview(&self, input: &serde_json::Value) -> Result<RepricingScopePreview, ApiError>;
+    async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError>;
+    async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError>;
+    async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal>;
+    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal>;
+    /// `pause` or `resume` a policy.
+    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
+    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
+}
+
+impl RepricingCalls for Caller<'_> {
+    async fn repricing_policies(&self) -> Result<Vec<RepricingPolicyRow>, ApiError> {
+        self.read(REPRICING, PRICING).await
+    }
+
+    async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError> {
+        self.read(&format!("{REPRICING}/halt"), PRICING).await
+    }
+
+    async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError> {
+        self.read(&format!("{REPRICING}/dry-runs?limit={limit}"), PRICING).await
+    }
+
+    async fn repricing_prerequisites(&self) -> Result<RepricingPrerequisites, ApiError> {
+        self.read(&format!("{REPRICING}/authoring-prerequisites"), PRICING).await
+    }
+
+    async fn repricing_categories(&self) -> Result<Vec<RepricingCategory>, ApiError> {
+        self.read(&format!("{REPRICING}/categories"), PRICING).await
+    }
+
+    async fn repricing_scope_preview(&self, input: &serde_json::Value) -> Result<RepricingScopePreview, ApiError> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/scope-preview"), PRICING).json(input);
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError> {
+        self.read(&format!("{REPRICING}/dry-runs/{}", segment(id)), PRICING).await
+    }
+
+    async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError> {
+        let after = after.map(|after| format!("&after={}", segment(after))).unwrap_or_default();
+        self.read(&format!("{REPRICING}/dry-runs/{}/traces?limit=100{after}", segment(id)), PRICING).await
+    }
+
+    async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/dry-runs"), PRICING).json(body);
+        let (run, _) = pricing_answer(req).await?;
+        serde_json::from_value(run).map_err(|error| {
+            PricingRefusal::from(ApiError::Status {
+                status: StatusCode::BAD_GATEWAY,
+                code: None,
+                message: format!("a dry run the page cannot read: {error}"),
+            })
+        })
+    }
+
+    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal> {
+        let body = serde_json::json!({ "dryRunId": dry_run_id, "name": name });
+        let req = self.request(Method::POST, REPRICING, PRICING).json(&body);
+        Ok(pricing_answer(req).await?.1)
+    }
+
+    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/{change}", segment(policy_id)), PRICING);
+        Ok(pricing_answer(req).await?.1)
+    }
+
+    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal> {
+        let req =
+            self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING).json(&serde_json::json!({ "engaged": engaged }));
+        Ok(pricing_answer(req).await?.1)
+    }
+}
+
+/// The path of a dry run's status stream (`/dry-runs/{id}/events`, server-sent `status` events).
+pub fn repricing_dry_run_events(id: &str) -> String {
+    format!("{REPRICING}/dry-runs/{}/events", segment(id))
+}
+
+/// The bounded context the repricing routes read and write, for a request built by hand.
+pub const PRICING_CONTEXT: &str = PRICING;
