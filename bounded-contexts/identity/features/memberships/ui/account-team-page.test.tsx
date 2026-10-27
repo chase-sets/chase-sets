@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderTesting, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
+import { AccountMutationBoundary } from "../../account-management/ui/controller";
 import {
   renderAccountManagementPage as render,
   renderHeldAccountManagementRoute,
@@ -154,6 +156,72 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(transport.posts()).toHaveLength(3));
     transport.posts()[2].respond({ outcome: "not-recorded", code: "not-recorded" });
     await waitFor(() => expect(busy(change)).toEqual({ disabled: false, busy: null }));
+  });
+
+  it("keeps a dialog-hosted form busy through a batched redirect commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    let loads = 0;
+    const initialRows = [membership("mem_1", "Alex"), membership("mem_2", "Blair")];
+    function BatchedTeamPage() {
+      const rows = useLoaderData() as Membership[];
+      return <TeamPage invitations={[]} memberships={rows} />;
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          id: "page",
+          path: "/account/team",
+          loader: () => {
+            loads += 1;
+            return [membership("mem_1", "Alex", "revoked"), membership("mem_2", "Blair")];
+          },
+          element: (
+            <AccountMutationBoundary actor={actor}>
+              <BatchedTeamPage />
+            </AccountMutationBoundary>
+          ),
+        },
+      ],
+      {
+        initialEntries: ["/account/team"],
+        hydrationData: { loaderData: { page: initialRows } },
+      },
+    );
+    renderTesting(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Revoke" })[0].matches(":disabled")).toBe(false));
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    const confirm = await screen.findByRole("button", { name: "Confirm revoke" });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    expect(busy(confirm)).toEqual({ disabled: false, busy: "true" });
+
+    transport.posts()[0].respond({
+      ...syntheticMutationResult("revoke", actor, { target: "mem_1" }),
+      destination: "/account/team?afterWrite=synthetic",
+    });
+    const snapshots: { connected: boolean; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    let reclicked = false;
+    const observer = new MutationObserver(() => {
+      const current = screen.queryByRole("button", { name: "Confirm revoke" });
+      const snapshot = { connected: Boolean(current), busy: current?.getAttribute("aria-busy") ?? null };
+      snapshots.push(snapshot);
+      if (snapshot.connected && snapshot.busy === null) {
+        staleUnlocked = true;
+        if (!reclicked) {
+          reclicked = true;
+          fireEvent.click(current!);
+        }
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    await waitFor(() => expect(loads).toBe(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    observer.disconnect();
+
+    expect(staleUnlocked).toBe(false);
+    expect(snapshots.some(({ connected, busy: state }) => connected && state === null)).toBe(false);
+    expect(transport.posts()).toHaveLength(1);
   });
 
   it("dialog-hosted invitation forms stay busy until the redirect completes", async () => {
