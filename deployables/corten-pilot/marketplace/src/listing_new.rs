@@ -26,7 +26,7 @@ use std::time::Duration;
 use corten::{
     axum::{
         body::Body,
-        http::{HeaderMap, StatusCode, Uri},
+        http::{HeaderMap, StatusCode},
     },
     prelude::*,
     security::cookie,
@@ -36,7 +36,7 @@ use serde::Deserialize;
 use crate::{
     api::{
         ApiError, CatalogItem, ClaimedDraft, CreatedListing, EvidenceReadiness, ListingCreate as _, Listings as _, Photo, Schema,
-        Selected, Suggestion, SupplyItem, TermsPreview, segment,
+        Selected, Suggestion, SupplyItem, TermsPreview,
     },
     app::{LISTINGS_VIEW, Shared, read_failed, sign_in},
     auth::{ListingSeller, Viewer},
@@ -189,7 +189,7 @@ impl Default for Draft {
 }
 
 /// A field's first value, trimmed.
-fn first(raw: &Raw, key: &str) -> String {
+pub(crate) fn first(raw: &Raw, key: &str) -> String {
     raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default()
 }
 
@@ -605,20 +605,6 @@ fn create_fields(draft: &Draft, snapshot: Option<&serde_json::Value>, id: &str) 
     fields
 }
 
-/// The listing page on marketplace a create goes to (`/account/listings/{id}`), with what came
-/// of its evidence (`evidenceEvent`) and the write's receipt (`afterWrite`).
-pub fn listing_href(id: &str, event: Option<&str>, receipt: Option<&platform::receipt::Receipt>) -> String {
-    let mut query = Vec::new();
-    if let Some(event) = event {
-        query.push(format!("evidenceEvent={event}"));
-    }
-    if let Some(receipt) = receipt {
-        query.push(format!("afterWrite={}", segment(&receipt.param())));
-    }
-    let query = if query.is_empty() { String::new() } else { format!("?{}", query.join("&")) };
-    views::on_marketplace(&format!("/account/listings/{}{query}", segment(id)))
-}
-
 pub(crate) async fn create(
     req: Req,
     Caller(ListingSeller(viewer)): Caller<ListingSeller>,
@@ -789,8 +775,7 @@ pub(crate) async fn create(
         },
         Intent::Draft => ((!photos.is_empty()).then_some("upload_completed"), created_receipt),
     };
-    let to: Uri = listing_href(&created.id, event, receipt.as_ref()).parse().map_err(corten::Error::new)?;
-    req.redirect(&to)
+    req.redirect(&crate::seller_listing::at(&created.id, receipt.as_ref(), event))
 }
 
 /// The form again, saying why nothing was written.

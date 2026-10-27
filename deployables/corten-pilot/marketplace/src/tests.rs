@@ -369,6 +369,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
             // none until its ship-from setup is saved.
             "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // A seller who may read its listings but not change them.
+            "lookout" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
             // may only read its purchases.
             "shopper" => actor(&["orders.view", "orders.manage"]),
@@ -419,6 +421,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = seller_listings(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
@@ -3550,7 +3555,7 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         .unwrap();
     assert_eq!(waits_for(&item_read.headers).as_deref(), Some("31"), "the item waits for the publication");
     assert!(text(&html).contains("Your active listing is $400.00. Manage listing"), "{html}");
-    assert_eq!(hrefs(&html, "Manage listing"), [format!("http://localhost:7753/account/listings/{LISTED}")]);
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{LISTED}")]);
     assert!(
         html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">List this product")),
         "{html}"
@@ -3775,7 +3780,7 @@ async fn a_listing_whose_read_has_not_caught_up_says_it_was_published_and_reads_
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("Listing published It shows here in a moment"), "{html}");
-    assert_eq!(hrefs(&html, "Manage listing"), [format!("http://localhost:7753/account/listings/{LISTED}")]);
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{LISTED}")]);
     assert!(html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
     assert!(!page.contains("Listing unavailable"), "a listing on its way is not unavailable: {html}");
     assert!(!html.contains(r#"action="/items/charizard/list""#), "no second listing while the first catches up: {html}");
@@ -3818,7 +3823,7 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(attempt, "2", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Listings require a resolved shipping measure before publication. Manage listing"), "{html}");
-    assert_eq!(hrefs(&html, "Manage listing"), ["http://localhost:7753/account/listings/lst_1b6f3c1e4d2a4b8e9f001234567890ab"]);
+    assert_eq!(hrefs(&html, "Manage listing"), ["/account/listings/lst_1b6f3c1e4d2a4b8e9f001234567890ab"]);
     // A graded product's stock is refused, as on marketplace (chase-sets/chase-sets#10598).
     let address = "market=sell&dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7";
     let (_, _, html) = pilot.send(get(&format!("/items/charizard?{address}"), Some("lister"))).await;
@@ -5873,6 +5878,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
             Json(json!({
                 "account_type": "individual", "basis_amount": sent["priceAmount"], "marketplace_sales_fee_unit_amount": "4.50",
                 "seller_net_unit_amount": "40.50", "shipping_allowance_percentage_bps": 500, "schedule_id": "fs_1",
+                "fee_quote_fingerprint": "fq_preview",
             }))
             .into_response(),
         ),
@@ -6099,10 +6105,7 @@ async fn a_draft_from_inventory_sends_its_photos_and_limits_and_goes_to_its_list
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let id = crate::listing::listing_id(&attempt).unwrap();
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(
-        to.starts_with(&format!("http://localhost:7753/account/listings/{id}?evidenceEvent=upload_completed&afterWrite=")),
-        "{to}"
-    );
+    assert!(to.starts_with(&format!("/account/listings/{id}?evidenceEvent=upload_completed&afterWrite=")), "{to}");
     let sent = created(&pilot, &id);
     assert_eq!(
         (&sent["inventoryItemId"], &sent["priceAmount"], &sent["quantityCap"], &sent["maxUnitsPerOrder"]),
@@ -6162,7 +6165,7 @@ async fn publish_goes_to_the_listing_says_when_evidence_blocks_it_and_keeps_a_re
     let page = text(&html);
     assert!(page.contains("Listings require a resolved shipping measure before publication."), "{page}");
     assert!(page.contains("The listing was saved as a draft and not published. Open the draft"), "{page}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/listings/lst_2b6f3c1e4d2a4b8e9f001234567890ab""#), "{html}");
+    assert!(html.contains(r#"href="/account/listings/lst_2b6f3c1e4d2a4b8e9f001234567890ab""#), "{html}");
 }
 
 #[tokio::test]
@@ -6255,4 +6258,419 @@ async fn the_fee_preview_draws_the_terms_or_the_apis_refusal() {
     let (_, _, html) =
         pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb&priceAmount=1.00&preview=1"), Some("lister"))).await;
     assert!(text(&html).contains("Listing price is below the marketplace minimum."), "{html}");
+}
+
+const SELLER_LISTINGS: &str = "/api/marketplace/account/listings/";
+
+/// A seller's listing as the API reads it: `lst_draft` is a draft with two photos and its front
+/// view missing, `lst_active` is active and ready.
+fn seller_listing(id: &str) -> Value {
+    let draft = id == "lst_draft";
+    let photo = |id: &str, order: i64, slot: Value| json!({ "photoId": id, "altText": null, "slotId": slot, "viewKind": slot, "status": "active", "sortOrder": order });
+    let slot = json!({ "slotId": "front", "viewKind": "front", "satisfied": !draft, "unmetCode": if draft { json!("slot-missing") } else { Value::Null } });
+    let mut gone = photo("ph_old", 2, Value::Null);
+    gone["status"] = json!("removed");
+    let evidence = json!([photo("ph_1", 0, json!("back")), photo("ph_2", 1, Value::Null), gone]);
+    let mut listing = json!({
+        "listing_id": id, "catalog_catalog_item_id": "cat_charizard", "item_language_code": "en",
+        "item_title": "Charizard", "item_subtitle": "Base Set", "product_summary": "Form: raw | Condition: near-mint",
+        "product_measure_snapshot": { "weightOunces": 1 }, "storage_location_name": "Main shelf", "ship_from_code": "MAIN",
+        "price_amount": "399.99", "price_currency_code": "USD", "marketplace_sales_fee_unit_amount": "40.00",
+        "seller_net_unit_amount": "359.99", "shipping_allowance_percentage_bps": 250, "terms_schedule_id": "fs_1",
+        "terms_agreement_id": null, "terms_resolved_at": "2026-10-20T12:00:00.000Z", "fee_quote_fingerprint": "fq_listing",
+        "quantity_cap": 2, "max_units_per_order": 1, "max_units_per_day": null, "max_units_per_customer_account": null,
+        "status": if draft { "draft" } else { "active" },
+        "evidence": evidence,
+    });
+    listing["evidence_readiness"] = json!({
+        "ready": !draft,
+        "requirements": { "requiredSlots": [{ "slotId": "front", "viewKind": "front", "minimumWidthPixels": 800, "minimumHeightPixels": 800 }] },
+        "coverage": { "complete": !draft, "slots": [slot], "activePhotoCount": 2, "minimumPhotoCount": 1 },
+        "nextActions": [],
+        "publicGallery": [{ "photoId": "ph_1", "altText": null, "assets": [
+            { "role": "catalog-detail", "publicUrl": "https://cdn.example/ph_1-480.webp", "width": 480, "height": 670, "density": 1 },
+            { "role": "catalog-detail", "publicUrl": "https://cdn.example/ph_1-960.webp", "width": 960, "height": 1340, "density": 2 },
+        ] }],
+    });
+    listing
+}
+
+/// The seller's listing page's calls, as the stand-in answers them. A read that waits for 43 is
+/// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
+/// current one) and 0.50 is refused; an image description with a text-direction override is
+/// refused with its code; publishing the draft is refused for its evidence (409 with the
+/// readiness now); photos named `broken.png` are a 500 (chase-sets/chase-sets#10649). Every
+/// other write applies at 50.
+fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(SELLER_LISTINGS)?;
+    let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
+    if !id.starts_with("lst_") {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let applied = || committed(StatusCode::OK, "marketplace", "50", json!({ "id": id, "version": 3 }));
+    Some(match (method.as_str(), action) {
+        ("GET", _) if id == "lst_missing" => refusal(StatusCode::NOT_FOUND, "listing-not-found", "Listing not found."),
+        ("GET", _) if waits_for(headers).as_deref() == Some("43") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        ("GET", "") => Json(seller_listing(id)).into_response(),
+        ("GET", "fee-history") => {
+            let items = if id == "lst_active" {
+                json!([{
+                    "event_type": "marketplace.listing.published", "stream_version": 2, "recorded_at": "2026-10-20T12:00:00.000Z",
+                    "price_amount": "399.99", "price_currency_code": "USD", "quantity_cap": 2,
+                    "marketplace_sales_fee_unit_amount": "40.00", "seller_net_unit_amount": "359.99",
+                    "terms_agreement_id": null, "terms_schedule_id": "fs_1", "terms_resolved_at": "2026-10-20T12:00:00.000Z",
+                }])
+            } else {
+                json!([])
+            };
+            Json(json!({ "items": items })).into_response()
+        }
+        ("POST", "price") if sent["priceAmount"] == "1.00" => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": { "code": "fee-quote-stale", "message": "Fee quote is stale.", "currentQuote": {
+                "account_type": "individual", "fee_quote_fingerprint": "fq_current", "basis_amount": "1.00",
+                "marketplace_sales_fee_unit_amount": "0.10", "seller_net_unit_amount": "0.90",
+                "shipping_allowance_percentage_bps": 250, "schedule_id": "fs_1",
+            } } })),
+        )
+            .into_response(),
+        ("POST", "price") if sent["priceAmount"] == "0.50" => {
+            refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum.")
+        }
+        ("POST", a) if a.ends_with("/classify") && sent["altText"].as_str().is_some_and(|t| t.contains('\u{202E}')) => {
+            refusal(StatusCode::BAD_REQUEST, "text_direction_override", "Remove hidden text-direction characters.")
+        }
+        ("POST", "publish") if id == "lst_draft" => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": {
+                "code": "listing_evidence_incomplete",
+                "message": "Listing evidence is incomplete for the active policy.",
+                "currentEvidenceReadiness": seller_listing(id)["evidence_readiness"],
+            } })),
+        )
+            .into_response(),
+        ("POST", _) if body.contains("filename=\"broken.png\"") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("POST", _) | ("DELETE", _) => applied(),
+        _ => return None,
+    })
+}
+
+/// The calls the seller's listing page made to the listing's API, but its reads.
+fn listing_writes(pilot: &Pilot, id: &str) -> Vec<Call> {
+    let prefix = format!("{SELLER_LISTINGS}{id}");
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(&prefix) && c.method != Method::GET).cloned().collect()
+}
+
+#[tokio::test]
+async fn a_sellers_listing_shows_its_overview_fees_readiness_and_forms_and_only_a_draft_its_photos() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_active", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Charizard",
+        "Base Set",
+        "Active",
+        "Verified account",
+        "English",
+        "near-mint",
+        "$399.99",
+        "Marketplace $40.00. Net $359.99. Buyer shipping credit 2.5%",
+        "Main shelf MAIN",
+        "Standard seller terms",
+        "1 recorded fee events",
+        "Published fee lock",
+        "Evidence ready",
+        "Active limits: order 1",
+        "Seller-supplied evidence",
+    ] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    // Its forms post to the page; the price form carries the listing's quote; Publish is off for
+    // an active listing, Pause is on, and Withdraw asks first.
+    assert!(html.contains(r#"action="/account/listings/lst_active""#), "{html}");
+    assert!(html.contains(r#"name="feeQuoteFingerprint" value="fq_listing""#), "{html}");
+    assert!(html.contains(r#"type="submit" disabled>Publish listing</button>"#), "{html}");
+    assert!(html.contains(r#"type="submit">Pause listing</button>"#), "{html}");
+    assert!(html.contains(r#"command="show-modal" commandfor="withdraw-dialog""#), "{html}");
+    assert!(
+        html.contains(r#"srcset="https://cdn.example/ph_1-480.webp 480w, https://cdn.example/ph_1-960.webp 960w""#),
+        "{html}"
+    );
+    // An active listing has no photo forms.
+    assert!(!html.contains("/account/listings/lst_active/photos"), "{html}");
+
+    // A draft: what its evidence needs, and each active photo's forms in order.
+    let (status, _, html) = pilot.send(get("/account/listings/lst_draft", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Evidence required") && page.contains("Add the required photo for this view."), "{page}");
+    assert!(page.contains("No fee lock history is available."), "{page}");
+    assert!(page.contains("Complete the required evidence actions above before publishing."), "{page}");
+    assert_eq!(html.matches(r#"action="/account/listings/lst_draft/photos""#).count(), 3, "{html}");
+    assert_eq!(html.matches(r#"value="classify-photo""#).count(), 2, "{html}");
+    assert!(html.contains(r#"name="orderedPhotoIds" value="ph_2,ph_1""#), "{html}");
+    assert!(html.contains(r#"disabled aria-label="Move photo 1 earlier""#), "{html}");
+    assert!(html.contains(r#"type="submit" aria-label="Move photo 2 earlier""#), "{html}");
+    assert!(html.contains(r#"<option value="front">front</option>"#), "{html}");
+    assert!(!html.contains("ph_old"), "{html}");
+}
+
+#[tokio::test]
+async fn a_sellers_listing_needs_listings_view_to_read_and_listings_manage_to_write() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/account/listings/lst_active", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("/sign-in?returnTo=%2Faccount%2Flistings%2Flst_active"));
+    let (status, _, _) = pilot.send(get("/account/listings/lst_active", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/account/listings/lst_active", Some("lookout"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(post("/account/listings/lst_active", "lookout", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/account/listings/lst_missing", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(listing_writes(&pilot, "lst_active").is_empty());
+}
+
+#[tokio::test]
+async fn a_listing_write_goes_back_to_the_page_after_its_receipt_and_sends_what_marketplace_does() {
+    let pilot = Pilot::new().await;
+    let at = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let cases: [(&str, &str, &str, Value, Option<&str>); 8] = [
+        (
+            "update-price",
+            "priceAmount=12.00&priceCurrencyCode=usd&feeQuoteFingerprint=fq_preview",
+            "price",
+            json!({ "priceAmount": "12.00", "priceCurrencyCode": "USD", "feeQuoteFingerprint": "fq_preview" }),
+            None,
+        ),
+        (
+            "update-quantity-cap",
+            "quantityCap=3&feeQuoteFingerprint=fq_listing",
+            "quantity-cap",
+            json!({ "quantityCap": 3, "feeQuoteFingerprint": "fq_listing" }),
+            None,
+        ),
+        (
+            "update-purchase-limits",
+            "maxUnitsPerOrder=2&maxUnitsPerDay=&maxUnitsPerCustomerAccount=5",
+            "purchase-limits",
+            json!({ "purchaseLimits": { "maxUnitsPerOrder": 2, "maxUnitsPerDay": null, "maxUnitsPerCustomerAccount": 5 } }),
+            None,
+        ),
+        (
+            "classify-photo",
+            "photoId=ph_2&slotId=front&altText=Front+of+the+card",
+            "photos/ph_2/classify",
+            json!({ "slotId": "front", "viewKind": "front", "altText": "Front of the card" }),
+            Some("remediation_completed"),
+        ),
+        (
+            "reorder-photos",
+            "orderedPhotoIds=ph_2%2Cph_1",
+            "photos/reorder",
+            json!({ "orderedPhotoIds": ["ph_2", "ph_1"] }),
+            Some("remediation_completed"),
+        ),
+        ("pause", "", "pause", json!({}), None),
+        ("withdraw", "", "withdraw", json!({}), None),
+        ("remove-photo", "photoId=ph_2", "photos/ph_2", Value::Null, Some("remediation_completed")),
+    ];
+    for (intent, fields, path, body, event) in cases {
+        let id = "lst_draft";
+        let (status, headers, html) =
+            pilot.send(post(&format!("/account/listings/{id}"), "lister", &format!("intent={intent}&{fields}"), false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{intent}: {html}");
+        let to = at(&headers);
+        assert!(to.starts_with(&format!("/account/listings/{id}?")), "{to}");
+        let q = query(&to);
+        assert!(q.contains_key("afterWrite"), "{to}");
+        assert_eq!(q.get("evidenceEvent").map(String::as_str), event, "{intent}: {to}");
+        let call = listing_writes(&pilot, id).pop().unwrap();
+        assert_eq!(call.path, format!("{SELLER_LISTINGS}{id}/{path}"), "{intent}");
+        let sent: Value = serde_json::from_str(&call.body).unwrap_or_default();
+        assert_eq!(sent, body, "{intent}");
+        if intent == "remove-photo" {
+            assert_eq!(call.method, Method::DELETE);
+        }
+    }
+    // The page after a write reads after its receipt.
+    let (status, _, html) =
+        pilot.send(get(&format!("/account/listings/lst_draft?afterWrite={}", receipt_at("50")), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    // Not a whole number: the field says so, and nothing is sent.
+    let (status, _, html) =
+        pilot.send(post("/account/listings/lst_active", "lister", "intent=update-quantity-cap&quantityCap=0", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Enter a whole number of at least 1."), "{html}");
+    assert!(html.contains(r#"name="quantityCap" value="0""#), "{html}");
+    assert!(html.contains(r#"aria-invalid="true""#), "{html}");
+    let (status, _, html) = pilot
+        .send(post(
+            "/account/listings/lst_active",
+            "lister",
+            "intent=update-purchase-limits&maxUnitsPerOrder=x&maxUnitsPerDay=&maxUnitsPerCustomerAccount=",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"name="maxUnitsPerOrder" value="x""#), "{html}");
+    assert!(listing_writes(&pilot, "lst_active").is_empty());
+
+    // A stale quote: the current quote is shown, and the price form now carries it.
+    let (status, _, html) = pilot
+        .send(post(
+            "/account/listings/lst_active",
+            "lister",
+            "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Fee quote is stale. Refresh the fee preview before continuing."), "{page}");
+    assert!(page.contains("Updated fee preview"), "{page}");
+    assert!(html.contains(r#"name="feeQuoteFingerprint" value="fq_current""#), "{html}");
+    assert!(html.contains(r#"name="priceAmount" value="1.00""#), "{html}");
+
+    // Refused by the API: its words, and the price typed.
+    let (status, _, html) = pilot
+        .send(post("/account/listings/lst_active", "lister", "intent=update-price&priceAmount=0.50&priceCurrencyCode=USD", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Update Listing Listing price is below the marketplace minimum."), "{html}");
+    assert!(html.contains(r#"name="priceAmount" value="0.50""#), "{html}");
+
+    // An image description refused with a closed code: its recovery, at the photo's field.
+    let (status, _, html) = pilot
+        .send(post(
+            "/account/listings/lst_draft",
+            "lister",
+            "intent=classify-photo&photoId=ph_2&slotId=&altText=Front%E2%80%AE",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Your text was not posted"), "{page}");
+    assert!(page.contains("Remove hidden text-direction characters from your text, then try again."), "{page}");
+    assert!(html.contains(r##"href="#alt-text-ph_2""##), "{html}");
+    assert!(html.contains(r#"aria-invalid="true" aria-describedby="alt-text-error-ph_2""#), "{html}");
+
+    // Publishing without the evidence: the API's words, and its readiness now.
+    let (status, _, html) =
+        pilot.send(post("/account/listings/lst_draft", "lister", "intent=publish&feeQuoteFingerprint=fq_listing", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("Listing evidence is incomplete for the active policy."), "{html}");
+
+    // An intent the page does not send.
+    let (status, _, _) = pilot.send(post("/account/listings/lst_draft", "lister", "intent=delete-everything", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn preview_fees_is_a_get_of_the_page_and_the_price_form_sends_its_quote() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/account/listings/lst_active?preview=1&priceAmount=12.00&priceCurrencyCode=USD", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Updated fee preview") && page.contains("Basis amount: $12.00"), "{page}");
+    assert!(html.contains(r#"name="priceAmount" value="12.00""#), "{html}");
+    assert!(html.contains(r#"name="feeQuoteFingerprint" value="fq_preview""#), "{html}");
+    let sent: Vec<Call> = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == TERMS_PREVIEW).cloned().collect();
+    assert_eq!(serde_json::from_str::<Value>(&sent[0].body).unwrap()["priceAmount"], "12.00");
+    // A preview the API refuses says why.
+    let (status, _, html) =
+        pilot.send(get("/account/listings/lst_active?preview=1&priceAmount=1.00&priceCurrencyCode=USD", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Listing price is below the marketplace minimum."), "{html}");
+}
+
+#[tokio::test]
+async fn a_listing_whose_read_is_catching_up_says_it_is_preparing_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let receipt = receipt_at("43");
+    let (status, _, html) = pilot
+        .send(get(&format!("/account/listings/lst_draft?evidenceEvent=upload_completed&afterWrite={receipt}"), Some("lister")))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Preparing listing") && page.contains("Refresh listing"), "{page}");
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    let refresh = hrefs(&html, "Refresh listing");
+    assert!(refresh[0].starts_with("/account/listings/lst_draft?evidenceEvent=upload_completed&amp;afterWrite="), "{refresh:?}");
+}
+
+#[tokio::test]
+async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_refused() {
+    let pilot = Pilot::new().await;
+    let photos = "/account/listings/lst_draft/photos";
+    let (status, headers, html) = pilot
+        .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("evidenceEvent=upload_completed&afterWrite="));
+    let call = listing_writes(&pilot, "lst_draft").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_draft/photos"));
+    let parts = multipart_fields(&call.headers, &call.body).unwrap();
+    assert_eq!(parts.iter().filter(|(name, file, _)| name == "evidence" && file.as_deref() == Some("front.png")).count(), 1);
+
+    let fields = [("intent", "replace-photo"), ("photoId", "ph_1"), ("slotId", "back"), ("viewKind", "back"), ("altText", "")];
+    let (status, _, html) =
+        pilot.send(post_multipart(photos, "lister", &fields, &[("listingPhoto", "back.png", "image/png", PNG)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let call = listing_writes(&pilot, "lst_draft").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_draft/photos/ph_1/replace"));
+    let parts = multipart_fields(&call.headers, &call.body).unwrap();
+    let field = |n: &str| parts.iter().find(|(name, ..)| name == n).map(|(_, _, v)| v.clone());
+    assert_eq!(field("slotId").as_deref(), Some("back"));
+    assert_eq!(field("viewKind").as_deref(), Some("back"));
+    assert!(field("listingPhotoAltText").is_none());
+    assert!(parts.iter().any(|(name, file, _)| name == "listingPhoto" && file.as_deref() == Some("back.png")));
+
+    let before = listing_writes(&pilot, "lst_draft").len();
+    let (status, _, html) = pilot
+        .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "notes.txt", "text/plain", b"hello")]))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Each photo must be a JPEG, PNG or WebP image."), "{page}");
+    assert!(page.contains("If you had chosen photos, choose them again."), "{page}");
+    let (status, _, html) = pilot.send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose a photo to upload."), "{html}");
+    assert_eq!(listing_writes(&pilot, "lst_draft").len(), before);
+
+    // A photo the API cannot process (a 500, chase-sets/chase-sets#10649) says so.
+    let (status, _, html) = pilot
+        .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "broken.png", "image/png", PNG)]))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The photos could not be processed, so nothing was changed."), "{html}");
+    // Someone who may only read cannot post photos.
+    let (status, _, _) = pilot
+        .send(post_multipart(photos, "lookout", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn back_to_listings_is_marketplaces_list_until_it_is_ported() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_active", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    // Back to listings is marketplace's list, not ported yet.
+    assert_eq!(hrefs(&html, "Back to listings"), ["http://localhost:7753/account/listings"]);
 }

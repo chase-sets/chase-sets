@@ -23,6 +23,11 @@ impl Platform {
         Platform { http, origin: origin.trim_end_matches('/').to_owned() }
     }
 
+    /// The API's origin, `http://localhost:7762` locally.
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
+
     /// Calls for one browser request: its cookies, its host and the receipt of a write it follows.
     pub fn caller(&self, headers: &HeaderMap, proto: &'static str, receipt: Option<&Receipt>) -> Caller<'_> {
         let text = |name| headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);

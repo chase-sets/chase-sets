@@ -27,6 +27,7 @@ mod recovery;
 mod restock;
 mod saving;
 mod search;
+mod seller_listing;
 mod selling;
 mod sets;
 mod shipments;

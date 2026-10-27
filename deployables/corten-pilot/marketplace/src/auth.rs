@@ -220,6 +220,27 @@ impl Identify<Shared> for ListingSeller {
     }
 }
 
+/// A seller on one of its listings (marketplace's `account-listing`): reading needs
+/// `listings.view`, as its loader requires, and writing `listings.manage`, as its action does
+/// (the API checks again). Anyone not signed in is sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ListingManager(pub Viewer);
+
+impl Identify<Shared> for ListingManager {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer)
+                if viewer.actor.can(LISTINGS_VIEW) && (parts.method.is_safe() || viewer.actor.can(LISTINGS_MANAGE)) =>
+            {
+                Ok(ListingManager(viewer))
+            }
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash)]
 pub struct Viewer {
     pub actor: Actor,

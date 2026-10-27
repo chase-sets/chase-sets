@@ -121,5 +121,26 @@
     "photos_unprocessed": "The photos could not be processed, so nothing was created. Check each photo and try again.",
     "draft_saved": "The listing was saved as a draft and not published.",
     "open_draft": "Open the draft"
+  },
+  "seller_listing": {
+    "cancel": "Cancel",
+    "photo_type": "Each photo must be a JPEG, PNG or WebP image.",
+    "photo_size": "Each photo must be 10 MB or smaller.",
+    "photo_count": "Choose at most 24 photos.",
+    "photos_too_large": "These photos are too large to send together (60 MB at most).",
+    "photos_again": "If you had chosen photos, choose them again.",
+    "photos_unprocessed": "The photos could not be processed, so nothing was changed. Check each photo and try again.",
+    "choose_photo": "Choose a photo to upload.",
+    "whole_number": "Enter a whole number of at least 1.",
+    "move_earlier_label": "Move photo {index} earlier",
+    "move_later_label": "Move photo {index} later",
+    "remove_label": "Remove photo {index}",
+    "status_draft": "Draft",
+    "status_active": "Active",
+    "status_paused": "Paused",
+    "status_withdrawn": "Withdrawn",
+    "terms_seller": "Seller terms",
+    "terms_standard": "Standard seller terms",
+    "close": "Close"
   }
 }

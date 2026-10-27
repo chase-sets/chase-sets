@@ -28,6 +28,7 @@
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
+//! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
@@ -116,6 +117,7 @@ pub mod url {
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
+    pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings};
     pub use sets::{Set, Sets};
     pub use shipments::{Shipment, Shipments};
 
@@ -485,6 +487,33 @@ pub mod url {
         pub struct NewListing;
     }
 
+    /// The seller's listings (marketplace's `account-listing`): a listing's page and its writes,
+    /// the photo writes at `/photos` since they post files. Every handler takes a
+    /// `ListingManager`. Create listing (`/account/listings/new`) is an area of its own inside
+    /// this one.
+    #[corten::routes(state = crate::app::Shared, area = SellerListings, caller = crate::auth::ListingManager)]
+    pub mod seller_listings {
+        /// The area: its prefix (marketplace's list of listings, not ported yet) and stylesheet.
+        #[route("/account/listings", link)]
+        pub struct SellerListings;
+
+        /// A listing, read after the write whose receipt its address carries, with a price to
+        /// preview; its writes but the photos'.
+        #[derive(Clone, Debug)]
+        #[route("/account/listings/{id}", get = crate::seller_listing::page, post = crate::seller_listing::write)]
+        pub struct SellerListing<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::seller_listing::Place,
+        }
+
+        /// Add photos and Replace photo (`multipart/form-data`).
+        #[route("/account/listings/{id}/photos", post = crate::seller_listing::photos)]
+        pub struct SellerListingPhotos<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
     /// is the area's route, and every handler takes an `OrderBuyer`.
     #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
@@ -651,9 +680,15 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
-        // The cart's fallback picture is on marketplace's origin, which is plain http locally (the
-        // default policy takes any https image), and Check out redirects to its checkout.
-        .policy(corten::security::Policy::new().img_src(marketplace_origin()).form_action(marketplace_origin()))
+        // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
+        // which are plain http locally (the default policy takes any https image), and Check out
+        // redirects to marketplace's checkout.
+        .policy(
+            corten::security::Policy::new()
+                .img_src(marketplace_origin())
+                .img_src(shared.platform.origin())
+                .form_action(marketplace_origin()),
+        )
         .messages::<crate::text::Msg>()
         .components(views::COMPONENTS)
         // Search is the home page too, outside every area, and at two prefixes, and a set's page
@@ -676,6 +711,12 @@ pub fn app(config: Config) -> App {
         .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area::<url::ShippingAddresses>(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
+        // A listing's photo writes send up to 60 MB, as a create does.
+        .area::<url::SellerListings>(|area| {
+            url::seller_listings::area(area, shared.clone())
+                .components(views::SELLER_LISTING)
+                .deadline(crate::seller_listing::DEADLINE)
+        })
         .area::<url::NewListing>(|area| {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })

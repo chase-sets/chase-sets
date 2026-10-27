@@ -5,7 +5,7 @@
 // - With JavaScript: typing in Search catalog finds the item without a page load, and Choose
 //   draws it chosen; choosing the inventory and Preview fees draws the fee preview in place; a
 //   file that is not a picture is refused with the form kept as typed; Save as draft with a PNG
-//   goes to the listing on marketplace with `evidenceEvent=upload_completed`, and the API has
+//   goes to the pilot's listing page with `evidenceEvent=upload_completed`, and the API has
 //   the draft with one photo.
 // - Without JavaScript: Save as draft from the inventory's address goes to the listing.
 // - No console errors.
@@ -48,7 +48,7 @@ async function context(options = {}) {
   page.setDefaultTimeout(60_000);
   const problems = [];
   // The refusal this smoke asks for is a 422, which Chrome logs as a failed load; marketplace's
-  // own page, where a create goes, is not this smoke's.
+  // listing page, where a create goes, has its own smoke.
   page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 422") && page.url().startsWith(base) && problems.push(m.text()));
   page.on("pageerror", (e) => page.url().startsWith(base) && problems.push(String(e)));
   return { ctx, page, problems };
@@ -118,7 +118,7 @@ const picture = await (async () => {
   await page.waitForURL(/\/account\/listings\/lst_/, { waitUntil: "commit", timeout: 150_000 });
   const to = page.url();
   created.push(idFrom(to));
-  check(to.includes("evidenceEvent=upload_completed") && to.includes("afterWrite="), `Save as draft goes to the listing on marketplace (${to})`);
+  check(to.includes("evidenceEvent=upload_completed") && to.includes("afterWrite="), `Save as draft goes to the listing (${to})`);
   const read = await listing(created.at(-1));
   const photos = (read.evidence ?? []).filter((p) => p.status === "active").map((p) => p.originalFilename);
   check(read.status === "draft" && read.price_amount === price(1), `the API has the draft at ${price(1)} (${read.status}, ${read.price_amount})`);

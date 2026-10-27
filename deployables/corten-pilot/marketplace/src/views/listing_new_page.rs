@@ -180,7 +180,7 @@ fn PhotoErrorPart<'a>(screen: &'a NewListingScreen) -> impl Patch {
 #[component(css = NewListingPage)]
 fn NoticePart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Patch {
     let selected = screen.selected();
-    let draft = screen.draft_saved.as_deref().map(|id| crate::listing_new::listing_href(id, None, None));
+    let draft = screen.draft_saved.as_deref().map(|id| crate::seller_listing::at(id, None, None).href());
     html! {
         <div id={NoticeId} class={Notices} role="status" aria-live="polite">
             if !screen.errors.is_empty() {

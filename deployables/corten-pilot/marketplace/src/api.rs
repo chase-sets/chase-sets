@@ -1696,6 +1696,9 @@ pub struct SupplyItems {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TermsPreview {
     pub account_type: String,
+    /// The quote a price write sends back, so it is the one the seller saw.
+    pub fee_quote_fingerprint: Option<String>,
+    pub agreement_id: Option<String>,
     pub basis_amount: Option<String>,
     pub marketplace_sales_fee_unit_amount: Option<String>,
     pub seller_net_unit_amount: Option<String>,
@@ -1713,6 +1716,30 @@ pub struct EvidenceReadiness {
     pub coverage: Coverage,
     #[serde(default)]
     pub next_actions: Vec<NextAction>,
+    /// The photos buyers see, in order (a listing's read; a preview has none).
+    #[serde(default)]
+    pub public_gallery: Vec<GalleryImage>,
+}
+
+/// A photo buyers see (`MarketplaceListingPublicGalleryImage`): its sizes.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryImage {
+    pub photo_id: String,
+    pub alt_text: Option<String>,
+    #[serde(default)]
+    pub assets: Vec<GalleryAsset>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryAsset {
+    /// `thumbnail`, `search-card` or `catalog-detail`.
+    pub role: String,
+    pub public_url: String,
+    pub width: u32,
+    pub height: u32,
+    pub density: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1728,6 +1755,9 @@ pub struct RequiredSlot {
     pub slot_id: String,
     pub minimum_width_pixels: Option<u32>,
     pub minimum_height_pixels: Option<u32>,
+    /// The view a photo in the slot shows (`front`, `back`, `slab`).
+    #[serde(default)]
+    pub view_kind: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2859,5 +2889,242 @@ mod address_tests {
         let AddressAnswer::Committed(Some(after)) = AddressAnswer::read(200, &body, None).unwrap() else { panic!("a receipt") };
         assert!(after.contains(r#""maxGlobalPosition":"83""#), "{after}");
         assert_eq!(after_write_of("/account/shipping-addresses"), None);
+    }
+}
+
+/// A seller's listing (`MarketplaceListingDetail`), the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SellerListing {
+    pub listing_id: String,
+    pub catalog_catalog_item_id: String,
+    pub item_language_code: Option<String>,
+    pub item_title: Option<String>,
+    pub item_subtitle: Option<String>,
+    /// "Form: raw | Condition: near-mint".
+    pub product_summary: Option<String>,
+    /// `null` when the catalog has no shipping measure for the product: it cannot be published.
+    pub product_measure_snapshot: Option<serde_json::Value>,
+    pub storage_location_name: Option<String>,
+    pub ship_from_code: Option<String>,
+    #[serde(default)]
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub shipping_allowance_percentage_bps: Option<u32>,
+    pub terms_schedule_id: Option<String>,
+    pub terms_agreement_id: Option<String>,
+    pub terms_resolved_at: Option<String>,
+    pub fee_quote_fingerprint: Option<String>,
+    pub quantity_cap: u64,
+    pub max_units_per_order: Option<u64>,
+    pub max_units_per_day: Option<u64>,
+    pub max_units_per_customer_account: Option<u64>,
+    /// `draft`, `active`, `paused` or `withdrawn`.
+    pub status: String,
+    #[serde(default)]
+    pub evidence: Vec<ListingPhoto>,
+    pub evidence_readiness: EvidenceReadiness,
+}
+
+impl SellerListing {
+    /// The active photos in their order (`ListingEvidenceReadiness`'s `activePhotos`).
+    pub fn active_photos(&self) -> Vec<&ListingPhoto> {
+        let mut photos: Vec<_> = self.evidence.iter().filter(|p| p.status == "active").collect();
+        photos.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then_with(|| a.photo_id.cmp(&b.photo_id)));
+        photos
+    }
+}
+
+/// A listing's photo (`MarketplaceListingPhoto`), the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingPhoto {
+    pub photo_id: String,
+    pub alt_text: Option<String>,
+    pub slot_id: Option<String>,
+    pub view_kind: Option<String>,
+    /// `active`, `replaced` or `removed`.
+    pub status: String,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+/// One change of a listing's fee lock (`MarketplaceListingFeeHistoryEntry`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FeeHistoryEntry {
+    pub event_type: String,
+    pub stream_version: u64,
+    pub recorded_at: Option<String>,
+    pub price_amount: Option<String>,
+    pub price_currency_code: Option<String>,
+    pub quantity_cap: Option<u64>,
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub terms_agreement_id: Option<String>,
+    pub terms_schedule_id: Option<String>,
+    pub terms_resolved_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FeeHistory {
+    #[serde(default)]
+    items: Vec<FeeHistoryEntry>,
+}
+
+/// A change to a listing, as its page sends it (marketplace's `account-listing` intents).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListingCommand {
+    Price { amount: String, currency: String, fee_quote_fingerprint: Option<String> },
+    QuantityCap { cap: u64, fee_quote_fingerprint: Option<String> },
+    PurchaseLimits { per_order: Option<u64>, per_day: Option<u64>, per_customer: Option<u64> },
+    Classify { photo: String, slot_id: Option<String>, view_kind: Option<String>, alt_text: Option<String> },
+    RemovePhoto { photo: String },
+    Reorder { photos: Vec<String> },
+    Publish { fee_quote_fingerprint: Option<String> },
+    Pause,
+    Withdraw,
+}
+
+/// Why a listing command was not applied.
+#[derive(Debug)]
+pub enum CommandError {
+    /// The fee quote the form carried is stale (409): the API's current one.
+    StaleQuote(Box<TermsPreview>),
+    /// Publication needs evidence the listing does not have (409): what it needs now.
+    EvidenceIncomplete {
+        message: String,
+        readiness: Box<EvidenceReadiness>,
+    },
+    Api(ApiError),
+}
+
+impl From<ApiError> for CommandError {
+    fn from(error: ApiError) -> Self {
+        CommandError::Api(error)
+    }
+}
+
+/// The seller's listing page's calls (marketplace's `account-listing` route).
+pub trait SellerListings {
+    async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
+    async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
+    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
+    /// Adds photos to a draft.
+    async fn add_listing_photos(&self, id: &str, photos: &[Photo]) -> Result<Option<Receipt>, CommandError>;
+    /// Replaces a photo, keeping its slot and view.
+    async fn replace_listing_photo(
+        &self,
+        id: &str,
+        photo: &str,
+        with: &Photo,
+        fields: &[(&str, String)],
+    ) -> Result<Option<Receipt>, CommandError>;
+}
+
+fn photo_part(photo: &Photo) -> Result<reqwest::multipart::Part, ApiError> {
+    Ok(reqwest::multipart::Part::stream(photo.bytes.clone()).file_name(photo.filename.clone()).mime_str(&photo.content_type)?)
+}
+
+/// A listing command's answer: its receipt, or why it was not applied, with the 409s that carry
+/// the current fee quote or evidence (`staleQuoteFromError`, `evidenceReadinessFromError`).
+async fn answer(req: reqwest::RequestBuilder) -> Result<Option<Receipt>, CommandError> {
+    let res = req.send().await.map_err(ApiError::from)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    if status.is_success() {
+        return Ok(Receipt::from_response(res.headers()));
+    }
+    let body: serde_json::Value = res.json().await.unwrap_or_default();
+    let error = &body["error"];
+    let message = error["message"].as_str().unwrap_or_default().to_owned();
+    if status == StatusCode::CONFLICT {
+        if let Ok(quote) = serde_json::from_value::<TermsPreview>(error["currentQuote"].clone()) {
+            return Err(CommandError::StaleQuote(Box::new(quote)));
+        }
+        if let Ok(readiness) = serde_json::from_value::<EvidenceReadiness>(error["currentEvidenceReadiness"].clone()) {
+            return Err(CommandError::EvidenceIncomplete { message, readiness: Box::new(readiness) });
+        }
+    }
+    let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+    Err(CommandError::Api(ApiError::Status { status, code, message }))
+}
+
+impl SellerListings for Caller<'_> {
+    async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError> {
+        self.read(&format!("/api/marketplace/account/listings/{}", segment(id)), MARKETPLACE).await
+    }
+
+    async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError> {
+        let path = format!("/api/marketplace/account/listings/{}/fee-history", segment(id));
+        Ok(self.read::<FeeHistory>(&path, MARKETPLACE).await?.items)
+    }
+
+    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError> {
+        use serde_json::json;
+        let base = format!("/api/marketplace/account/listings/{}", segment(id));
+        let (method, path, body) = match command {
+            ListingCommand::Price { amount, currency, fee_quote_fingerprint } => (
+                Method::POST,
+                format!("{base}/price"),
+                json!({ "priceAmount": amount, "priceCurrencyCode": currency, "feeQuoteFingerprint": fee_quote_fingerprint }),
+            ),
+            ListingCommand::QuantityCap { cap, fee_quote_fingerprint } => (
+                Method::POST,
+                format!("{base}/quantity-cap"),
+                json!({ "quantityCap": cap, "feeQuoteFingerprint": fee_quote_fingerprint }),
+            ),
+            ListingCommand::PurchaseLimits { per_order, per_day, per_customer } => (
+                Method::POST,
+                format!("{base}/purchase-limits"),
+                json!({ "purchaseLimits": {
+                    "maxUnitsPerOrder": per_order, "maxUnitsPerDay": per_day, "maxUnitsPerCustomerAccount": per_customer,
+                } }),
+            ),
+            ListingCommand::Classify { photo, slot_id, view_kind, alt_text } => (
+                Method::POST,
+                format!("{base}/photos/{}/classify", segment(photo)),
+                json!({ "slotId": slot_id, "viewKind": view_kind, "altText": alt_text }),
+            ),
+            ListingCommand::RemovePhoto { photo } => {
+                (Method::DELETE, format!("{base}/photos/{}", segment(photo)), serde_json::Value::Null)
+            }
+            ListingCommand::Reorder { photos } => {
+                (Method::POST, format!("{base}/photos/reorder"), json!({ "orderedPhotoIds": photos }))
+            }
+            ListingCommand::Publish { fee_quote_fingerprint } => {
+                (Method::POST, format!("{base}/publish"), json!({ "feeQuoteFingerprint": fee_quote_fingerprint }))
+            }
+            ListingCommand::Pause => (Method::POST, format!("{base}/pause"), json!({})),
+            ListingCommand::Withdraw => (Method::POST, format!("{base}/withdraw"), json!({})),
+        };
+        let mut req = self.request(method, &path, MARKETPLACE);
+        if !body.is_null() {
+            req = req.json(&body);
+        }
+        answer(req).await
+    }
+
+    async fn add_listing_photos(&self, id: &str, photos: &[Photo]) -> Result<Option<Receipt>, CommandError> {
+        let mut form = reqwest::multipart::Form::new();
+        for photo in photos {
+            form = form.part("evidence", photo_part(photo)?);
+        }
+        let path = format!("/api/marketplace/account/listings/{}/photos", segment(id));
+        answer(self.request(Method::POST, &path, MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form)).await
+    }
+
+    async fn replace_listing_photo(
+        &self,
+        id: &str,
+        photo: &str,
+        with: &Photo,
+        fields: &[(&str, String)],
+    ) -> Result<Option<Receipt>, CommandError> {
+        let mut form = reqwest::multipart::Form::new().part("listingPhoto", photo_part(with)?);
+        for (name, value) in fields.iter().filter(|(_, v)| !v.is_empty()) {
+            form = form.text(name.to_string(), value.clone());
+        }
+        let path = format!("/api/marketplace/account/listings/{}/photos/{}/replace", segment(id), segment(photo));
+        answer(self.request(Method::POST, &path, MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form)).await
     }
 }

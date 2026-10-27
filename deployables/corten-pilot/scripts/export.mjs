@@ -49,6 +49,7 @@
 //   states and address choice, identity.accountManagement.*, the route's words,
 //   identity.routes.marketplace.accountShippingAddresses.*, and identity.support.routeSupport.accountActionErrors.*).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
+// - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
 //   route.*, the evidence checklist's marketplace.features.listings.ui.evidence.* and the API's coverage words
 //   marketplace.features.listings.evidenceCoverage.* as coverage.*, and the authored-text guidance,
@@ -470,6 +471,21 @@ const outputs = [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/seller-listing.en.json",
+    json({
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.listings.ui.listingDetailPage.", "page"],
+        ["marketplace.features.listings.ui.listingDetailRecoveryPage.", "recover"],
+        ["marketplace.routes.accountListing.", "route"],
+        ["marketplace.features.listings.ui.evidence.", "evidence"],
+        ["marketplace.features.listings.evidenceCoverage.", "coverage"],
+        ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
+        ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+      ])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
   ],
   [
     "public/locales/market.en.json",

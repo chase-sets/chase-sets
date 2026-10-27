@@ -36,6 +36,7 @@ mod packing_page;
 mod page_actions;
 mod recovery;
 mod search_page;
+mod seller_listing_page;
 mod set_page;
 mod shipment_page;
 
@@ -57,6 +58,7 @@ pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
+pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 
@@ -94,6 +96,9 @@ pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT]
 
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
+
+/// The seller's listing page (`/account/listings`).
+pub const SELLER_LISTING: &[Component] = &[SellerListingPage];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];

@@ -1500,7 +1500,7 @@ fn ListForms<'a>(
     // A listing's currency starts as the listings' (marketplace's field starts empty).
     let currency = typed.map(|i| i.currency.as_str()).or(screen.summary.lowest_price_currency_code.as_deref()).unwrap_or("USD");
     let quantity = typed.map_or("1", |i| i.quantity.as_str());
-    let manage = |id: &str| on_marketplace(&format!("/account/listings/{}", segment(id)));
+    let manage = |id: &str| crate::seller_listing::at(id, None, None).href();
     let register = on_marketplace(&format!("/register?returnTo={}", segment(here)));
     let register_label =
         if screen.selected_offer().is_some() { t.route_sign_in_or_register_to_list() } else { t.route_register_to_sell() };
