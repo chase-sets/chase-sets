@@ -80,14 +80,6 @@ pub mod url {
     pub use files::Sitemap;
     pub use market::MarketPage;
 
-    /// The market area's prefix: only the start of its pages' paths, which `market` names
-    /// (`area = ..`) for its routes and stylesheet. Nothing links to it and nothing serves it
-    /// (public-web answers it 404). Corten's routes module requires a handler for its area's
-    /// prefix, so it is declared here instead (CORTEN_GAP).
-    #[derive(corten::Route)]
-    #[route("/market")]
-    pub struct Market;
-
     /// The home page and the crawler files, outside every area.
     #[corten::routes(state = crate::app::Shared)]
     pub mod files {
@@ -103,8 +95,13 @@ pub mod url {
     }
 
     /// The market pages, public.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Market)]
+    #[corten::routes(state = crate::app::Shared, area = Market)]
     pub mod market {
+        /// The area's prefix: only the start of its pages' paths. No page is served at `/market`
+        /// (public-web answers it 404), so it names no handler and nothing can link to it.
+        #[route("/market")]
+        pub struct Market;
+
         /// An item's market page, by its catalog slug.
         #[derive(Clone, Debug)]
         #[route("/market/{slug}", get = crate::market::page)]

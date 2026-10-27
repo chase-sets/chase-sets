@@ -123,35 +123,6 @@ pub mod url {
     pub use shipments::{Shipment, Shipments};
     pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
 
-    /// The prefixes of the areas with no page of their own: each is only the start of its area's
-    /// paths, which its routes module names (`area = ..`) for its routes and stylesheet. Nothing
-    /// links to them and nothing serves them (marketplace's own answer there is its not-found
-    /// page). Corten's routes module requires a handler for its area's prefix, so they are
-    /// declared here instead (CORTEN_GAP).
-    #[derive(corten::Route)]
-    #[route("/categories")]
-    pub struct Categories;
-
-    #[derive(corten::Route)]
-    #[route("/accounts")]
-    pub struct AccountsArea;
-
-    #[derive(corten::Route)]
-    #[route("/listings")]
-    pub struct ListingsArea;
-
-    #[derive(corten::Route)]
-    #[route("/sets")]
-    pub struct Sets;
-
-    #[derive(corten::Route)]
-    #[route("/items")]
-    pub struct ItemsArea;
-
-    #[derive(corten::Route)]
-    #[route("/account/inventory")]
-    pub struct InventoryArea;
-
     /// The home page, public: marketplace's index route is its search route, so it is the search
     /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
     /// is the start of each of its paths, and every path starts with `/`.
@@ -180,8 +151,13 @@ pub mod url {
     }
 
     /// A category's search page, public.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Categories)]
+    #[corten::routes(state = crate::app::Shared, area = Categories)]
     pub mod categories {
+        /// The area's prefix: only the start of its paths. No page is served at `/categories` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/categories")]
+        pub struct Categories;
+
         /// The results for the address's terms, in the category.
         #[derive(Clone, Debug)]
         #[route("/categories/{slug}", get = crate::search::category)]
@@ -194,8 +170,13 @@ pub mod url {
 
     /// An account's public page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`; Report review posts to the review's own path.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::AccountsArea)]
+    #[corten::routes(state = crate::app::Shared, area = AccountsArea)]
     pub mod accounts {
+        /// The area's prefix: only the start of its paths. No page is served at `/accounts` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/accounts")]
+        pub struct AccountsArea;
+
         /// The account (`slug` is its slug, or an old one or its id, which moves), the reviews'
         /// role and page, and the review a report was just received for.
         #[route("/accounts/{slug}", get = crate::accounts::page)]
@@ -217,8 +198,13 @@ pub mod url {
 
     /// A listing's public page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`; Buy this listing and Report listing post to their own paths.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::ListingsArea)]
+    #[corten::routes(state = crate::app::Shared, area = ListingsArea)]
     pub mod listings {
+        /// The area's prefix: only the start of its paths. No page is served at `/listings` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/listings")]
+        pub struct ListingsArea;
+
         /// The listing (`slug` is its slug, or an old one, which moves), and whether a report
         /// of it was just received.
         #[derive(Clone, Debug)]
@@ -244,8 +230,13 @@ pub mod url {
 
     /// A set's page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Sets)]
+    #[corten::routes(state = crate::app::Shared, area = Sets)]
     pub mod sets {
+        /// The area's prefix: only the start of its paths. No page is served at `/sets` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/sets")]
+        pub struct Sets;
+
         /// The set and its cataloged items (`slug` is its slug, or an old one, which moves).
         #[derive(Clone, Debug)]
         #[route("/sets/{slug}", get = crate::sets::page)]
@@ -257,8 +248,13 @@ pub mod url {
     /// Marketplace's item pages, public: no caller is required (a handler that shows whose offers
     /// are theirs reads `Option<Caller<Session>>`), and each route names its handler, so a link
     /// from an item page cannot reach a route nobody serves.
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::ItemsArea)]
+    #[corten::routes(state = crate::app::Shared, area = ItemsArea)]
     pub mod items {
+        /// The area's prefix: only the start of its paths. No page is served at `/items` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/items")]
+        pub struct ItemsArea;
+
         /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
         /// slug).
         #[derive(Clone, Debug)]
@@ -337,8 +333,13 @@ pub mod url {
 
     /// The seller's inventory screens: every handler takes a `Seller` (`inventory.view` to read,
     /// `inventory.manage` to write).
-    #[corten::routes(state = crate::app::Shared, area = crate::app::url::InventoryArea, caller = crate::auth::Seller)]
+    #[corten::routes(state = crate::app::Shared, area = InventoryArea, caller = crate::auth::Seller)]
     pub mod inventory {
+        /// The area's prefix: only the start of its paths. No page is served at `/account/inventory` (marketplace
+        /// answers its not-found page), so it names no handler and nothing can link to it.
+        #[route("/account/inventory")]
+        pub struct InventoryArea;
+
         use crate::recovery::Check;
 
         /// The storage locations, and the write to confirm.
