@@ -17,7 +17,11 @@ describe("staging aggregate direct backend envelope", () => {
     expect(input.workerMaxConcurrentStarts).toBe(4);
     expect(input.productionWorkerMaxConcurrentStarts).toBe(2);
     expect(input.workerSettlementBootstrapBound).toBe(true);
-    expect(input.serializedGroups).toEqual(Array(5).fill("platform-deploy-staging"));
+    expect(input.bootstrapUsesFullSpanLock).toBe(true);
+    expect(input.serializedGroups).toEqual([
+      "platform-staging-advisory-evidence",
+      ...Array(4).fill("platform-deploy-staging"),
+    ]);
     expect(input.serializedJobsDoNotCancel).toBe(true);
     expect(input.advisoryAwaitsSeedJobTermination).toBe(true);
     expect(input.advisoryResumesWorkerBeforeRbacRemoval).toBe(true);
@@ -56,10 +60,10 @@ describe("staging aggregate direct backend envelope", () => {
       "enforced phases",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, advisoryAwaitsSeedJobTermination: false })).toThrow(
-      "until its Kubernetes Job terminates",
+      "await its Job termination",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, advisoryResumesWorkerBeforeRbacRemoval: false })).toThrow(
-      "until its Kubernetes Job terminates",
+      "await its Job termination",
     );
     for (const guard of [
       "scenarioRestoresWorkers",
