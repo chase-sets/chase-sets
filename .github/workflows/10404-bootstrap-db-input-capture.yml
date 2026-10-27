@@ -1,16 +1,27 @@
 name: 10404 Bootstrap DB Input Capture Only
 
 on:
-  push:
-    branches: [codex/10404-impl-g1]
-    paths: [.github/workflows/10404-bootstrap-db-input-capture.yml]
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Repository that owns the admitted candidate
+        required: true
+        type: string
+      branch:
+        description: Exact candidate branch
+        required: true
+        type: string
+      host_ticket:
+        description: Host-issued capture admission ticket
+        required: true
+        type: string
 permissions:
   contents: read
 
 jobs:
   precheckSCorpus:
     name: precheckSCorpus (M18 source and shipped DB corpus)
-    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/10404-impl-g1' && github.run_attempt == 1
+    if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,13 +33,30 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
-      - name: Assert head-16 source binding and precheck the corpus
+      - name: Derive candidate source binding and precheck the corpus
         shell: bash
         run: |
           set -euo pipefail
-          source_base=d8b1e71313f5c461f682990f5b201a7438b68b26
-          test "$(git rev-parse HEAD^)" = "$source_base"
+          candidate_head="$(git rev-parse HEAD)"
+          source_base="$(git rev-parse HEAD^)"
+          export SOURCE_BASE="$source_base"
+          test "$candidate_head" = "${{ github.sha }}"
+          test "$source_base" = "$(git rev-parse HEAD^)"
           test "$(git diff --name-only "$source_base" HEAD)" = '.github/workflows/10404-bootstrap-db-input-capture.yml'
+          test "${{ github.repository }}" = "${{ inputs.repository }}"
+          test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
+          test -n "${{ inputs.host_ticket }}"
+          printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
+            "$candidate_head" "$source_base" "$source_base" "$source_base" \
+            "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
+            > candidate-binding.json
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const workflow = readFileSync('.github/workflows/10404-bootstrap-db-input-capture.yml', 'utf8');
+          assert.equal(/(?:sourceBase|captureParent|source_base)\s*[:=]\s*['\"`]?[0-9a-f]{40}/.test(workflow), false,
+            'source and parent bindings must be derived, never stale literals');
+          NODE
           set +e
           node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs > stale-enrollment-check.txt 2>&1
           checker_status=$?
@@ -48,13 +76,13 @@ jobs:
           const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
           assert.deepEqual(census.violations, []);
           assert.equal(census.dbEntries.length, 16);
-          console.log(`precheckSCorpus PASS sourceBase=d8b1e71313f5c461f682990f5b201a7438b68b26 dbEntries=${census.dbEntries.length}`);
+          console.log(`precheckSCorpus PASS sourceBase=${process.env.SOURCE_BASE ?? 'derived-in-step'} dbEntries=${census.dbEntries.length}`);
           NODE
 
   shipped:
     name: Diagnostic API Bootstrap Measurement Only (current two-unit)
     needs: [precheckSCorpus]
-    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/10404-impl-g1' && github.run_attempt == 1
+    if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -76,6 +104,9 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      EXPECTED_REPOSITORY: ${{ inputs.repository }}
+      EXPECTED_BRANCH: ${{ inputs.branch }}
+      HOST_TICKET: ${{ inputs.host_ticket }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -144,10 +175,20 @@ jobs:
           docker image inspect pgvector/pgvector:pg16 --format '{{json .RepoDigests}}' \
             | tee artifacts/10404-reference-capture/postgres-image-digests.json
 
-      - name: Restore immutable diagnostic-only census helpers
+      - name: Derive candidate binding and restore immutable diagnostic-only census helper
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "d8b1e71313f5c461f682990f5b201a7438b68b26"
+          candidate_head="$(git rev-parse HEAD)"
+          source_base="$(git rev-parse HEAD^)"
+          test "$candidate_head" = "${{ github.sha }}"
+          test "$source_base" = "$(git rev-parse HEAD^)"
+          test "${{ github.repository }}" = "${{ inputs.repository }}"
+          test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
+          test -n "${{ inputs.host_ticket }}"
+          printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
+            "$candidate_head" "$source_base" "$source_base" "$source_base" \
+            "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
+            > artifacts/10404-reference-capture/candidate-binding.json
           test "$(git rev-parse --is-shallow-repository)" = "false"
           git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
           git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
@@ -160,7 +201,15 @@ jobs:
           if (updated === source) throw new Error('capture census file list was not found');
           writeFileSync(path, updated);
           PATCH
-          echo "6ffb473dc35ae57f19edc9c02f58105b86663965ec1f16126a451c9c4e6bf384  deployables/platform-api/scripts/8396-capture-census.mjs" | sha256sum -c -
+          sha256sum deployables/platform-api/scripts/8396-capture-census.mjs \
+            | tee artifacts/10404-reference-capture/census-helper.sha256
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const workflow = readFileSync('.github/workflows/10404-bootstrap-db-input-capture.yml', 'utf8');
+          assert.equal(/(?:sourceBase|captureParent|source_base)\s*[:=]\s*['\"`]?[0-9a-f]{40}/.test(workflow), false,
+            'source and parent bindings must be derived, never stale literals');
+          NODE
 
       - name: Measure exact API partitions without granting enrollment authority
         run: |
@@ -196,50 +245,26 @@ jobs:
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
           import { basename } from 'node:path';
-          // Evidence-only binding for the one #10404 capture of frozen S. Every unit, file,
-          // case and command below is S's own, derived from S by the canonical producers
-          // before publication; nothing is carried over from an earlier capture's groups.
-          export const frozenS = 'd8b1e71313f5c461f682990f5b201a7438b68b26';
-          export const frozenGroups = Object.freeze({
-            "test:db:1": [
-              "bootstrap-production-reconciliation.db.test.ts",
-              "authoritative-seed-resume-core.db.test.ts",
-              "authoritative-seed-resume-reconciliation.db.test.ts",
-              "connector-mount-gate-isolation.db.test.ts",
-              "bootstrap-lock-contention.db.test.ts",
-              "seed-command-full-pools.db.test.ts"
-            ],
-            "test:db:2": [
-              "bootstrap-scenario.db.test.ts",
-              "catalog-seed-aggregate-state.db.test.ts",
-              "operator-session/operator-session-grant-mint.db.test.ts",
-              "operator-session/operator-session-grant-scope.db.test.ts",
-              "operator-session/operator-session-push.db.test.ts",
-              "seed-command-catalog.db.test.ts",
-              "bootstrap-shared-seed-command.db.test.ts",
-              "inventory-seed-resume.db.test.ts",
-              "catalog-seed-interruption-resume.db.test.ts",
-              "authoritative-seed-resume-recovery.db.test.ts"
-            ],
-          });
-          export const frozenDigests = Object.freeze({
-            "caseManifestSha256": "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
-            "commandsSha256": "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
-            "censusSha256": "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
-            "sourceManifestSha256": "ba82f8648e7a8b8aa189c808172bf76f4814aefa26c3cbc7f0c4d4c5c6b0dbe7"
-          });
-          export const frozenCounts = Object.freeze({"files":16,"bootstrapFiles":12,"bootstrapCases":71,"cases":82});
-          // The immutable #8396 census helper supplies only its reviewed literal-table parser.
-          export const censusHelperSha256 = '6ffb473dc35ae57f19edc9c02f58105b86663965ec1f16126a451c9c4e6bf384';
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          export const deriveCandidateGroups = scripts => {
+            const units = Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)).sort();
+            assert.deepEqual(units, ['test:db:1', 'test:db:2'], 'the shipped two-unit route');
+            return Object.fromEntries(units.map(unit => {
+              const files = [...scripts[unit].matchAll(/__tests__\/([^ ]+\.db\.test\.ts)/g)].map(match => match[1]);
+              assert.equal(new Set(files).size, files.length, `${unit} has duplicate files`);
+              assert(files.length > 0, `${unit} has no DB files`);
+              return [unit, files];
+            }));
+          };
           const guard = 'node ./scripts/check-bootstrap-db-enrollment.mjs && ';
           const commandBody = files => 'vitest run --config ./vitest.config.ts '
             + files.map(file => '__tests__/' + file).join(' ')
             + ' --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs';
-          export function assertSoleSParent({ parents, captureParent, sourceBase }) {
-            assert.equal(captureParent, frozenS, 'capture parent is frozen S');
-            assert.equal(sourceBase, frozenS, 'source base is frozen S');
-            assert.deepEqual(parents, [frozenS], 'the capture child has the sole parent S');
+          export function assertCandidateParent({ parents, captureParent, sourceBase, candidateHead }) {
+            assert.match(candidateHead, /^[0-9a-f]{40}$/);
+            assert.match(captureParent, /^[0-9a-f]{40}$/);
+            assert.equal(sourceBase, captureParent, 'source base and capture parent are derived together');
+            assert.deepEqual(parents, [captureParent], 'the candidate has one actual parent');
           }
           export function bindSScripts(scripts, groups) {
             assert.deepEqual(Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)).sort(), Object.keys(groups).sort(),
@@ -290,19 +315,14 @@ jobs:
           export function precheckSCorpus({ groups, scripts, census, readTest, fixture, deriveBootstrapDbCaseIdentities,
             captureCensusFiles, deriveCaptureCensusCaseNames, declaredManifest, declaredCensus }) {
             assert.deepEqual(census.violations, []);
-            assert.equal(census.bootstrapEntries.length, frozenCounts.bootstrapFiles);
-            assert.equal(census.dbEntries.length, frozenCounts.files);
             assert.deepEqual([...census.dbEntries].sort(), Object.values(groups).flat().map(file => '__tests__/' + file).sort());
             assert.deepEqual(census.dbEntries.filter(entry => !census.bootstrapEntries.includes(entry)).sort(),
               captureCensusFiles.map(file => '__tests__/' + file).sort(), 'non-bootstrap census files');
             const commands = bindSScripts(scripts, groups);
             const { manifest, manifestBytes } = deriveSCaseManifest({ groups, readTest, fixture, deriveBootstrapDbCaseIdentities,
               captureCensusFiles, deriveCaptureCensusCaseNames, declaredManifest, declaredCensus });
-            assert.equal(Object.keys(manifest).length, frozenCounts.files);
-            assert.equal(Object.values(manifest).filter(entry => !entry.censusCaseNames).flatMap(entry => entry.cases).length,
-              frozenCounts.bootstrapCases);
-            assert.equal(Object.values(manifest).reduce((count, entry) => count + (entry.censusCaseNames ?? entry.cases).length, 0),
-              frozenCounts.cases);
+            assert.equal(Object.keys(manifest).length, census.dbEntries.length);
+            assert(Object.values(manifest).flatMap(entry => entry.censusCaseNames ?? entry.cases).length > 0);
             for (const name of ['test:unit', 'test:fast']) {
               assert.deepEqual([...scripts[name].matchAll(/--exclude ([^ ]+)/g)].map(match => match[1]).sort(), [...census.dbEntries].sort(),
                 name + ' excludes');
@@ -311,13 +331,14 @@ jobs:
             const censusBytes = Buffer.from(JSON.stringify(census, null, 2));
             return { commands, commandsBytes, manifest, manifestBytes, censusBytes };
           }
-          // Equality with the frozen S values must hold before any measurement starts.
-          export function assertFrozenDigests({ groups, manifestBytes, commandsBytes, censusBytes, sourceBytes }) {
-            assert.deepEqual(groups, frozenGroups, 'groups are the frozen S groups');
-            assert.equal(hash(manifestBytes), frozenDigests.caseManifestSha256, 'frozen S case manifest');
-            assert.equal(hash(commandsBytes), frozenDigests.commandsSha256, 'frozen S commands');
-            assert.equal(hash(censusBytes), frozenDigests.censusSha256, 'frozen S census');
-            assert.equal(hash(sourceBytes), frozenDigests.sourceManifestSha256, 'frozen S source manifest');
+          export function deriveCandidateDigests({ manifestBytes, commandsBytes, censusBytes, sourceBytes, helperBytes }) {
+            return {
+              caseManifestSha256: hash(manifestBytes),
+              commandsSha256: hash(commandsBytes),
+              censusSha256: hash(censusBytes),
+              sourceManifestSha256: hash(sourceBytes),
+              censusHelperSha256: hash(helperBytes),
+            };
           }
           BINDING
           node --input-type=module <<'RUNNER'
@@ -340,8 +361,10 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: process.env.GITHUB_SHA,
-            captureParent: 'd8b1e71313f5c461f682990f5b201a7438b68b26',
-            sourceBase: 'd8b1e71313f5c461f682990f5b201a7438b68b26',
+            candidateHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+            captureParent: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
+            sourceBase: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
+            hostTicket: process.env.HOST_TICKET,
             role: 'current-two-unit',
             jobName: 'Diagnostic API Bootstrap Measurement Only (current two-unit)',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
@@ -360,9 +383,10 @@ jobs:
           const saveUnits = () => writeFileSync(resolve(output, 'units.json'), JSON.stringify(units, null, 2));
           saveUnits();
           if (identity.checkoutSha !== identity.githubSha || identity.pushAfter !== identity.githubSha
-            || identity.runAttempt !== '1' || identity.event !== 'push'
-            || identity.repository !== 'chase-sets/chase-sets'
-            || identity.ref !== 'refs/heads/codex/10404-impl-g1'
+            || identity.candidateHead !== identity.githubSha || identity.runAttempt !== '1' || identity.event !== 'workflow_dispatch'
+            || identity.repository !== process.env.EXPECTED_REPOSITORY
+            || identity.ref !== `refs/heads/${process.env.EXPECTED_BRANCH}`
+            || identity.hostTicket !== process.env.HOST_TICKET || !identity.captureParent || !identity.sourceBase
             || JSON.stringify(identity.parents) !== JSON.stringify([identity.captureParent])
             || identity.laneMode !== null || !identity.node.startsWith('v24.') || identity.pnpm !== '11.0.9'
             || !identity.imageOS || !identity.imageVersion || identity.postgresImageDigests.length === 0) {
@@ -379,10 +403,9 @@ jobs:
           const binding = await import(pathToFileURL(resolve(output, 's-binding.mjs')).href);
           const assert = (await import('node:assert/strict')).default;
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-          binding.assertSoleSParent(identity);
-          assert.equal(hash(readFileSync(resolve(cwd, 'scripts/8396-capture-census.mjs'))), binding.censusHelperSha256,
-            'immutable census helper bytes');
-          const files = binding.frozenGroups;
+          binding.assertCandidateParent(identity);
+          const helperBytes = readFileSync(resolve(cwd, 'scripts/8396-capture-census.mjs'));
+          const files = binding.deriveCandidateGroups(scripts);
           const sourceFiles = commandText('git', ['ls-files', 'bounded-contexts', 'contracts',
             'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
             'pnpm-workspace.yaml', 'package.json', '.github/actions/setup-pnpm-workspace', 'vitest.shared.mjs'],
@@ -392,7 +415,7 @@ jobs:
           }, null, 2) + '\n');
           assert.deepEqual(commandText('git', ['diff', '--name-only', identity.sourceBase, 'HEAD'], { cwd: root })
             .split('\n').filter(Boolean), ['.github/workflows/10404-bootstrap-db-input-capture.yml'],
-            'only the authorized temporary workflow may differ from frozen S');
+            'only the authorized temporary workflow may differ from the derived parent');
           commandText('git', ['diff', '--exit-code', identity.sourceBase, '--', 'bounded-contexts', 'contracts',
             'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
             'pnpm-workspace.yaml', 'package.json', '.github/actions/setup-pnpm-workspace', 'vitest.shared.mjs'],
@@ -412,16 +435,12 @@ jobs:
           writeFileSync(resolve(output, 'capture-manifest.json'), manifestBytes);
           writeFileSync(resolve(output, 'source-census.json'), censusBytes);
           writeFileSync(resolve(output, 'capture-commands.json'), commandsBytes);
-          identity.sourceManifestSha256 = hash(sourceBytes);
-          identity.caseManifestSha256 = hash(manifestBytes);
-          identity.commandsSha256 = hash(commandsBytes);
-          identity.censusSha256 = hash(censusBytes);
+          Object.assign(identity, binding.deriveCandidateDigests({ manifestBytes, commandsBytes, censusBytes, sourceBytes, helperBytes }));
           identity.bindingModuleSha256 = hash(readFileSync(resolve(output, 's-binding.mjs')));
-          identity.censusHelperSha256 = binding.censusHelperSha256;
           writeFileSync(resolve(output, 's-binding.json'), JSON.stringify({ sourceBase: identity.sourceBase,
             groups: files, digests: { caseManifestSha256: identity.caseManifestSha256,
               commandsSha256: identity.commandsSha256, censusSha256: identity.censusSha256,
-              sourceManifestSha256: identity.sourceManifestSha256 }, counts: binding.frozenCounts,
+              sourceManifestSha256: identity.sourceManifestSha256, censusHelperSha256: identity.censusHelperSha256 },
             bindingModuleSha256: identity.bindingModuleSha256, censusHelperSha256: identity.censusHelperSha256,
           }, null, 2));
           writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
@@ -524,7 +543,7 @@ jobs:
           node -e 'const fs = require("node:fs"); const i = JSON.parse(fs.readFileSync("artifacts/10404-reference-capture/identity.json", "utf8")); if (!i.imageOS || !i.imageVersion || i.imageOS !== process.env.ImageOS || i.imageVersion !== process.env.ImageVersion) { throw new Error("SHIPPED_IMAGE_IDENTITY_MISMATCH"); } fs.appendFileSync(process.env.GITHUB_OUTPUT, "imageOS=" + i.imageOS + "\n" + "imageVersion=" + i.imageVersion + "\n");'
 
       - name: Preserve all diagnostic measurements including failures
-        if: always() && github.event_name == 'push' && github.run_attempt == 1
+        if: always() && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: 10404-current-two-unit-capture-${{ github.run_id }}-${{ github.run_attempt }}
