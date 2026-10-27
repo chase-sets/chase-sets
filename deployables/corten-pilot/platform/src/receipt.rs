@@ -74,6 +74,13 @@ impl Receipt {
         (valid && points).then_some(self)
     }
 
+    /// The later of two receipts, by commit position: the one a read must wait for so both writes
+    /// are in it. One without a position counts as the earlier.
+    pub fn later(self, other: Receipt) -> Receipt {
+        let position = |r: &Receipt| r.commit_position.as_deref().and_then(|p| p.parse::<u128>().ok());
+        if position(&other) > position(&self) { other } else { self }
+    }
+
     /// `Chase-Sets-Read-After-Write`.
     pub fn header(&self) -> String {
         utf8_percent_encode(&self.param(), COMPONENT).to_string()
@@ -105,6 +112,16 @@ mod tests {
         assert!(header.starts_with("%7B%22observedAtMs%22%3A"), "{header}");
         let decoded = percent_decode_str(&header).decode_utf8().unwrap();
         assert_eq!(decoded, param, "what decodeURIComponent reads back");
+    }
+
+    #[test]
+    fn the_later_receipt_is_the_higher_commit_position() {
+        let at =
+            |position: &str| Receipt { commit_position: Some(position.into()), ..Receipt::from_response(&written()).unwrap() };
+        assert_eq!(at("42").later(at("100")).commit_position.as_deref(), Some("100"), "compared as numbers");
+        assert_eq!(at("100").later(at("42")).commit_position.as_deref(), Some("100"));
+        let none = Receipt { commit_position: None, ..Receipt::from_response(&written()).unwrap() };
+        assert_eq!(none.later(at("7")).commit_position.as_deref(), Some("7"));
     }
 
     #[test]

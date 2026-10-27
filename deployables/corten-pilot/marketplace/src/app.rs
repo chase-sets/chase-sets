@@ -117,7 +117,7 @@ pub mod url {
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
-    pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings};
+    pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sets::{Set, Sets};
     pub use shipments::{Shipment, Shipments};
 
@@ -487,15 +487,28 @@ pub mod url {
         pub struct NewListing;
     }
 
-    /// The seller's listings (marketplace's `account-listing`): a listing's page and its writes,
-    /// the photo writes at `/photos` since they post files. Every handler takes a
-    /// `ListingManager`. Create listing (`/account/listings/new`) is an area of its own inside
-    /// this one.
+    /// The seller's listings (marketplace's `account-listings` and `account-listing`): the list
+    /// and its writes, and a listing's page and its writes, the photo writes at `/photos` since
+    /// they post files. Every handler takes a `ListingManager`. Create listing
+    /// (`/account/listings/new`) is an area of its own inside this one.
     #[corten::routes(state = crate::app::Shared, area = SellerListings, caller = crate::auth::ListingManager)]
     pub mod seller_listings {
-        /// The area: its prefix (marketplace's list of listings, not ported yet) and stylesheet.
-        #[route("/account/listings", link)]
-        pub struct SellerListings;
+        /// The list as its address asks (filters, page, the last write), and its writes: the
+        /// account-wide settings and Pause or Withdraw selected (see `seller_listings`).
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/listings", get = crate::seller_listings::page, post = crate::seller_listings::write)]
+        pub struct SellerListings {
+            #[route(query)]
+            pub place: crate::seller_listings::Place,
+        }
+
+        /// The list's counts, rows and fee lock report, drawn again on each change to the
+        /// account's listings (`<corten-live>`).
+        #[route("/account/listings/live", get = crate::seller_listings::live)]
+        pub struct SellerListingsLive {
+            #[route(query)]
+            pub place: crate::seller_listings::Place,
+        }
 
         /// A listing, read after the write whose receipt its address carries, with a price to
         /// preview; its writes but the photos'.

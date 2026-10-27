@@ -175,7 +175,7 @@ fn inventory(t: SellerListingMsg, l: &SellerListing) -> String {
 pub fn SellerListingPage<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a ListingScreen) -> impl Render {
     let l = &screen.listing;
     let title = l.item_title.as_deref().unwrap_or(&l.catalog_catalog_item_id);
-    let back = on_marketplace("/account/listings");
+    let back = url::SellerListings::default().href();
     let update = fragment(UpdateListingId);
     html! {
         <header class={Header}>

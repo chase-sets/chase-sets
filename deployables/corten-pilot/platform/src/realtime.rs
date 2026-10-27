@@ -1,5 +1,5 @@
-//! The platform's realtime stream (`/api/realtime/public/events`, infrastructure/platform-runtime
-//! realtime.ts) as the signed-in user: a tick for every change to the topics, as admin-web's
+//! The platform's realtime stream (`/api/realtime/public/events`, or `/api/realtime/account/events`
+//! for an account's own topics; infrastructure/platform-runtime realtime.ts) as the signed-in user: a tick for every change to the topics, as admin-web's
 //! `subscribeRealtimePatches` sees them. A page that shows a projection reads it again on a
 //! tick, as `useCatalogRealtimeRevalidation` revalidates the route.
 //!
@@ -86,10 +86,21 @@ impl Caller<'_> {
     pub fn changes(&self, topics: &[&str], from: Option<String>) -> impl Stream<Item = Tick> + Send + use<> {
         let mut query: Vec<(&str, &str)> = topics.iter().map(|topic| ("topic", *topic)).collect();
         query.sort_unstable();
-        let open = self.request(reqwest::Method::GET, "/api/realtime/public/events", "platform-runtime");
+        let open = self.request(reqwest::Method::GET, endpoint(topics), "platform-runtime");
         let open = open.query(&query).header(header::ACCEPT, "text/event-stream");
         let state = Upstream { open, cursor: from, events: None, opened: false, failed: false, refused: false };
         futures_util::stream::unfold(state, Upstream::next).boxed()
+    }
+}
+
+/// Where the topics stream from (`resolveRealtimeEndpointPath`): an account's own topics
+/// (`account:{id}:..`) from the account stream, which checks the account is the caller's; the
+/// public stream refuses them.
+fn endpoint(topics: &[&str]) -> &'static str {
+    if !topics.is_empty() && topics.iter().all(|topic| topic.starts_with("account:")) {
+        "/api/realtime/account/events"
+    } else {
+        "/api/realtime/public/events"
     }
 }
 
@@ -303,6 +314,17 @@ mod tests {
                 Event { event: "heartbeat".into(), id: Some("c1".into()), data: "{}".into() },
                 Event { event: "projection.patch".into(), id: Some("c2".into()), data: r#"{"a":1}"#.into() },
             ]
+        );
+    }
+
+    #[test]
+    fn an_accounts_own_topics_stream_from_the_account_stream() {
+        assert_eq!(endpoint(&["account:acc_1:listings"]), "/api/realtime/account/events");
+        assert_eq!(endpoint(&["item:cat_1"]), "/api/realtime/public/events");
+        assert_eq!(
+            endpoint(&["account:acc_1:listings", "item:cat_1"]),
+            "/api/realtime/public/events",
+            "as marketplace's client picks"
         );
     }
 }

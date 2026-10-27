@@ -1,5 +1,4 @@
-
-| `76eda4f` | Corten `main` with [todd-skelton/corten#146 A patch keeps the files chosen in a file input it replaces](https://github.com/todd-skelton/corten/pull/146), closing [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143). Not breaking. The workaround is removed: Create listing's photo fieldset is a patched part (`PhotosPart`), its input marked `aria-invalid` and described by its message after a refusal, and `PhotoErrorPart` is gone. Its smoke now checks that the refused input keeps its file, is invalid and names the message. That check found [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): the input writes its own `aria-describedby` until it is fixed. `corten check` passed at admin 62, marketplace 195, platform 8, public 19 |# Corten pilot
+# Corten pilot
 
 Pilot ports of Chase Sets screens to [Corten](https://github.com/todd-skelton/corten), the Rust
 full-stack framework, to find what Corten lacks for real screens with real data and auth. It is
@@ -36,6 +35,7 @@ pilot owns only the screens:
 | `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a GET form: with a script, the next page added after the rows shown; without one, the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories, and on `/` the home page's shelf in place of the results: the four featured categories (their description, count and a link to each) and the three newest items (the lowest price and View item), one column on a phone; words or a filter asked on `/` show the results there. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache for the `s-maxage` Pricing's answer carries, a day by default, and either serves it stale for an hour): the breadcrumb, the item's title and subtitle, then for each currency it traded in its price history (each day's median or last price, the day's low to high as a band, drawn on the server; an empty or one-day chart says so) and its market stats as a list (last sold and when, the 30- and 90-day medians and their trades, active listings and the lowest asks, the 30-day sell-through), and View active listings, Create a price alert and Sell yours on marketplace. The title, description, social tags, canonical, `noindex` when the site is not indexed, and the Product's lowest ask as JSON-LD on the production site. An unknown item is a 404 with public-web's words, a failed read a 502 no cache keeps. `robots.txt` and the sitemap of the market pages Pricing says are worth indexing follow `CHASE_SETS_PUBLIC_INDEXING` (not ported: public-web's other pages, its favicons and manifest, and its waitlist analytics bridge) |
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache four minutes while the fee terms were read live, either a minute stale): the promo bar (one message at a time, turning with a script), the nav, the hero (the seller's or the buyer's copy, by `?intent` or a buyer's `utm` words, swapped by the hero's role with a script) with the early-access form, the five games, open offers, the fee comparison from Commerce's live terms (the compiled terms when the read fails), the founders offer, the full form with the waitlist counter, the FAQ, the footer, the sticky calls to action, and the page's JSON-LD. Join without a script: a signup goes to public-web's `/welcome` with its receipt, role, variant and games (303); a refusal is the page again with the API's words in the form it came from (422, 429 too many, 502). A legacy fee-calculator share link moves for good to public-web's `/compare/tcgplayer` at `#fee-calculator`. The waitlist analytics bridge posts the form's events as public-web's does (to `/api`, which the pilot does not serve) (not ported: `/welcome`, `/compare`, `/founders`, `/faq` and the policies, linked on public-web) |
+| `marketplace/` | The seller's listings, `/account/listings` | marketplace | a seller with `listings.view` to see it and `listings.manage` to change it (signed out goes to sign-in and back, an account without it reads Account access required): the heading with Create listing, the seller's availability (Turn off listings with an optional automatic return, Turn on, and an away window scheduled from a reason and dates and cancelled), the order capacity (Set capacity, Remove cap) with the open orders, the listings health (each status's count, a filter link each) and the seller's reliability (best-effort: a failed read shows none), the filters (status and words) as a GET form with chips, the listings a page at a time (100, up to 250) as rows with a box to pick each (a 44 px target), the item, status, price, quantity cap, fee summary, inventory and Open to the pilot's listing page, the bulk bar once a listing is picked (Publish, Pause and Withdraw selected, each listing's outcome after), and the fee lock report in a `<details>`. The rows, the health and the fee report are drawn again on each change to the account's listings (`<corten-live>` on `account:{id}:listings`). Each write reads after its receipt. Without a script every form posts, and an away window is refused: its dates are days where the seller is, which only the browser knows ([todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149)). Marketplace's Paused listings card shows its raw template ([chase-sets/chase-sets#10653 [marketplace] The listings page's Paused listings card shows the raw template '{count} paused {label}'](https://github.com/chase-sets/chase-sets/issues/10653)); the pilot draws the count with no detail line |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -406,6 +406,28 @@ The page has no script of its own: every write is a form, and Withdraw's dialog 
 146 ms medians in three runs of 7; the listing and its fee history are read together since the
 first); the API's reads are most of it.
 
+The seller's listings (`/account/listings`, the demo seller's 45 listings, all on one page), the
+pilot's release build at the `76eda4f` pin, 7 cold loads each (`measure.mjs
+screen=seller-listings`, in `artifacts/corten-pilot/measure-seller-listings-pilot.json`). Marketplace's
+dev server's desktop column is from the first run's 7 loads (its mobile loads then passed the 120 s
+timeout and ended the run), so the dev numbers are not a comparison.
+
+| Seller's listings | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 9,009 ms | 287 ms | 1,597 ms |
+| Largest contentful paint | 7,216 ms | 312 ms | 1,308 ms |
+| Server time (document) | 6,937 ms | 143 ms | 100 ms |
+| JavaScript transferred | 7,692,764 B | 10,074 B | 10,074 B |
+| HTML / CSS transferred | 1,161,165 / 186,198 B | 7,418 / 6,649 B | 7,418 / 6,649 B |
+| Requests | 251 | 10 | 10 |
+
+Before the rows were `content-visibility: auto`, the pilot's mobile interactive time was 2,469 ms
+and its LCP 1,820 ms (one run of 7): 48 rows (about 2,600 elements, 101 KB of HTML) laid out at
+4x CPU took over a second in one task, and the page's script waited behind it. With the rows off
+screen laid out as they are scrolled near, a probe of six loads each went from a median of
+3,174 ms to 991 ms. The rest is the throttled network and the fonts. The page's own script is
+1,163 B: the picked count and the away window's instants.
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -541,6 +563,7 @@ node scripts/smoke-market-packing.mjs http://localhost:7794   # packing as the s
 node scripts/smoke-market-addresses.mjs http://localhost:7794 [collector-state]  # the collector's shipping addresses: the API's list, 390 px; with a script, Save address (read after the write), a city sent empty (the API's words by the field), Update address in its modal dialog, Set default and Archive; without one, Save address and Archive. WRITES two synthetic addresses, archives them and makes the collector's default the default again
 node scripts/smoke-market-listing-new.mjs http://localhost:7794 [seller-state]  # Create listing as the demo seller: 390 px; with a script, find as you type, Choose, Preview fees in place, a non-picture refused, Save as draft with a PNG (the API has the draft and its photo); without one, Save as draft. WRITES drafts at 970-979 USD and withdraws them
 node scripts/smoke-market-seller-listing.mjs http://localhost:7794 [seller-state]  # a seller's listing as the demo seller: a draft made through Create listing lands on it; 390 px; Preview fees, Save price, the quantity cap and the limits, two photos uploaded, described, reordered, one replaced and one removed, Withdraw's dialog (modal) and Cancel; without a script, the quantity cap; then Withdraw. WRITES one draft at 980-989 USD and withdraws it
+node scripts/smoke-market-seller-listings.mjs http://localhost:7794 [seller-state] [api-url]  # the seller's listings as the demo seller: 390 px; the bulk bar; Set capacity and Remove cap; an away window scheduled (its instant the start of the local day) and cancelled; Turn off listings and on; Pause selected on withdrawn listings (each refused); a draft's cap changed through the API redraws its row live; without a script, the filters and the refused away window. WRITES each setting and puts it back
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -639,6 +662,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `2338bcb` | Corten `main` with [todd-skelton/corten#141 t.percent and t.js().percent: a ratio as the locale writes a percentage](https://github.com/todd-skelton/corten/pull/141) (closing [todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119)) and [todd-skelton/corten#138 Elsewhere::at: a place on a page outside the app keeps its fragment](https://github.com/todd-skelton/corten/pull/138) (closing [todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123)). Not breaking. Both workarounds removed: the home page's rates are `t.percent` (`home::rate`), and the fee calculator's share link moves with `corten::Elsewhere::at(&to, "fee-calculator")`. Create listing was ported at this pin. |
 | `a12c78b` | Corten `main` with [todd-skelton/corten#144 html! and corten fmt read a pattern with braces as Rust does](https://github.com/todd-skelton/corten/pull/144), closing [todd-skelton/corten#142 html! if let cannot take a struct pattern: the pattern's braces are read as the body](https://github.com/todd-skelton/corten/issues/142). Not breaking. The workaround is removed: Create listing's view matches `if let Catalog::Chosen { item, picks, reset } = &screen.catalog`, and `Catalog::chosen()` is gone. |
 | `07d7f65` | Corten `main` with [todd-skelton/corten#145 ClientIp: the visitor's address, from the peer or a trusted proxy's X-Forwarded-For](https://github.com/todd-skelton/corten/pull/145), closing [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120). Not breaking. public's Join takes `Option<corten::ClientIp>`; `platform::client` (the `CHASE_SETS_TRUST_FORWARDED_HEADERS` reader) is gone, and a deploy lists its proxies in `PROXIES`. The router tests give the request a connection address (`ConnectInfo`) and check that, with no proxy listed, the browser's `X-Forwarded-For` is not read. |
+| `76eda4f` | Corten `main` with [todd-skelton/corten#146 A patch keeps the files chosen in a file input it replaces](https://github.com/todd-skelton/corten/pull/146), closing [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143). Not breaking. The workaround is removed: Create listing's photo fieldset is a patched part (`PhotosPart`), its input marked `aria-invalid` and described by its message after a refusal, and `PhotoErrorPart` is gone. Its smoke now checks that the refused input keeps its file, is invalid and names the message. That check found [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): the input writes its own `aria-describedby` until it is fixed. `corten check` passed at admin 62, marketplace 195, platform 8, public 19 |
 
 **Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
 ([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
@@ -1528,14 +1552,34 @@ postage, storage locations, cart, item and Add to List. What changed:
     first in a `<dialog>` its button opens with `command="show-modal"`, no script. The pilot
     sends no analytics: marketplace's `trackListingEvidenceEvent` pushes to `window.dataLayer`
     when a tag manager is on the page, and the pilot loads none; `evidenceEvent` is kept in the
-    address so one could. The area is `/account/listings` (no page of its own yet, where
-    marketplace's list is), with Create listing an area inside it, both with the 150 s deadline;
+    address so one could. The area is `/account/listings` (its own page since decision 54), with Create listing an area inside it, both with the 150 s deadline;
     Create listing's draft and the item page's Manage listing now go to the pilot's page. A
     listing's photos are on the API's origin, plain http locally, so the policy adds it to
     `img-src`. One column on a phone; the overview's cards, the photos and two of the price
     fields sit two abreast from 48rem, the three limits three abreast
     ([`seller_listing.rs`](marketplace/src/seller_listing.rs),
     [`seller_listing_page.rs`](marketplace/src/views/seller_listing_page.rs)).
+54. **The seller's listings are a form per intent, and a picked day becomes an instant in the
+    browser.** Marketplace's page posts every setting and the bulk changes to one action. The
+    pilot gives each its own form (availability, the away window, the capacity, and the bulk
+    bar's `listingIds`), each posting its `intent` to the page (`write`) or to `bulk`, so each
+    works without JavaScript. An away window is days in the seller's time zone, which the API
+    takes as instants; a handler cannot know the zone
+    ([todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149)),
+    so the page's script fills each `data-instant` field with the start of that day where the
+    browser is on `formdata`, and without it the window is refused with words that say why. The
+    seller's metrics and open orders are read best-effort, without the receipt: a failed read
+    draws no reliability card, not a failed page. Bulk changes go one listing at a time
+    (deduplicated): a 4xx is that listing's outcome, a 5xx a 502, and the list is read after the
+    latest receipt of those that applied (`Receipt::later`). The live part subscribes to
+    `account:{id}:listings`, which the platform serves on `/api/realtime/account/events` only
+    (the public endpoint answers 403), so `platform::realtime::endpoint` picks the account
+    endpoint when every topic is an account's, as marketplace's `resolveRealtimeEndpointPath`
+    does. The rows are `content-visibility: auto` (see Measured). Back to listings on a listing's
+    page and Create listing now opens it. One column on a phone; a row's facts sit beside it from
+    64rem, and the bulk bar sticks to the bottom of the screen while a listing is picked
+    ([`seller_listings.rs`](marketplace/src/seller_listings.rs),
+    [`seller_listings_page.rs`](marketplace/src/views/seller_listings_page.rs)).
 
 ## Corten gaps
 
@@ -1543,6 +1587,7 @@ Open at the `76eda4f` pin, each with its workaround in the pilot:
 
 1. [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140): Create listing and a seller's listing's photo writes read their bodies with multer (`uploads::read`), keeping each file in memory.
 2. [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): Create listing's photo input writes `aria-invalid` and one `aria-describedby` (its hint and the message's id, `{form}-{field}-error`, built by hand) instead of `e.aria` (`PhotosPart`).
+3. [todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149): the seller's listings fill an away window's instants in the browser (`seller_listings_page.js`), and refuse the window without a script (decision 54).
 
 Closed since the `07d7f65` pin, at `76eda4f`: [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143), its workaround (`PhotoErrorPart`) removed.
 

@@ -37,6 +37,7 @@ mod page_actions;
 mod recovery;
 mod search_page;
 mod seller_listing_page;
+mod seller_listings_page;
 mod set_page;
 mod shipment_page;
 
@@ -59,6 +60,7 @@ pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
+pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 
@@ -97,8 +99,8 @@ pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT]
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
 
-/// The seller's listing page (`/account/listings`).
-pub const SELLER_LISTING: &[Component] = &[SellerListingPage];
+/// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
+pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];
@@ -236,6 +238,19 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     };
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
+    // An account refused the seller's listings may not manage listings: marketplace's "Account
+    // access required" page (`AccountAccessRequiredPage`), back to the page asked for.
+    if let (Failure::Refused { .. }, Some(viewer)) = (&failure, viewer)
+        && (req.path() == "/account/listings" || req.path().starts_with("/account/listings/"))
+    {
+        let t: crate::text::ListingNewMsg = req.t();
+        let back = req.path().to_owned();
+        return req.page(html! {
+            <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
+                <ListingAccessRequired t={t} back={&back} />
+            </Layout>
+        });
+    }
     req.page(html! {
         <Layout req={&req} viewer={viewer} title={title} head="">
             <h1>{title}</h1>

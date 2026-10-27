@@ -54,6 +54,10 @@
 //   route.*, the evidence checklist's marketplace.features.listings.ui.evidence.* and the API's coverage words
 //   marketplace.features.listings.evidenceCoverage.* as coverage.*, and the authored-text guidance,
 //   marketplace.features.reviews.ui.authoredTextGuidance.*, as guidance.*).
+// - marketplace/locales/seller-listings.en.json: the seller's list of listings' English catalog
+//   (marketplace.features.listings.ui.listingListPage.* as list.*, marketplace.routes.accountListings.* as
+//   route.*, the listing API's refusals marketplace.features.listings.api.route.error.* as error.*, the seller
+//   desk's degraded words, and the language labels).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
@@ -483,6 +487,18 @@ const outputs = [
         ["marketplace.features.listings.evidenceCoverage.", "coverage"],
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
         ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+      ])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/seller-listings.en.json",
+    json({
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.listings.ui.listingListPage.", "list"],
+        ["marketplace.routes.accountListings.", "route"],
+        ["marketplace.features.listings.api.route.error.", "error"],
+        ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),

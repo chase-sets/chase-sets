@@ -398,6 +398,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = identity(&method, &uri, &headers, &body) {
         return answer;
     }
+    // Before Ordering's and the listing page's, whose paths begin the same.
+    if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
         return answer;
     }
@@ -429,7 +433,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
         return rollups(rest);
     }
-    if uri.path() == "/api/realtime/public/events" {
+    if uri.path() == "/api/realtime/public/events" || uri.path() == "/api/realtime/account/events" {
         return realtime();
     }
     if let Some(answer) = search(&uri) {
@@ -6295,6 +6299,101 @@ fn seller_listing(id: &str) -> Value {
     listing
 }
 
+/// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
+/// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
+/// order count fail; a read that waits for 43 is still catching up. Turning listings off with
+/// the reason `bogus` is refused, as is an order capacity of 1000; pausing `lst_locked` is
+/// refused and `lst_broken` fails. Every other write applies at 51.
+fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    const ACCOUNT: &str = "/api/marketplace/account";
+    let path = uri.path().strip_prefix(ACCOUNT)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let applied = || committed(StatusCode::OK, "marketplace", "51", json!({ "accountId": "acc_seller" }));
+    let catching_up = || {
+        refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        )
+    };
+    let waiting = waits_for(headers).as_deref() == Some("43");
+    let row = |id: &str, status: &str, measured: bool| {
+        json!({
+            "listing_id": id, "catalog_catalog_item_id": "cat_charizard", "item_language_code": "en",
+            "item_title": "Charizard", "item_subtitle": "Base Set", "product_summary": "Form: raw | Condition: near-mint",
+            "product_measure_snapshot": if measured { json!({ "weightGrams": 5 }) } else { Value::Null },
+            "storage_location_name": "Main shelf", "price_amount": "399.99", "price_currency_code": "USD",
+            "marketplace_sales_fee_unit_amount": "40.00", "seller_net_unit_amount": "359.99",
+            "shipping_allowance_percentage_bps": 250, "terms_resolved_at": "2026-10-20T12:00:00.000Z",
+            "quantity_cap": 2, "status": status,
+            "evidence": [{ "photoId": "ph_1", "status": "active", "sortOrder": 0 }, { "photoId": "ph_0", "status": "removed", "sortOrder": 1 }],
+        })
+    };
+    Some(match (method.as_str(), path) {
+        ("GET", "/listings") if waiting => catching_up(),
+        ("GET", "/listings") => Json(json!({
+            "items": [row("lst_active", "active", true), row("lst_draft", "draft", false)],
+            "total": 250, "count": 2, "limit": 100, "offset": 0,
+            "statusCounts": { "active": 2, "draft": 1, "paused": 1, "withdrawn": 0 },
+        }))
+        .into_response(),
+        ("GET", "/listings/fee-lock-report") if waiting => catching_up(),
+        ("GET", "/listings/fee-lock-report") => Json(json!({ "items": [{
+            "listing_id": "lst_active", "inventory_item_id": "inv_1", "item_title": "Charizard", "item_language_code": "en",
+            "product_summary": "Form: raw", "status": "active", "price_amount": "399.99", "price_currency_code": "USD",
+            "quantity_cap": 2, "marketplace_sales_fee_unit_amount": "40.00", "seller_net_unit_amount": "359.99",
+            "shipping_allowance_percentage_bps": 250, "terms_schedule_id": "fs_1", "terms_agreement_id": null,
+            "terms_resolved_at": "2026-10-20T12:00:00.000Z", "fee_quote_fingerprint": "fq_1", "fee_locks": [],
+            "created_at": "2026-10-20T12:00:00.000Z", "updated_at": "2026-10-21T12:00:00.000Z",
+        }], "total": 1, "count": 1 }))
+        .into_response(),
+        ("GET", "/listing-availability") if waiting => catching_up(),
+        ("GET", "/listing-availability") => Json(json!({
+            "account_id": "acc_seller", "status": "available", "disabled_reason_category": null, "available_again_on": null,
+            "available_again_at": null, "disabled_at": null, "enabled_at": null, "away_window_starts_at": null,
+            "away_window_ends_at": null, "away_window_reason_category": null, "updated_at": "2026-10-20T12:00:00.000Z",
+        }))
+        .into_response(),
+        ("GET", "/order-capacity") if waiting => catching_up(),
+        ("GET", "/order-capacity") => {
+            Json(json!({ "account_id": "acc_seller", "max_open_orders": 5, "updated_at": "2026-10-20T12:00:00.000Z" }))
+                .into_response()
+        }
+        ("GET", "/seller-metrics") if session == "lookout" => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        ("GET", "/seller-metrics") => Json(json!({
+            "seller_account_id": "acc_seller", "window_days": 90, "orders_created_count": 40, "seller_cancelled_count": 1,
+            "cancellation_rate": "0.025", "shipments_dispatched_count": 38, "shipments_on_time_count": 36,
+            "on_time_shipment_rate": "0.9474", "disputes_resolved_count": 0, "disputes_against_seller_count": 0,
+            "dispute_rate": null, "missing_responsibility_count": 0,
+            "computed_at": "2026-10-27T00:00:00.000Z", "updated_at": "2026-10-27T00:00:00.000Z",
+        }))
+        .into_response(),
+        ("GET", "/sales/order-capacity") if session == "lookout" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("GET", "/sales/order-capacity") => Json(json!({ "open_order_count": 3 })).into_response(),
+        ("POST", "/listing-availability/disable") if sent["reasonCategory"] == "bogus" => refusal(
+            StatusCode::BAD_REQUEST,
+            "listing_availability_reason_invalid",
+            "Seller listing availability reason is invalid.",
+        ),
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 1000 => {
+            refusal(StatusCode::BAD_REQUEST, "order_capacity_invalid", "Order capacity must be a whole number of at least 1.")
+        }
+        (
+            "POST",
+            "/listing-availability/disable"
+            | "/listing-availability/enable"
+            | "/listing-availability/away-window"
+            | "/order-capacity",
+        )
+        | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
+        ("POST", "/listings/lst_locked/pause") => {
+            refusal(StatusCode::BAD_REQUEST, "listing_command_rejected", "Listing cannot be paused from its current status.")
+        }
+        ("POST", "/listings/lst_broken/pause") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => return None,
+    })
+}
+
 /// The seller's listing page's calls, as the stand-in answers them. A read that waits for 43 is
 /// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
 /// current one) and 0.50 is refused; an image description with a text-direction override is
@@ -6667,10 +6766,254 @@ async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_r
 }
 
 #[tokio::test]
-async fn back_to_listings_is_marketplaces_list_until_it_is_ported() {
+async fn back_to_listings_is_the_pilots_list() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/listings/lst_active", Some("lister"))).await;
     assert_eq!(status, StatusCode::OK);
-    // Back to listings is marketplace's list, not ported yet.
-    assert_eq!(hrefs(&html, "Back to listings"), ["http://localhost:7753/account/listings"]);
+    assert_eq!(hrefs(&html, "Back to listings"), ["/account/listings"]);
+}
+
+const LISTINGS: &str = "/account/listings";
+
+/// The calls the list made to the API under \`path\`, as \`METHOD path body\`.
+fn list_calls(pilot: &Pilot, path: &str) -> Vec<String> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(path)).map(|c| format!("{} {} {}", c.method, c.path, c.body)).collect()
+}
+
+#[tokio::test]
+async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_report() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Seller Listings Create, publish, and manage seller listings.",
+        "Listings available Account-wide listing control",
+        "Before you turn off listings 2 active listings will be hidden from buyers",
+        "Schedule away window",
+        "Current cap: 5 open orders Open orders right now: 3 of 5 Counted live from your orders.",
+        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Withdrawn listings 0",
+        "Seller reliability Objective, event-derived signals from the last 90 days",
+        "On-time shipment rate 94.7% 38 shipments dispatched Cancellation rate 2.5% 40 orders, seller-caused only",
+        "Dispute rate Not enough orders yet",
+        "Charizard Active English",
+        "Charizard Draft English Shipping measure missing",
+        "near-mint",
+        "1 photos",
+        "$399.99 Marketplace $40.00. Net $359.99. Buyer shipping credit 2.5%",
+        "Main shelf Terms resolved Oct 20, 2026, 12:00 PM UTC",
+        "Page 1 of 3",
+        "Fee Lock Report 1 fee lock records",
+        "Locked Fee $40.00 Seller net $359.99 Terms Source Standard seller terms",
+    ] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    // What marketplace reads, as it reads them.
+    let reads = list_calls(&pilot, "/api/marketplace/account/");
+    for read in [
+        "GET /api/marketplace/account/listings?limit=100&offset=0 ",
+        "GET /api/marketplace/account/listings/fee-lock-report?limit=100&offset=0 ",
+        "GET /api/marketplace/account/listing-availability ",
+        "GET /api/marketplace/account/order-capacity ",
+        "GET /api/marketplace/account/seller-metrics ",
+        "GET /api/marketplace/account/sales/order-capacity ",
+    ] {
+        assert!(reads.iter().any(|r| r == read), "{read}: {reads:?}");
+    }
+    // Each listing opens the pilot's page, and its box is in the bulk form.
+    assert_eq!(hrefs(&html, "Open"), ["/account/listings/lst_active", "/account/listings/lst_draft"]);
+    assert_eq!(hrefs(&html, "Create Listing"), ["/account/listings/new"]);
+    assert!(html.contains(r#"<form id="bulk-form-id""#) || html.contains(r#"id="bulk-form""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="checkbox" name="listingIds" value="lst_active" aria-label="Select Charizard">"#),
+        "{html}"
+    );
+    assert_eq!(hrefs(&html, "Next page"), ["/account/listings?offset=100"]);
+    assert!(html.contains(r#"<corten-live src="/account/listings/live"></corten-live>"#), "{html}");
+    // Every setting posts to the page, and the date fields name the instant the script sends.
+    assert!(
+        html.contains(r#"data-instant="availableAgainAt""#) && html.contains(r#"data-instant="awayWindowStartsAt""#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn the_filters_and_pages_are_links_that_keep_each_other() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/account/listings?status=paused&search=Base%20Set&offset=100&limit=100", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads = list_calls(&pilot, "/api/marketplace/account/listings?");
+    assert_eq!(reads, ["GET /api/marketplace/account/listings?limit=100&offset=100&status=paused&search=Base%20Set "]);
+    let page = text(&html);
+    assert!(page.contains("Title: Base Set") && page.contains("Status: Paused") && page.contains("Page 2 of 3"), "{page}");
+    assert_eq!(hrefs(&html, "Title: Base Set"), ["/account/listings?status=paused"]);
+    assert_eq!(hrefs(&html, "Status: Paused"), ["/account/listings?search=Base%20Set"]);
+    assert_eq!(hrefs(&html, "Previous page"), ["/account/listings?status=paused&amp;search=Base%20Set"]);
+    assert_eq!(hrefs(&html, "Next page"), ["/account/listings?status=paused&amp;search=Base%20Set&amp;offset=200"]);
+    // An unknown status is all of them, and too large a page the largest.
+    let (_, _, _) = pilot.send(get("/account/listings?status=sold&limit=900", Some("lister"))).await;
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings?").iter().any(|r| r.contains("?limit=250&offset=0 ")));
+}
+
+#[tokio::test]
+async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
+    let pilot = Pilot::new().await;
+    // Turn off listings: the script sent the date's instant where the seller is.
+    let body = "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&availableAgainAt=2026-11-02T06%3A00%3A00.000Z";
+    let (status, headers, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/listings?status=active&afterWrite="), "{to}");
+    assert!(to.ends_with("&availabilityAction=disabled"), "{to}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/listing-availability/disable");
+    assert_eq!(
+        sent,
+        [
+            r#"POST /api/marketplace/account/listing-availability/disable {"availableAgainAt":"2026-11-02T06:00:00.000Z","availableAgainOn":"2026-11-02","reasonCategory":"travel"}"#
+        ]
+    );
+    // Without the script there is no instant: the date is sent alone, only to be shown.
+    let body = "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02";
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    // The away window and the capacity, each saying what it set for the read that catches up.
+    let body = "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=\
+                &awayWindowStartsAt=2026-12-01T06%3A00%3A00.000Z&awayWindowEndsAt=";
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.contains(
+            "settingsAction=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsAt=2026-12-01T06%3A00%3A00.000Z"
+        ),
+        "{to}"
+    );
+    assert!(!to.contains("awayWindowEndsAt"), "an indefinite window: {to}");
+    for (body, action) in [
+        ("intent=cancel-away-window", "settingsAction=cancel-away-window"),
+        ("intent=set-order-capacity&maxOpenOrders=12", "settingsAction=set-order-capacity&maxOpenOrders=12"),
+        ("intent=clear-order-capacity", "settingsAction=clear-order-capacity"),
+        ("intent=enable-listing-availability", "availabilityAction=enabled"),
+    ] {
+        let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        assert!(headers[header::LOCATION].to_str().unwrap().contains(action), "{body}: {:?}", headers[header::LOCATION]);
+    }
+    let writes: Vec<String> =
+        list_calls(&pilot, "/api/marketplace/account/").into_iter().filter(|c| !c.starts_with("GET")).collect();
+    assert!(writes.iter().any(|w| w == "DELETE /api/marketplace/account/listing-availability/away-window "), "{writes:?}");
+    assert!(writes.iter().any(|w| w == r#"POST /api/marketplace/account/order-capacity {"maxOpenOrders":12}"#), "{writes:?}");
+    assert!(writes.iter().any(|w| w == "DELETE /api/marketplace/account/order-capacity "), "{writes:?}");
+    assert!(writes.iter().any(|w| w == "POST /api/marketplace/account/listing-availability/enable {}"), "{writes:?}");
+}
+
+#[tokio::test]
+async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
+    let pilot = Pilot::new().await;
+    // An away window with no reason, no start, or no instant (no script) is not sent.
+    let (status, _, html) =
+        pilot.send(post(LISTINGS, "lister", "intent=schedule-away-window&awayWindowStartsOn=2026-12-01", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let page = text(&html);
+    assert!(page.contains("Choose a reason for the away window."), "{page}");
+    assert!(page.contains("Your time zone could not be read, so nothing was scheduled."), "{page}");
+    assert!(html.contains(r#"name="awayWindowStartsOn" value="2026-12-01""#), "the form as sent: {html}");
+    assert!(
+        html.contains(r#"aria-invalid="true" aria-describedby="away-form-id-awayWindowStartsOn-error""#)
+            || html.contains("awayWindowStartsOn-error"),
+        "{html}"
+    );
+    // An order capacity that is not a whole number of at least 1.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=0", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
+    assert!(html.contains(r#"name="maxOpenOrders" value="0""#), "{html}");
+    assert!(list_calls(&pilot, "/api/marketplace/account/").iter().all(|c| c.starts_with("GET")), "nothing was written");
+    // The API's refusals, in marketplace's words, by the field when they name one.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=1000", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
+    assert!(html.contains("maxOpenOrders-error"), "{html}");
+    let (status, _, html) =
+        pilot.send(post(LISTINGS, "lister", "intent=disable-listing-availability&reasonCategory=bogus", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
+    // Someone who may only read is refused, signed out signs in, and an account without listings
+    // is marketplace's "Account access required" page, back to the list.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lookout", "intent=clear-order-capacity", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("Use a selling account to manage listings"), "{html}");
+    let (status, headers, _) = pilot.send(get(LISTINGS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Flistings"));
+    let (status, _, html) = pilot.send(get(LISTINGS, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("Use a selling account to manage listings"), "{html}");
+    assert!(html.contains("/sign-in?returnTo=%2Faccount%2Flistings"), "{html}");
+}
+
+#[tokio::test]
+async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
+    let pilot = Pilot::new().await;
+    let to = format!("/account/listings?afterWrite={}&settingsAction=set-order-capacity&maxOpenOrders=9", receipt_at("43"));
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Current cap: 9 open orders"), "{html}");
+    let to = format!("/account/listings?afterWrite={}&availabilityAction=disabled", receipt_at("43"));
+    let (_, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(page.contains("Listings unavailable") && page.contains("Turn on listings"), "{page}");
+    // The metrics and the open orders never wait for a write, and their failure shows them
+    // unavailable, not the page's error.
+    let (status, _, html) = pilot.send(get(LISTINGS, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let page = text(&html);
+    assert!(page.contains("Seller reliability Some signals are temporarily unavailable"), "{page}");
+    assert!(page.contains("Open order count is temporarily unavailable."), "{page}");
+}
+
+#[tokio::test]
+async fn pause_selected_writes_each_listing_once_and_shows_each_outcome() {
+    let pilot = Pilot::new().await;
+    let body = "intent=bulk-pause-listings&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_active";
+    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("1 succeeded, 1 failed"), "{page}");
+    assert!(page.contains("Succeeded Listing lst_active"), "{page}");
+    assert!(page.contains("Failed Listing lst_locked This listing change is not available."), "{page}");
+    let writes = list_calls(&pilot, "/api/marketplace/account/listings/lst_");
+    assert_eq!(
+        writes,
+        [
+            "POST /api/marketplace/account/listings/lst_active/pause {}",
+            "POST /api/marketplace/account/listings/lst_locked/pause {}"
+        ]
+    );
+    // The page is read after the write that applied, with the filters it was posted with.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
+    assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
+    // Nothing checked, and a listing whose write fails.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=bulk-pause-listings&listingIds=lst_broken", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn a_change_to_the_accounts_listings_draws_the_counts_rows_and_report_again() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/account/listings/live?status=active", Some("lister")), 1).await;
+    let data = &events[0].2;
+    assert!(data.contains(r#"id="listing-health-id""#) || data.contains("Listing health"), "{data}");
+    assert!(data.contains(r#"value="lst_active""#) && data.contains("Fee Lock Report"), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
+    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Alistings"), "{}", realtime.path);
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/account/listings?limit=100&offset=0&status=active"));
 }

@@ -3128,3 +3128,227 @@ impl SellerListings for Caller<'_> {
         answer(self.request(Method::POST, &path, MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form)).await
     }
 }
+
+/// A page of the seller's listings (`listSellerListings`): the rows, the total the filters match,
+/// the page asked for and the account's counts by status.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ListingPage {
+    pub items: Vec<ListingRow>,
+    pub total: u64,
+    pub limit: u64,
+    pub offset: u64,
+    #[serde(rename = "statusCounts")]
+    pub status_counts: StatusCounts,
+}
+
+/// How many of the account's listings are in each status (`MarketplaceSellerListingStatusCounts`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct StatusCounts {
+    pub active: u64,
+    pub draft: u64,
+    pub paused: u64,
+    pub withdrawn: u64,
+}
+
+/// A row of the list (`MarketplaceListingListItem`), the fields it shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ListingRow {
+    pub listing_id: String,
+    pub catalog_catalog_item_id: String,
+    pub item_language_code: Option<String>,
+    pub item_title: Option<String>,
+    pub item_subtitle: Option<String>,
+    pub product_summary: Option<String>,
+    pub product_measure_snapshot: Option<serde_json::Value>,
+    pub storage_location_name: Option<String>,
+    #[serde(default)]
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub shipping_allowance_percentage_bps: Option<u32>,
+    pub terms_resolved_at: Option<String>,
+    pub quantity_cap: u64,
+    pub status: String,
+    #[serde(default)]
+    pub evidence: Vec<ListingPhoto>,
+}
+
+/// A row of the fee lock report (`MarketplaceListingFeeLockReportEntry`), the fields it shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FeeLockRow {
+    pub listing_id: String,
+    pub inventory_item_id: String,
+    pub item_title: Option<String>,
+    pub product_summary: Option<String>,
+    pub status: String,
+    pub price_currency_code: Option<String>,
+    pub quantity_cap: u64,
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub terms_schedule_id: Option<String>,
+    pub terms_agreement_id: Option<String>,
+    pub terms_resolved_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FeeLockReport {
+    #[serde(default)]
+    items: Vec<FeeLockRow>,
+}
+
+/// Whether the account's listings are on, and its away window (`MarketplaceSellerListingAvailability`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Availability {
+    /// `available` or `unavailable`.
+    pub status: String,
+    pub disabled_reason_category: Option<String>,
+    pub available_again_on: Option<String>,
+    pub available_again_at: Option<String>,
+    /// The pending away window's start; none when no window is scheduled.
+    pub away_window_starts_at: Option<String>,
+    pub away_window_ends_at: Option<String>,
+    pub away_window_reason_category: Option<String>,
+}
+
+impl Availability {
+    pub fn available(&self) -> bool {
+        self.status != "unavailable"
+    }
+}
+
+/// The account's order capacity (`MarketplaceSellerOrderCapacity`): none is unlimited.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct OrderCapacity {
+    pub max_open_orders: Option<u64>,
+}
+
+/// The seller's own behavioral metrics (`SellerBehavioralMetricsSummary`), the fields shown. A rate
+/// is a fraction from 0 to 1, none while there is nothing to divide by.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SellerMetrics {
+    pub window_days: u32,
+    pub orders_created_count: u64,
+    pub shipments_dispatched_count: u64,
+    pub cancellation_rate: Option<String>,
+    pub on_time_shipment_rate: Option<String>,
+    pub dispute_rate: Option<String>,
+}
+
+impl SellerMetrics {
+    /// Whether every rate is a decimal from 0 to 1 (`parseSellerBehavioralMetricsSummary`): one that
+    /// is not makes the whole summary unavailable, never partly shown.
+    pub fn valid(&self) -> bool {
+        [&self.cancellation_rate, &self.on_time_shipment_rate, &self.dispute_rate].into_iter().flatten().all(|rate| {
+            let digits = rate.split_once('.').map_or((rate.as_str(), "0"), |(whole, fraction)| (whole, fraction));
+            let decimal = !digits.0.is_empty()
+                && !digits.1.is_empty()
+                && digits.0.bytes().all(|b| b.is_ascii_digit())
+                && digits.1.bytes().all(|b| b.is_ascii_digit());
+            decimal && rate.parse::<f64>().is_ok_and(|r| r <= 1.0)
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct OpenOrders {
+    #[serde(default)]
+    open_order_count: u64,
+}
+
+/// The account-wide listing settings marketplace's list of listings changes (its intents).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SellerSetting {
+    /// Turn listings off: the reason, the date they come back and that date's start in the
+    /// seller's time zone (empty when the page's script did not run: the date is then only shown).
+    Disable {
+        reason: String,
+        on: String,
+        at: String,
+    },
+    Enable,
+    /// An away window from `starts_at` to `ends_at` (none: until turned back on).
+    Schedule {
+        reason: String,
+        starts_at: String,
+        ends_at: String,
+    },
+    CancelWindow,
+    Capacity(u64),
+    ClearCapacity,
+}
+
+/// The seller's list of listings' calls (marketplace's `account-listings` route).
+pub trait SellerListingList {
+    /// A page of the listings: `query` is `limit`, `offset` and the filters.
+    async fn seller_listing_page(&self, query: &str) -> Result<ListingPage, ApiError>;
+    /// The first 100 rows of the fee lock report, as marketplace reads them.
+    async fn fee_lock_report(&self) -> Result<Vec<FeeLockRow>, ApiError>;
+    async fn listing_availability(&self) -> Result<Availability, ApiError>;
+    async fn order_capacity(&self) -> Result<OrderCapacity, ApiError>;
+    async fn seller_metrics(&self) -> Result<SellerMetrics, ApiError>;
+    /// Ordering's count of the account's open orders (the "N" of "N of M").
+    async fn open_order_count(&self) -> Result<u64, ApiError>;
+    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError>;
+}
+
+const ACCOUNT: &str = "/api/marketplace/account";
+
+impl SellerListingList for Caller<'_> {
+    async fn seller_listing_page(&self, query: &str) -> Result<ListingPage, ApiError> {
+        self.read(&format!("{ACCOUNT}/listings?{query}"), MARKETPLACE).await
+    }
+
+    async fn fee_lock_report(&self) -> Result<Vec<FeeLockRow>, ApiError> {
+        Ok(self
+            .read::<FeeLockReport>(&format!("{ACCOUNT}/listings/fee-lock-report?limit=100&offset=0"), MARKETPLACE)
+            .await?
+            .items)
+    }
+
+    async fn listing_availability(&self) -> Result<Availability, ApiError> {
+        self.read(&format!("{ACCOUNT}/listing-availability"), MARKETPLACE).await
+    }
+
+    async fn order_capacity(&self) -> Result<OrderCapacity, ApiError> {
+        self.read(&format!("{ACCOUNT}/order-capacity"), MARKETPLACE).await
+    }
+
+    async fn seller_metrics(&self) -> Result<SellerMetrics, ApiError> {
+        self.read(&format!("{ACCOUNT}/seller-metrics"), MARKETPLACE).await
+    }
+
+    async fn open_order_count(&self) -> Result<u64, ApiError> {
+        Ok(self.read::<OpenOrders>(&format!("{ACCOUNT}/sales/order-capacity"), ORDERING).await?.open_order_count)
+    }
+
+    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError> {
+        use serde_json::json;
+        let availability = format!("{ACCOUNT}/listing-availability");
+        let capacity = format!("{ACCOUNT}/order-capacity");
+        let (method, path, body) = match setting {
+            SellerSetting::Disable { reason, on, at } => (
+                Method::POST,
+                format!("{availability}/disable"),
+                json!({ "reasonCategory": reason, "availableAgainOn": on, "availableAgainAt": at }),
+            ),
+            SellerSetting::Enable => (Method::POST, format!("{availability}/enable"), json!({})),
+            SellerSetting::Schedule { reason, starts_at, ends_at } => (
+                Method::POST,
+                format!("{availability}/away-window"),
+                json!({ "reasonCategory": reason, "startsAt": starts_at, "endsAt": ends_at }),
+            ),
+            SellerSetting::CancelWindow => (Method::DELETE, format!("{availability}/away-window"), serde_json::Value::Null),
+            SellerSetting::Capacity(max) => (Method::POST, capacity, json!({ "maxOpenOrders": max })),
+            SellerSetting::ClearCapacity => (Method::DELETE, capacity, serde_json::Value::Null),
+        };
+        let mut req = self.request(method, &path, MARKETPLACE);
+        if !body.is_null() {
+            req = req.json(&body);
+        }
+        answer(req).await
+    }
+}

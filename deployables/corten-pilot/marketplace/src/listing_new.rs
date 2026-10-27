@@ -520,7 +520,7 @@ fn access_required(req: &Req, viewer: &Viewer) -> HtmlResult {
     let t: ListingNewMsg = req.t();
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_create_listing()} head={()}>
-            <views::ListingAccessRequired t={t} />
+            <views::ListingAccessRequired t={t} back={&crate::app::url::NewListing.href()} />
         </Layout>
     };
     req.page_with_status(StatusCode::FORBIDDEN, page)

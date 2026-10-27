@@ -76,7 +76,7 @@ fn inventory_label(t: ListingNewMsg, item: &SupplyItem) -> String {
 #[component(css)]
 pub fn NewListingPage<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Render {
     let f = ListingFields::FIELDS;
-    let back = on_marketplace("/account/listings");
+    let back = url::SellerListings::default().href();
     html! {
         <header class={Header}>
             <div class={Heading}>
@@ -684,11 +684,11 @@ fn Fees<'a>(t: ListingNewMsg, preview: &'a TermsPreview, currency: &'a str) -> i
     }
 }
 
-/// An account that may not manage listings (the route's `AccountAccessRequiredPage`).
+/// An account that may not manage listings (the routes' `AccountAccessRequiredPage`): sign in
+/// with another, coming `back` to the page asked for.
 #[component(css = NewListingPage)]
-pub fn ListingAccessRequired(t: ListingNewMsg) -> impl Render {
-    let back = url::NewListing.href();
-    let sign_in = on_marketplace(&format!("/sign-in?returnTo={}", crate::api::segment(&back)));
+pub fn ListingAccessRequired<'a>(t: ListingNewMsg, back: &'a str) -> impl Render {
+    let sign_in = on_marketplace(&format!("/sign-in?returnTo={}", crate::api::segment(back)));
     html! {
         <header class={Header}>
             <div class={Heading}>
