@@ -82,6 +82,22 @@ import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-
 import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
 import { promotionCurrentItem } from "./source-observation-target-exclusion";
 
+/**
+ * A duplicate-prevention review with no concrete Catalog Item is advisory
+ * bridge evidence, not an ambiguous target. Concrete candidates remain a
+ * fail-closed plan block; empty review-only evidence must not turn a sole
+ * item-producing member into a duplicate.
+ */
+export function shouldBlockDuplicatePrevention(result: {
+  status: "blocked" | "review-only" | "matched" | "none";
+  candidateCatalogItemIds?: readonly string[];
+}): boolean {
+  return (
+    result.status === "blocked" ||
+    (result.status === "review-only" && (result.candidateCatalogItemIds?.length ?? 0) > 0)
+  );
+}
+
 export type CatalogMergeCandidateApplicationPorts = Readonly<{
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
@@ -481,8 +497,10 @@ async function prepareApplicationPlan(
       normalized: member.normalized,
       catalog: primary.mapping,
     });
-    if (duplicate.status === "blocked" || duplicate.status === "review-only")
-      throw blocked("ambiguous-duplicate-candidates", duplicate.candidateCatalogItemIds.join(", "));
+    if (shouldBlockDuplicatePrevention(duplicate)) {
+      const candidateCatalogItemIds = "candidateCatalogItemIds" in duplicate ? duplicate.candidateCatalogItemIds : [];
+      throw blocked("ambiguous-duplicate-candidates", candidateCatalogItemIds.join(", "));
+    }
     if (duplicate.status === "matched") reuseCandidates.add(duplicate.catalogItemId);
   }
 

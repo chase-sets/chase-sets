@@ -55,6 +55,7 @@ import {
   loadCandidateApplication,
   requirePinnedProfileEligible,
   snapshotWithAuthoredFacts,
+  shouldBlockDuplicatePrevention,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
 import { applyCatalogMergeCandidateEdit } from "./catalog-merge-candidate-edit";
@@ -134,6 +135,14 @@ describe("pinned application profile eligibility", () => {
     expect(catalogMergeCandidateTargetId("cand_a")).toBe(catalogMergeCandidateTargetId("cand_a"));
     expect(catalogMergeCandidateTargetId("cand_a")).toMatch(/^cat_candidate_[a-f0-9]{64}$/);
     expect(catalogMergeCandidateTargetId("cand_a")).not.toBe(catalogMergeCandidateTargetId("cand_b"));
+  });
+
+  it("does not block a plan for review-only bridge evidence without concrete duplicate candidates", () => {
+    expect(shouldBlockDuplicatePrevention({ status: "review-only", candidateCatalogItemIds: [] })).toBe(false);
+    expect(shouldBlockDuplicatePrevention({ status: "review-only", candidateCatalogItemIds: ["cat_existing"] })).toBe(
+      true,
+    );
+    expect(shouldBlockDuplicatePrevention({ status: "blocked", candidateCatalogItemIds: [] })).toBe(true);
   });
 });
 
