@@ -30,6 +30,7 @@ pilot owns only the screens:
 | `marketplace/` | A set's page, `/sets/{slug}` | marketplace | anyone: the game, the set's name and what is known of it (its card count, cataloged items, code and long release date), its cataloged items as search's cards (the lowest price and View card; one column, two from lg, three from 2xl), Browse all in search (`reference.<type>=<set>`) when the API sent only some, an empty state with none, and the breadcrumb's JSON-LD. An old slug moves for good with its query; an unknown set is a 404 and a failed read a 502 (marketplace answers 200 for both: [chase-sets/chase-sets#10612 [discovery] Answer an unknown set page with 404, and a failed set read with 5xx, not 200](https://github.com/chase-sets/chase-sets/issues/10612)) |
 | `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` | marketplace | anyone: the words, the category (its own path), price and stock, language, market activity, the results' own facets (fields, references and product dimensions) and the sort, all in one GET form, applied as a choice changes with a script and by Show results without one; the applied filters as chips, each a link without its filter; the results as cards with the lowest price and Buy, Sell and Watch, each to the item page with the dimension filters; Load more (a GET form: with a script, the next page added after the rows shown; without one, the same results with a page more); close spellings and closest matches; with nothing asked, the landing's headline and featured categories, and on `/` the home page's shelf in place of the results: the four featured categories (their description, count and a link to each) and the three newest items (the lowest price and View item), one column on a phone; words or a filter asked on `/` show the results there. `page` and `category=..` (or a category's id, key, name or old slug) move for good, and words the API reads filters from redirect to the address with them applied, marked `interpreted`. Below 64rem the filters are a dialog the Filters button opens. A failed read is an error banner with the filters and a 502 (not ported yet: Add to List and the bulk add to the buy cart from a result, the realtime market patches, the facet option search and the automatic load on scroll) |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache for the `s-maxage` Pricing's answer carries, a day by default, and either serves it stale for an hour): the breadcrumb, the item's title and subtitle, then for each currency it traded in its price history (each day's median or last price, the day's low to high as a band, drawn on the server; an empty or one-day chart says so) and its market stats as a list (last sold and when, the 30- and 90-day medians and their trades, active listings and the lowest asks, the 30-day sell-through), and View active listings, Create a price alert and Sell yours on marketplace. The title, description, social tags, canonical, `noindex` when the site is not indexed, and the Product's lowest ask as JSON-LD on the production site. An unknown item is a 404 with public-web's words, a failed read a 502 no cache keeps. `robots.txt` and the sitemap of the market pages Pricing says are worth indexing follow `CHASE_SETS_PUBLIC_INDEXING` (not ported: public-web's other pages, its favicons and manifest, and its waitlist analytics bridge) |
+| `public/` | The home page, `/` (chasesets.com's waitlist landing) | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache four minutes while the fee terms were read live, either a minute stale): the promo bar (one message at a time, turning with a script), the nav, the hero (the seller's or the buyer's copy, by `?intent` or a buyer's `utm` words, swapped by the hero's role with a script) with the early-access form, the five games, open offers, the fee comparison from Commerce's live terms (the compiled terms when the read fails), the founders offer, the full form with the waitlist counter, the FAQ, the footer, the sticky calls to action, and the page's JSON-LD. Join without a script: a signup goes to public-web's `/welcome` with its receipt, role, variant and games (303); a refusal is the page again with the API's words in the form it came from (422, 429 too many, 502). A legacy fee-calculator share link moves for good to public-web's `/compare/tcgplayer` at `#fee-calculator`. The waitlist analytics bridge posts the form's events as public-web's does (to `/api`, which the pilot does not serve) (not ported: `/welcome`, `/compare`, `/founders`, `/faq` and the policies, linked on public-web) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -229,6 +230,29 @@ first paint, so the 11-load run is the one recorded.
 
 The page has no script of its own. Its server time is one Pricing read with no session; in front
 of a CDN most loads would not reach it at all.
+
+public-web's home page (`/`, signed out, with the sandbox's live fee terms, promo bar and
+counter), the pilot's `public/` release build against public-web's dev server, desktop only for
+public-web, so again not a comparison. Measured once, 11 loads on desktop and 7 on mobile.
+
+| Home page | public-web (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 1,890 ms | 217 ms | 640 ms |
+| Largest contentful paint | 772 ms | 248 ms | 1,928 ms |
+| Server time (document) | 560 ms | 1 ms | 1 ms |
+| JavaScript transferred | 9,874,441 B | 12,956 B | 12,956 B |
+| HTML / CSS transferred | 424,544 / 186,139 B | 7,849 / 4,647 B | 7,849 / 4,647 B |
+| Requests | 251 | 13 | 13 |
+
+The server time is the kept reads (decision 49): the three reads happen at most once a minute,
+not per visitor. The JavaScript is the runtime (8,249 B), the page's script (4,189 B) and
+`app.js`. The mobile LCP is the hero picture (the measure's mobile profile keeps a 1,280 px
+viewport, so it takes the full 133,796 B size), painted after the first layout: a trace of one
+throttled load shows two layouts of 497 and 315 ms at 4x CPU before the first paint at about
+1.9 s. That is the carried-over mobile Layout cost, not this page's script: the page with no
+stylesheet still lays out in about 390 ms, no block of `components.css` accounts for most of the
+rest when removed, and public-web's own page spends 729 ms in layout and 380 ms in style on the
+same profile.
 
 The account's orders (the collector's Purchases, 205 orders, and its purchase
 `ord_01M5P0SQE5TQGRJCTMD116ACF7`; the seller's Sales and the same order as a sale), the pilot's
@@ -436,6 +460,8 @@ node scripts/measure.mjs screen=shipments marketplace=http://localhost:7753 pilo
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/smoke-public-market.mjs http://localhost:7797 http://localhost:7754  # public-web's market page beside its own: the head's tags, the h1 and sections, every stat, the links, what caches keep (with and without a cookie), no JavaScript, a 404, robots and the sitemap, 1280 and 390 px (only reads)
 node scripts/measure.mjs screen=market public-web=http://localhost:7754 pilot=http://localhost:7797   # signed out
+node scripts/smoke-public-home.mjs http://localhost:7797 http://localhost:7754  # public-web's home page beside its own: the head's tags, the h1 shown, the sections in order, every word and fee figure, the promo bar's message, what caches keep, Join without a script (a signup to /welcome, a refusal drawn again), the legacy share link's move, no JavaScript, Buy's swap, 1280 and 390 px (writes one waitlist signup with a synthetic email)
+node scripts/measure.mjs screen=landing public-web=http://localhost:7754 pilot=http://localhost:7797 profiles=desktop runs=11   # signed out
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
 
@@ -450,11 +476,13 @@ Run `corten dev` inside the app's directory; it also rebuilds on an edit in `pla
 | `CHASE_SETS_PUBLIC_ORIGIN` | `https://chasesets.com` | public: the canonical origin (canonical links, the sitemap, the host the API is told) |
 | `CHASE_SETS_MARKETPLACE_ORIGIN` | `https://marketplace.chasesets.com` | public: where Buy or sell links go |
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
-| `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (Home) |
+| `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (`/welcome`, the compare pages, the founders' terms, the FAQ, the policies) |
+| `CHASE_SETS_TRUST_FORWARDED_HEADERS` | off | public: `true` when a proxy in front sets `X-Forwarded-For`; Join then sends the visitor's address to the API |
+| `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
 
 `scripts/export.mjs` writes what the apps read from Chase Sets' sources: each screen's English
 text (`*/locales/en.json`), each app's navigation (`*/nav.json`), admin's default policy
-(`admin/defaults.json`), the scope product domains (`admin/scope-domains.json`), the design system's tokens (`platform/tokens.json`) and three fonts. CI
+(`admin/defaults.json`), the scope product domains (`admin/scope-domains.json`), the design system's tokens (`platform/tokens.json`, with the brand's foil colors), three fonts, and the home page's words (`public/locales/home.en.json`) and pictures (`public/static/home/`). CI
 runs it with `--check`, so a change to the React apps' text, nav or tokens shows up here.
 `*/locales/pilot.en.json` is the pilot's own text. One image per app:
 `docker build --build-arg APP=marketplace .` (or `admin`, `public`).
@@ -545,6 +573,9 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `*/src/api.rs` | the screen's calls; typed bodies with only the fields the screen reads |
 | `*/src/form.rs` | what the forms post; the pilot checks only shape (text present, numbers parse), the API checks the rules |
 | `public/src/market.rs`, `views/market_page.*` | public-web's market page, `robots.txt` and the sitemap, each `Public` |
+| `public/src/home.rs`, `views/home_page.*`, `views/home.js`, `home_layout.css` | public-web's home page: the landing's address, the reads and their fallbacks, the fee preview, Join, and the page's parts, its layout and its script (the analytics bridge, the role's sync, the sticky bars, the promo bar) |
+| `public/src/presence.rs`, `kept.rs` | Public Presence's API as the home page calls it (policy values, promos, the counter, Join), and a read kept for the next visitor |
+| `platform/src/client.rs` | the visitor's address behind a trusted proxy |
 | `marketplace/src/recovery.rs` | the write's attempt id, the address's `Check`, and confirming a write the browser did not hear back about |
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
@@ -1171,9 +1202,12 @@ postage, storage locations, cart, item and Add to List. What changed:
     leaves it out), and a failed read answers 502 instead of a sitemap without the market pages,
     which a crawler would keep for an hour. One canonical origin (`CHASE_SETS_PUBLIC_ORIGIN`) for
     the page and the sitemap, where public-web's market route falls back to the request's origin
-    and its layout to chasesets.com. Home goes to public-web (`PUBLIC_WEB_ORIGIN`), which serves
-    it. Not ported: the waitlist analytics bridge public-web's layout inlines in every page (no
-    page here sends its event), the favicons and the manifest
+    and its layout to chasesets.com. Home is this app's `/` now (decision 49); its
+    link reloads the page, since it has its own layout
+    ([todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122)).
+    Not ported: the waitlist analytics bridge public-web's layout inlines in every page (the
+    market page sends no event; the home page's script carries its own), the favicons and the
+    manifest
     ([`market.rs`](public/src/market.rs), [`market_page.rs`](public/src/views/market_page.rs),
     [`chart.rs`](platform/src/chart.rs)).
 
@@ -1220,9 +1254,59 @@ postage, storage locations, cart, item and Add to List. What changed:
     a row and the cover three from 48rem; two cards to a row from 80rem; 2.75rem controls
     ([`shipments.rs`](marketplace/src/shipments.rs), [`shipment_page.rs`](marketplace/src/views/shipment_page.rs)).
 
+49. **The home page is the same for everyone, so what public-web reads per visitor comes another
+    way.** public-web's `/` is a third public page in `public/`, in its own layout
+    (`HomeLayout`: the skip link, promo bar, nav, `main` and footer), with its components in
+    `App::components` since it is `/` (decision on
+    [todd-skelton/corten#95 A page outside every area (the app's /) cannot link an area's stylesheet, so a screen that is also the home page ships its CSS on every page](https://github.com/todd-skelton/corten/issues/95)).
+    It is `Public`: a browser keeps it a minute, either serves it a minute stale, and a shared
+    cache keeps it four minutes only when Commerce's fee terms were read live, which stays inside
+    the six minutes the /sales-fees article promises a fee change takes; a page drawn with the
+    compiled terms (2.9% + $0.30 card, 0.5% bank) is not kept by a CDN. Three reads at once, each
+    waited on for 2 s (public-web's `LANDING_FEE_READ_TIMEOUT_MS`): the policy values, the promo
+    bar and the waitlist counter. Each good read is kept for the next visitor (`kept::Kept`, five
+    minutes for the terms as public-web keeps them, a minute for the others) and a failed read
+    falls back to the last good one, then to none
+    ([todd-skelton/corten#121 There is no way to keep an upstream read for a while across requests, so a page that every visitor opens reads the same data each time](https://github.com/todd-skelton/corten/issues/121)).
+    public-web's shell fetches the promo bar and counter from the browser after the page renders,
+    so they move the page in; here they are drawn with it. The referrer public-web reads from the
+    request is the browser's: the page's script writes `document.referrer` into the forms, so a
+    visitor without one sends none. The variant (`?intent`, or buyer words in `utm_*`) picks
+    which hero copy shows; both are in the page, the other `hidden`, so there are two `h1`s and
+    one is shown, and the hero's role swaps them with a script. The forms' hidden source fields
+    are named as the API names them (`page_path`, `utm_source`, ..). Percentages are written
+    with `t.number` and a literal `%`
+    ([todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119)).
+    Join sends the visitor's address as `X-Forwarded-For` only when the app is told it sits
+    behind a trusted proxy (`CHASE_SETS_TRUST_FORWARDED_HEADERS`, `platform::client`), the
+    nearest public hop
+    ([todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120));
+    public-web sends none
+    ([chase-sets/chase-sets#10644 [public-presence] Waitlist signups through public-web share one rate-limit bucket because no client address reaches the API](https://github.com/chase-sets/chase-sets/issues/10644)).
+    A signup answers 303 to public-web's `/welcome`, which reads the role, variant and games from
+    the address. The legacy fee-calculator share link moves to public-web's compare page with its
+    `Location` written by hand to add `#fee-calculator`
+    ([todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123)).
+    Links between `/` and the market page carry `data-reload`, since a client navigation
+    keeps the first page's layout (#122 above). The analytics bridge posts to
+    `/api/public-presence/analytics/waitlist` on the page's own origin, as public-web's does; in
+    production the ingress sends `/api` to the platform API, and locally it is a 404. The words
+    are public-web's (`locales/home.en.json`, exported), the brand's foil colors are tokens, and
+    the hero picture is three widths (800, 1,200 and full) in a `srcset`. One column on a phone
+    with the sticky call to action at the bottom; the hero's form beside its copy from 64rem
+    ([`home.rs`](public/src/home.rs), [`home_page.rs`](public/src/views/home_page.rs),
+    [`presence.rs`](public/src/presence.rs), [`kept.rs`](public/src/kept.rs),
+    [`client.rs`](platform/src/client.rs)).
+
 ## Corten gaps
 
-None open in Corten at the `8cb28fb` pin.
+Open at the `8cb28fb` pin, each with its workaround in the pilot:
+
+1. [todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119): the home page writes `t.number` and a literal `%` (`home::rate`).
+2. [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120): `platform::client::address` reads `X-Forwarded-For` and `X-Real-IP` itself, only behind a trusted proxy; with none it sends nothing.
+3. [todd-skelton/corten#121 There is no way to keep an upstream read for a while across requests, so a page that every visitor opens reads the same data each time](https://github.com/todd-skelton/corten/issues/121): `public::kept::Kept`, a lock around the last good read and when it was read, in the app's state.
+4. [todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122): the market page's and error page's links to `/` carry `data-reload`.
+5. [todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123): the share link's move writes its `Location` again with `#fee-calculator` (`home::page`).
 
 Fixed at the `8cb28fb` pin ([todd-skelton/corten#110 Public::shared (s-maxage); a patch can ask to be read again (ReadAgain::from)](https://github.com/todd-skelton/corten/pull/110)), workarounds removed:
 
@@ -1249,6 +1333,7 @@ Found in Chase Sets by the search port:
 15. [chase-sets/chase-sets#10635 [ordering] A purchase page offers Cancel to a member without orders.manage (an unverified email), and the action then answers Forbidden](https://github.com/chase-sets/chase-sets/issues/10635), found the same way. The pilot draws Cancel only for `orders.manage`; `smoke-market-orders.mjs` checks the collector's cancel answers 403.
 16. [chase-sets/chase-sets#10638 [fulfillment] Serve the seller's shipment command center (buckets, order and each next action) from the Fulfillment API instead of building it in the web host](https://github.com/chase-sets/chase-sets/issues/10638), found by the shipments' port. The pilot sends the seller's list to marketplace's (decision 48).
 17. [chase-sets/chase-sets#10641 [fulfillment] A shipment page says each empty state twice ("No shipment exceptions recorded." as the title and again as the description)](https://github.com/chase-sets/chase-sets/issues/10641), found the same way. The pilot says it once; `smoke-market-shipments.mjs` counts marketplace's once.
+18. [chase-sets/chase-sets#10644 [public-presence] Waitlist signups through public-web share one rate-limit bucket because no client address reaches the API](https://github.com/chase-sets/chase-sets/issues/10644), found by the home page's port (read from the code, not seen in production). The pilot sends the visitor's address behind a trusted proxy (decision 49).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

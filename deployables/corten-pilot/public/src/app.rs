@@ -1,8 +1,11 @@
-//! The app: the market pages' area and the crawler files, each the same for everyone, so every
-//! handler answers `Public` and none can read who is asking.
+//! The app: the home page, the market pages' area and the crawler files. Every page is the same for
+//! everyone, so each GET answers `Public` and cannot read who is asking; joining the waitlist is
+//! the one write.
 //!
 //! | Route | Answers |
 //! |---|---|
+//! | `GET /` | the home page, the waitlist's landing (`Public`) |
+//! | `POST /` | join the waitlist (reads the visitor's address, so it is private) |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
 //! | `GET /sitemap.xml` | the market pages, when the site may be indexed |
@@ -24,6 +27,13 @@ pub struct Config {
     /// Whether crawlers may index the site (`CHASE_SETS_PUBLIC_INDEXING`, `shouldIndexFromEnv`:
     /// anything but `0`, `false`, `no` or `off`).
     pub indexing: bool,
+    /// The Discord invite the home page links (`CHASE_SETS_DISCORD_INVITE_URL`), when set.
+    pub discord: Option<String>,
+    /// Whether a proxy in front sets the forwarded headers (`CHASE_SETS_TRUST_FORWARDED_HEADERS`):
+    /// only then is the visitor's address sent with a signup.
+    pub trust_forwarded: bool,
+    /// The home page's reads, kept for the next visitor.
+    pub home: crate::home::Kept,
 }
 
 impl Config {
@@ -35,13 +45,21 @@ impl Config {
             origin: origin("CHASE_SETS_PUBLIC_ORIGIN", "https://chasesets.com"),
             marketplace: origin("CHASE_SETS_MARKETPLACE_ORIGIN", "https://marketplace.chasesets.com"),
             indexing: indexing(var("CHASE_SETS_PUBLIC_INDEXING").as_deref()),
+            discord: var("CHASE_SETS_DISCORD_INVITE_URL"),
+            trust_forwarded: platform::client::trusted_from_env(),
+            home: crate::home::Kept::default(),
         }
     }
 
     /// The API's calls, for no one in particular, as if for the site's own host.
     pub fn api(&self) -> crate::api::Caller<'_> {
-        let (proto, host) = self.origin.split_once("://").unwrap_or(("https", &self.origin));
-        self.platform.anonymous(host, if proto == "http" { "http" } else { "https" })
+        let host = self.origin.split_once("://").map_or(self.origin.as_str(), |(_, host)| host);
+        self.platform.anonymous(host, self.proto())
+    }
+
+    /// The site's scheme, as the API is told it.
+    pub fn proto(&self) -> &'static str {
+        if self.origin.starts_with("http://") { "http" } else { "https" }
     }
 }
 
@@ -52,8 +70,8 @@ pub fn indexing(value: Option<&str>) -> bool {
 
 pub type Shared = Arc<Config>;
 
-/// public-web's origin (`PUBLIC_WEB_ORIGIN`), for its pages this app does not serve: Home, from
-/// a market page and from the error page, which Corten gives no state.
+/// public-web's origin (`PUBLIC_WEB_ORIGIN`), for its pages this app does not serve: the home
+/// page's links to the compare pages, the founders' terms, the FAQ, the policies and `/welcome`.
 pub fn public_web() -> &'static str {
     static ORIGIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         std::env::var("PUBLIC_WEB_ORIGIN").unwrap_or_else(|_| "http://localhost:7754".into()).trim_end_matches('/').into()
@@ -66,9 +84,13 @@ pub mod url {
     pub use files::Sitemap;
     pub use market::{Market, MarketPage};
 
-    /// The crawler files, outside every area.
+    /// The home page and the crawler files, outside every area.
     #[corten::routes(state = crate::app::Shared)]
     pub mod files {
+        /// The home page; a signup posts to it with the address's query.
+        #[route("/", get = crate::home::page, post = crate::home::join)]
+        pub struct Home;
+
         #[route("/robots.txt", get = crate::market::robots)]
         pub struct Robots;
 

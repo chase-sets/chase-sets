@@ -44,6 +44,9 @@
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
+// - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
+//   .nav.*, .footer.*, .faq.*, .routes.home.*, the brand and the footer's four agreement names).
+// - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`.
@@ -172,6 +175,10 @@ const colors = {
   info: "info",
   "info-soft": "info-soft",
   overlay: "overlay",
+  // The brand foil (BrandFoilText, the logo): public-web's home page title.
+  "logo-start": "chase-logo-start",
+  "logo-mid": "chase-logo-mid",
+  "logo-end": "chase-logo-end",
 };
 const shadows = { sm: "shadow-sm", md: "shadow-md", lg: "shadow-lg", overlay: "shadow-overlay" };
 
@@ -215,6 +222,20 @@ const fonts = [
   ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-400-normal.woff2"],
   ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-600-normal.woff2"],
   ["@fontsource/space-grotesk", "space-grotesk-latin-600-normal.woff2"],
+];
+
+// public-web's home page's pictures (features/waitlist/ui/assets): the hero in its three widths
+// and the social cards, in public/static/home/.
+const homeAssets = [
+  "chase-sets-prelaunch-hero-800w.webp",
+  "chase-sets-prelaunch-hero-1200w.webp",
+  "chase-sets-prelaunch-hero.webp",
+  "chase-sets-og-default.png",
+  "chase-sets-og-pokemon.png",
+  "chase-sets-og-magic-the-gathering.png",
+  "chase-sets-og-yu-gi-oh.png",
+  "chase-sets-og-disney-lorcana.png",
+  "chase-sets-og-one-piece-card-game.png",
 ];
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -423,6 +444,24 @@ const outputs = [
       ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.appRoot.", "root"]])),
     }),
   ],
+  [
+    "public/locales/home.en.json",
+    json(
+      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.home.", "home"],
+        ["publicPresence.waitlist.", "waitlist"],
+        ["publicPresence.nav.", "nav"],
+        ["publicPresence.footer.", "footer"],
+        ["publicPresence.faq.", "faq"],
+        ["publicPresence.routes.home.", "route"],
+        ["publicPresence.brand", "brand"],
+        ["publicPresence.info.sellerAgreement.eyebrow", "info.seller_agreement"],
+        ["publicPresence.info.paymentsTerms.eyebrow", "info.payments_terms"],
+        ["publicPresence.info.authenticityTerms.eyebrow", "info.authenticity_terms"],
+        ["publicPresence.info.agentTerms.eyebrow", "info.agent_terms"],
+      ]),
+    ),
+  ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];
@@ -453,6 +492,19 @@ for (const app of apps) {
       copyFileSync(source, target);
       console.log(`wrote ${app}/static/fonts/${name}`);
     }
+  }
+}
+mkdirSync(path.join(pilot, "public/static/home"), { recursive: true });
+for (const name of homeAssets) {
+  const source = path.join(repo, "bounded-contexts/public-presence/features/waitlist/ui/assets", name);
+  const target = path.join(pilot, "public/static/home", name);
+  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
+  if (check) {
+    console.error(`public/static/home/${name} is out of date`);
+    stale += 1;
+  } else {
+    copyFileSync(source, target);
+    console.log(`wrote public/static/home/${name}`);
   }
 }
 process.exit(stale ? 1 : 0);

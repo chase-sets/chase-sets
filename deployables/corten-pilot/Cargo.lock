@@ -254,6 +254,7 @@ dependencies = [
  "corten",
  "corten-pilot-platform",
  "http-body-util",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tokio",

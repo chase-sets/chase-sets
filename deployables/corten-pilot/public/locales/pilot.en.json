@@ -1,7 +1,8 @@
 {
   "shell": {
     "site": "Chase Sets",
-    "breadcrumb": "Breadcrumb"
+    "breadcrumb": "Breadcrumb",
+    "skip": "Skip to main content"
   },
   "chart": {
     "empty_title": "No data yet",
@@ -12,5 +13,16 @@
   },
   "error": {
     "failed": "This page could not be loaded. Try again in a moment."
+  },
+  "home": {
+    "highlight": "Marketing highlight",
+    "highlights": "Marketing highlights"
+  },
+  "promo": {
+    "label": "Marketplace announcements",
+    "previous": "Previous announcement",
+    "next": "Next announcement",
+    "pause": "Pause announcements",
+    "resume": "Resume announcements"
   }
 }

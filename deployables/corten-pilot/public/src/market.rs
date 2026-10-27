@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{MarketPage, Pricing},
-    app::{Shared, public_web, url},
+    app::{Shared, url},
     text::{MarketMsg, Pilot},
     views::{self, Layout, Screen},
 };
@@ -79,7 +79,7 @@ fn render(req: Req, config: &Shared, page: MarketPage) -> HtmlResult {
             <JsonLd value={ld} />
         }
     };
-    let screen = Screen { page, home: format!("{}/", public_web()), item };
+    let screen = Screen { page, home: "/".to_owned(), item };
     req.page(html! {
         <Layout req={&req} title={&title} head={head}>
             <views::MarketPage t={t} p={p} screen={&screen} />
