@@ -390,7 +390,7 @@ const promotionFacts = [
  * that exist only on reference members are omitted so they remain unset on the
  * Item rather than becoming reference-to-profile fallbacks.
  */
-function snapshotWithAuthoredFacts(
+export function snapshotWithAuthoredFacts(
   snapshot: CatalogMergeCandidateReviewSnapshot,
   authors: readonly ItemAuthor[],
 ): CatalogMergeCandidateReviewSnapshot {
@@ -400,7 +400,11 @@ function snapshotWithAuthoredFacts(
     const approved = approvedFact(snapshot.proposedCatalogItemFacts, fact.factKey);
     const carried = authors.some((author) => {
       const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
-      return extracted !== null && (approved === null || mergeCandidateFieldValuesEqual(extracted.value, approved));
+      return (
+        extracted !== null &&
+        !extracted.fromFallback &&
+        (approved === null || mergeCandidateFieldValuesEqual(extracted.value, approved))
+      );
     });
     const manuallyCorrected = snapshot.fieldProvenance.some(
       (entry) =>

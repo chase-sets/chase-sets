@@ -54,6 +54,7 @@ import {
   catalogMergeCandidateTargetId,
   loadCandidateApplication,
   requirePinnedProfileEligible,
+  snapshotWithAuthoredFacts,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
 import { applyCatalogMergeCandidateEdit } from "./catalog-merge-candidate-edit";
@@ -614,6 +615,27 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
     // carry MTGJSON rarity into the Item plan and fail the DB discriminant.
     expect(error).toMatchObject({ message: "unexpected-database" });
     expect(touched).toEqual(["database"]);
+  });
+
+  it("AC3: an optional fact recovered from candidate identity is not authored by the Scryfall member", async () => {
+    const [mtgjson, scryfall] = mixed();
+    const { cardNumber: _cardNumber, ...withoutCardNumber } = scryfall!.normalized as unknown as Record<
+      string,
+      unknown
+    >;
+    const arranged = arrange([mtgjson!, { ...scryfall!, normalized: withoutCardNumber as never }]);
+    const effective = snapshotWithAuthoredFacts(arranged.snapshot, [
+      {
+        revision: { normalized: withoutCardNumber, providerKey: "scryfall" },
+        normalized: withoutCardNumber,
+        version: scryfallCardPrint,
+      },
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("collectorNumber");
+    expect(effective.fieldProvenance).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.collectorNumber" })]),
+    );
   });
 
   it("AC3: a reviewer's correction is reviewed authority, not reference facts", async () => {
