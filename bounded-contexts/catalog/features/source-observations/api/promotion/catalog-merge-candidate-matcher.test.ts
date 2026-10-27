@@ -1,6 +1,6 @@
 import { normalizedObservation } from "../../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
-import type { SourceObservationNormalized } from "../../domain/domain";
+import type { SourceObservationMagicCardPrintNormalized, SourceObservationNormalized } from "../../domain/domain";
 import type { SourceObservationListRow } from "../../read-model/queries";
 import type { ProviderScopeMappingRow } from "../../../provider-scope-mapping/read-model/queries";
 import { buildCatalogMergeCandidatesFromObservations } from "./catalog-merge-candidate-matcher";
@@ -213,6 +213,129 @@ describe("Catalog Merge Candidate matcher", () => {
         candidate.snapshot.membership.some((member) => member.observationId === "obs_pokemon_sealed_alternate"),
       )?.snapshot.identity.barcode,
     ).toBe("0820650859999");
+  });
+
+  it("joins captured Scryfall and MTGJSON Time Spiral card prints through provider-aware set coordinates", () => {
+    const scryfall = magicCardObservationRow("obs_scryfall_tsp_157", "scryfall", "card:uuid-157", {
+      setCode: "tsp",
+      setId: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+    });
+    const mtgjson = magicCardObservationRow("obs_mtgjson_tsp_157", "mtgjson", "card:TSP-157", {
+      setCode: "TSP",
+      setId: null,
+    });
+    const result = buildCatalogMergeCandidatesFromObservations([scryfall, mtgjson], {
+      addedAt: "2026-07-14T12:00:00.000Z",
+      acceptedScopeMappings: [
+        mappingRow({
+          provider_key: "scryfall",
+          unit_key: "scryfall:mtg:single-card:reference-data",
+          scope_record_id: "ref_seed_set_time_spiral",
+          set_id: "tsp",
+          set_name: "Time Spiral",
+        }),
+        mappingRow({
+          provider_key: "mtgjson",
+          unit_key: "mtgjson:mtg:single-card:reference-data",
+          scope_record_id: "ref_seed_set_time_spiral",
+          set_id: "TSP",
+          set_name: "Time Spiral",
+        }),
+      ],
+      providerUnitKeyByObservationId: {
+        [scryfall.observation_id]: "scryfall:mtg:single-card:reference-data",
+        [mtgjson.observation_id]: "mtgjson:mtg:single-card:reference-data",
+      },
+    });
+
+    expect(result.exclusions).toEqual([]);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.snapshot.membership).toEqual([
+      expect.objectContaining({ observationId: "obs_mtgjson_tsp_157", providerKey: "mtgjson" }),
+      expect.objectContaining({ observationId: "obs_scryfall_tsp_157", providerKey: "scryfall" }),
+    ]);
+  });
+
+  it("keeps provider scope matching fail-closed and does not widen setCode to other providers", () => {
+    const scryfall = magicCardObservationRow("obs_scryfall_tsp_157", "scryfall", "card:uuid-157");
+    const baseMapping = mappingRow({
+      provider_key: "scryfall",
+      unit_key: "scryfall:mtg:single-card:reference-data",
+      scope_record_id: "ref_seed_set_time_spiral",
+      set_id: "tsp",
+      set_name: "Time Spiral",
+    });
+    const run = (acceptedScopeMappings: readonly ProviderScopeMappingRow[]) =>
+      buildCatalogMergeCandidatesFromObservations([scryfall], {
+        addedAt: "2026-07-14T12:00:00.000Z",
+        acceptedScopeMappings,
+        providerUnitKeyByObservationId: {
+          [scryfall.observation_id]: "scryfall:mtg:single-card:reference-data",
+        },
+      });
+
+    for (const [label, overrides] of [
+      ["set code", { set_id: "other" }],
+      ["set name", { set_name: "Planar Chaos" }],
+      ["language", { language_coordinates: { languageCode: "ja" } }],
+    ] as const) {
+      const result = run([{ ...baseMapping, ...overrides }]);
+      expect(result.candidates, label).toEqual([]);
+      expect(result.exclusions, label).toEqual([expect.objectContaining({ code: "unmapped-provider-scope" })]);
+    }
+
+    for (const review_status of ["proposed", "rejected", "revoked"] as const) {
+      const result = run([{ ...baseMapping, review_status }]);
+      expect(result.candidates).toEqual([]);
+      expect(result.exclusions).toEqual([expect.objectContaining({ code: "unmapped-provider-scope" })]);
+    }
+
+    const ambiguous = run([
+      baseMapping,
+      { ...baseMapping, mapping_id: "map_scryfall_time_spiral_2", scope_record_id: "scope_other" },
+    ]);
+    expect(ambiguous.candidates).toEqual([]);
+    expect(ambiguous.exclusions).toEqual([expect.objectContaining({ code: "ambiguous-provider-scope" })]);
+
+    const tcgplayer = pokemonSealedObservationRow("obs_tcgplayer_svi", "10001", "0820650851234");
+    const tcgplayerResult = buildCatalogMergeCandidatesFromObservations([tcgplayer], {
+      addedAt: "2026-07-14T12:00:00.000Z",
+      acceptedScopeMappings: [
+        mappingRow({
+          provider_key: "tcgplayer",
+          unit_key: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          set_id: "svi",
+          set_name: "Scarlet & Violet",
+        }),
+      ],
+      providerUnitKeyByObservationId: {
+        [tcgplayer.observation_id]: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      },
+    });
+    expect(tcgplayerResult.candidates).toEqual([]);
+    expect(tcgplayerResult.exclusions).toEqual([expect.objectContaining({ code: "unmapped-provider-scope" })]);
+
+    const mtgjson = magicCardObservationRow("obs_mtgjson_tsp_157", "mtgjson", "card:TSP-157", {
+      setCode: "TSP",
+      setId: null,
+    });
+    const mtgjsonResult = buildCatalogMergeCandidatesFromObservations([mtgjson], {
+      addedAt: "2026-07-14T12:00:00.000Z",
+      acceptedScopeMappings: [
+        mappingRow({
+          provider_key: "mtgjson",
+          unit_key: "mtgjson:mtg:single-card:reference-data",
+          scope_record_id: "ref_seed_set_time_spiral",
+          set_id: "TSP",
+          set_name: "Time Spiral",
+        }),
+      ],
+      providerUnitKeyByObservationId: {
+        [mtgjson.observation_id]: "mtgjson:mtg:single-card:reference-data",
+      },
+    });
+    expect(mtgjsonResult.exclusions).toEqual([]);
+    expect(mtgjsonResult.candidates).toHaveLength(1);
   });
 
   it("merges different provider set names through accepted mappings to one canonical scope record", () => {
@@ -479,6 +602,68 @@ function observationRow(
 }
 
 type PokemonObservation = Extract<SourceObservationNormalized, { kind: "pokemon-card" }>;
+
+function magicCardObservationRow(
+  observationId: string,
+  providerKey: string,
+  externalKey: string,
+  overrides: Partial<SourceObservationMagicCardPrintNormalized> = {},
+): SourceObservationListRow {
+  const normalized: SourceObservationMagicCardPrintNormalized = {
+    kind: "magic-card-print",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Fury Sliver",
+    cardNumber: "157",
+    setCode: "tsp",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+    oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+    rarity: "Rare",
+    illustrator: "Paolo Parente",
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardVariantKey: "standard",
+    cardVariantLabel: "Standard",
+    imageUrls: ["https://cards.scryfall.io/normal/front/fury-sliver.jpg"],
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Fury Sliver",
+      collectorNumber: "157",
+      languageCode: "en",
+      productForm: "magic-card-print",
+    },
+    ...overrides,
+  };
+
+  return {
+    observation_id: observationId,
+    sync_run_id: "job_time_spiral_sync",
+    provider_key: providerKey,
+    external_key: externalKey,
+    source_url: `https://provider.example/${externalKey}`,
+    language_code: normalized.languageCode,
+    source_record_hash: `${observationId}-hash`,
+    source_updated_at: null,
+    observed_at: "2026-07-14T11:59:00.000Z",
+    source_profile_key: `${providerKey}-magic-card-print`,
+    source_profile_version: "2026.07.14",
+    source_mapping_fingerprint: `${providerKey}-magic-mapping`,
+    normalized,
+    status: "observed",
+    status_reason: null,
+    promoted_catalog_item_id: null,
+    promoted_reference_record_id: null,
+    promoted_at: null,
+    promotion_profile_key: null,
+    promotion_profile_version: null,
+    promotion_plan_fingerprint: null,
+    updated_at: "2026-07-14T11:59:00.000Z",
+  };
+}
 
 function providerProductObservationRow(
   observationId: string,
