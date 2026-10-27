@@ -714,6 +714,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "pricing-health-verdict.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-compare-goals.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-apply-goal.spec.ts": [0, 0, 1, 0, "seeded-form"],
+  "pricing-health-what-if.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "seller-time-away-capacity.spec.ts": [0, 0, 1, 0, "seeded-form"],
 };
 const trackedMarketplaceSources = execFileSync("git", ["ls-files", "-z", "--", ...censusRoots], {
@@ -921,7 +922,7 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 31,
+      totalRuntime: 32,
       synthetic: 7,
       direct: 10,
       receiptedSessionReads: 1,
@@ -956,7 +957,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(31);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(32);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {
