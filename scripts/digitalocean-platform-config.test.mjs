@@ -2479,6 +2479,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('docker buildx imagetools create --tag "$image" "$tree_image"');
     expect(platformProductionWorkflow).toContain('docker push "$RELEASE_IMAGE"');
     expect(platformProductionWorkflow).toContain("REGISTRY_GC_GATE_OUT");
+    expect(platformProductionWorkflow).toContain(
+      "root_cause_code: ${{ steps.build_image_failure_classification.outputs.root_cause_code",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "BUILD_ROOT_CAUSE_CODE: ${{ needs.build-image.outputs.root_cause_code",
+    );
+    expect(platformProductionWorkflow).toContain("--phase build-image");
     expect(platformPrWorkflow).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
     expect(platformPrWorkflow).toContain('docker push "$image" | tee "$push_output"');
     expect(platformPrWorkflow).toContain("docker buildx build \\\n            --pull");
@@ -2488,6 +2495,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(readFileSync(resolve("scripts/digitalocean-registry-gc-gate.mjs"), "utf8")).toContain(
       'ACTIVE_GC_NOT_FOUND_PHRASE = "did not find an active garbage collection"',
     );
+    expect(platformProductionWorkflow).toContain('--registry="$registry_name"');
   });
 
   it("captures sensitive Terraform errored state artifacts when platform apply fails", () => {

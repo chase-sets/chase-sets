@@ -707,7 +707,7 @@ jobs:
           if docker buildx imagetools inspect "$tree_image" >/dev/null 2>&1; then
             tree_digest="$(docker buildx imagetools inspect "$tree_image" --format '{{.Manifest.Digest}}')"
             node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-              --repository="$registry_name" \
+              --registry="$registry_name" \
               --out=artifacts/release-health/registry-gc-gate.json
             docker buildx imagetools create --tag "$image" "$tree_image"
             release_digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
@@ -798,7 +798,7 @@ jobs:
           registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
           registry_name="${registry_name%%/*}"
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-            --repository="$registry_name" \
+            --registry="$registry_name" \
             --out=artifacts/release-health/registry-gc-gate.json
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
@@ -834,7 +834,7 @@ jobs:
             registry_name="${DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK}"
           fi
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-            --repository="$registry_name" \
+            --registry="$registry_name" \
             --out=artifacts/release-health/registry-gc-gate.json || true
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
@@ -4847,7 +4847,7 @@ jobs:
           registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
           registry_name="${registry_name%%/*}"
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-            --repository="$registry_name" \
+            --registry="$registry_name" \
             --out artifacts/release-health/registry-gc-gate.json || true
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \

@@ -29,14 +29,6 @@ function compactFailure(error) {
   return stderr.replace(/\s+/g, " ").trim().slice(0, 500) || "provider command failed";
 }
 
-function unwrap(value, keys) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  for (const key of keys) {
-    if (value[key] && typeof value[key] === "object" && !Array.isArray(value[key])) return value[key];
-  }
-  return value;
-}
-
 function field(value, names) {
   for (const name of names) {
     if (Object.prototype.hasOwnProperty.call(value, name)) return value[name];
@@ -44,28 +36,36 @@ function field(value, names) {
   return undefined;
 }
 
-export function parseGarbageCollectionRecord(raw, repository) {
-  let value;
-  try {
-    value = typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch {
-    return { kind: "error", reason: "malformed", detail: "provider returned malformed JSON" };
+function parseGarbageCollectionEntry(record, registry) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return { kind: "error", reason: "malformed", detail: "provider returned an unexpected shape" };
   }
-  const record = unwrap(value, ["garbage_collection", "garbageCollection", "GarbageCollection"]);
-  if (!record) return { kind: "error", reason: "malformed", detail: "provider returned an unexpected shape" };
   const uuid = field(record, ["uuid", "UUID", "id", "ID"]);
   const status = field(record, ["status", "Status"]);
   const registryName = field(record, ["registry_name", "registryName", "RegistryName", "registry"]);
   if (typeof uuid !== "string" || !/^[0-9a-f-]{36}$/i.test(uuid) || typeof status !== "string" || !status.trim()) {
     return { kind: "error", reason: "malformed", detail: "provider omitted UUID or status" };
   }
-  if (registryName !== undefined && registryName !== repository) {
+  if (registryName !== undefined && registryName !== registry) {
     return { kind: "error", reason: "mismatched-registry", detail: "provider returned another registry" };
   }
-  return { kind: "active", uuid, status: status.trim().toLowerCase(), registry: registryName ?? repository };
+  return { kind: "active", uuid, status: status.trim().toLowerCase(), registry: registryName ?? registry };
 }
 
-function parseList(raw, repository) {
+export function parseGarbageCollectionRecord(raw, registry) {
+  let value;
+  try {
+    value = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    return { kind: "error", reason: "malformed", detail: "provider returned malformed JSON" };
+  }
+  if (!Array.isArray(value) || value.length !== 1) {
+    return { kind: "error", reason: "malformed", detail: "provider returned an unexpected shape" };
+  }
+  return parseGarbageCollectionEntry(value[0], registry);
+}
+
+function parseList(raw, registry) {
   let value;
   try {
     value = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -80,16 +80,16 @@ function parseList(raw, repository) {
         ? value.garbageCollections
         : null;
   if (!entries) return { kind: "error", reason: "malformed", detail: "provider returned an unexpected list shape" };
-  const records = entries.map((entry) => parseGarbageCollectionRecord(entry, repository));
+  const records = entries.map((entry) => parseGarbageCollectionEntry(entry, registry));
   if (records.some((entry) => entry.kind === "error")) return records.find((entry) => entry.kind === "error");
   return { kind: "list", records };
 }
 
-export async function getActiveGarbageCollection(repository, dependencies = {}) {
+export async function getActiveGarbageCollection(registry, dependencies = {}) {
   const output = dependencies.commandOutput ?? commandOutput;
   try {
-    const raw = await output("doctl", ["registry", "garbage-collection", "get-active", repository, "--output", "json"]);
-    return parseGarbageCollectionRecord(raw, repository);
+    const raw = await output("doctl", ["registry", "garbage-collection", "get-active", registry, "--output", "json"]);
+    return parseGarbageCollectionRecord(raw, registry);
   } catch (error) {
     const stderr = `${error?.stderr ?? ""}\n${error?.stdout ?? ""}`;
     if (stderr.includes(ACTIVE_GC_NOT_FOUND_PHRASE)) return { kind: "none" };
@@ -97,20 +97,20 @@ export async function getActiveGarbageCollection(repository, dependencies = {}) 
   }
 }
 
-export async function listGarbageCollections(repository, dependencies = {}) {
+export async function listGarbageCollections(registry, dependencies = {}) {
   const output = dependencies.commandOutput ?? commandOutput;
   try {
-    const raw = await output("doctl", ["registry", "garbage-collection", "list", repository, "--output", "json"]);
-    return parseList(raw, repository);
+    const raw = await output("doctl", ["registry", "garbage-collection", "list", registry, "--output", "json"]);
+    return parseList(raw, registry);
   } catch (error) {
     return { kind: "error", reason: "provider-error", detail: compactFailure(error) };
   }
 }
 
-function refusal(repository, reason, detail, active = false) {
+function refusal(registry, reason, detail, active = false) {
   return {
     schemaVersion: DIGITALOCEAN_REGISTRY_GC_GATE_VERSION,
-    repository,
+    repository: registry,
     result: "refused",
     reason,
     detail,
@@ -119,24 +119,24 @@ function refusal(repository, reason, detail, active = false) {
   };
 }
 
-export async function assertRegistryWritable(repository, dependencies = {}) {
-  const active = await getActiveGarbageCollection(repository, dependencies);
+export async function assertRegistryWritable(registry, dependencies = {}) {
+  const active = await getActiveGarbageCollection(registry, dependencies);
   if (active.kind === "none") {
     return {
       schemaVersion: DIGITALOCEAN_REGISTRY_GC_GATE_VERSION,
-      repository,
+      repository: registry,
       result: "writable",
       reason: "no-active-garbage-collection",
       active: false,
       rootCauseCode: "",
     };
   }
-  if (active.kind === "active") return refusal(repository, "active-garbage-collection", active.status, true);
-  return refusal(repository, active.reason, active.detail, false);
+  if (active.kind === "active") return refusal(registry, "active-garbage-collection", active.status, true);
+  return refusal(registry, active.reason, active.detail, false);
 }
 
 export async function waitForRegistryGarbageCollection(options, dependencies = {}) {
-  const repository = options.repository;
+  const registry = options.registry ?? options.repository;
   const uuid = options.uuid;
   const maxWaitMs = options.maxWaitMs ?? REGISTRY_GC_WAIT_MINUTES * 60_000;
   const pollIntervalMs = options.pollIntervalMs ?? REGISTRY_GC_POLL_INTERVAL_MS;
@@ -146,28 +146,28 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
   const startedAt = now();
   for (;;) {
     if (dependencies.isCancelled?.() || options.signal?.aborted) {
-      return { ...refusal(repository, "cancelled", "garbage-collection wait was cancelled"), records };
+      return { ...refusal(registry, "cancelled", "garbage-collection wait was cancelled"), records };
     }
-    const active = await getActiveGarbageCollection(repository, dependencies);
+    const active = await getActiveGarbageCollection(registry, dependencies);
     records.push(active);
     if (active.kind === "none") {
       if (!uuid) {
         return {
-          ...refusal(repository, "missing-garbage-collection-identity", "start did not return a UUID"),
+          ...refusal(registry, "missing-garbage-collection-identity", "start did not return a UUID"),
           records,
         };
       }
-      const listed = await listGarbageCollections(repository, dependencies);
+      const listed = await listGarbageCollections(registry, dependencies);
       if (listed.kind !== "list") {
-        return { ...refusal(repository, "list-error", listed.detail), records };
+        return { ...refusal(registry, "list-error", listed.detail), records };
       }
       const terminal = listed.records.find((entry) => entry.uuid === uuid);
       if (!terminal)
-        return { ...refusal(repository, "missing-garbage-collection", "started UUID was not listed"), records };
+        return { ...refusal(registry, "missing-garbage-collection", "started UUID was not listed"), records };
       if (terminal.status === "succeeded") {
         return {
           schemaVersion: DIGITALOCEAN_REGISTRY_GC_GATE_VERSION,
-          repository,
+          repository: registry,
           uuid,
           result: "succeeded",
           reason: "terminal-succeeded",
@@ -178,7 +178,7 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
         };
       }
       return {
-        ...refusal(repository, `terminal-${terminal.status}`, `garbage collection ended ${terminal.status}`),
+        ...refusal(registry, `terminal-${terminal.status}`, `garbage collection ended ${terminal.status}`),
         uuid,
         status: terminal.status,
         records,
@@ -187,7 +187,7 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
     if (now() - startedAt >= maxWaitMs) {
       return {
         ...refusal(
-          repository,
+          registry,
           "wait-timeout",
           `garbage collection did not become terminal within ${maxWaitMs / 60_000} minutes`,
         ),
@@ -199,8 +199,8 @@ export async function waitForRegistryGarbageCollection(options, dependencies = {
   }
 }
 
-export function parseStartedGarbageCollection(raw) {
-  const parsed = parseGarbageCollectionRecord(raw);
+export function parseStartedGarbageCollection(raw, registry) {
+  const parsed = parseGarbageCollectionRecord(raw, registry);
   return parsed.kind === "active" ? parsed.uuid : null;
 }
 
@@ -210,24 +210,24 @@ async function writeRecord(path, record) {
 
 async function main(argv) {
   const [command, ...args] = argv;
-  const repository =
-    args.find((arg) => arg.startsWith("--repository="))?.slice("--repository=".length) || "chase-sets-platform";
+  const registry = args.find((arg) => arg.startsWith("--registry="))?.slice("--registry=".length);
+  if (!registry) throw new Error("--registry=<name> is required");
   const out = args.find((arg) => arg.startsWith("--out="))?.slice("--out=".length);
   if (command === "assert-writable") {
-    const record = await assertRegistryWritable(repository);
+    const record = await assertRegistryWritable(registry);
     await writeRecord(out, record);
     console.log(JSON.stringify(record));
     return record.result === "writable" ? 0 : 1;
   }
   if (command === "wait") {
     const uuid = args.find((arg) => arg.startsWith("--uuid="))?.slice("--uuid=".length);
-    const record = await waitForRegistryGarbageCollection({ repository, uuid });
+    const record = await waitForRegistryGarbageCollection({ repository: registry, uuid });
     await writeRecord(out, record);
     console.log(JSON.stringify(record));
     return record.result === "succeeded" ? 0 : 1;
   }
   throw new Error(
-    "Usage: digitalocean-registry-gc-gate.mjs assert-writable|wait --repository=<name> [--uuid=<uuid>] [--out=<path>]",
+    "Usage: digitalocean-registry-gc-gate.mjs assert-writable|wait --registry=<name> [--uuid=<uuid>] [--out=<path>]",
   );
 }
 

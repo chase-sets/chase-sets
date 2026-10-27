@@ -14,6 +14,8 @@ import {
 import {
   ACTIVE_GC_NOT_FOUND_PHRASE,
   assertRegistryWritable,
+  parseGarbageCollectionRecord,
+  parseStartedGarbageCollection,
   waitForRegistryGarbageCollection,
 } from "./digitalocean-registry-gc-gate.mjs";
 
@@ -36,42 +38,132 @@ const providerFailure = (status, message, { code = 1 } = {}) => {
 };
 
 describe("digitalocean-registry-cleanup", () => {
+  it("accepts the doctl one-record array shape for active and start responses", () => {
+    const raw = JSON.stringify([
+      {
+        uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+        registry_name: "chase-sets",
+        status: "scanning for unreferenced blobs",
+      },
+    ]);
+    expect(parseGarbageCollectionRecord(raw, "chase-sets")).toMatchObject({
+      kind: "active",
+      uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+      registry: "chase-sets",
+    });
+    expect(parseStartedGarbageCollection(raw, "chase-sets")).toBe("c5cf2bde-b606-4663-b6ec-7320b0f8b262");
+    expect(parseGarbageCollectionRecord(JSON.stringify([]), "chase-sets").reason).toBe("malformed");
+  });
+
+  it("keeps provider errors and malformed observations in the wait until budget", async () => {
+    let nowValue = 0;
+    let probes = 0;
+    const error = Object.assign(new Error("provider failure"), { stderr: "500 internal failure" });
+    const result = await waitForRegistryGarbageCollection(
+      { repository: "chase-sets", uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", maxWaitMs: 60_000 },
+      {
+        commandOutput: async () => {
+          probes += 1;
+          throw error;
+        },
+        now: () => nowValue,
+        sleep: async (ms) => {
+          nowValue += ms;
+        },
+      },
+    );
+    expect(result).toMatchObject({ result: "refused", reason: "wait-timeout" });
+    expect(probes).toBe(2);
+    expect(result.records.every((record) => record.reason === "provider-error")).toBe(true);
+  });
+
+  it("polls malformed then active then exact-none before recording list success", async () => {
+    const uuid = "c5cf2bde-b606-4663-b6ec-7320b0f8b262";
+    let activeCalls = 0;
+    let nowValue = 0;
+    const sleeps = [];
+    const result = await waitForRegistryGarbageCollection(
+      { repository: "chase-sets", uuid, maxWaitMs: 180_000 },
+      {
+        commandOutput: async (_command, args) => {
+          if (args[2] === "get-active") {
+            activeCalls += 1;
+            if (activeCalls === 1) return "{}";
+            if (activeCalls === 2)
+              return JSON.stringify([{ uuid, registry_name: "chase-sets", status: "deleting unreferenced blobs" }]);
+            const error = new Error("none");
+            error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+            throw error;
+          }
+          return JSON.stringify([{ uuid, registry_name: "chase-sets", status: "succeeded" }]);
+        },
+        now: () => nowValue,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          nowValue += ms;
+        },
+      },
+    );
+    expect(result).toMatchObject({ result: "succeeded", reason: "terminal-succeeded" });
+    expect(activeCalls).toBe(3);
+    expect(sleeps).toEqual([60_000, 60_000]);
+  });
+
+  it("keeps a failed terminal list result classified after an error then exact-none", async () => {
+    const uuid = "c5cf2bde-b606-4663-b6ec-7320b0f8b262";
+    let activeCalls = 0;
+    const result = await waitForRegistryGarbageCollection(
+      { repository: "chase-sets", uuid, maxWaitMs: 60_000 },
+      {
+        commandOutput: async (_command, args) => {
+          if (args[2] === "get-active") {
+            activeCalls += 1;
+            if (activeCalls === 1) throw Object.assign(new Error("provider"), { stderr: "401 unauthorized" });
+            const error = new Error("none");
+            error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+            throw error;
+          }
+          return JSON.stringify([{ uuid, registry_name: "chase-sets", status: "failed" }]);
+        },
+        now: () => 0,
+        sleep: async () => {},
+      },
+    );
+    expect(result).toMatchObject({ result: "refused", reason: "terminal-failed", status: "failed" });
+  });
+
   it("fails closed for active, malformed, unknown, timeout, and cancellation observations", async () => {
     const uuid = "c5cf2bde-b606-4663-b6ec-7320b0f8b262";
-    const active = JSON.stringify({
-      UUID: uuid,
-      RegistryName: "chase-sets-platform",
-      Status: "scanning for unreferenced blobs",
-    });
+    const active = JSON.stringify([{ uuid, registry_name: "chase-sets", status: "scanning for unreferenced blobs" }]);
     let calls = 0;
     await expect(
       waitForRegistryGarbageCollection(
-        { repository: "chase-sets-platform", uuid, maxWaitMs: 1, pollIntervalMs: 0 },
+        { repository: "chase-sets", uuid, maxWaitMs: 1, pollIntervalMs: 0 },
         { commandOutput: async () => active, now: () => ++calls, sleep: async () => {} },
       ),
     ).resolves.toMatchObject({ result: "refused", reason: "wait-timeout" });
 
     await expect(
-      assertRegistryWritable("chase-sets-platform", {
-        commandOutput: async () => JSON.stringify({ UUID: uuid, Status: "mystery" }),
+      assertRegistryWritable("chase-sets", {
+        commandOutput: async () => JSON.stringify([{ uuid, registry_name: "chase-sets", status: "mystery" }]),
       }),
     ).resolves.toMatchObject({ result: "refused", reason: "active-garbage-collection", active: true });
 
     await expect(
-      assertRegistryWritable("chase-sets-platform", {
-        commandOutput: async () => JSON.stringify({ Status: "scanning for unreferenced blobs" }),
+      assertRegistryWritable("chase-sets", {
+        commandOutput: async () => JSON.stringify([{ status: "scanning for unreferenced blobs" }]),
       }),
     ).resolves.toMatchObject({ result: "refused", reason: "malformed", active: false });
 
     await expect(
       waitForRegistryGarbageCollection(
-        { repository: "chase-sets-platform", uuid, maxWaitMs: 10, pollIntervalMs: 0 },
+        { repository: "chase-sets", uuid, maxWaitMs: 10, pollIntervalMs: 0 },
         { commandOutput: async () => active, now: () => 0, sleep: async () => {}, isCancelled: () => true },
       ),
     ).resolves.toMatchObject({ result: "refused", reason: "cancelled" });
 
     await expect(
-      assertRegistryWritable("chase-sets-platform", {
+      assertRegistryWritable("chase-sets", {
         commandOutput: async () => {
           const error = new Error("provider error");
           error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
@@ -112,6 +204,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         retainRecentShaTreeTags: 1,
         dryRun: true,
@@ -293,6 +386,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         retainRecentShaTreeTags: 1,
         dryRun: false,
@@ -347,6 +441,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         dryRun: false,
         requestedDryRun: false,
@@ -363,7 +458,9 @@ describe("digitalocean-registry-cleanup", () => {
             return "";
           }
           if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "start") {
-            return JSON.stringify({ UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", Status: "started" });
+            return JSON.stringify([
+              { uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262", registry_name: "chase-sets", status: "started" },
+            ]);
           }
           if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "get-active") {
             const error = new Error("none");
@@ -373,9 +470,9 @@ describe("digitalocean-registry-cleanup", () => {
           if (args[0] === "registry" && args[1] === "garbage-collection" && args[2] === "list") {
             return JSON.stringify([
               {
-                UUID: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
-                RegistryName: "chase-sets-platform",
-                Status: "succeeded",
+                uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+                registry_name: "chase-sets",
+                status: "succeeded",
               },
             ]);
           }
@@ -402,6 +499,8 @@ describe("digitalocean-registry-cleanup", () => {
       "--force",
     ]);
     expect(calls).toContainEqual(["registry", "garbage-collection", "start", "--force", "--output", "json"]);
+    expect(calls).toContainEqual(["registry", "garbage-collection", "get-active", "chase-sets", "--output", "json"]);
+    expect(calls).toContainEqual(["registry", "garbage-collection", "list", "chase-sets", "--output", "json"]);
   });
 
   it("accepts the sanitized real-run godo 412 shape at the cleanup client seam and writes the canonical record", async () => {
@@ -412,6 +511,7 @@ describe("digitalocean-registry-cleanup", () => {
       const result = await runDigitalOceanRegistryCleanup(
         {
           repository: "chase-sets-platform",
+          registry: "chase-sets",
           retentionDays: 7,
           dryRun: false,
           requestedDryRun: false,
@@ -499,6 +599,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         dryRun: false,
         requestedDryRun: false,
@@ -536,6 +637,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         dryRun: false,
         requestedDryRun: false,
@@ -576,6 +678,7 @@ describe("digitalocean-registry-cleanup", () => {
     const result = await runDigitalOceanRegistryCleanup(
       {
         repository: "chase-sets-platform",
+        registry: "chase-sets",
         retentionDays: 7,
         dryRun: false,
         requestedDryRun: false,

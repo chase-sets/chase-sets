@@ -22,21 +22,68 @@ const temporaryDirectories = [];
 const ambientPath = process.env.PATH ?? process.env.Path ?? "";
 const shellPath = process.platform === "win32" ? `${dirname(bashLauncher)}${delimiter}${ambientPath}` : ambientPath;
 
+function workflowRunBlocks(source) {
+  const lines = source.split(/\r?\n/);
+  const starts = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^\s{6}- (?:name|uses):/.test(line));
+  return starts.map(({ line, index }, position) => ({
+    name: line.replace(/^\s{6}- name:\s*/, "").trim(),
+    text: lines.slice(index, starts[position + 1]?.index ?? lines.length).join("\n"),
+  }));
+}
+
+function assertWriterGates(source, writers) {
+  const blocks = workflowRunBlocks(source);
+  for (const { name, writer } of writers) {
+    const block = blocks.find((entry) => entry.name === name);
+    expect(block, `missing writer step ${name}`).toBeDefined();
+    const lines = block.text.split(/\r?\n/);
+    const writerIndex = writer(lines);
+    expect(writerIndex, `missing writer in ${name}`).toBeGreaterThanOrEqual(0);
+    const gateIndices = lines
+      .map((line, index) => ({ line, index }))
+      .filter(
+        ({ line, index }) => index < writerIndex && line.includes("digitalocean-registry-gc-gate.mjs assert-writable"),
+      );
+    expect(gateIndices, `missing gate before ${name}`).not.toHaveLength(0);
+    const gate = gateIndices.at(-1);
+    expect(lines.slice(gate.index, writerIndex).join("\n")).toContain("--registry=");
+    expect(lines.slice(gate.index, writerIndex).join("\n")).not.toMatch(/assert-writable[\s\S]*\|\|\s*(?:true|:)/);
+  }
+}
+
+const lineContaining = (pattern) => (lines) => lines.findIndex((line) => pattern.test(line));
+const buildPushWriter = (lines) => {
+  const start = lines.findIndex((line) => /docker buildx build/.test(line));
+  return start >= 0 && lines.slice(start).some((line) => /--push/.test(line)) ? start : -1;
+};
+
 it("census includes every DOCR writer and the shared fail-closed gate", () => {
   const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
   const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
   const marker = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
   expect(registrySource).toContain("timeout-minutes: 135");
-  expect(production).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
-  expect(production).toContain('docker buildx imagetools create --tag "$image" "$tree_image"');
-  expect(production).toContain('docker push "$RELEASE_IMAGE"');
-  expect(pullRequest).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
-  expect(pullRequest).toContain('docker push "$image" | tee "$push_output"');
-  expect(pullRequest).toContain("docker buildx build");
+  assertWriterGates(production, [
+    { name: "Build release image", writer: lineContaining(/docker buildx imagetools create/) },
+    { name: "Push release image", writer: lineContaining(/docker push "\$RELEASE_IMAGE"/) },
+  ]);
+  assertWriterGates(pullRequest, [
+    { name: "Push boot-smoked merge-group image", writer: lineContaining(/docker push "\$image"/) },
+    { name: "Build and push platform image", writer: buildPushWriter },
+  ]);
   expect(production).toContain("doctl registry create");
   expect(pullRequest).toContain("doctl registry create");
   expect(marker).toContain("assertRegistryWritable");
   expect(marker).toContain("registry-gc-read-only");
+});
+
+it("rejects a synthetic ungated writer as the negative census control", () => {
+  expect(() =>
+    assertWriterGates('      - name: Synthetic writer\n        run: |\n          docker push \\"$image\\"\n', [
+      { name: "Synthetic writer", writer: lineContaining(/docker push/) },
+    ]),
+  ).toThrow();
 });
 
 afterEach(() => {
@@ -223,7 +270,7 @@ function assertRegistryStepTopology(workflow) {
     deployLane: names.indexOf("Check deploy lane"),
     cleanup: names.indexOf("Cleanup registry tags"),
   };
-  expect(indices).toEqual({ resolver: 0, deployLane: 5, cleanup: 6 });
+  expect(indices).toEqual({ resolver: 0, deployLane: 6, cleanup: 7 });
   expect(indices.resolver).toBeLessThan(indices.deployLane);
   expect(indices.resolver).toBeLessThan(indices.cleanup);
 
@@ -231,9 +278,9 @@ function assertRegistryStepTopology(workflow) {
     .map((step, index) => ({ index, name: step.name, source: JSON.stringify(step) }))
     .filter(({ index, source }) => index !== indices.resolver && source.includes(registryResolvedName));
   expect(resolvedConsumers.map(({ index, name }) => ({ index, name }))).toEqual([
-    { index: 5, name: "Check deploy lane" },
-    { index: 6, name: "Cleanup registry tags" },
-    { index: 7, name: "Record cancelled registry cleanup" },
+    { index: 6, name: "Check deploy lane" },
+    { index: 7, name: "Cleanup registry tags" },
+    { index: 8, name: "Record cancelled registry cleanup" },
   ]);
   for (const consumer of resolvedConsumers) expect(indices.resolver).toBeLessThan(consumer.index);
   return indices;

@@ -227,6 +227,23 @@ describe("deployment root-cause taxonomy", () => {
     });
   });
 
+  it("carries a build-image registry refusal through classify-run", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "failure",
+        buildRootCauseCode: "registry-gc-read-only",
+        deployStagingResult: "skipped",
+        deployProductionResult: "skipped",
+        recordStagingHealthResult: "success",
+      }),
+    ).toMatchObject({
+      action: "create-or-update",
+      reason: "registry-gc-read-only",
+      rootCauseCode: "registry-gc-read-only",
+    });
+  });
+
   it("redacts tokens, connection strings, cookies, authorization headers, JSON secrets, and private keys", () => {
     const redacted = redactDeployDiagnosticText(
       [

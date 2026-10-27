@@ -125,6 +125,7 @@ export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
   const requestedDryRunInput = env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN;
   return {
     repository: readOption(argv, "--repository", env.PLATFORM_IMAGE_REPOSITORY ?? "chase-sets-platform"),
+    registry: readOption(argv, "--registry", env.DIGITALOCEAN_REGISTRY_NAME),
     retentionDays: Number.parseInt(
       readOption(argv, "--retention-days", env.DIGITALOCEAN_REGISTRY_CLEANUP_RETENTION_DAYS ?? "30"),
       10,
@@ -172,6 +173,7 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
     requestedMode:
       options.requestedDryRun === true ? "dry-run" : options.requestedDryRun === false ? "apply" : "unknown",
     repository: options.repository,
+    registry: options.registry,
     retentionDays: options.retentionDays,
     retainRecentShaTreeTags: options.retainRecentShaTreeTags,
     protectedTags: [],
@@ -260,14 +262,14 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
       "--output",
       "json",
     ]);
-    const garbageCollectionUuid = parseStartedGarbageCollection(startedOutput);
+    const garbageCollectionUuid = parseStartedGarbageCollection(startedOutput, options.registry);
     record.garbageCollection = {
       status: "started",
       reason: selectedTags.length > 0 ? "cleanup-applied" : "no-deletions",
       uuid: garbageCollectionUuid,
     };
     const wait = await waitForRegistryGarbageCollection(
-      { repository: options.repository, uuid: garbageCollectionUuid },
+      { registry: options.registry, uuid: garbageCollectionUuid },
       dependencies,
     );
     if (wait.result !== "succeeded") {
@@ -319,6 +321,9 @@ function validateCleanupOptions(options) {
     errors.push(
       `Resolved cleanup mode ${options.dryRun ? "dry-run" : "apply"} does not match requested mode ${options.requestedDryRun ? "dry-run" : "apply"}.`,
     );
+  }
+  if (options.dryRun === false && (!options.registry || typeof options.registry !== "string")) {
+    errors.push("--registry=<name> is required for apply cleanup.");
   }
   if (!isNonEmptyString(options.repository)) {
     errors.push("--repository is required.");
@@ -495,7 +500,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>|--out <path>]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--registry=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>|--out <path>]",
   );
 }
 

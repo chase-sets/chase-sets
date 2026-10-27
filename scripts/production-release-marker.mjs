@@ -809,7 +809,24 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
   };
   io.assertRegistryWritable = async () => {
     const registryToken = env.DIGITALOCEAN_ACCESS_TOKEN;
-    if (!registryToken) return;
+    if (!registryToken) {
+      const result = {
+        schemaVersion: "digitalocean-registry-gc-gate/v1",
+        repository: identity.image.split("/")[1],
+        result: "refused",
+        reason: "missing-registry-credential",
+        detail: "scoped DigitalOcean registry credential is unavailable",
+        active: false,
+        rootCauseCode: "unknown",
+      };
+      if (env.REGISTRY_GC_GATE_OUT) {
+        await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
+      }
+      const error = new Error(`Registry mutation refused (${result.rootCauseCode}): ${result.reason}`);
+      error.code = result.rootCauseCode;
+      error.registryGcGate = result;
+      throw error;
+    }
     const result = await assertDigitalOceanRegistryWritable(identity.image.split("/")[1], {
       commandOutput: async (program, args) =>
         (
@@ -822,7 +839,7 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       await writeFile(env.REGISTRY_GC_GATE_OUT, `${JSON.stringify(result, null, 2)}\n`);
     }
     if (result.result !== "writable") {
-      const error = new Error(`Registry mutation refused: ${result.reason}`);
+      const error = new Error(`Registry mutation refused (${result.rootCauseCode || "unknown"}): ${result.reason}`);
       error.code = result.rootCauseCode || "registry-gc-gate-unknown";
       error.registryGcGate = result;
       throw error;
