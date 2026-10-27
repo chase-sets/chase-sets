@@ -775,7 +775,8 @@ export async function resolveRoleAwarePromotionProfile(
     return { version, providerKey: revision.providerKey, externalKey: revision.externalKey };
   } catch (error) {
     const versions = await profileVersions.listProfileVersions(revision.providerKey);
-    if (!isReferenceOnlyProfileUnit(versions)) throw blocked("promotion-profile-unavailable", errorText(error));
+    if (!isReferenceOnlyProfileUnit(versions))
+      throw blocked(promotionProfileFailureCode(versions, normalized, error), errorText(error));
 
     const normalizedReferences = new Set(
       (normalized.externalCatalogItemReferences ?? []).map(
@@ -819,6 +820,25 @@ export async function resolveRoleAwarePromotionProfile(
     }
     return candidates[0]!;
   }
+}
+
+function promotionProfileFailureCode(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  normalized: CatalogItemPromotableSourceObservationNormalized,
+  error: unknown,
+): string {
+  const message = errorText(error);
+  if (message.includes("multiple active")) return "promotion-profile-ambiguous";
+  const matching = versions.filter((version) => version.profile.normalizedObservationMapping.kind === normalized.kind);
+  if (matching.length === 0) return "promotion-profile-incompatible";
+  if (
+    matching.some((version) => version.profile.capabilities.includes("catalog-item-promotion")) &&
+    matching.every(
+      (version) => !version.active || version.lifecycle !== "active" || version.profile.status !== "active",
+    )
+  )
+    return "promotion-profile-inactive";
+  return "promotion-profile-unavailable";
 }
 
 function isReferenceOnlyProfileUnit(versions: readonly CatalogProviderIntegrationProfileVersionRecord[]): boolean {
