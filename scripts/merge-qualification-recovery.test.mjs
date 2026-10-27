@@ -35,6 +35,7 @@ const candidate = buildMergeQualificationCandidate({
   candidateSha: sha,
   candidateTreeSha: "e".repeat(40),
   builtImageDigest: `sha256:${"f".repeat(64)}`,
+  policyRevision: revision,
   capturedAt: "2026-07-21T10:00:00Z",
 }).record;
 const run = {
@@ -1096,6 +1097,8 @@ describe("candidate publication byte contract", () => {
             path.join(dir, "queue.json"),
             "--queue-base-sha",
             candidate.queueBaseSha,
+            "--policy-revision",
+            candidate.policyRevision,
             "--built-image-digest",
             digest,
             "--captured-at",

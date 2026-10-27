@@ -1,0 +1,170 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildMergeQualificationCandidate,
+  inventoryMergeQualificationProducerAttempts,
+  reconcileMergeQualificationProducerAttempt,
+  validateMergeQualificationCandidate,
+} from "./merge-qualification.mjs";
+
+const sha = "a".repeat(40);
+const tree = "b".repeat(40);
+const policyRevision = "c".repeat(40);
+const now = new Date("2026-07-21T12:00:00.000Z");
+
+const producer = (overrides = {}) => ({
+  id: 4000,
+  run_attempt: 1,
+  workflow_id: 11,
+  path: ".github/workflows/platform-pr.yml",
+  event: "merge_group",
+  status: "completed",
+  conclusion: "success",
+  created_at: "2026-07-21T10:00:00Z",
+  run_started_at: "2026-07-21T10:00:00Z",
+  updated_at: "2026-07-21T10:01:00Z",
+  head_sha: sha,
+  repository: { full_name: "chase-sets/chase-sets" },
+  ...overrides,
+});
+
+const candidate = buildMergeQualificationCandidate({
+  repository: "chase-sets/chase-sets",
+  workflowId: "11",
+  workflowPath: ".github/workflows/platform-pr.yml",
+  runId: "4000",
+  runAttempt: "1",
+  queueBaseSha: "d".repeat(40),
+  pullRequests: [{ number: 1, headSha: "e".repeat(40) }],
+  candidateSha: sha,
+  candidateTreeSha: tree,
+  builtImageDigest: `sha256:${"f".repeat(64)}`,
+  policyRevision,
+  capturedAt: "2026-07-21T10:00:00Z",
+}).record;
+
+describe("producer dispatch-loss reconciliation", () => {
+  it("inventories complete producer and advisory windows before filtering", async () => {
+    const calls = [];
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) => {
+        calls.push(endpoint);
+        if (endpoint.includes("platform-pr.yml")) {
+          return { total_count: 1, workflow_runs: [producer()] };
+        }
+        return { total_count: 0, workflow_runs: [] };
+      },
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("platform-pr.yml/runs");
+    expect(calls[1]).toContain("platform-merge-qualification.yml/runs");
+    expect(result.errors).toEqual([]);
+    expect(result.attempts).toMatchObject([{ run_id: "4000", run_attempt: "1", advisoryRun: null }]);
+  });
+
+  it("does not read candidate or policy before a missing-advisory join", async () => {
+    const reads = [];
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => new Date("2026-07-21T10:05:00Z"),
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: 1, workflow_runs: [producer()] }
+          : { total_count: 1, workflow_runs: [{ display_title: "Merge Qualification producer 4000-1" }] },
+      readPolicyContent: async () => reads.push("policy"),
+      readCandidate: async () => reads.push("candidate"),
+    });
+    expect(result.attempts).toEqual([]);
+    expect(reads).toEqual([]);
+  });
+
+  it("does not admit a producer to per-item inspection before the fifteen-minute tick", async () => {
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => new Date("2026-07-21T10:05:00Z"),
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: 1, workflow_runs: [producer()] }
+          : { total_count: 0, workflow_runs: [] },
+    });
+    expect(result).toEqual({ attempts: [], errors: [] });
+  });
+
+  it("settles one producer-keyed terminal after one tick and is byte-idempotent", () => {
+    const first = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      now,
+    });
+    expect(first.state).toBe("dispatch_loss");
+    expect(first.event).toMatchObject({
+      producerRunId: "4000",
+      producerRunAttempt: "1",
+      terminalState: "infrastructure_error",
+      reasonCodes: ["advisory_dispatch_missing"],
+    });
+    const replay = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      existingTerminal: first.event,
+      now,
+    });
+    expect(replay).toMatchObject({ state: "idempotent", event: first.event });
+    expect(JSON.stringify(replay.event)).toBe(JSON.stringify(first.event));
+  });
+
+  it("names awaiting, ineligible, advisory-present, and late-race conflict states", () => {
+    expect(
+      reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        now: new Date("2026-07-21T10:05:00Z"),
+      }).state,
+    ).toBe("awaiting_tick");
+    expect(
+      reconcileMergeQualificationProducerAttempt({ producer: producer(), candidate, policy: { enabled: false }, now })
+        .state,
+    ).toBe("ineligible");
+    expect(
+      reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        advisoryRun: { id: 5000 },
+        now,
+      }).state,
+    ).toBe("advisory_present");
+    const terminal = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      now,
+    }).event;
+    expect(
+      reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        advisoryRun: { id: 5000 },
+        existingTerminal: terminal,
+        now,
+      }),
+    ).toMatchObject({ state: "conflict", event: { terminalState: "conflict" } });
+  });
+
+  it("rejects absent or substituted policy revision and malformed producer pages", () => {
+    expect(validateMergeQualificationCandidate({ ...candidate, policyRevision: undefined })).not.toEqual([]);
+    expect(
+      reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate: { ...candidate, policyRevision: sha },
+        policy: { enabled: true },
+        now,
+      }),
+    ).toMatchObject({ state: "unknown", reason: "candidate_invalid" });
+  });
+});
