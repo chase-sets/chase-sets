@@ -6,7 +6,12 @@ import {
   type MarketplaceListingAutoUnlistedPayload,
   type MarketplaceListingOperatorUnlistedPayload,
 } from "@chase-sets/event-core";
-import { resolveProjectionDb, type ProjectorHandler, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import {
+  createProjectionHandlerSet,
+  resolveProjectionDb,
+  type ProjectorHandler,
+  type ProjectorHandlerMap,
+} from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
@@ -16,6 +21,224 @@ import {
   type EnforcementActionId,
   type ListingEnforcementActionId,
 } from "@chase-sets/primitives/typed-ids";
+import type { AccountAppealEvent } from "../domain/domain";
+
+export const ACCOUNT_APPEAL_PROJECTION_NAME = "account-appeal-projection";
+export const ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES = [
+  "platform-operations.account-appeal.filed",
+  "platform-operations.account-appeal.review-started",
+  "platform-operations.account-appeal.outcome-recorded",
+  "platform-operations.account-appeal.withdrawn",
+] as const;
+
+/** The seller model is deliberately an exact allowlist: internal operator fields never land here. */
+export const ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS = [
+  "appeal_id",
+  "tenant_id",
+  "account_id",
+  "appealable_action_id",
+  "appealable_action_source",
+  "appealable_action_source_stream_id",
+  "appealable_action_source_stream_version",
+  "statement",
+  "filed_by_user_id",
+  "status",
+  "outcome",
+  "rationale",
+  "stream_version",
+] as const;
+
+export const ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS = [
+  ...ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS,
+  "note",
+  "operator_user_id",
+] as const;
+
+const ACCOUNT_APPEAL_STREAM_PREFIX = "platform-operations.account-appeal-";
+
+type AppealProjectionRow = Readonly<{ stream_version: number }>;
+
+function appealIdFromStream(event: Readonly<{ streamId: string }>): string {
+  if (!event.streamId.startsWith(ACCOUNT_APPEAL_STREAM_PREFIX)) {
+    throw new Error(`Account appeal projection received an invalid stream ${event.streamId}.`);
+  }
+  const appealId = event.streamId.slice(ACCOUNT_APPEAL_STREAM_PREFIX.length);
+  if (!appealId) throw new Error("Account appeal projection received an empty appeal id.");
+  return appealId;
+}
+
+function appealData(event: Readonly<{ data: Record<string, unknown> }>): Record<string, unknown> {
+  return event.data;
+}
+
+async function projectionVersion(db: PgQueryable, table: string, appealId: string): Promise<number | null> {
+  const result = await db.query<AppealProjectionRow>(`SELECT stream_version FROM ${table} WHERE appeal_id = $1`, [
+    appealId,
+  ]);
+  const version = result.rows[0]?.stream_version;
+  return version === undefined ? null : Number(version);
+}
+
+async function projectionAppealId(db: PgQueryable, streamKey: string): Promise<string> {
+  const result = await db.query<{ appeal_id: string }>(
+    `SELECT appeal_id
+       FROM platform_operations_account_appeal_seller_history
+      WHERE appeal_id = $1 OR appealable_action_id = $1`,
+    [streamKey],
+  );
+  return result.rows[0]?.appeal_id ?? streamKey;
+}
+
+async function assertProjectionVersion(
+  db: PgQueryable,
+  appealId: string,
+  eventVersion: number,
+): Promise<"apply" | "noop"> {
+  const [sellerVersion, operatorVersion] = await Promise.all([
+    projectionVersion(db, "platform_operations_account_appeal_seller_history", appealId),
+    projectionVersion(db, "platform_operations_account_appeal_operator_history", appealId),
+  ]);
+  if (
+    sellerVersion !== null &&
+    operatorVersion !== null &&
+    sellerVersion >= eventVersion &&
+    operatorVersion >= eventVersion
+  )
+    return "noop";
+  if (sellerVersion === null || operatorVersion === null || sellerVersion !== operatorVersion) {
+    throw new Error(`Account appeal projection version gap for ${appealId} at ${eventVersion}.`);
+  }
+  if (sellerVersion !== eventVersion - 1) {
+    throw new Error(
+      `Account appeal projection version gap for ${appealId}: stored ${sellerVersion}, event ${eventVersion}.`,
+    );
+  }
+  return "apply";
+}
+
+async function insertFiled(
+  db: PgQueryable,
+  event: Extract<AccountAppealEvent, { type: "platform-operations.account-appeal.filed" }>,
+) {
+  const data = event.data;
+  const action = data.action;
+  const values = [
+    data.appealId,
+    data.tenantId,
+    data.accountId,
+    action.appealableActionId,
+    action.source,
+    action.sourceStreamId,
+    action.sourceStreamVersion,
+    data.statement,
+    data.filedByUserId,
+    "filed",
+    null,
+    null,
+    1,
+  ];
+  await db.query(
+    `INSERT INTO platform_operations_account_appeal_seller_history
+       (appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+        appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+        filed_by_user_id, status, outcome, rationale, stream_version)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    values,
+  );
+  await db.query(
+    `INSERT INTO platform_operations_account_appeal_operator_history
+       (appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+        appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+        filed_by_user_id, status, outcome, rationale, stream_version, note, operator_user_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    [...values, null, null],
+  );
+}
+
+async function updateTransition(
+  db: PgQueryable,
+  appealId: string,
+  eventVersion: number,
+  status: string,
+  outcome: string | null = null,
+  rationale: string | null = null,
+  note: string | null = null,
+  operatorUserId: string | null = null,
+): Promise<void> {
+  const version = await assertProjectionVersion(db, appealId, eventVersion);
+  if (version === "noop") return;
+  const seller = await db.query(
+    `UPDATE platform_operations_account_appeal_seller_history
+        SET status=$2, outcome=$3, rationale=$4, stream_version=$5
+      WHERE appeal_id=$1 AND stream_version=$6`,
+    [appealId, status, outcome, rationale, eventVersion, eventVersion - 1],
+  );
+  if (seller.rowCount !== 1)
+    throw new Error(`Account appeal projection update lost its seller version barrier for ${appealId}.`);
+  const operator = await db.query(
+    `UPDATE platform_operations_account_appeal_operator_history
+        SET status=$2, outcome=$3, rationale=$4, stream_version=$5, note=$6, operator_user_id=$7
+      WHERE appeal_id=$1 AND stream_version=$8`,
+    [appealId, status, outcome, rationale, eventVersion, note, operatorUserId, eventVersion - 1],
+  );
+  if (operator.rowCount !== 1)
+    throw new Error(`Account appeal projection update lost its operator version barrier for ${appealId}.`);
+}
+
+/** Same-context projection for the private appeal lifecycle; every write uses the runner transaction. */
+export function buildAccountAppealProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const project: ProjectorHandler = async (event, context) => {
+    const projectionDb = resolveProjectionDb(context, db);
+    const streamKey = appealIdFromStream(event);
+    if (event.type === "platform-operations.account-appeal.filed") {
+      const appealId = event.data.appealId;
+      if (typeof appealId !== "string" || !appealId) {
+        throw new Error("Account appeal filing must include a nonempty appeal id.");
+      }
+      if (event.streamVersion !== 1) throw new Error(`Account appeal filing must start at version 1 for ${appealId}.`);
+      const existing = await projectionVersion(
+        projectionDb,
+        "platform_operations_account_appeal_seller_history",
+        appealId,
+      );
+      if (existing !== null) {
+        if (existing >= event.streamVersion) return;
+        throw new Error(`Account appeal projection version gap for ${appealId}.`);
+      }
+      await insertFiled(
+        projectionDb,
+        event as unknown as Extract<AccountAppealEvent, { type: "platform-operations.account-appeal.filed" }>,
+      );
+      return;
+    }
+    const appealId = await projectionAppealId(projectionDb, streamKey);
+    if (event.type === "platform-operations.account-appeal.review-started") {
+      await updateTransition(projectionDb, appealId, event.streamVersion, "in-review");
+    } else if (event.type === "platform-operations.account-appeal.outcome-recorded") {
+      const data = appealData(event);
+      await updateTransition(
+        projectionDb,
+        appealId,
+        event.streamVersion,
+        String(data.outcome),
+        String(data.outcome),
+        String(data.rationale),
+        String(data.note),
+        String(data.operatorUserId),
+      );
+    } else if (event.type === "platform-operations.account-appeal.withdrawn") {
+      await updateTransition(projectionDb, appealId, event.streamVersion, "withdrawn");
+    }
+  };
+  return Object.fromEntries(ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES.map((eventType) => [eventType, project]));
+}
+
+export function buildAccountAppealProjectionHandlerSet(db: PgQueryable) {
+  return createProjectionHandlerSet({
+    projectionName: ACCOUNT_APPEAL_PROJECTION_NAME,
+    handlers: buildAccountAppealProjectionHandlers(db),
+  });
+}
 
 /**
  * The Appealable Enforcement Action registry. Identity account enforcement and Marketplace listing

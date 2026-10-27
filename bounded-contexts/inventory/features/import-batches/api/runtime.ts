@@ -20,6 +20,7 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
+import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -85,6 +86,14 @@ import {
   type ProductResolutionProgress,
   type InventoryImportProductResolutionMaintenanceReceipt,
 } from "./product-resolution-maintenance";
+import {
+  enqueueInventoryDraftListingMessage,
+  processNextInventoryDraftListingDelivery,
+  type InventoryDraftListingDelivery,
+  type InventoryDraftListingDeliveryResult,
+} from "./draft-listing-delivery";
+export type { InventoryDraftListingDelivery } from "./draft-listing-delivery";
+export type { InventoryDraftListingDeliveryResult } from "./draft-listing-delivery";
 export type { InventoryImportProductResolutionMaintenanceReceipt } from "./product-resolution-maintenance";
 
 export type InventoryDraftListingCreator = (
@@ -182,6 +191,7 @@ export type InventoryImportBatchServices = Readonly<{
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  processNextImportDraftListingDelivery: () => Promise<InventoryDraftListingDeliveryResult>;
   enqueueProductResolutionMaintenanceJob: (input?: {
     validatorVersion?: number;
     reactivateFailed?: boolean;
@@ -212,6 +222,7 @@ type InventoryImportBatchRuntimeDeps = Readonly<{
   items: InventoryItemServices;
   catalogItems: InventoryCatalogItemServices;
   draftListingCreator?: InventoryDraftListingCreator;
+  draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
 
@@ -1344,6 +1355,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
       const listingQuantity =
         row.quantity_mode === "replace" ? (row.set_quantity ?? row.total_quantity ?? 0) : Math.max(quantityDelta, 0);
+      const committedAt = row.committed_at ?? new Date().toISOString();
 
       let listingId: string | null = row.committed_listing_id;
       if (
@@ -1351,37 +1363,42 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         row.listing_price_amount &&
         row.listing_price_currency_code &&
         row.listing_quantity_cap &&
-        listingQuantity > 0 &&
-        deps.draftListingCreator
+        listingQuantity > 0
       ) {
+        listingId = listingIdForRow(row.row_id);
         const location = await getStorageLocation(deps.db, row.storage_location_id, params.accountId);
         if (!location) {
           throw new InventoryDomainError("Storage location not found.");
         }
 
-        const listing = await deps.draftListingCreator(
-          {
+        const draftListingMessage = inventoryDraftListingMessageSchema.parse({
+          schemaVersion: "inventory-draft-listing/v1",
+          messageId: row.row_id,
+          authority: {
+            tenantId: context.tenantId,
             accountId: params.accountId,
+            performedByUserId: context.audit.performedByUserId,
+          },
+          snapshot: {
             importBatchId: params.batchId,
             importRowId: row.row_id,
+            committedAt,
             inventoryItemId,
-            listingIdOverride: listingIdForRow(row.row_id),
             catalogItemId: row.catalog_item_id,
             productId: row.product_id,
-            selectedOptions: row.selected_options,
+            selectedOptions: [...row.selected_options],
             storageLocationId: row.storage_location_id,
             storageLocationName: location.name,
             shipFromCode: location.ship_from_code,
-            shipFromAddress: location.ship_from_address,
+            shipFromAddress: JSON.parse(JSON.stringify(location.ship_from_address)),
             totalQuantity: listingQuantity,
             acquisitionCostAmount: row.acquisition_cost_amount,
             priceAmount: row.listing_price_amount,
             priceCurrencyCode: row.listing_price_currency_code,
             quantityCap: row.listing_quantity_cap,
           },
-          context,
-        );
-        listingId = listing.listingId;
+        });
+        await enqueueInventoryDraftListingMessage(deps.db, draftListingMessage);
       }
 
       await deps.db.query(
@@ -1389,10 +1406,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
          SET status = 'committed',
              committed_inventory_item_id = $2,
              committed_listing_id = $3,
-             committed_at = COALESCE(committed_at, now()),
+             committed_at = COALESCE(committed_at, $4::timestamptz),
              updated_at = now()
          WHERE row_id = $1`,
-        [row.row_id, inventoryItemId, listingId],
+        [row.row_id, inventoryItemId, listingId, committedAt],
       );
 
       completed += 1;
@@ -2192,6 +2209,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         return 1;
       }
     },
+    processNextImportDraftListingDelivery: () =>
+      processNextInventoryDraftListingDelivery(deps.db, deps.draftListingDelivery),
     enqueueProductResolutionMaintenanceJob,
     processNextImportProductResolutionMaintenanceJob,
     getImportBatchWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),

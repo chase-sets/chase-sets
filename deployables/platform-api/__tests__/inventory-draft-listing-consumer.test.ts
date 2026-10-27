@@ -40,6 +40,7 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
         },
       });
       const port = captured.ports?.inventoryDraftListingConsumer as InventoryDraftListingConsumer;
+      expect(captured.ports?.draftListingDelivery).toBe(port);
       const owner = runtime.services.marketplace as MarketplaceServices;
       const accept = vi.spyOn(owner.inventoryDraftListingConsumer, "accept");
       const context = {
@@ -87,6 +88,7 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
     const source = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
     expect(source).toContain("createPlatformApiInventoryDraftListingConsumer(");
     expect(/hostPorts:\s*\{\s*inventoryDraftListingConsumer,/.test(source)).toBe(true);
+    expect(source).toContain("draftListingDelivery: inventoryDraftListingConsumer");
     expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
     expect(source).toContain("draftListingCreator,");
   });

@@ -90,6 +90,7 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
     const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
     expect(source).toContain("createPlatformWorkerInventoryDraftListingConsumer(");
     expect(/hostPorts:\s*\{\s*inventoryDraftListingConsumer,/.test(source)).toBe(true);
+    expect(source).toContain("draftListingDelivery: inventoryDraftListingConsumer");
     expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
     expect(source).toContain("draftListingCreator,");
   });
