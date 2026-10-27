@@ -33,6 +33,7 @@ mod seller_listings;
 mod selling;
 mod sets;
 mod shipments;
+mod submitted_offers;
 mod text;
 mod uploads;
 mod views;

@@ -59,6 +59,7 @@
 //   route.*, the listing API's refusals marketplace.features.listings.api.route.error.* as error.*, the seller
 //   desk's degraded words, and the language labels).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
+// - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
 //   .priceGap.* as gap.*, marketplace.routes.accountOfferMatch(es).* as route.* and routes.*, and the
 //   managed offer states marketplace.marketFollowing.seller.* as managed.*).
@@ -517,6 +518,17 @@ const outputs = [
         ["marketplace.routes.accountOfferMatch.", "route"],
         ["marketplace.routes.accountOfferMatches.", "routes"],
         ["marketplace.marketFollowing.seller.", "managed"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/submitted-offers.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.offers.ui.submittedOfferListPage.", "list"],
+        ["marketplace.features.offers.ui.submittedOfferLifecycle.", "lifecycle"],
+        ["marketplace.routes.accountOffersSubmitted.", "route"],
+        ["marketplace.features.offers.ui.price.incomplete", "price_incomplete"],
       ]),
     ),
   ],

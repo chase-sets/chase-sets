@@ -41,6 +41,7 @@ mod seller_listing_page;
 mod seller_listings_page;
 mod set_page;
 mod shipment_page;
+mod submitted_offers_page;
 
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
@@ -65,6 +66,7 @@ pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
+pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts};
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
@@ -106,6 +108,7 @@ pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_p
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
+pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];

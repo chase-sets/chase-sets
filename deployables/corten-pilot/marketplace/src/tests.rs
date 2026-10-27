@@ -401,6 +401,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
+    if let Some(answer) = submitted_offers(&method, &uri, &body) {
+        return answer;
+    }
     // Before Ordering's and the listing page's, whose paths begin the same.
     if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
         return answer;
@@ -7201,6 +7204,226 @@ async fn a_change_to_the_accounts_offers_draws_the_snapshot_and_rows_again() {
     let events = pilot.events(get("/account/offers/matches/live", Some("trader")), 1).await;
     let data = &events[0].2;
     assert!(data.contains("Best match snapshot") && data.contains("/account/offers/matches/off_ready"), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
+    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);
+}
+
+/// An offer the buyer submitted, as the API sends it.
+fn submitted_offer(id: &str, title: &str, status: &str, version: u64) -> Value {
+    let accepted = status == "accepted";
+    json!({
+        "offer_id": id, "buyer_account_id": "acc_seller", "catalog_catalog_item_id": "cat_pika",
+        "product_id": "cat_pika::form:raw", "item_title": title, "item_subtitle": "Jungle 60/64",
+        "selected_options": [{ "dimensionId": "dim_form", "optionId": "raw" }],
+        "product_summary": "Form: Raw | Condition: Excellent", "price_amount": "17.75", "price_currency_code": "USD",
+        "last_stream_version": version, "quantity_requested": 2, "status": status,
+        "accepted_seller_account_id": if accepted { json!("acc_maker") } else { Value::Null },
+        "accepted_seller_average_rating": if accepted { json!("4.80") } else { Value::Null },
+        "accepted_seller_review_count": if accepted { 9 } else { 0 },
+        "created_at": "2026-10-20T10:00:00.000Z", "updated_at": "2026-10-24T03:55:37.712Z",
+    })
+}
+
+/// The buyer's submitted offers, as the stand-in answers them: `off_open` (Pikachu, open),
+/// `off_paused` (Charizard) and `off_taken` (Mewtwo, accepted). One offer's change answers with
+/// its next version; `off_taken` is final (409), and an unknown offer is not found. The bulk change
+/// answers each offer, and is closed (503) when it names `off_closed`.
+fn submitted_offers(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const SUBMITTED: &str = "/api/marketplace/account/offers/submitted";
+    let rest = uri.path().strip_prefix(SUBMITTED)?;
+    let all = [
+        submitted_offer("off_open", "Pikachu", "submitted", 3),
+        submitted_offer("off_paused", "Charizard", "paused", 5),
+        submitted_offer("off_taken", "Mewtwo", "accepted", 8),
+    ];
+    let change = |id: &str, version: u64, status: &str, outcome: &str| {
+        committed(
+            StatusCode::OK,
+            "marketplace",
+            "71",
+            json!({ "id": id, "version": version, "status": status, "outcome": outcome }),
+        )
+    };
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => {
+            let status = uri.query().unwrap_or_default().split('&').find_map(|pair| pair.strip_prefix("status="));
+            let items: Vec<Value> = all.into_iter().filter(|o| status.is_none_or(|s| o["status"] == s)).collect();
+            Json(json!({
+                "items": items, "total": items.len(), "count": items.len(),
+                "statusCounts": { "submitted": 1, "paused": 1, "withdrawn": 0, "accepted": 1 },
+            }))
+            .into_response()
+        }
+        ("POST", "/bulk") => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            let ids: Vec<String> =
+                sent["offerIds"].as_array().into_iter().flatten().filter_map(|id| id.as_str().map(str::to_owned)).collect();
+            if ids.iter().any(|id| id == "off_closed") {
+                return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "offer_lifecycle_closed", "Closed."));
+            }
+            let items: Vec<Value> = ids
+                .iter()
+                .map(|id| match id.as_str() {
+                    "off_open" => json!({ "offerId": id, "outcome": "changed", "status": "paused", "version": 4 }),
+                    "off_paused" => json!({ "offerId": id, "outcome": "unchanged", "status": "paused", "version": 5 }),
+                    _ => json!({ "offerId": id, "outcome": "rejected", "code": "not_found" }),
+                })
+                .collect();
+            committed(
+                StatusCode::OK,
+                "marketplace",
+                "72",
+                json!({ "action": sent["action"], "items": items, "total": ids.len() }),
+            )
+        }
+        ("POST", "/off_open/pause") => change("off_open", 4, "paused", "changed"),
+        ("POST", "/off_open/withdraw") => change("off_open", 4, "withdrawn", "changed"),
+        ("POST", "/off_paused/resume") => change("off_paused", 6, "submitted", "changed"),
+        ("POST", rest) if rest.starts_with("/off_taken/") => {
+            refusal(StatusCode::CONFLICT, "offer_transition_rejected", "Offer is final.")
+        }
+        ("POST", _) => refusal(StatusCode::NOT_FOUND, "not_found", "Submitted offer not found."),
+        _ => return None,
+    })
+}
+
+const SUBMITTED_OFFERS: &str = "/account/offers/submitted";
+
+#[tokio::test]
+async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Offers Submitted Offers Review the offers your account has submitted.",
+        "All (3) Open (1) Paused (1) Withdrawn (0) Accepted (1)",
+        "Pikachu Open Jungle 60/64 Raw Excellent Offer Price $17.75 Quantity 2 requested Updated Oct 24, 2026",
+        "Mewtwo Accepted",
+        "Seller reputation acc_maker",
+    ] {
+        assert!(page.contains(words), "{words:?} in {page}");
+    }
+    // Each offer opens on marketplace's page, until the pilot has one.
+    assert!(html.contains(r#"href="http://localhost:7753/account/offers/submitted/off_open""#), "{html}");
+    assert!(html.contains(r#"<corten-live src="/account/offers/submitted/live"></corten-live>"#), "{html}");
+    // An open offer pauses, a paused one resumes, each withdraws after its dialog; an accepted one
+    // is final. Each can be checked for the bulk bar.
+    assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+    assert!(html.contains(r#"name="row" value="resume:off_paused""#), "{html}");
+    assert!(html.contains(r#"commandfor="withdraw-off_open""#) && html.contains(r#"<dialog id="withdraw-off_open""#), "{html}");
+    assert!(html.contains(r#"name="row" value="withdraw:off_paused""#), "{html}");
+    assert!(!html.contains("value=\"pause:off_taken\"") && !html.contains("withdraw:off_taken"), "{html}");
+    assert_eq!(html.matches(r#"name="offerIds""#).count(), 3, "{html}");
+    assert!(
+        html.contains(r#"name="lifecycleAction" value="pause""#) && html.contains(r#"name="lifecycleAction" value="withdraw""#)
+    );
+    assert!(html.contains(r#"id="offers-form""#), "{html}");
+}
+
+#[tokio::test]
+async fn the_status_filter_reads_that_status_and_an_unknown_one_reads_all() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/offers/submitted?status=paused", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Charizard") && !page.contains("Pikachu"), "{page}");
+    assert!(html.contains(r#"href="/account/offers/submitted?status=paused" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"<corten-live src="/account/offers/submitted/live?status=paused"></corten-live>"#), "{html}");
+    // A change keeps the status the list shows.
+    assert!(html.contains(r#"action="/account/offers/submitted?status=paused""#), "{html}");
+    let (_, _, _) = pilot.send(get("/account/offers/submitted?status=everything", Some("trader"))).await;
+    let calls = list_calls(&pilot, "/api/marketplace/account/offers/submitted?");
+    assert!(calls.iter().any(|c| c.trim_end().ends_with("limit=100&offset=0&status=paused")), "{calls:?}");
+    assert!(calls.iter().any(|c| c.trim_end().ends_with("limit=100&offset=0")), "{calls:?}");
+    let (_, _, html) = pilot.send(get("/account/offers/submitted?status=withdrawn", Some("trader"))).await;
+    assert!(text(&html).contains("No withdrawn Offers Offers with this status appear here."), "{html}");
+}
+
+#[tokio::test]
+async fn submitted_offers_need_offers_view_to_read_and_offers_manage_to_change() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(SUBMITTED_OFFERS, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // `lister` reads offers but may not change them: no boxes, no buttons (chase-sets#10660).
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        !html.contains(r#"name="offerIds""#) && !html.contains(r#"name="row""#) && !html.contains(r#"id="offers-form""#),
+        "{html}"
+    );
+    assert!(text(&html).contains("Pikachu"), "{html}");
+    let (status, _, _) = pilot.send(post(SUBMITTED_OFFERS, "lister", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(SUBMITTED_OFFERS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"));
+}
+
+#[tokio::test]
+async fn a_rows_change_is_its_own_command_and_the_offer_shows_its_new_status() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "trader", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Offer changes 1 changed, 0 already in that state, 0 could not change Pikachu: now Paused"), "{page}");
+    // The command's version (4) is newer than the read's (3), so the row says Paused already.
+    assert!(page.contains("Pikachu Paused"), "{page}");
+    assert!(html.contains(r#"name="row" value="resume:off_open""#), "{html}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/offers/submitted/off_open/pause");
+    assert!(sent.iter().any(|c| c.starts_with("POST")), "{sent:?}");
+    // The list is read after the write's receipt.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let read = calls
+        .iter()
+        .rev()
+        .find(|c| c.method == Method::GET && c.path.starts_with("/api/marketplace/account/offers/submitted?"))
+        .unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "{:?}", read.headers);
+}
+
+#[tokio::test]
+async fn the_checked_offers_change_together_each_with_its_outcome() {
+    let pilot = Pilot::new().await;
+    let form = "lifecycleAction=pause&offerIds=off_open&offerIds=off_paused&offerIds=off_open&offerIds=off_nobody";
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "trader", form, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("1 changed, 1 already in that state, 1 could not change"), "{page}");
+    assert!(page.contains("Pikachu: now Paused Charizard: already Paused off_nobody: not found"), "{page}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/offers/submitted/bulk");
+    let body = sent.iter().find(|c| c.starts_with("POST")).unwrap();
+    assert!(body.contains(r#"{"action":"pause","offerIds":["off_open","off_paused","off_nobody"]}"#), "{body}");
+}
+
+#[tokio::test]
+async fn a_refused_change_says_why_for_each_offer_or_for_the_request() {
+    let pilot = Pilot::new().await;
+    // A final offer, as that offer's outcome.
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "trader", "row=withdraw%3Aoff_taken", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Mewtwo: withdrawn and accepted Offers are final"), "{html}");
+    // A closed lifecycle refuses every offer.
+    let (_, _, html) =
+        pilot.send(post(SUBMITTED_OFFERS, "trader", "lifecycleAction=pause&offerIds=off_open&offerIds=off_closed", false)).await;
+    let page = text(&html);
+    assert!(page.contains("0 changed, 0 already in that state, 2 could not change"), "{page}");
+    assert!(page.contains("Pikachu: Pause, Resume and Withdraw are not open yet."), "{page}");
+    // Nothing checked, or a change an offer does not take.
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "trader", "lifecycleAction=pause", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Offer status issue Check the Offers to change first."), "{html}");
+    let (status, _, _) = pilot.send(post(SUBMITTED_OFFERS, "trader", "row=accept%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_change_to_the_accounts_offers_draws_the_counts_and_rows_again() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/account/offers/submitted/live?status=submitted", Some("trader")), 1).await;
+    let data = &events[0].2;
+    assert!(data.contains("Open (1)") && data.contains("Pikachu") && !data.contains("Charizard"), "{data}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
     assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);

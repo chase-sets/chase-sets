@@ -265,6 +265,30 @@ impl Identify<Shared> for OfferReviewer {
     }
 }
 
+/// A buyer on their submitted offers (marketplace's `account-offers-submitted`): reading needs
+/// `offers.view`, as its loader requires, and Pause, Resume and Withdraw `offers.manage`, as its
+/// action does (the API checks again). A reader without it sees the offers with no changes to make
+/// (marketplace shows them and the API refuses them:
+/// [chase-sets/chase-sets#10660](https://github.com/chase-sets/chase-sets/issues/10660)). Anyone not
+/// signed in is sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct OfferBuyer(pub Viewer);
+
+impl Identify<Shared> for OfferBuyer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer)
+                if viewer.actor.can(OFFERS_VIEW) && (parts.method.is_safe() || viewer.actor.can(OFFERS_MANAGE)) =>
+            {
+                Ok(OfferBuyer(viewer))
+            }
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash)]
 pub struct Viewer {
     pub actor: Actor,

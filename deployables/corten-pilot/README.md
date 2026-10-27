@@ -37,6 +37,7 @@ pilot owns only the screens:
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache four minutes while the fee terms were read live, either a minute stale): the promo bar (one message at a time, turning with a script), the nav, the hero (the seller's or the buyer's copy, by `?intent` or a buyer's `utm` words, swapped by the hero's role with a script) with the early-access form, the five games, open offers, the fee comparison from Commerce's live terms (the compiled terms when the read fails), the founders offer, the full form with the waitlist counter, the FAQ, the footer, the sticky calls to action, and the page's JSON-LD. Join without a script: a signup goes to public-web's `/welcome` with its receipt, role, variant and games (303); a refusal is the page again with the API's words in the form it came from (422, 429 too many, 502). A legacy fee-calculator share link moves for good to public-web's `/compare/tcgplayer` at `#fee-calculator`. The waitlist analytics bridge posts the form's events as public-web's does (to `/api`, which the pilot does not serve) (not ported: `/welcome`, `/compare`, `/founders`, `/faq` and the policies, linked on public-web) |
 | `marketplace/` | The seller's listings, `/account/listings` | marketplace | a seller with `listings.view` to see it and `listings.manage` to change it (signed out goes to sign-in and back, an account without it reads Account access required): the heading with Create listing, the seller's availability (Turn off listings with an optional automatic return, Turn on, and an away window scheduled from a reason and dates and cancelled), the order capacity (Set capacity, Remove cap) with the open orders, the listings health (each status's count, a filter link each) and the seller's reliability (best-effort: a failed read shows none), the filters (status and words) as a GET form with chips, the listings a page at a time (100, up to 250) as rows with a box to pick each (a 44 px target), the item, status, price, quantity cap, fee summary, inventory and Open to the pilot's listing page, the bulk bar once a listing is picked (Publish, Pause and Withdraw selected, each listing's outcome after), and the fee lock report in a `<details>`. The rows, the health and the fee report are drawn again on each change to the account's listings (`<corten-live>` on `account:{id}:listings`). Each write reads after its receipt. Without a script every form posts, and an away window is refused: its dates are days where the seller is, which only the browser knows ([todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149)). Marketplace's Paused listings card shows its raw template ([chase-sets/chase-sets#10653 [marketplace] The listings page's Paused listings card shows the raw template '{count} paused {label}'](https://github.com/chase-sets/chase-sets/issues/10653)); the pilot draws the count with no detail line |
 | `marketplace/` | The seller's offer matches, `/account/offers/matches` and `/account/offers/matches/{id}` | marketplace | a seller with `offers.view` and `listings.view` to see them and `offers.manage` to act (signed out goes to sign-in and back): the best-match snapshot (active matches, ready to accept, at or above ask, the best match as a share of the ask), that listings are off, the Sell List card, and each match (the item and its options, the status and whether the seller can fulfill it or why not, the listing's price and quantities, the best offer with the buyer's rating, offer vs ask with the gap, the quantities requested and available, when it changed) with Add selected offer to Sell List, Open and Decline. The snapshot and the matches are drawn again on each change to the account's offers (`<corten-live>` on `account:{id}:offers`). A match's page: the overview, a managed offer's state, the fee terms accepting it would be priced with (best-effort), the shipping allowance and the steps, with Accept offer match, Add selected offer to Sell List and Decline, at the bottom of the screen on a phone. Adding reads the offer as Checkout's sell list does and goes to marketplace's sell list with the write's receipt; Decline goes back to the list with its receipt; a refusal is the match's page with the API's words |
+| `marketplace/` | The buyer's submitted offers, `/account/offers/submitted` | marketplace | a member with `offers.view` to see them and `offers.manage` to change them (signed out goes to sign-in and back): the status filter as links with each status's count (All, Open, Paused, Withdrawn, Accepted, `?status=`), each offer (the item and its options, the price or Price incomplete, the status, the quantity requested, the accepting seller's reputation for an accepted offer, when it changed) with Open (marketplace's offer page), and for `offers.manage` Pause or Resume and Withdraw (asked first in a `<dialog>` its button opens, no script), a box to check it and the bulk bar (Pause selected, Resume selected, Withdraw selected, asked first, and Clear selection) once one is checked. One offer is its own command and several the bulk command; each offer's outcome is drawn above the list, and a newer outcome is the row's status until the read catches up. A closed lifecycle (`503 offer_lifecycle_closed`, as the dev sandbox answers) says so for every offer. The counts and the rows are drawn again on each change to the account's offers (`<corten-live>` on `account:{id}:offers`). A reader without `offers.manage` sees no boxes or buttons ([chase-sets/chase-sets#10660 [marketplace] An unverified account can submit an offer but cannot withdraw it (submit needs no offers.manage; pause, resume and withdraw do)](https://github.com/chase-sets/chase-sets/issues/10660)). Not ported yet: market following (an offer's buyer policy: preview, authorize, pause and stop) and an offer's own page |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -447,6 +448,25 @@ before, the dev numbers are not a comparison.
 The pages have no script of their own; the JavaScript is Corten's runtime and the live list's
 element. A match's server time is two reads in a row (the match, then its terms at its listing).
 
+The buyer's submitted offers (`/account/offers/submitted`, the collector's 14 offers, and
+`?status=submitted`, its 12 open ones), the pilot's release build at the `132c136` pin, 7 cold loads
+each (`measure.mjs screen=submitted-offers`, in `artifacts/corten-pilot/measure-submitted-offers-*.json`);
+marketplace's dev server, desktop only, 5 loads. As before, the dev numbers are not a comparison.
+
+| Submitted offers, all / open | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 5,078 / 5,478 ms | 474 / 280 ms | 749 / 638 ms |
+| Largest contentful paint | 3,012 / 3,208 ms | 472 / 372 ms | 1,472 / 1,324 ms |
+| Server time (document) | 2,760 / 2,936 ms | 63 / 62 ms | 59 / 64 ms |
+| JavaScript transferred | 7,692,764 / 3,517,194 B | 8,954 B | 8,954 B |
+| HTML / CSS transferred | 482,257 / 186,198 B; 473,941 / 186,198 B | 2,490 / 5,779 B; 2,272 / 5,779 B | the same |
+| Requests | 251 | 9 | 9 |
+
+The pilot's desktop times are not steady on this machine: the first run measured the whole list
+at 1,202 ms interactive (LCP 1,344 ms) and the open ones at 280 ms; a second desktop run measured
+474 ms and 837 ms. The table has the whole list's second run and the open ones' first; the bytes
+and requests are exact. The page's own script is the bulk bar's count.
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -584,6 +604,7 @@ node scripts/smoke-market-listing-new.mjs http://localhost:7794 [seller-state]  
 node scripts/smoke-market-seller-listing.mjs http://localhost:7794 [seller-state]  # a seller's listing as the demo seller: a draft made through Create listing lands on it; 390 px; Preview fees, Save price, the quantity cap and the limits, two photos uploaded, described, reordered, one replaced and one removed, Withdraw's dialog (modal) and Cancel; without a script, the quantity cap; then Withdraw. WRITES one draft at 980-989 USD and withdraws it
 node scripts/smoke-market-seller-listings.mjs http://localhost:7794 [seller-state] [api-url]  # the seller's listings as the demo seller: 390 px; the bulk bar; Set capacity and Remove cap; an away window scheduled (its instant the start of the local day) and cancelled; Turn off listings and on; Pause selected on withdrawn listings (each refused); a draft's cap changed through the API redraws its row live; without a script, the filters and the refused away window. WRITES each setting and puts it back
 node scripts/smoke-market-offer-matches.mjs http://localhost:7794 [seller-state] [collector-state] [api-url] [decline]  # the seller's offer matches as the demo seller: 390 px; the snapshot, the Sell List card and the matches; a synthetic offer from the collector (reused, chase-sets/chase-sets#10660) redrawn live when its price moves; a match's page with its terms and its actions at the bottom of a phone; Add selected offer to Sell List with and without a script. WRITES the offer's price and a sell list line it removes; with decline, a second offer it declines for good
+node scripts/smoke-market-submitted-offers.mjs http://localhost:7794 [seller-state] [collector-state] [api-url]  # the buyer's submitted offers as the demo seller (WRITES one synthetic offer): 390 px; the filter's counts; the bulk bar once an offer is checked; the row drawn again live; Pause, Resume, Pause selected and Withdraw from its dialog without a script, or the closed lifecycle's answer; the collector sees no boxes or buttons
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -1629,6 +1650,28 @@ postage, storage locations, cart, item and Add to List. What changed:
     match page's cards two abreast from 48rem
     ([`offer_matches.rs`](marketplace/src/offer_matches.rs),
     [`offer_matches_page.rs`](marketplace/src/views/offer_matches_page.rs)).
+56. **A submitted offer's change is a submit button on one form, and its outcome is drawn, not
+    redirected to.** Marketplace's list posts Pause, Resume and Withdraw with a fetcher and draws
+    each offer's outcome from the answer. The pilot puts the offers in one form: a row's button
+    sends `row` as `{action}:{offer id}`, the bulk bar's buttons send `lifecycleAction` with the
+    checked `offerIds`, and the page answers with the list and each outcome (as the seller's
+    listings' bulk writes do, decision 54), read after the write's receipt. One offer uses its own
+    command and several the bulk command, as marketplace's action does, and the refusals are
+    mapped the same way: a single offer's 404 or 409 and a closed lifecycle's 503 are that offer's
+    outcome, any other 4xx the page's banner. Withdraw asks first in a `<dialog>` its button opens
+    with `command="show-modal"`, one per offer, so it needs no script. Marketplace's filter is a
+    segmented control that navigates; the pilot's is links. A reader without `offers.manage`
+    sees no boxes or buttons, where marketplace shows them and the API then refuses
+    ([chase-sets/chase-sets#10660 [marketplace] An unverified account can submit an offer but cannot withdraw it (submit needs no offers.manage; pause, resume and withdraw do)](https://github.com/chase-sets/chase-sets/issues/10660)). The dev sandbox's API has not opened the
+    lifecycle (`offer_lifecycle_closed`; `createOfferLifecycleAdmission` opens it by
+    configuration), so changed and unchanged outcomes are checked against the stand-in only, and
+    the smoke checks the closed answer live. Its synthetic offer is the demo seller's (the
+    collector cannot change offers), on a product it does not list, at 1.01 or 1.02 USD. It stays
+    open while the lifecycle is closed, and the next run reuses it. Not ported: market following
+    and an offer's page. One column on a phone, two from 80rem, the bulk bar at the bottom of the
+    screen once an offer is checked
+    ([`submitted_offers.rs`](marketplace/src/submitted_offers.rs),
+    [`submitted_offers_page.rs`](marketplace/src/views/submitted_offers_page.rs)).
 
 ## Corten gaps
 
@@ -1638,6 +1681,7 @@ Open at the `132c136` pin, each with its workaround in the pilot:
 2. [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): Create listing's photo input writes `aria-invalid` and one `aria-describedby` (its hint and the message's id, `{form}-{field}-error`, built by hand) instead of `e.aria` (`PhotosPart`).
 3. [todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149): the seller's listings fill an away window's instants in the browser (`seller_listings_page.js`), and refuse the window without a script (decision 54).
 4. [todd-skelton/corten#152 An area with no page at its prefix (/items, /sets) must declare the prefix as a link-only route outside its routes module](https://github.com/todd-skelton/corten/issues/152): `marketplace/src/app.rs` and `public/src/app.rs` declare each such area's prefix as a `#[derive(Route)]` struct outside its routes module (`CORTEN_GAP`). Nothing links to them.
+5. [todd-skelton/corten#157 A page that names a script! module the app does not serve renders fine; only the browser finds the 404, and its handlers silently do nothing](https://github.com/todd-skelton/corten/issues/157): no workaround to remove; the submitted offers' area lists `submitted_offers_page::handlers::COMPONENT`, which its first smoke found missing.
 
 Closed since the `12e0695` pin, at `132c136`: [todd-skelton/corten#130 Firefox sometimes loses the filter rail's own scroll after a data-keep-place swap (smoke: 76 -> 0)](https://github.com/todd-skelton/corten/issues/130). The pilot had no workaround for it.
 

@@ -3458,3 +3458,113 @@ impl OfferMatchCalls for Caller<'_> {
         answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({}))).await
     }
 }
+
+/// An offer the account submitted (`SubmittedOfferListItem`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SubmittedOffer {
+    pub offer_id: String,
+    pub catalog_catalog_item_id: String,
+    pub item_title: String,
+    pub item_subtitle: Option<String>,
+    pub product_summary: Option<String>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub quantity_requested: u64,
+    /// `submitted` (open), `paused`, `withdrawn` or `accepted`.
+    pub status: String,
+    pub last_stream_version: u64,
+    pub accepted_seller_account_id: Option<String>,
+    pub accepted_seller_average_rating: Option<String>,
+    pub accepted_seller_review_count: Option<u64>,
+    pub updated_at: String,
+}
+
+/// How many of the account's offers are in each status (`SubmittedOfferStatusCounts`).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OfferStatusCounts {
+    pub submitted: u64,
+    pub paused: u64,
+    pub withdrawn: u64,
+    pub accepted: u64,
+}
+
+/// The account's submitted offers, the first 100 in the status asked for, with every status's count.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SubmittedOffers {
+    pub items: Vec<SubmittedOffer>,
+    pub total: u64,
+    pub status_counts: Option<OfferStatusCounts>,
+}
+
+/// What a Pause, Resume or Withdraw did to one offer (`SubmittedOfferLifecycleOutcome`): `changed`
+/// or `unchanged` with the status and stream version it left, or `rejected` with the API's code.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LifecycleOutcome {
+    pub offer_id: String,
+    pub outcome: String,
+    pub status: Option<String>,
+    pub version: Option<u64>,
+    pub code: Option<String>,
+}
+
+/// One offer's lifecycle answer (`{ id, version, status, outcome }`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct LifecycleAnswer {
+    id: String,
+    version: u64,
+    status: String,
+    outcome: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct BulkLifecycleAnswer {
+    items: Vec<LifecycleOutcome>,
+}
+
+/// The buyer's submitted offers' calls (marketplace's `account-offers-submitted` route).
+pub trait SubmittedOfferCalls {
+    /// The first 100 of the account's offers, in `status` (all for none), as marketplace reads them.
+    async fn submitted_offers(&self, status: Option<&str>) -> Result<SubmittedOffers, ApiError>;
+    /// Pause, Resume or Withdraw (`action`) one offer: its outcome, and the write's receipt.
+    async fn change_offer(&self, id: &str, action: &str) -> Result<(LifecycleOutcome, Option<Receipt>), ApiError>;
+    /// The same for several offers at once (up to 250), each with its outcome.
+    async fn change_offers(&self, ids: &[String], action: &str) -> Result<(Vec<LifecycleOutcome>, Option<Receipt>), ApiError>;
+}
+
+impl SubmittedOfferCalls for Caller<'_> {
+    async fn submitted_offers(&self, status: Option<&str>) -> Result<SubmittedOffers, ApiError> {
+        let mut path = format!("{ACCOUNT}/offers/submitted?limit=100&offset=0");
+        if let Some(status) = status {
+            path.push_str(&format!("&status={}", segment(status)));
+        }
+        self.read(&path, MARKETPLACE).await
+    }
+
+    async fn change_offer(&self, id: &str, action: &str) -> Result<(LifecycleOutcome, Option<Receipt>), ApiError> {
+        let path = format!("{ACCOUNT}/offers/submitted/{}/{}", segment(id), segment(action));
+        let (answer, receipt) =
+            self.write::<LifecycleAnswer>(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({}))).await?;
+        let outcome = LifecycleOutcome {
+            offer_id: if answer.id.is_empty() { id.to_owned() } else { answer.id },
+            outcome: answer.outcome,
+            status: Some(answer.status),
+            version: Some(answer.version),
+            code: None,
+        };
+        Ok((outcome, receipt))
+    }
+
+    async fn change_offers(&self, ids: &[String], action: &str) -> Result<(Vec<LifecycleOutcome>, Option<Receipt>), ApiError> {
+        let path = format!("{ACCOUNT}/offers/submitted/bulk");
+        let body = serde_json::json!({ "action": action, "offerIds": ids });
+        let (answer, receipt) =
+            self.write::<BulkLifecycleAnswer>(self.request(Method::POST, &path, MARKETPLACE).json(&body)).await?;
+        Ok((answer.items, receipt))
+    }
+}

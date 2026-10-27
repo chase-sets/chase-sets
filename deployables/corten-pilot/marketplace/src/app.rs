@@ -121,6 +121,7 @@ pub mod url {
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
+    pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
 
     /// The prefixes of the areas with no page of their own: each is only the start of its area's
     /// paths, which its routes module names (`area = ..`) for its routes and stylesheet. Nothing
@@ -518,6 +519,28 @@ pub mod url {
         }
     }
 
+    /// The buyer's submitted offers (marketplace's `account-offers-submitted`): the list in a
+    /// status, drawn again live, and its Pause, Resume and Withdraw (see `submitted_offers`). Every
+    /// handler takes an `OfferBuyer`.
+    #[corten::routes(state = crate::app::Shared, area = SubmittedOffers, caller = crate::auth::OfferBuyer)]
+    pub mod submitted_offers {
+        /// The list in the address's status; a lifecycle change posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/offers/submitted", get = crate::submitted_offers::list, post = crate::submitted_offers::change)]
+        pub struct SubmittedOffers {
+            #[route(query)]
+            pub place: crate::submitted_offers::Place,
+        }
+
+        /// The status counts and the rows, drawn again on each change to the account's offers.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/offers/submitted/live", get = crate::submitted_offers::live)]
+        pub struct SubmittedOffersLive {
+            #[route(query)]
+            pub place: crate::submitted_offers::Place,
+        }
+    }
+
     /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
     /// is the area's route, and every handler takes an `OrderBuyer`.
     #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
@@ -722,6 +745,7 @@ pub fn app(config: Config) -> App {
                 .deadline(crate::seller_listing::DEADLINE)
         })
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
+        .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))
         .area(|area| {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })
