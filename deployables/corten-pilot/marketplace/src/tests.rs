@@ -494,6 +494,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = inventory_items(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = inventory_holds(&stand, &method, &uri, &headers) {
+        return answer;
+    }
     if let Some(rest) = uri.path().strip_prefix(RESTOCK) {
         return restock(&stand, &method, rest, &headers, &body);
     }
@@ -7483,7 +7486,36 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
             let page: Vec<Value> = all.iter().skip(offset).take(limit).cloned().collect();
             Json(json!({ "items": page, "total": 2, "count": page.len(), "limit": limit, "offset": offset })).into_response()
         }
-        ("GET", "/inv_1") => Json(inventory_item("inv_1", Some("Charizard"), 1, Some(("4.25", Some("USD"))))).into_response(),
+        ("GET", "/inv_1") => Json(inventory_detail()).into_response(),
+        ("GET", "/inv_gone") => refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item not found."),
+        ("POST", "/inv_1/adjustments") => {
+            let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+            match sent["reason"].as_str() {
+                Some("Refused") => {
+                    return Some(refusal(
+                        StatusCode::CONFLICT,
+                        "insufficient_stock",
+                        "Adjustment would make on-hand stock negative.",
+                    ));
+                }
+                Some("Collide") => {
+                    let answer = json!({ "status": "hold-collision-recorded", "message": "Recorded a collision with an order hold. On-hand stock did not change." });
+                    (StatusCode::OK, receipt(), Json(answer)).into_response()
+                }
+                _ => {
+                    stand.applied.lock().unwrap().insert(attempt, ("item-adjust".into(), "inv_1".into()));
+                    (StatusCode::OK, receipt(), Json(json!({ "status": "adjusted" }))).into_response()
+                }
+            }
+        }
+        ("POST", "/inv_1/holds") => {
+            let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+            if sent["reason"] == "Refused" {
+                return Some(refusal(StatusCode::CONFLICT, "insufficient_available", "Not enough available stock to hold."));
+            }
+            stand.applied.lock().unwrap().insert(attempt, ("hold-create".into(), "inv_1".into()));
+            (StatusCode::CREATED, receipt(), Json(json!({ "holdId": "hld_new" }))).into_response()
+        }
         ("POST", "") => {
             let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
             if sent["storageLocationId"] == "loc_refused" {
@@ -7514,6 +7546,44 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
     })
 }
 
+/// `inv_1` as its page reads it: an active manual hold, an order's hold and a released one, and
+/// three movements, newest first.
+fn inventory_detail() -> Value {
+    let mut item = inventory_item("inv_1", Some("Charizard"), 1, Some(("4.25", Some("USD"))));
+    item["ship_from_code"] = json!("MAIN");
+    item["holds"] = json!([
+        { "hold_id": "hld_manual", "quantity": 1, "reason": "Show stock", "notes": "Back table", "purpose": "manual",
+          "source_ref": null, "expires_at": null, "status": "active", "created_at": "2026-10-20T15:00:00.000Z" },
+        { "hold_id": "hld_order", "quantity": 1, "reason": "Order", "notes": null, "purpose": "order",
+          "source_ref": { "orderId": "ord_1" }, "expires_at": "2099-01-01T00:00:00.000Z", "status": "active", "created_at": "2026-10-21T15:00:00.000Z" },
+        { "hold_id": "hld_old", "quantity": 2, "reason": "Old show", "notes": null, "purpose": "manual",
+          "source_ref": null, "expires_at": null, "status": "released", "created_at": "2026-10-01T15:00:00.000Z" },
+    ]);
+    item["ledger"] = json!([
+        { "ledger_entry_id": "led_3", "occurred_at": "2026-10-22T15:00:00.000Z", "kind": "offline-sale", "quantity_delta": -1,
+          "hold_quantity": null, "purpose": null, "reason": "", "reason_code": null, "note": "Card show table", "source_ref": null, "actor": "seller" },
+        { "ledger_entry_id": "led_2", "occurred_at": "2026-10-21T15:00:00.000Z", "kind": "adjusted", "quantity_delta": 1,
+          "hold_quantity": null, "purpose": null, "reason": "Found in box", "reason_code": "found", "note": null, "source_ref": null, "actor": "seller" },
+        { "ledger_entry_id": "led_1", "occurred_at": "2026-10-01T15:00:00.000Z", "kind": "created", "quantity_delta": 3,
+          "hold_quantity": null, "purpose": null, "reason": "", "reason_code": null, "note": null, "source_ref": null, "actor": "system" },
+    ]);
+    item
+}
+
+/// Release hold, as the stand-in answers it: an order's hold is not the seller's to release.
+fn inventory_holds(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let hold = uri.path().strip_prefix("/api/inventory/holds/")?.strip_suffix("/release")?;
+    if method != Method::POST {
+        return None;
+    }
+    if hold == "hld_order" {
+        return Some(refusal(StatusCode::CONFLICT, "hold_not_manual", "Only manual holds can be released."));
+    }
+    let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+    stand.applied.lock().unwrap().insert(attempt, ("hold-release".into(), hold.into()));
+    Some(written(StatusCode::OK, hold))
+}
+
 /// The attempt Create inventory item was drawn with.
 fn item_attempt(html: &str) -> String {
     let input = r#"name="inventoryMutationAttemptId" data-submit value=""#;
@@ -7531,7 +7601,7 @@ async fn the_inventory_list_shows_each_item_and_data_clients_get_the_screen() {
         assert!(page.contains(shown), "{shown}: {page}");
     }
     assert!(html.contains(r#"href="/account/inventory/locations""#), "Manage locations is the pilot's: {html}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/inventory/items/inv_1""#), "Open is marketplace's");
+    assert!(html.contains(r#"href="/account/inventory/items/inv_1""#), "Open is the pilot's item page");
     assert!(html.contains(r#"href="/account/listings/new?inventoryItemId=inv_1""#), "Create listing for an available item");
     assert!(!html.contains("inventoryItemId=inv_2"), "none for an item with nothing available");
     assert!(html.contains(r#"href="/account/inventory?sale=inv_1""#), "Record sale opens its dialog: {html}");
@@ -7609,16 +7679,15 @@ async fn create_inventory_item_finds_chooses_and_sends_the_options() {
             "storageLocationId": "loc_main", "totalQuantity": 2, "acquisitionCostAmount": "4.25", "acquisitionCostCurrencyCode": "USD",
         })
     );
-    // Without a returnTo, the new item's page.
-    let body =
-        format!("inventoryMutationAttemptId={}&catalogItemId=cat_etb&storageLocationId=loc_main&totalQuantity=1", new_attempt());
+    // Without a returnTo, the new item's page, which confirms the attempt.
+    let attempt = new_attempt();
+    let body = format!("inventoryMutationAttemptId={attempt}&catalogItemId=cat_etb&storageLocationId=loc_main&totalQuantity=1");
     let (_, headers, _) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
-    assert!(
-        headers[header::LOCATION]
-            .to_str()
-            .unwrap()
-            .starts_with("http://localhost:7753/account/inventory/items/inv_new?afterWrite=")
-    );
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/inventory/items/inv_new?"), "{to}");
+    let q = query(to);
+    assert_eq!((q["attempt"].as_str(), q["family"].as_str()), (attempt.as_str(), "item-create"), "{to}");
+    assert!(q.contains_key("after_write"), "{to}");
 }
 
 #[tokio::test]
@@ -7732,4 +7801,209 @@ async fn a_refused_sale_is_its_dialog_again() {
     let (status, _, html) = pilot.send(post(url, "seller", &body, true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Offline sales require a positive whole-number quantity."), "{html}");
+}
+
+const STOCK_ITEM: &str = "/account/inventory/items/inv_1";
+
+#[tokio::test]
+async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_screen() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(STOCK_ITEM, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for shown in [
+        "Charizard",
+        "Main shelf (MAIN)",
+        "Show stock (1)",
+        "Back table",
+        "Active hold",
+        "Released hold",
+        "View order ord_1",
+        "Sold offline",
+        "Found in box",
+        "Card show table",
+        "Created",
+    ] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
+    assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
+    assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
+    for action in ["/adjustments", "/holds", "/sale"] {
+        assert!(html.contains(&format!(r#"action="{STOCK_ITEM}{action}""#)), "{action}: {html}");
+    }
+    assert!(html.contains(r#"href="/account/listings/new?inventoryItemId=inv_1""#), "Create listing with stock available");
+    assert!(html.contains(r#"href="/account/inventory/items/inv_1?ledgerKind=adjusted""#), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/items/inv_1" aria-current="page""#), "All movements is selected: {html}");
+    let (status, _, body) = pilot.send(get_json(STOCK_ITEM)).await;
+    assert_eq!(status, StatusCode::OK);
+    let data: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["data"]["item"]["holds"].as_array().unwrap().len(), 3, "{body}");
+    assert_eq!(data["data"]["item"]["item_id"], "inv_1", "{body}");
+    assert!(data["data"].get("place").is_none(), "the address is not the screen's: {body}");
+}
+
+#[tokio::test]
+async fn the_ledger_filter_shows_one_kind() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=adjusted", Some("seller"))).await;
+    let page = text(&html);
+    assert!(page.contains("Found in box") && !page.contains("Card show table"), "{page}");
+    assert!(html.contains(r#"href="/account/inventory/items/inv_1?ledgerKind=adjusted" aria-current="page""#), "{html}");
+    let (_, _, html) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=hold-expired", Some("seller"))).await;
+    assert!(text(&html).contains("No stock movements match this filter."), "{html}");
+}
+
+#[tokio::test]
+async fn the_item_page_needs_inventory_view_and_its_writes_inventory_manage() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(STOCK_ITEM, Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Show stock (1)"), "{html}");
+    assert!(!html.contains("/adjustments") && !html.contains("/release") && !html.contains("inventoryItemId="), "{html}");
+    let (status, _, _) = pilot.send(get(STOCK_ITEM, Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(STOCK_ITEM, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("/sign-in?returnTo=%2Faccount%2Finventory%2Fitems%2Finv_1"), "back to the item: {to}");
+    let (_, headers, _) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=adjusted", None)).await;
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("returnTo=%2Faccount%2Finventory%2Fitems%2Finv_1%3FledgerKind%3Dadjusted"), "with its query: {to}");
+    let (status, _, _) = pilot.send(get("/account/inventory/items/inv_gone", Some("seller"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let body = format!("inventoryMutationAttemptId={}&quantityDelta=1&reasonCode=found&reason=x", new_attempt());
+    let (status, _, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "reader", &body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a reader adjusts nothing");
+    assert!(pilot.writes().is_empty());
+}
+
+#[tokio::test]
+async fn an_applied_adjustment_goes_back_to_the_page_which_confirms_it() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let body = format!("inventoryMutationAttemptId={attempt}&quantityDelta=-1&reasonCode=damaged&reason=+Water+&note=+");
+    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/inventory/items/inv_1?"), "{to}");
+    let q = query(&to);
+    assert_eq!((q["attempt"].as_str(), q["family"].as_str(), q["target"].as_str()), (attempt.as_str(), "item-adjust", "inv_1"));
+    let sent = pilot.writes();
+    assert_eq!(
+        (sent[0].path.as_str(), sent[0].headers["inventory-mutation-attempt"].to_str().unwrap()),
+        ("/api/inventory/items/inv_1/adjustments", attempt.as_str())
+    );
+    let command: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(command, json!({ "quantityDelta": -1, "reason": "Water", "reasonCode": "damaged", "note": null }));
+    let (status, _, _) = pilot.send(get(&to, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(pilot.inventory_calls().iter().any(|c| c.path == format!("{ATTEMPTS}{attempt}")), "the attempt was confirmed");
+    let read = pilot.inventory_calls().into_iter().filter(|c| c.path == "/api/inventory/items/inv_1").last().unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "read after the adjustment's receipt");
+}
+
+#[tokio::test]
+async fn a_refused_adjustment_is_its_form_again_with_why() {
+    let pilot = Pilot::new().await;
+    let url = "/account/inventory/items/inv_1/adjustments";
+    let body = format!("inventoryMutationAttemptId={}&quantityDelta=0&reasonCode=sold-offline&reason=+", new_attempt());
+    let (status, _, html) = pilot.send(post(url, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let page = text(&html);
+    assert!(page.contains("Enter a whole number other than 0, like -1 or 5.") && page.contains("Enter a value."), "{page}");
+    assert!(html.contains("<html") && page.contains("Show stock (1)"), "the whole page without the script");
+    assert!(pilot.writes().is_empty());
+    let attempt = new_attempt();
+    let body = format!("inventoryMutationAttemptId={attempt}&quantityDelta=-9&reasonCode=lost&reason=Refused");
+    let (status, _, html) = pilot.send(post(url, "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!html.contains("<html") && text(&html).contains("Adjustment would make on-hand stock negative."), "{html}");
+    assert!(html.contains(r#"value="-9""#), "as typed: {html}");
+    assert!(
+        pilot.inventory_calls().iter().any(|c| c.path == format!("{ATTEMPTS}{attempt}")),
+        "the refusal's attempt was checked"
+    );
+}
+
+#[tokio::test]
+async fn an_adjustment_recorded_as_a_collision_says_what_the_api_recorded() {
+    let pilot = Pilot::new().await;
+    let body = format!("inventoryMutationAttemptId={}&quantityDelta=-1&reasonCode=lost&reason=Collide", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Recorded a collision with an order hold. On-hand stock did not change."), "{html}");
+}
+
+#[tokio::test]
+async fn create_hold_and_release_confirm_their_attempts() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let body = format!("inventoryMutationAttemptId={attempt}&quantity=1&reason=Show&notes=");
+    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1/holds", "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let q = query(headers[header::LOCATION].to_str().unwrap());
+    assert_eq!((q["family"].as_str(), q["target"].as_str()), ("hold-create", "inv_1"));
+    let command: Value = serde_json::from_str(&pilot.writes()[0].body).unwrap();
+    assert_eq!(command, json!({ "quantity": 1, "reason": "Show", "notes": null }));
+    let release = new_attempt();
+    let body = format!("inventoryMutationAttemptId={release}");
+    let (status, headers, _) =
+        pilot.send(post("/account/inventory/items/inv_1/holds/hld_manual/release", "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/inventory/items/inv_1?"), "{to}");
+    let q = query(to);
+    assert_eq!(
+        (q["attempt"].as_str(), q["family"].as_str(), q["target"].as_str()),
+        (release.as_str(), "hold-release", "hld_manual")
+    );
+    assert_eq!(pilot.writes()[1].path, "/api/inventory/holds/hld_manual/release");
+}
+
+#[tokio::test]
+async fn a_refused_hold_or_release_is_its_form_again() {
+    let pilot = Pilot::new().await;
+    let body = format!("inventoryMutationAttemptId={}&quantity=0&reason=", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/holds", "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a whole number of 1 or more."), "{html}");
+    let body = format!("inventoryMutationAttemptId={}&quantity=2&reason=Refused", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/holds", "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Not enough available stock to hold."), "{html}");
+    let body = format!("inventoryMutationAttemptId={}", new_attempt());
+    let (status, _, html) =
+        pilot.send(post("/account/inventory/items/inv_1/holds/hld_order/release", "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!html.contains("<html") && text(&html).contains("Only manual holds can be released."), "{html}");
+    assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_order/release""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_sale_from_the_item_page_says_what_it_did_there() {
+    let pilot = Pilot::new().await;
+    let sale = |quantity: u32| {
+        format!(
+            "idempotencyKey={}&quantity={quantity}&salePriceAmount=3.5&channel=in-store&note=&collisionMode=protect-orders",
+            new_attempt()
+        )
+    };
+    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1/sale", "seller", &sale(2), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/inventory/items/inv_1?"), "{to}");
+    let q = query(&to);
+    assert_eq!((q["requested"].as_str(), q["applied"].as_str(), q["refused"].as_str()), ("2", "2", "0"));
+    let (_, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    assert!(text(&html).contains("Completed: 2 units recorded as sold. Authoritative available quantity: 1."), "{html}");
+    let (_, headers, _) = pilot.send(post("/account/inventory/items/inv_1/sale", "seller", &sale(5), false)).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (_, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    assert!(text(&html).contains("Recorded 2 units. 3 units were not recorded."), "{html}");
+    assert!(html.contains(r#"href="/account/sales/ord_1""#), "{html}");
+    let body = format!("idempotencyKey={}&quantity=1&channel=other&note=Refused&collisionMode=protect-orders", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/sale", "seller", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!html.contains("<html") && text(&html).contains("Offline sales require a positive whole-number quantity."), "{html}");
 }

@@ -24,7 +24,8 @@ use crate::{
 };
 
 /// The kind of write an attempt is (`InventoryMutationFamily`), as the API keeps it: the
-/// storage locations' three, a restock decision's and Create inventory item's.
+/// storage locations' three, a restock decision's, Create inventory item's, and an item's
+/// adjustment and holds.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, corten::UrlValue)]
 pub enum Family {
     #[serde(rename = "location-create")]
@@ -37,6 +38,12 @@ pub enum Family {
     Restock,
     #[serde(rename = "item-create")]
     ItemCreate,
+    #[serde(rename = "item-adjust")]
+    ItemAdjust,
+    #[serde(rename = "hold-create")]
+    HoldCreate,
+    #[serde(rename = "hold-release")]
+    HoldRelease,
 }
 
 impl Family {
@@ -47,6 +54,9 @@ impl Family {
             Family::Archive => "location-archive",
             Family::Restock => "restock-record",
             Family::ItemCreate => "item-create",
+            Family::ItemAdjust => "item-adjust",
+            Family::HoldCreate => "hold-create",
+            Family::HoldRelease => "hold-release",
         }
     }
 }

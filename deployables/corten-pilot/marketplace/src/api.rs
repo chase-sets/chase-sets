@@ -268,6 +268,122 @@ pub struct AffectedOrder {
     pub order_id: String,
 }
 
+/// An inventory item as its page reads it (`InventoryItemDetail`): the list's fields, where it
+/// ships from, its holds and its stock ledger, newest first.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InventoryItemDetail {
+    #[serde(flatten)]
+    pub item: InventoryItem,
+    #[serde(default)]
+    pub ship_from_code: String,
+    #[serde(default)]
+    pub holds: Vec<Hold>,
+    #[serde(default)]
+    pub ledger: Vec<LedgerEntry>,
+}
+
+/// A hold on an item's stock (`InventoryHold`), the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Hold {
+    pub hold_id: String,
+    pub quantity: i64,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+    pub purpose: String,
+    /// The order or checkout the hold is for (`InventoryHoldSourceRef`), when it is one.
+    #[serde(default)]
+    pub source_ref: Option<serde_json::Value>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// A movement of an item's stock (`InventoryItemLedgerEntry`), the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LedgerEntry {
+    pub ledger_entry_id: String,
+    pub occurred_at: String,
+    pub kind: String,
+    #[serde(default)]
+    pub quantity_delta: Option<i64>,
+    #[serde(default)]
+    pub hold_quantity: Option<i64>,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub reason_code: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<serde_json::Value>,
+    #[serde(default)]
+    pub actor: String,
+}
+
+/// The order a hold or a movement is for (`orderSourceRef`).
+pub fn source_order(source: Option<&serde_json::Value>) -> Option<&str> {
+    source?.get("orderId")?.as_str()
+}
+
+/// What Adjust Quantity sends (`InventoryAdjustItemRequest`), the fields its form has.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdjustCommand {
+    pub quantity_delta: i64,
+    pub reason: String,
+    pub reason_code: String,
+    pub note: Option<String>,
+}
+
+/// What an adjustment did: `adjusted`, or `hold-collision-recorded` with the API's words for it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Adjusted {
+    pub status: String,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// What Create Hold sends: a manual hold.
+#[derive(Clone, Debug, Serialize)]
+pub struct HoldCommand {
+    pub quantity: u64,
+    pub reason: String,
+    pub notes: Option<String>,
+}
+
+/// The inventory item page's calls.
+pub trait InventoryItemCalls {
+    async fn inventory_item_detail(&self, id: &str) -> Result<InventoryItemDetail, ApiError>;
+    async fn adjust_item(&self, attempt: &str, id: &str, body: &AdjustCommand) -> Result<(Adjusted, Option<Receipt>), ApiError>;
+    async fn create_hold(&self, attempt: &str, id: &str, body: &HoldCommand) -> Result<Written, ApiError>;
+    async fn release_hold(&self, attempt: &str, hold: &str) -> Result<Written, ApiError>;
+}
+
+impl InventoryItemCalls for Caller<'_> {
+    async fn inventory_item_detail(&self, id: &str) -> Result<InventoryItemDetail, ApiError> {
+        self.read(&format!("/api/inventory/items/{}", segment(id)), INVENTORY).await
+    }
+
+    async fn adjust_item(&self, attempt: &str, id: &str, body: &AdjustCommand) -> Result<(Adjusted, Option<Receipt>), ApiError> {
+        let path = format!("/api/inventory/items/{}/adjustments", segment(id));
+        self.write(self.request(Method::POST, &path, INVENTORY).header(ATTEMPT_HEADER, attempt).json(body)).await
+    }
+
+    async fn create_hold(&self, attempt: &str, id: &str, body: &HoldCommand) -> Result<Written, ApiError> {
+        send(self, Method::POST, &format!("/api/inventory/items/{}/holds", segment(id)), attempt, body).await
+    }
+
+    async fn release_hold(&self, attempt: &str, hold: &str) -> Result<Written, ApiError> {
+        send(self, Method::POST, &format!("/api/inventory/holds/{}/release", segment(hold)), attempt, &serde_json::json!({}))
+            .await
+    }
+}
+
 /// The inventory list's calls.
 pub trait InventoryList {
     async fn inventory_items(&self, limit: u64, offset: u64) -> Result<InventoryItems, ApiError>;

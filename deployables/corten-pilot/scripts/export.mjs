@@ -21,7 +21,8 @@
 //   resource route's "could not be verified").
 // - marketplace/locales/inventory.en.json: the inventory list's English catalog
 //   (inventory.features.inventoryItems.ui.inventoryItemListPage.* as list.*, .offlineSaleForm.* as sale.*,
-//   inventory.routes.marketplace.accountInventory.* as route.*, and the language labels).
+//   inventory.routes.marketplace.accountInventory.* as route.*, the item page's .inventoryItemDetailPage.*
+//   as item.* and .accountInventoryItem.* as item_route.*, and the language labels).
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
@@ -347,6 +348,8 @@ const outputs = [
         ["inventory.features.inventoryItems.ui.inventoryItemListPage.", "list"],
         ["inventory.features.inventoryItems.ui.offlineSaleForm.", "sale"],
         ["inventory.routes.marketplace.accountInventory.", "route"],
+        ["inventory.features.inventoryItems.ui.inventoryItemDetailPage.", "item"],
+        ["inventory.routes.marketplace.accountInventoryItem.", "item_route"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),

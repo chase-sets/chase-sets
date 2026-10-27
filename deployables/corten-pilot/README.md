@@ -20,7 +20,8 @@ pilot owns only the screens:
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
-| `marketplace/` | Inventory > Inventory, `/account/inventory` | marketplace | a seller with `inventory.view` to see it and `inventory.manage` to write (signed out goes to sign-in and back): the items a page at a time (100, Previous and Next) with each one's options, location, counts and cost, Open (marketplace's item page), Create listing and Record sale; Create Inventory Item with Create listing's catalog picker (find as you type, a pasted id, Choose, the product options, each a GET of the page without a script), a storage location (archived ones left out), the quantity and cost, sent once with its attempt and confirmed if the answer was lost, then marketplace's item page with the write's receipt; Record sale as a dialog at its own address (`?sale={id}`): quantity, price, channel, note, and for an owner or manager honoring the sale over its orders with a confirmation, then the list with what the sale did, read again after its receipt. A slow read is a notice with what the page has. A card per item on a phone, a table from 48rem (not ported: the item's page, imports) |
+| `marketplace/` | Inventory > Inventory, `/account/inventory` | marketplace | a seller with `inventory.view` to see it and `inventory.manage` to write (signed out goes to sign-in and back): the items a page at a time (100, Previous and Next) with each one's options, location, counts and cost, Open (the pilot's item page), Create listing and Record sale; Create Inventory Item with Create listing's catalog picker (find as you type, a pasted id, Choose, the product options, each a GET of the page without a script), a storage location (archived ones left out), the quantity and cost, sent once with its attempt and confirmed if the answer was lost, then the pilot's item page, which confirms the attempt and reads after the write's receipt; Record sale as a dialog at its own address (`?sale={id}`): quantity, price, channel, note, and for an owner or manager honoring the sale over its orders with a confirmation, then the list with what the sale did, read again after its receipt. A slow read is a notice with what the page has. A card per item on a phone, a table from 48rem (not ported: imports) |
+| `marketplace/` | Inventory > an item, `/account/inventory/items/{id}` | marketplace | a seller with `inventory.view` to see it and `inventory.manage` to write (signed out goes to sign-in and back to the item, its query kept): the item (catalog item, product options, location and its ship-from code, total, held and available), Create listing while stock is available, Back to inventory; the hold history (reason and quantity, purpose, time left on an active hold, its order, notes, created) with Release hold on an active manual hold; the stock ledger with All movements and a filter per kind it has (`?ledgerKind=`, a link each), each movement's facts and its order; Record sale (the list's form, the outcome on the page), Adjust Quantity (a signed whole number, one of the four reasons a seller may give, the reason and a note) and Create Hold (quantity, reason, notes), each sent once with its attempt and confirmed on the page after, read after its receipt; an adjustment the API records as a collision with orders' holds says the API's words. One column on a phone, the writes beside the item from 64rem |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
 | `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout); Make an offer (the price, currency and quantity checked, then marketplace's offer checkout). Selling from the rail: the selected offer's payout for a guest (the API's standard terms), Accept offer (Sell now for a seller, else Add offer to Sell List) and Add product to Sell List, to the account's sell list or a guest's, then marketplace's sell list. Watching from the rail: Watch listings and Watch offers (an alert with an optional price), saved to the account, or for a guest as an intent claimed after marketplace's registration. Listing at a price from the Sell rail: the ship-from setup when the seller has none, then Create listing (the stock, the listing and its publication), the seller's own listing with Manage listing after it, a guest's draft claimed after marketplace's registration The mobile action dock below 80rem: the price, then Buy, Sell and Watch as links to the rail on that side, or Select options. The gallery: more than one picture shows one at a time, picked by its thumbnail. More like this: the similar items' cards under the market book, each to its page here. The market book's Sales tab: the chosen product's spread, last sale and medians, and its sale prices over a range as a chart drawn on the server, the range links. Live: on each change to the item, the market summary, the market book (with the Sales tab's history) and the dock are drawn again (`<corten-live>`) Details' references: each record's dialog, opened by its value with no script. Add to List: an account's recent Saved Lists or a new one in a dialog the page draws, with the tracked quantity, or for a guest an intent claimed after marketplace's registration (not ported yet: a graded product's listing; the rail and the options redrawn live) |
 | `marketplace/` | A listing's page, `/listings/{slug}` | marketplace | anyone: the status, the item, the product's options and price; the purchase panel with the seller's rating, availability, fulfillment, returns and protection, Buy this listing (an account's checkout session, a guest's marketplace guest checkout) and Compare market (the pilot's item page); the seller with their account link, tiles, shipping credit and product; a seller away or at capacity as a warning with no Buy; and Report Listing, which says the report was received, or was sent already, or to wait, where marketplace says nothing ([chase-sets/chase-sets#10614 [discovery] Tell a visitor their listing report was received (the page ignores ?reported=1)](https://github.com/chase-sets/chase-sets/issues/10614)) or shows its 500 page ([chase-sets/chase-sets#10615 [discovery] A repeat listing report shows a 500 page instead of saying it was already reported](https://github.com/chase-sets/chase-sets/issues/10615)). An old slug moves for good; an unknown listing is a 404, a failed read a 502 (not ported: the realtime patches, and the Product JSON-LD marketplace writes only in production) |
@@ -486,6 +487,26 @@ comparison. Measured once on a busy machine.
 The JavaScript is the runtime, the recovery script, Create listing's picker script (find as you
 type and the options' redraw) and Corten's dialog. The mobile interactive time was not profiled.
 
+An inventory item's page (`/account/inventory/items/inv_seed_twilight_masquerade_elite_trainer_box`,
+two order holds and three movements), the pilot's release build at the `af0019f` pin, 7 cold loads
+each (`measure.mjs screen=inventory-item`, in `artifacts/corten-pilot/measure-inventory-item-*.json`);
+marketplace's dev server, desktop only. Measured on a busy machine: the pilot's desktop numbers moved
+between 416 ms and 1,030 ms interactive across two sessions, and the list's between 291 ms and
+1,029 ms, with the server time under 210 ms each time. The table shows the second session's desktop
+and the first's mobile.
+
+| Inventory item page | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 4,677 ms | 416 ms | 1,996 ms |
+| Largest contentful paint | 2,524 ms | 408 ms | 1,996 ms |
+| Server time (document) | 2,272 ms | 131 ms | 163 ms |
+| JavaScript transferred | 7,734,889 B | 10,887 B | 10,887 B |
+| HTML / CSS transferred | 447,500 / 186,198 B | 3,667 / 6,865 B | 3,666 / 6,865 B |
+| Requests | 251 | 10 | 10 |
+
+The JavaScript is Corten's runtime, the recovery script and the pilot's `app.js`; the page has no
+script of its own. Its stylesheet is the inventory section's, shared with the list.
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -624,7 +645,7 @@ node scripts/smoke-market-seller-listing.mjs http://localhost:7794 [seller-state
 node scripts/smoke-market-seller-listings.mjs http://localhost:7794 [seller-state] [api-url]  # the seller's listings as the demo seller: 390 px; the bulk bar; Set capacity and Remove cap; an away window scheduled (its instant the start of the local day) and cancelled; Turn off listings and on; Pause selected on withdrawn listings (each refused); a draft's cap changed through the API redraws its row live; without a script, the filters and the refused away window. WRITES each setting and puts it back
 node scripts/smoke-market-offer-matches.mjs http://localhost:7794 [seller-state] [collector-state] [api-url] [decline]  # the seller's offer matches as the demo seller: 390 px; the snapshot, the Sell List card and the matches; a synthetic offer from the collector (reused, chase-sets/chase-sets#10660) redrawn live when its price moves; a match's page with its terms and its actions at the bottom of a phone; Add selected offer to Sell List with and without a script. WRITES the offer's price and a sell list line it removes; with decline, a second offer it declines for good
 node scripts/smoke-market-submitted-offers.mjs http://localhost:7794 [seller-state] [collector-state] [api-url]  # the buyer's submitted offers as the demo seller (WRITES one synthetic offer): 390 px; the filter's counts; the bulk bar once an offer is checked; the row drawn again live; Pause, Resume, Pause selected and Withdraw from its dialog without a script, or the closed lifecycle's answer; the collector sees no boxes or buttons
-node scripts/smoke-market-inventory.mjs http://localhost:7794 [seller-state] [api-url]  # the inventory list as the demo seller: the API's items, find as you type and a pasted id, Choose and the options (a raw card, chase-sets/chase-sets#10671), Create inventory item (the API has it), Record sale of its one unit from the dialog (the list says what it did, or that it could not verify while the API times out the receipt, chase-sets/chase-sets#10672); without a script, Find, the dialog drawn open and a refused sale (422, nothing sent); 390 px. WRITES one synthetic raw Charizard at the first open location and sells it, leaving it with nothing available
+node scripts/smoke-market-inventory.mjs http://localhost:7794 [seller-state] [api-url]  # the inventory list and an item's page as the demo seller: the API's items, find as you type and a pasted id, Choose and the options (a raw card, chase-sets/chase-sets#10671), Create inventory item (to the pilot's item page, which confirms it); on that page Adjust Quantity +1, Create Hold and Release it (each confirmed, and the API has it), the ledger filtered to adjustments, Record sale of one unit; then Record sale of the last unit from the list's dialog. A page that says it could not verify a write is accepted only after the API timed out its receipt (chase-sets/chase-sets#10672). Without a script, Find, the dialog drawn open, a refused sale and a refused adjustment (422, nothing sent); both pages at 390 px. WRITES one synthetic raw Charizard at the first open location, adjusts, holds, releases and sells it out, leaving it with nothing available
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -782,6 +803,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `marketplace/src/locations.rs`, `views/location_card.*` | the storage locations: the list and its three writes |
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
 | `marketplace/src/inventory_list.rs`, `views/inventory_page.*` | the inventory list: its address (`Place`), the reads, Create Inventory Item (`CreateItem`, the picker shared with Create listing) and Record sale (`SaleInput`, `SaleDraft`), and the page's parts |
+| `marketplace/src/inventory_item.rs`, `views/inventory_item_page.*` | the inventory item page: its address (`ItemPlace`, the ledger filter and a sale's outcome), the read, Adjust Quantity (`AdjustInput`), Create Hold (`HoldInput`), Release hold and Record sale, the forms drawn again (`Drafts`), and the page's parts |
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
 | `marketplace/src/items.rs`, `views/item_detail.*` | an item's page: the read, the address (its choices, read and written), marketplace's selection rules, and the page's parts |
 | `marketplace/src/cart_attempt.rs` | a cart write (`api::CartWrite`: the cart's commands or an item page's new line, for an account or a guest) as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
@@ -1706,8 +1728,8 @@ postage, storage locations, cart, item and Add to List. What changed:
     matches or the chosen item, and its `redraw` and `find` handlers draw them as GETs of the page,
     patched in place with a script. The create is a `WriteForm` of the recovery family
     `item-create` (marketplace's `inventory-mutation/v1` record), confirmed on the next page if
-    its answer is lost, and goes on to marketplace's item page with the write's receipt (that page
-    is not ported). Record sale has an address, `?sale={item}`, drawn open as a modal dialog; Close
+    its answer is lost, and goes on to the item page with the write's receipt (marketplace's at the time; the
+    pilot's since decision 58). Record sale has an address, `?sale={item}`, drawn open as a modal dialog; Close
     is a link back to the list. Its form posts to `/account/inventory/items/{id}/offline-sales`; a
     refusal is the dialog again (422, a patch with a script), and a recorded sale goes back to the
     list with what it did in the address (`offlineSaleItemId`, `requested`, `applied`,
@@ -1729,6 +1751,31 @@ postage, storage locations, cart, item and Add to List. What changed:
     from 64rem, and the honor confirmation shown with `:has`
     ([`inventory_list.rs`](marketplace/src/inventory_list.rs),
     [`inventory_page.rs`](marketplace/src/views/inventory_page.rs)).
+
+58. **The inventory item page is the pilot's; Open and Create inventory item land on it.**
+    Marketplace's item page (`account-inventory-item.tsx`, `InventoryItemDetailPage`) keeps its
+    three writes' recovery in React. The pilot's are `WriteForm`s of the families `item-adjust`,
+    `hold-create` (target: the item, as marketplace's form names it) and `hold-release` (target:
+    the hold), confirmed on the page after an applied write and drawn again with what is wrong
+    after a refused one (422, only that form as a patch with a script). Record sale is the list's
+    form (`SaleForm`, which now takes `autofocus`: on in the dialog, off on the page) posting to the
+    item's own `/sale`, and its outcome is drawn on the item page from the address, as on the list.
+    An adjustment the API records as a collision with orders' holds (`hold-collision-recorded`)
+    changes nothing on hand; the page says the API's words and confirms the attempt. The ledger
+    filter is a link per kind the ledger has (`?ledgerKind=`), `aria-current` on the one shown.
+    The list's Open and a create without `returnTo` now go to this page (a create with `returnTo`
+    still goes back to marketplace's Create listing). Marketplace's ledger shows an offline sale's
+    raw kind; the pilot says "Sold offline"
+    ([chase-sets/chase-sets#10673 [inventory] The item page's Stock Ledger labels an offline sale with the raw code offline-sale](https://github.com/chase-sets/chase-sets/issues/10673)).
+    The page draws the API's ledger as it is, so each offline sale shows twice
+    ([chase-sets/chase-sets#10675 [inventory] Recording an offline sale writes two stock-ledger movements, so the ledger no longer sums to on hand](https://github.com/chase-sets/chase-sets/issues/10675));
+    hiding one would put Inventory's rule in the web layer. A fix the tests found: a signed-out
+    visitor sent to sign-in from a page now comes back to that page with its query
+    (marketplace's `buildCurrentPath`); before, the path was cut to its first three segments, which
+    lost an item's id. A write still comes back to its screen
+    ([`auth.rs`](marketplace/src/auth.rs),
+    [`inventory_item.rs`](marketplace/src/inventory_item.rs),
+    [`inventory_item_page.rs`](marketplace/src/views/inventory_item_page.rs)).
 
 ## Corten gaps
 

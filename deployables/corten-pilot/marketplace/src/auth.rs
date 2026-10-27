@@ -14,7 +14,7 @@ pub use platform::{
 };
 
 use crate::{
-    api::Identity,
+    api::{Identity, segment},
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
         MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
@@ -59,6 +59,17 @@ async fn find(parts: &Parts, config: &Shared) -> Found {
     }
 }
 
+/// Where marketplace's sign-in comes back to: a page to itself, its query included (marketplace's
+/// `buildCurrentPath`); a write, which the pilot posts to an address of its own, to its screen.
+fn back_to(parts: &Parts) -> Option<Uri> {
+    if parts.method.is_safe() {
+        let page = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        views::marketplace(&format!("/sign-in?returnTo={}", segment(page)))
+    } else {
+        sign_in_at(parts.uri.path())
+    }
+}
+
 /// Signing in at marketplace, coming back to `to`.
 fn sign_in(to: Option<Uri>) -> Refused {
     match to {
@@ -91,7 +102,7 @@ impl Identify<Shared> for Seller {
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(if parts.method.is_safe() { VIEW } else { MANAGE }) => Ok(Seller(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -159,7 +170,7 @@ impl Identify<Shared> for OrderBuyer {
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(OrderBuyer(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -179,7 +190,7 @@ impl Identify<Shared> for OrderSeller {
         match find(parts, config).await {
             Found::Account(viewer) if may(&viewer.actor) => Ok(OrderSeller(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -196,7 +207,7 @@ impl Identify<Shared> for Shipper {
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(Shipper(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -214,7 +225,7 @@ impl Identify<Shared> for ListingSeller {
         match find(parts, config).await {
             Found::Account(viewer) if parts.method.is_safe() || viewer.actor.can(LISTINGS_MANAGE) => Ok(ListingSeller(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -235,7 +246,7 @@ impl Identify<Shared> for ListingManager {
                 Ok(ListingManager(viewer))
             }
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -259,7 +270,7 @@ impl Identify<Shared> for OfferReviewer {
                 Ok(OfferReviewer(viewer))
             }
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
@@ -283,7 +294,7 @@ impl Identify<Shared> for OfferBuyer {
                 Ok(OfferBuyer(viewer))
             }
             Found::Account(_) => Err(Refused::forbidden()),
-            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }

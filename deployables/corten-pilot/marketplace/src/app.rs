@@ -108,7 +108,10 @@ pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use home::Home;
-    pub use inventory::{Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, WrittenOff};
+    pub use inventory::{
+        Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem,
+        StockRelease, StockSale, WrittenOff,
+    };
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
     pub use new_listing::NewListing;
@@ -354,6 +357,43 @@ pub mod url {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::inventory_list::Place,
+        }
+
+        /// An inventory item's page: the ledger's filter, what the last sale did, and the write
+        /// to confirm.
+        #[derive(Clone, Debug)]
+        #[route("/account/inventory/items/{id}", get = crate::inventory_item::open)]
+        pub struct StockItem<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::inventory_item::ItemPlace,
+            #[route(query)]
+            pub check: Check,
+        }
+
+        /// Adjust Quantity, from the item's page.
+        #[route("/account/inventory/items/{id}/adjustments", post = crate::inventory_item::adjust)]
+        pub struct StockAdjust<'a> {
+            pub id: &'a str,
+        }
+
+        /// Create Hold, from the item's page.
+        #[route("/account/inventory/items/{id}/holds", post = crate::inventory_item::hold)]
+        pub struct StockHold<'a> {
+            pub id: &'a str,
+        }
+
+        /// Release a manual hold, from its item's page.
+        #[route("/account/inventory/items/{id}/holds/{hold}/release", post = crate::inventory_item::release)]
+        pub struct StockRelease<'a> {
+            pub id: &'a str,
+            pub hold: &'a str,
+        }
+
+        /// Record an offline sale of the item, from its page.
+        #[route("/account/inventory/items/{id}/sale", post = crate::inventory_item::sale)]
+        pub struct StockSale<'a> {
+            pub id: &'a str,
         }
 
         /// The storage locations, and the write to confirm.

@@ -25,6 +25,7 @@ mod account_page;
 mod address_page;
 mod cart_item;
 mod decision_card;
+mod inventory_item_page;
 mod inventory_page;
 mod item_detail;
 mod listing_new_page;
@@ -51,6 +52,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
+pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
@@ -83,6 +85,7 @@ pub const INVENTORY: &[Component] = &[
     LocationCard,
     DecisionCard,
     InventoryPage,
+    InventoryItemPage,
     listing_new_page::handlers::COMPONENT,
     corten_ui::dialog::COMPONENT,
 ];

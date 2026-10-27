@@ -77,6 +77,11 @@ impl Place {
         url::Inventory { place: Place { sale: Some(item.to_owned()), ..place }, check }
     }
 
+    /// Where `item`'s Record sale posts from this page: the list comes back at the same page.
+    pub fn sale_to<'a>(&self, item: &'a str) -> url::OfflineSale<'a> {
+        url::OfflineSale { id: item, place: Place { sale: Some(item.to_owned()), ..self.at(self.bounds().1).place } }
+    }
+
     /// What the last sale did, when the address says.
     pub fn outcome(&self) -> Option<Outcome> {
         Some(Outcome {
@@ -239,7 +244,7 @@ impl SaleInput {
 }
 
 /// A Record sale the API or the pilot refused: its item, what was typed and why.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SaleDraft {
     pub item_id: String,
     pub input: SaleInput,
@@ -370,10 +375,10 @@ async fn render(
                 <views::SaleForm
                     t={t}
                     p={p}
-                    id={draft.item_id.as_str()}
-                    place={&screen.place}
+                    action={screen.place.sale_to(&draft.item_id)}
                     draft={draft}
                     can_honor={screen.can_honor}
+                    autofocus={true}
                 />
             };
             return req.patch_with_status(UNPROCESSABLE, form);
@@ -473,7 +478,7 @@ pub(crate) async fn create(
             acquisition_cost_currency_code: optional(&create.cost_currency),
         };
         match caller.create_item(&attempt, &command).await {
-            Ok((id, receipt)) => return created(&req, &create, &id, receipt),
+            Ok((id, receipt)) => return created(&req, &create, &id, &attempt, receipt),
             Err(error) => match failed(&caller, Family::ItemCreate, "draft", &attempt, error).await {
                 Failed::Refused(refused) => errors = refused,
                 // The same attempt created the item before; the list confirms it.
@@ -492,10 +497,14 @@ pub(crate) async fn create(
     render(&req, &viewer, &config, &headers, &place, &Check::default(), create, None, Some(Status::Refused(attempt))).await
 }
 
-/// Where an applied create goes (`formActionRedirect`): `returnTo`, else the item's page, with the
-/// write's receipt. Neither is the pilot's.
-fn created(req: &Req, create: &CreateItem, id: &str, receipt: Option<Receipt>) -> HtmlResult {
-    let path = create.return_to.clone().unwrap_or_else(|| format!("/account/inventory/items/{}", crate::api::segment(id)));
+/// Where an applied create goes (`formActionRedirect`): the item's page, which confirms the
+/// attempt and reads after the write's receipt; or the marketplace page `returnTo` names, with the
+/// receipt as marketplace's `afterWrite`.
+fn created(req: &Req, create: &CreateItem, id: &str, attempt: &str, receipt: Option<Receipt>) -> HtmlResult {
+    let Some(path) = create.return_to.clone() else {
+        let check = Check::applied(Family::ItemCreate, "draft", attempt, receipt.map(|r| r.param()));
+        return req.redirect(&url::StockItem { id, place: crate::inventory_item::ItemPlace::default(), check });
+    };
     let path = match receipt {
         Some(receipt) => {
             let join = if path.contains('?') { '&' } else { '?' };

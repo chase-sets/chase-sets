@@ -6,14 +6,14 @@
 //! listing's script, `listing_new.js`, asks for them as the seller types or picks an option, and
 //! the form is drawn again in place). Record sale is a link to the page with the item's dialog
 //! open; the dialog is modal once it joins the page (corten-ui's `dialog::modal`).
-use corten::{i18n::Currency, prelude::*};
+use corten::{i18n::Currency, prelude::*, view::AttrValue};
 
-use super::{WriteForm, cart_item::options, listing_new_page::handlers as picker, marketplace};
+use super::{WriteForm, cart_item::options, listing_new_page::handlers as picker};
 use crate::{
     api::{InventoryItem, segment},
     app::url,
     auth::Viewer,
-    inventory_list::{CHANNELS, CreateItem, InventoryScreen, ItemFields, Outcome, Place, SaleDraft, SaleInput, Verified},
+    inventory_list::{CHANNELS, CreateItem, InventoryScreen, ItemFields, Outcome, SaleDraft, SaleInput, Verified},
     items,
     listing_new::{Catalog, OPTION},
     recovery::{Family, Status},
@@ -37,7 +37,7 @@ fn label(item: &InventoryItem) -> &str {
 }
 
 /// A language code's name (`formatLanguageCodeLabel`).
-fn language(t: InventoryMsg, code: &str) -> String {
+pub(super) fn language(t: InventoryMsg, code: &str) -> String {
     match code {
         "en" => t.language_en().to_owned(),
         "ja" => t.language_ja().to_owned(),
@@ -395,7 +395,7 @@ fn Items<'a>(t: InventoryMsg, p: Pilot, screen: &'a InventoryScreen) -> impl Ren
 #[component(css = InventoryPage)]
 fn ItemRow<'a>(t: InventoryMsg, p: Pilot, item: &'a InventoryItem, screen: &'a InventoryScreen) -> impl Render {
     let id = item.item_id.as_str();
-    let open = marketplace(&format!("/account/inventory/items/{}", segment(id))).map(|u| u.to_string()).unwrap_or_default();
+    let open = url::StockItem { id, place: Default::default(), check: Default::default() };
     let listing = format!("{}?inventoryItemId={}", url::NewListing.href(), segment(id));
     html! {
         <tr>
@@ -441,7 +441,7 @@ fn ItemRow<'a>(t: InventoryMsg, p: Pilot, item: &'a InventoryItem, screen: &'a I
 
 /// What the last sale did (`OfflineSaleResult`), with each order it affected.
 #[component(css = InventoryPage)]
-fn SaleOutcome<'a>(t: InventoryMsg, outcome: &'a Outcome, verified: Option<Verified>) -> impl Render {
+pub fn SaleOutcome<'a>(t: InventoryMsg, outcome: &'a Outcome, verified: Option<Verified>) -> impl Render {
     let complete = outcome.applied == outcome.requested;
     let fresh = match verified {
         Some(Verified::Fresh(available)) => Some(available),
@@ -507,7 +507,14 @@ fn SaleDialog<'a>(
                 <a class={(Button, Ghost, Small)} href={close}>{t.sale_close()}</a>
             </div>
             <p id="sale-description" class={Muted}>{t.sale_sheet_description(label(item))}</p>
-            <SaleForm t={t} p={p} id={item.item_id.as_str()} place={&screen.place} draft={draft} can_honor={screen.can_honor} />
+            <SaleForm
+                t={t}
+                p={p}
+                action={screen.place.sale_to(&item.item_id)}
+                draft={draft}
+                can_honor={screen.can_honor}
+                autofocus={true}
+            />
         </dialog>
     }
 }
@@ -515,18 +522,18 @@ fn SaleDialog<'a>(
 /// Record sale's form (`OfflineSaleForm`). Honoring a sale over the orders it would take stock
 /// from asks for the confirmation, which the stylesheet shows once that is chosen.
 #[component(css = InventoryPage)]
-pub fn SaleForm<'a>(
+pub fn SaleForm<'a, A: AttrValue>(
     t: InventoryMsg,
     p: Pilot,
-    id: &'a str,
-    place: &'a Place,
+    action: A,
     draft: &'a SaleDraft,
     can_honor: bool,
+    /// The dialog's first field takes focus as it opens; on a page it waits to be chosen.
+    autofocus: bool,
 ) -> impl Patch {
     let f = SaleInput::FIELDS;
     let (input, errors) = (&draft.input, &draft.errors);
     let e = errors.within(SaleFormId);
-    let action = url::OfflineSale { id, place: Place { sale: Some(id.to_owned()), ..place.at(place.bounds().1).place } };
     let honor = input.collision_mode == "honor-offline";
     let channel = |c: &str| match c {
         "in-store" => t.sale_channel_in_store(),
@@ -548,7 +555,7 @@ pub fn SaleForm<'a>(
                         step="1"
                         inputmode="numeric"
                         required
-                        autofocus
+                        autofocus={autofocus}
                         {..e.aria(f.quantity)}
                     >
                 </label>

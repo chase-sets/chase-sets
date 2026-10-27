@@ -181,6 +181,9 @@
     "page_of": "Page {page} of {pages}",
     "record_sale_for": "Record sale for {item}",
     "options": "Product options",
-    "choose_option": "Choose an option"
+    "choose_option": "Choose an option",
+    "delta": "Enter a whole number other than 0, like -1 or 5.",
+    "item_unverified": "Inventory item update could not be verified. Reload this page and try again.",
+    "ledger_offline_sale": "Sold offline"
   }
 }
