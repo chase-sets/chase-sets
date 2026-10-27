@@ -417,6 +417,7 @@ describe("ShippingAddressPage pending state", () => {
     expect(busy(home)).toEqual({ disabled: false, busy: "true" });
     loads[0]([{ ...base, is_default: false }, address("adr_home", "Home", true), address("adr_work", "Work", false)]);
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Set default" })).toHaveLength(2));
+    await waitFor(() => expect(busy(home)).toEqual({ disabled: false, busy: null }));
     expect((screen.getByLabelText("City") as HTMLInputElement).value).toBe("Typed city");
 
     fireEvent.click(work);

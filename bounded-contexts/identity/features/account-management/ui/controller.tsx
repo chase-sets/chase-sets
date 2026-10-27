@@ -23,6 +23,8 @@ type Controller = Readonly<{
   activeForm: HTMLFormElement | null;
   /** The form whose mutation holds the boundary lock, from activation until it settles. */
   pendingForm: HTMLFormElement | null;
+  isSettlementReady: () => boolean;
+  commitSettlement: () => void;
   ready: boolean;
   isHeld: (form: HTMLFormElement) => boolean;
   submit: (event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) => void;
@@ -49,7 +51,8 @@ export function AccountMutationForm({
     (controller.activeForm === ref.current && ["reauth-required", "route-denied"].includes(controller.state));
   useLayoutEffect(() => {
     setHeld(Boolean(ref.current && controller?.isHeld(ref.current)));
-  }, [controller]);
+    if (controller?.isSettlementReady()) controller.commitSettlement();
+  });
   useLayoutEffect(() => {
     if (controller?.state === "succeeded") {
       entered.current = null;
@@ -117,6 +120,8 @@ export function AccountMutationBoundary({
   );
   const [activeForm, setActiveForm] = useState<HTMLFormElement | null>(null);
   const [pendingForm, setPendingForm] = useState<HTMLFormElement | null>(null);
+  const settlement = useRef<{ generation: number; retained: boolean } | null>(null);
+  const [settlementVersion, setSettlementVersion] = useState(0);
   const status = useRef<HTMLDivElement>(null);
   const descriptor = useRef<MutationDescriptor | null>(null);
   const held = useRef(new Map<string, MutationDescriptor>());
@@ -172,6 +177,8 @@ export function AccountMutationBoundary({
     setState("editing");
     setActiveForm(null);
     setPendingForm(null);
+    settlement.current = null;
+    setSettlementVersion((version) => version + 1);
     setRefusals(0);
     setSuggestion(null);
     setCallerPresented(false);
@@ -181,8 +188,18 @@ export function AccountMutationBoundary({
       held.current.clear();
       remember(null);
       busy.current = false;
+      settlement.current = null;
     };
   }, [actorKey, parent !== null]);
+
+  useLayoutEffect(() => {
+    const pending = settlement.current;
+    if (!pending || pending.generation !== generation.current) return;
+    settlement.current = null;
+    busy.current = pending.retained;
+    setPendingForm(null);
+    setRefusals(0);
+  }, [settlementVersion]);
 
   const activeNotification = useRef<MutationNotificationHandler | undefined>(undefined);
 
@@ -250,6 +267,7 @@ export function AccountMutationBoundary({
     void (async () => {
       let sent = false;
       let retained = false;
+      let awaitingSettlement = false;
       try {
         if (!Object.hasOwn(actionFields, action) || new URL(form.action).origin !== window.location.origin)
           throw new Error("INDETERMINATE");
@@ -322,6 +340,12 @@ export function AccountMutationBoundary({
           if (result.destination && result.destination !== location.pathname)
             await navigate(result.destination, { replace: true });
           else await revalidator.revalidate();
+          if (generation.current === currentGeneration) {
+            settlement.current = { generation: currentGeneration, retained };
+            awaitingSettlement = true;
+            if (!result.destination || result.destination === location.pathname)
+              setSettlementVersion((version) => version + 1);
+          }
         }
       } catch {
         if (generation.current !== currentGeneration) return;
@@ -332,9 +356,13 @@ export function AccountMutationBoundary({
       } finally {
         // The lock outlives success navigation/revalidation; a superseded generation was already reset.
         if (generation.current === currentGeneration) {
-          busy.current = retained;
-          setPendingForm(null);
-          setRefusals(0);
+          if (awaitingSettlement) {
+            // Forms release from their layout effect after the settled route data commit.
+          } else {
+            busy.current = retained;
+            setPendingForm(null);
+            setRefusals(0);
+          }
         }
       }
     })();
@@ -347,6 +375,15 @@ export function AccountMutationBoundary({
         state,
         activeForm,
         pendingForm,
+        isSettlementReady: () => settlement.current?.generation === generation.current,
+        commitSettlement: () => {
+          const pending = settlement.current;
+          if (!pending || pending.generation !== generation.current) return;
+          settlement.current = null;
+          busy.current = pending.retained;
+          setPendingForm(null);
+          setRefusals(0);
+        },
         submit,
         isHeld: (form) => heldPairs.includes(pair(form)),
       }}

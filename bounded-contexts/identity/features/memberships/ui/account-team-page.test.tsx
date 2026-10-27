@@ -9,6 +9,7 @@ import {
 import { syntheticMutationResult } from "../../account-management/api/test-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Membership } from "./contracts";
+import type { Invitation } from "../../invitations/ui/contracts";
 import { TeamPage } from "./account-team-page";
 
 afterEach(() => {
@@ -30,6 +31,23 @@ function membership(id: string, name: string, status = "active"): Membership {
     account_name: "Synthetic Cards",
     role_key: "viewer",
     status,
+    updated_at: "2026-07-15T12:00:00.000Z",
+  };
+}
+
+function invitation(id: string, email: string, status = "pending"): Invitation {
+  return {
+    invitation_id: id,
+    account_id: actor.accountId,
+    account_display_name: "Synthetic Cards",
+    account_name: "Synthetic Cards",
+    email,
+    role_key: "viewer",
+    status,
+    expires_at: "2026-12-15T12:00:00.000Z",
+    accepted_by_user_id: null,
+    accepted_by_user_display_name: null,
+    accepted_by_user_primary_email: null,
     updated_at: "2026-07-15T12:00:00.000Z",
   };
 }
@@ -119,6 +137,45 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(transport.posts()).toHaveLength(3));
     transport.posts()[2].respond({ outcome: "not-recorded", code: "not-recorded" });
     await waitFor(() => expect(busy(change)).toEqual({ disabled: false, busy: null }));
+  });
+
+  it("dialog-hosted invitation forms stay busy until the redirect completes", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads } = renderHeldAccountManagementRoute(
+      "/account/team",
+      {
+        memberships: [membership("mem_1", "Alex")],
+        invitations: [invitation("ivt_1", "invitee@example.test")],
+      },
+      ({ memberships, invitations }) => <TeamPage invitations={invitations} memberships={memberships} />,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" }).matches(":disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm cancellation" });
+    confirm.focus();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    expect(busy(confirm)).toEqual({ disabled: false, busy: "true" });
+    expect(document.activeElement).toBe(confirm);
+
+    transport.posts()[0].respond({
+      ...syntheticMutationResult("cancel-invitation", actor, { target: "ivt_1" }),
+      destination: "/account/team?afterWrite=synthetic",
+    });
+    await waitFor(() => expect(loads).toHaveLength(1));
+    await screen.findByText("Your change was saved");
+    expect(screen.getByRole("button", { name: "Confirm cancellation" })).toBe(confirm);
+    expect(busy(confirm)).toEqual({ disabled: false, busy: "true" });
+    fireEvent.click(confirm);
+    expect(transport.posts()).toHaveLength(1);
+
+    loads[0]({
+      memberships: [membership("mem_1", "Alex")],
+      invitations: [invitation("ivt_1", "invitee@example.test", "cancelled")],
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull());
+    const change = screen.getByRole("button", { name: "Change Role" });
+    expect(busy(change)).toEqual({ disabled: false, busy: null });
   });
 });
 

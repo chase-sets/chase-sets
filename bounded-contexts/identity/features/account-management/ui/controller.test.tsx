@@ -546,6 +546,21 @@ describe("issue-7125 boundary lock", () => {
     expect(button("A").matches(":disabled")).toBe(false);
     expect(button("A").getAttribute("aria-busy")).toBeNull();
   });
+  it("releases the boundary lock only after the revalidated route commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads } = renderHeldAccountManagementRoute("/account/shipping-addresses", null, () => <Rows />);
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+    await waitFor(() => expect(loads).toHaveLength(1));
+    expect(button("A").getAttribute("aria-busy")).toBe("true");
+    expect(button("B").getAttribute("aria-busy")).toBeNull();
+
+    loads[0](null);
+    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+  });
   it("superseded flight releases the boundary lock", async () => {
     const transport = stubHeldAccountManagementTransport();
     function Switcher() {
