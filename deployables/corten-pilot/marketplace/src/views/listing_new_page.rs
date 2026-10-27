@@ -397,7 +397,7 @@ fn CatalogPicker<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -
     };
     html! {
         <div class={Picker}>
-            if let Some((item, picks, reset)) = screen.catalog.chosen() {
+            if let Catalog::Chosen { item, picks, reset } = &screen.catalog {
                 <input type="hidden" name={f.catalog_item_id} value={&item.catalog_item_id}>
                 <div class={Chosen}>
                     <div>
@@ -410,7 +410,7 @@ fn CatalogPicker<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -
                         {p.listing_new_change_item()}
                     </button>
                 </div>
-                if reset {
+                if *reset {
                     <div class={Banner} data-tone="warning"><p>{t.page_product_options_changed()}</p></div>
                 }
                 if let Some(schema) = &item.product_schema {

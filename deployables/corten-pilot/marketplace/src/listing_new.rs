@@ -345,16 +345,6 @@ pub enum Catalog {
 }
 
 impl Catalog {
-    /// The chosen item, its options, and whether some given ones are no longer offered.
-    // Workaround for todd-skelton/corten#142: a view cannot write
-    // `if let Catalog::Chosen { .. } = ..` inside html!, so it asks for the tuple.
-    pub fn chosen(&self) -> Option<(&CatalogItem, &Picks, bool)> {
-        match self {
-            Catalog::Chosen { item, picks, reset } => Some((item, picks, *reset)),
-            _ => None,
-        }
-    }
-
     /// The chosen item, with every option it needs.
     pub fn ready(&self) -> Option<(&CatalogItem, &Picks)> {
         match self {
