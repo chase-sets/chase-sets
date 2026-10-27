@@ -94,6 +94,8 @@ pub enum Alerts {
     Listed(Vec<ProductAlert>),
     /// The read has not caught up with a write yet: saved, read again.
     CatchingUp,
+    /// The read after a write failed: saved, but what it changed cannot be shown (a patch only).
+    Unconfirmed,
 }
 
 /// What the settings show.
@@ -186,12 +188,16 @@ pub(crate) async fn page(
             Err(error) => failed(&req, &viewer, Screen::Feed(None), error),
         },
         // An alert write's read again (`ReadAgain::from` in its patch): the section alone. A read
-        // that fails answers the page's error, which the runtime does not apply, so it stops.
+        // that fails says so in place, as a patch the runtime applies whatever its status; signed
+        // out or refused answers the page's, which stops the reads.
         View::Settings if req.mode == corten::Mode::Action && place.section() == Section::ProductAlerts => {
             let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
             match alerts(&waiting, receipt.is_some()).await {
                 Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place: place.clone() }),
-                Err(error) => failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error),
+                Err(error) if matches!(error.status(), Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)) => {
+                    failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error)
+                }
+                Err(error) => unconfirmed(&req, error),
             }
         }
         View::Settings => {
@@ -358,9 +364,9 @@ pub(crate) async fn set_preference(
 /// Pause, resume or delete an alert, then the alerts read after the write. With a script, in
 /// place: while the read catches up the section says the change is saved and asks to be read again
 /// from the settings' address with the write's receipt (`ReadAgain::from`), which answers the
-/// section the same way until the read is in. Without one, or when the read after the write
-/// fails, the settings at the alerts with the receipt, which say the same and read themselves
-/// again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
+/// section the same way until the read is in; a read after the write that fails says the change
+/// was saved and cannot be shown yet (502, in place). Without a script, the settings at the alerts
+/// with the receipt, which say the same and read themselves again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
 pub(crate) async fn change_alert(
     req: Req,
     Caller(Member(viewer)): Caller<Member>,
@@ -389,11 +395,23 @@ pub(crate) async fn change_alert(
     let to = url::Notifications { place: Place::settings(Section::ProductAlerts, receipt.as_ref()) };
     if req.mode == corten::Mode::Action {
         let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
-        if let Ok(alerts) = alerts(&waiting, receipt.is_some()).await {
-            return alerts_patch(&req, &alerts, &to);
-        }
+        return match alerts(&waiting, receipt.is_some()).await {
+            Ok(alerts) => alerts_patch(&req, &alerts, &to),
+            Err(error) => unconfirmed(&req, error),
+        };
     }
     req.redirect(&to.at(views::ProductAlertsId))
+}
+
+/// The alerts' section when the read after a write failed: the write was saved, the section says
+/// so and that a reload shows it (502).
+fn unconfirmed(req: &Req, error: ApiError) -> HtmlResult {
+    tracing::warn!("the product alerts' read after a write failed: {error}");
+    let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
+    req.patch_with_status(
+        StatusCode::BAD_GATEWAY,
+        html! { <views::AlertsSection t={t} p={p} alerts={&Alerts::Unconfirmed} notice={None} focus={false} /> },
+    )
 }
 
 /// The alerts' section as a patch; while the read is catching up with a write it asks to be read

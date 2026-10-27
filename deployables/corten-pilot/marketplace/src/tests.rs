@@ -1022,7 +1022,8 @@ fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Respons
 /// reads fail): two notifications, `dlv_1` unread (marking `dlv_broken` fails), five channels
 /// (`sms` and `rcs` too, as the API lists them; `nope` is refused), and two Product alerts.
 /// Pausing `pal_1` commits at 22, and a read after it has it paused; `pal_lag`'s write commits
-/// at 43, which the read has not caught up with; `pal_gone` is refused.
+/// at 43, which the read has not caught up with; `pal_down`'s at 44, which the read fails at;
+/// `pal_gone` is refused.
 fn notification_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let item = |id: &str, title: &str, kind: &str, href: &str, read: bool| {
         json!({
@@ -1068,6 +1069,9 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
             Some(Json(json!({ "item": { "key": key, "enabled": sent["enabled"] == true } })).into_response())
         }
         (&Method::GET, ACCOUNT_ALERTS) => {
+            if waits_for(headers).as_deref() == Some("44") {
+                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
             if waits_for(headers).as_deref() == Some("43") {
                 return Some(refusal(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -1095,6 +1099,7 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
             Some(match id {
                 "pal_gone" => refusal(StatusCode::BAD_REQUEST, "validation_failed", "Product alert not found."),
                 "pal_lag" => committed(StatusCode::OK, "discovery", "43", json!({ "id": id, "version": 2, "status": action })),
+                "pal_down" => committed(StatusCode::OK, "discovery", "44", json!({ "id": id, "version": 2, "status": action })),
                 _ => committed(StatusCode::OK, "discovery", "22", json!({ "id": id, "version": 2, "status": action })),
             })
         }
@@ -4623,6 +4628,35 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
     let (status, _, _) =
         pilot.send(post("/account/notifications/product-alerts/pal_1", "watcher", "action=explode", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn an_alerts_write_whose_read_fails_says_in_place_it_was_saved() {
+    let pilot = Pilot::new().await;
+    let unconfirmed = r#"data-tone="warning" role="alert"><p>Saved, but your Product alerts could not be read. Reload the page to see the change.</p>"#;
+    // With a script, the write's own read failing: the section says so, as a 502 patch the runtime
+    // applies whatever its status (todd-skelton/corten#118), and asks to be read no more.
+    let (status, headers, html) =
+        pilot.send(post("/account/notifications/product-alerts/pal_down", "watcher", "action=pause", true)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(headers.contains_key("corten-patch") && !headers.contains_key("corten-location"), "{headers:?}");
+    assert!(html.starts_with(r#"<section id="product-alerts""#) && html.contains(unconfirmed), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    // Without a script, the settings with the receipt, whose read fails as a page (502).
+    let (status, headers, _) =
+        pilot.send(post("/account/notifications/product-alerts/pal_down", "watcher", "action=pause", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().split('#').next().unwrap().to_owned();
+    assert!(to.contains("afterWrite="), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("watcher"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains("<!DOCTYPE html>") && !html.contains(unconfirmed), "the page's own error: {html}");
+    // The same address read again by the runtime: the section, saying it was saved.
+    let mut again = get(&to, Some("watcher"));
+    again.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(again).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(headers.contains_key("corten-patch") && html.contains(unconfirmed), "{html}");
 }
 
 #[tokio::test]

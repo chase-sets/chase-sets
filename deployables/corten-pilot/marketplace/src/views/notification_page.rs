@@ -245,6 +245,9 @@ pub fn AlertsSection<'a>(t: NotificationsMsg, p: Pilot, alerts: &'a Alerts, noti
                 Alerts::CatchingUp => {
                     <div class={Banner} role="status"><p>{p.notifications_pending()}</p></div>
                 }
+                Alerts::Unconfirmed => {
+                    <div class={Banner} data-tone="warning" role="alert"><p>{p.notifications_unconfirmed()}</p></div>
+                }
                 Alerts::Listed(alerts) if alerts.is_empty() => {
                     <div class={Empty}>
                         <p class={Strong}>{t.page_settings_product_alerts_empty_title()}</p>
