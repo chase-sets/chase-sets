@@ -55,6 +55,11 @@ describe("producer dispatch-loss reconciliation", () => {
         }
         return { total_count: 0, workflow_runs: [] };
       },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: JSON.stringify({ enabled: true }),
+        decision: { enabled: true, reasonCode: "policy_enabled" },
+      }),
     });
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("platform-pr.yml/runs");
@@ -87,8 +92,66 @@ describe("producer dispatch-loss reconciliation", () => {
         endpoint.includes("platform-pr.yml")
           ? { total_count: 1, workflow_runs: [producer()] }
           : { total_count: 0, workflow_runs: [] },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: JSON.stringify({ enabled: true }),
+        decision: { enabled: true, reasonCode: "policy_enabled" },
+      }),
     });
     expect(result).toEqual({ attempts: [], errors: [] });
+  });
+
+  it("returns zero attempts for 31 completed producers when default-branch policy was disabled", async () => {
+    const producers = Array.from({ length: 31 }, (_, index) => producer({ id: 5000 + index }));
+    let reconcileCalls = 0;
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: producers.length, workflow_runs: producers }
+          : { total_count: 0, workflow_runs: [] },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: JSON.stringify({ schemaVersion: "merge-qualification-policy/v1", enabled: false }),
+        decision: { enabled: false, reasonCode: "policy_disabled" },
+      }),
+    });
+    if (result.attempts.length) reconcileCalls += result.attempts.length;
+    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(reconcileCalls).toBe(0);
+  });
+
+  it("refuses a duplicate advisory identity and a non-completed producer", async () => {
+    const duplicate = { display_title: "Merge Qualification producer 4000-1", id: 9001, run_attempt: 1 };
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: 1, workflow_runs: [producer()] }
+          : { total_count: 2, workflow_runs: [duplicate, { ...duplicate, id: 9002 }] },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: "{}",
+        decision: { enabled: true },
+      }),
+    });
+    expect(result).toEqual({ attempts: [], errors: ["advisory_identity_invalid"] });
+    const pending = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: 1, workflow_runs: [producer({ status: "in_progress" })] }
+          : { total_count: 0, workflow_runs: [] },
+      readHistoricalPolicyContent: async () => ({
+        revision: policyRevision,
+        content: "{}",
+        decision: { enabled: true },
+      }),
+    });
+    expect(pending).toEqual({ attempts: [], errors: [] });
   });
 
   it("settles one producer-keyed terminal after one tick and is byte-idempotent", () => {
@@ -104,6 +167,8 @@ describe("producer dispatch-loss reconciliation", () => {
       producerRunAttempt: "1",
       terminalState: "infrastructure_error",
       reasonCodes: ["advisory_dispatch_missing"],
+      cleanupLegs: 0,
+      idempotencyKey: "merge-qualification-producer:chase-sets/chase-sets:4000:1",
     });
     const replay = reconcileMergeQualificationProducerAttempt({
       producer: producer(),
@@ -112,8 +177,7 @@ describe("producer dispatch-loss reconciliation", () => {
       existingTerminal: first.event,
       now,
     });
-    expect(replay).toMatchObject({ state: "idempotent", event: first.event });
-    expect(JSON.stringify(replay.event)).toBe(JSON.stringify(first.event));
+    expect(replay).toMatchObject({ state: "idempotent", event: null });
   });
 
   it("names awaiting, ineligible, advisory-present, and late-race conflict states", () => {

@@ -160,7 +160,7 @@ describe("continuation acceptance boundaries", () => {
     // Every git read must see the merge-group workspace, never the trusted default-ref checkout.
     const gitReads = record.match(/\bgit\b[^\n]*/gu);
     expect(gitReads).toEqual([
-      'git -C .qualification-authority rev-parse HEAD)"',
+      'git rev-parse HEAD)"',
       'git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"',
       'git -C "$GITHUB_WORKSPACE" rev-parse \'HEAD^{tree}\')"',
     ]);

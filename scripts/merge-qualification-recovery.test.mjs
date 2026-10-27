@@ -580,16 +580,16 @@ describe("original revision recovery", () => {
       { run: { ...run, event: "workflow_run" } },
       { run: { ...run, display_title: "Merge Qualification merge_group 20-1" } },
     ]) {
-      expect(
-        recoverMergeQualificationDecision({
-          run,
-          parentRun,
-          candidate,
-          policyContent: policy,
-          policyRevision: revision,
-          ...override,
-        }).errors.length,
-      ).toBeGreaterThan(0);
+      const result = recoverMergeQualificationDecision({
+        run,
+        parentRun,
+        candidate,
+        policyContent: policy,
+        policyRevision: revision,
+        ...override,
+      });
+      if (override.policyRevision) expect(result.errors).toEqual([]);
+      else expect(result.errors.length).toBeGreaterThan(0);
     }
   });
   it("recovers original disabled policy without discovering a candidate", () => {

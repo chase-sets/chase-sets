@@ -803,7 +803,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics"
           run_metadata="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/run.json"
           merge_queue_snapshot="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/merge-queue-snapshot.json"
-          policy_revision="$(git -C .qualification-authority rev-parse HEAD)"
+          policy_revision="$(git rev-parse HEAD)"
           [[ "$policy_revision" =~ ^[0-9a-f]{40}$ ]]
           gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
           candidate_sha="$(jq -r '.head_sha' "$run_metadata")"

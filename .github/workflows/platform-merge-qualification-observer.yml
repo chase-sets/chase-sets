@@ -56,6 +56,7 @@ jobs:
           set -euo pipefail
           node ./scripts/merge-qualification.mjs producer-inventory \
             --repository "${{ github.repository }}" \
+            --default-branch "${{ github.event.repository.default_branch }}" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -91,20 +92,43 @@ jobs:
           if [ -f artifacts/merge-qualification-producer/candidate/candidate.json ]; then
             policy_revision="$(jq -r '.policyRevision // empty' artifacts/merge-qualification-producer/candidate/candidate.json)"
           fi
+          if [ -z "$policy_revision" ]; then
+            policy_revision='${{ matrix.historicalPolicyRevision }}'
+          fi
           if [[ "$policy_revision" =~ ^[0-9a-f]{40}$ ]]; then
             git fetch --no-tags origin "$policy_revision"
+            git merge-base --is-ancestor "$policy_revision" "origin/${{ github.event.repository.default_branch }}"
             git show "$policy_revision:scripts/merge-qualification-policy.json" > artifacts/merge-qualification-producer/policy.json
           else
             printf '{}\n' > artifacts/merge-qualification-producer/policy.json
           fi
-          advisory_json="$(gh api "repos/${{ github.repository }}/actions/workflows/platform-merge-qualification.yml/runs?created=%3E%3D$(jq -r '.created_at' artifacts/merge-qualification-producer/producer.json)&per_page=100&page=1")"
-          printf '%s' "$advisory_json" | jq --arg title "Merge Qualification producer ${PRODUCER_RUN_ID}-${PRODUCER_RUN_ATTEMPT}" '[.workflow_runs[] | select(.display_title == $title)] | if length == 1 then .[0] else null end' > artifacts/merge-qualification-producer/advisory.json
-          artifacts_json="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=merge-qualification-producer-terminal-${PRODUCER_RUN_ID}-${PRODUCER_RUN_ATTEMPT}&per_page=100&page=1")"
-          if [ "$(printf '%s' "$artifacts_json" | jq '[.artifacts[] | select(.expired == false)] | length')" = "1" ]; then
-            gh run download "$(printf '%s' "$artifacts_json" | jq -r '[.artifacts[] | select(.expired == false)][0].workflow_run.id')" --name "merge-qualification-producer-terminal-${PRODUCER_RUN_ID}-${PRODUCER_RUN_ATTEMPT}" --dir artifacts/merge-qualification-producer/terminal
+          advisory_json='[]'
+          advisory_total=''
+          for page in 1 2 3 4 5 6 7 8 9 10; do
+            page_json="$(gh api "repos/${{ github.repository }}/actions/workflows/platform-merge-qualification.yml/runs?created=%3E%3D$(jq -r '.created_at' artifacts/merge-qualification-producer/producer.json)&per_page=100&page=${page}")"
+            page_total="$(jq -r '.total_count // -1' <<<"$page_json")"
+            [[ "$page_total" =~ ^[0-9]+$ ]] || exit 1
+            if [ -n "$advisory_total" ] && [ "$advisory_total" != "$page_total" ]; then exit 1; fi
+            advisory_total="$page_total"
+            advisory_json="$(jq -c --argjson prior "$advisory_json" '$prior + .workflow_runs' <<<"$page_json")"
+            observed="$(jq 'length' <<<"$advisory_json")"
+            if [ "$observed" = "$advisory_total" ]; then break; fi
+            [ "$(jq '.workflow_runs | length' <<<"$page_json")" = "100" ] || exit 1
+            [ "$page" -lt 10 ] || exit 1
+          done
+          printf '%s' "$advisory_json" | jq --arg title "Merge Qualification producer ${PRODUCER_RUN_ID}-${PRODUCER_RUN_ATTEMPT}" '[.[] | select(.display_title == $title)] | if length == 0 then null elif length == 1 then .[0] else error("duplicate advisory identity") end' > artifacts/merge-qualification-producer/advisory.json
+          node ./scripts/merge-qualification.mjs producer-terminal-inventory \
+            --repository "${{ github.repository }}" \
+            --default-branch "${{ github.event.repository.default_branch }}" \
+            --producer artifacts/merge-qualification-producer/producer.json \
+            --out artifacts/merge-qualification-producer/terminal/records.json || exit $?
+          existing_arg=()
+          if [ "$(jq '[.records[]] | unique | length' artifacts/merge-qualification-producer/terminal/records.json)" = "1" ]; then
+            jq -r '.records[0]' artifacts/merge-qualification-producer/terminal/records.json > artifacts/merge-qualification-producer/terminal/event.json
             existing_arg=(--existing-terminal artifacts/merge-qualification-producer/terminal/event.json)
-          else
-            existing_arg=()
+          elif [ "$(jq '.records | length' artifacts/merge-qualification-producer/terminal/records.json)" != "0" ]; then
+            echo "Conflicting producer terminal records were found." >&2
+            exit 1
           fi
           node ./scripts/merge-qualification.mjs producer-reconcile \
             --producer artifacts/merge-qualification-producer/producer.json \

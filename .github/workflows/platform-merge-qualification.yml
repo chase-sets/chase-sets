@@ -205,7 +205,7 @@ jobs:
             --parent-run-id "$PARENT_RUN_ID" \
             --parent-run-attempt "$PARENT_RUN_ATTEMPT" \
             --policy-enabled "${{ steps.policy.outputs.enabled }}" \
-            --policy-revision "${{ steps.parent.outputs.policy_revision }}" \
+            --policy-revision "${{ steps.self.outputs.head_sha }}" \
             --observed-at "${{ steps.self.outputs.started_at }}" \
             --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
             --classifier-class "${{ steps.route.outputs.classifier_class }}" \

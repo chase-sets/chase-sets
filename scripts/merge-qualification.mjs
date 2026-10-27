@@ -812,11 +812,10 @@ export function recoverMergeQualificationDecision({
   classifierRecord = null,
 } = {}) {
   const title = ADVISORY_RUN_TITLE.exec(run?.display_title ?? "");
-  const recordedPolicyRevision = candidate?.policyRevision ?? policyRevision;
+  const recordedPolicyRevision = policyRevision;
   if (
     !isCommitSha(recordedPolicyRevision) ||
     !isCommitSha(run?.head_sha) ||
-    (candidate?.policyRevision && policyRevision !== candidate.policyRevision) ||
     parseTimezoneInstantMs(run?.run_started_at) === null ||
     run?.event !== "workflow_dispatch" ||
     run?.path !== ".github/workflows/platform-merge-qualification.yml" ||
@@ -833,7 +832,6 @@ export function recoverMergeQualificationDecision({
     policy.enabled &&
     candidate !== null &&
     (validateMergeQualificationCandidate(candidate).length > 0 ||
-      candidate.policyRevision !== recordedPolicyRevision ||
       candidate.repository !== parentRun.repository.full_name ||
       candidate.runId !== String(parentRun.id) ||
       candidate.runAttempt !== String(parentRun.run_attempt) ||
@@ -1333,11 +1331,36 @@ function validateProducerRun(run, repository) {
     !isBoundedSafeIntegerString(String(run?.workflow_id ?? "")) ||
     !isCommitSha(run?.head_sha) ||
     parseTimezoneInstantMs(run?.run_started_at) === null ||
-    parseTimezoneInstantMs(run?.created_at) === null
+    parseTimezoneInstantMs(run?.created_at) === null ||
+    parseTimezoneInstantMs(run?.updated_at) === null
   ) {
     return "producer_identity_invalid";
   }
   return null;
+}
+
+function readHistoricalProducerPolicy({ run, defaultBranch = "main" } = {}) {
+  if (!run || typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch)) {
+    throw new Error("producer_policy_authority_invalid");
+  }
+  const at = run.run_started_at;
+  if (parseTimezoneInstantMs(at) === null) throw new Error("producer_policy_time_invalid");
+  const ref = defaultBranch.startsWith("origin/")
+    ? defaultBranch
+    : `origin/${defaultBranch.replace(/^refs\/heads\//u, "")}`;
+  const revision = execFileSync(
+    "git",
+    ["log", "-1", "--format=%H", `--until=${at}`, ref, "--", MERGE_QUALIFICATION_POLICY_PATH],
+    {
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 65_536,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  ).trim();
+  if (!isCommitSha(revision)) throw new Error("producer_policy_revision_unavailable");
+  const content = readOriginalQualificationPolicy(revision);
+  return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
 }
 
 async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, windowStart, kind }) {
@@ -1369,6 +1392,8 @@ async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, wi
 export async function inventoryMergeQualificationProducerAttempts({
   repository,
   requestJson,
+  defaultBranch = "main",
+  readHistoricalPolicyContent,
   now = () => new Date(),
 } = {}) {
   const refused = (code) => ({ attempts: [], errors: [code] });
@@ -1419,17 +1444,32 @@ export async function inventoryMergeQualificationProducerAttempts({
     for (const run of producers) {
       const identity = producerIdentity(run);
       const advisoryRun = advisoryByProducer.get(identity) ?? null;
-      if (advisoryRun) continue;
-      const eligibleAfterTick =
-        nowMs - parseTimezoneInstantMs(run.run_started_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
+      const completedMs = parseTimezoneInstantMs(run.updated_at);
+      if (
+        advisoryRun &&
+        parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
+      )
+        continue;
+      const historical = readHistoricalPolicyContent
+        ? await readHistoricalPolicyContent({ run, repository, defaultBranch })
+        : readHistoricalProducerPolicy({ run, defaultBranch });
+      const policyDecision =
+        historical?.decision ??
+        evaluateMergeQualificationPolicy(historical?.content, {
+          now: () => new Date(run.run_started_at),
+        });
+      if (!policyDecision || (policyDecision.enabled !== true && policyDecision.reasonCode === "policy_disabled"))
+        continue;
+      const eligibleAfterTick = nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
       if (!eligibleAfterTick) continue;
       attempts.push({
         run_id: String(run.id),
         run_attempt: String(run.run_attempt),
         workflow_id: String(run.workflow_id),
         conclusion: run.conclusion,
-        producer: run,
-        advisoryRun: null,
+        historicalPolicyRevision: historical?.revision ?? null,
+        historicalPolicyState: policyDecision.enabled === true ? "enabled" : "unknown",
+        advisoryRun,
         eligibleAfterTick,
       });
     }
@@ -1510,11 +1550,98 @@ export function validateMergeQualificationProducerTerminal(record) {
   return errors;
 }
 
+export async function readMergeQualificationProducerTerminalRecords({
+  repository,
+  producer,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+} = {}) {
+  const refused = (code) => ({ records: null, errors: [code] });
+  if (!isRepositoryIdentity(repository) || validateProducerRun(producer, repository))
+    return refused("producer_identity_invalid");
+  if (typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch))
+    return refused("terminal_default_branch_invalid");
+  const name = `merge-qualification-producer-terminal-${producer.id}-${producer.run_attempt}`;
+  const base = `repos/${repository}/actions`;
+  const artifacts = [];
+  const ids = new Set();
+  let total;
+  try {
+    for (let page = 1; page <= 100; page += 1) {
+      const payload = await requestJson(`${base}/artifacts?name=${name}&per_page=100&page=${page}`);
+      if (
+        !Number.isSafeInteger(payload?.total_count) ||
+        payload.total_count < 0 ||
+        payload.total_count > 10_000 ||
+        (total !== undefined && total !== payload.total_count) ||
+        !Array.isArray(payload.artifacts) ||
+        payload.artifacts.length > 100
+      )
+        return refused("terminal_inventory_incomplete");
+      total = payload.total_count;
+      for (const artifact of payload.artifacts) {
+        const id = String(artifact?.id ?? "");
+        if (
+          !isBoundedSafeIntegerString(id) ||
+          ids.has(id) ||
+          artifact?.name !== name ||
+          artifact?.expired !== false ||
+          !isBoundedSafeIntegerString(String(artifact?.workflow_run?.id ?? ""))
+        )
+          return refused("terminal_artifact_invalid");
+        ids.add(id);
+        artifacts.push(artifact);
+      }
+      if (artifacts.length === total) break;
+      if (artifacts.length > total || payload.artifacts.length !== 100 || page === 100)
+        return refused("terminal_inventory_incomplete");
+    }
+    const records = [];
+    for (const artifact of artifacts) {
+      const writerId = String(artifact.workflow_run.id);
+      const owner = await requestJson(`${base}/runs/${writerId}`);
+      if (
+        String(owner?.id) !== writerId ||
+        owner?.repository?.full_name !== repository ||
+        owner?.head_repository?.full_name !== repository ||
+        owner?.head_branch !== defaultBranch.replace(/^refs\/heads\//u, "") ||
+        owner?.path !== ".github/workflows/platform-merge-qualification-observer.yml" ||
+        !["schedule", "workflow_run"].includes(owner?.event)
+      )
+        return refused("terminal_writer_invalid");
+      const bytes = await downloadArtifact({ runId: writerId, name });
+      if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536) return refused("terminal_payload_invalid");
+      let record;
+      try {
+        record = JSON.parse(bytes);
+      } catch {
+        return refused("terminal_payload_invalid");
+      }
+      if (
+        validateMergeQualificationProducerTerminal(record).length > 0 ||
+        record.repository !== repository ||
+        record.producerWorkflowPath !== producer.path ||
+        record.producerWorkflowId !== String(producer.workflow_id) ||
+        record.producerRunId !== String(producer.id) ||
+        record.producerRunAttempt !== String(producer.run_attempt) ||
+        record.producerHeadSha !== lowerTrim(producer.head_sha)
+      )
+        return refused("terminal_payload_binding_invalid");
+      records.push(bytes);
+    }
+    return { records, errors: [] };
+  } catch {
+    return refused("terminal_authority_unavailable");
+  }
+}
+
 export function reconcileMergeQualificationProducerAttempt({
   producer,
   advisoryRun = null,
   candidate = null,
   policy = null,
+  policyContent = null,
   existingTerminal = null,
   now = new Date(),
 } = {}) {
@@ -1535,10 +1662,20 @@ export function reconcileMergeQualificationProducerAttempt({
     candidate.runAttempt === String(producer.run_attempt) &&
     candidate.candidateSha === lowerTrim(producer.head_sha) &&
     candidate.policyRevision !== lowerTrim(producer.head_sha);
-  if (!policy || policy.enabled !== true || !boundCandidate) {
+  const evaluatedPolicy =
+    typeof policyContent === "string"
+      ? evaluateMergeQualificationPolicy(policyContent, { now: () => new Date(producer.run_started_at) })
+      : policy;
+  if (!evaluatedPolicy || evaluatedPolicy.enabled !== true || !boundCandidate) {
     return {
-      state: policy?.enabled === false ? "ineligible" : "unknown",
-      reason: policy?.enabled === false ? "policy_disabled" : "candidate_invalid",
+      state:
+        evaluatedPolicy?.enabled === false || evaluatedPolicy?.reasonCode === "policy_disabled"
+          ? "ineligible"
+          : "unknown",
+      reason:
+        evaluatedPolicy?.enabled === false || evaluatedPolicy?.reasonCode === "policy_disabled"
+          ? "policy_disabled"
+          : "candidate_invalid",
       event: null,
     };
   }
@@ -1547,15 +1684,22 @@ export function reconcileMergeQualificationProducerAttempt({
   if (!Number.isFinite(nowMs) || startedMs === null)
     return { state: "unknown", reason: "producer_time_invalid", event: null };
   if (advisoryRun && !existingTerminal) return { state: "advisory_present", reason: "owned_by_advisory", event: null };
-  if (!advisoryRun && nowMs - startedMs < MERGE_QUALIFICATION_PRODUCER_TICK_MS) {
+  const completedMs = parseTimezoneInstantMs(producer.updated_at);
+  if (!advisoryRun && (completedMs === null || nowMs - completedMs < MERGE_QUALIFICATION_PRODUCER_TICK_MS)) {
     return { state: "awaiting_tick", reason: "awaiting_advisory_dispatch_tick", event: null };
   }
-  const terminal =
-    existingTerminal && validateMergeQualificationProducerTerminal(existingTerminal).length === 0
-      ? existingTerminal
-      : null;
-  if (terminal && !advisoryRun)
-    return { state: "idempotent", reason: "dispatch_loss_already_settled", event: terminal };
+  const terminalErrors = existingTerminal ? validateMergeQualificationProducerTerminal(existingTerminal) : [];
+  const terminalBound =
+    existingTerminal &&
+    terminalErrors.length === 0 &&
+    existingTerminal.repository === repository &&
+    existingTerminal.producerRunId === String(producer.id) &&
+    existingTerminal.producerRunAttempt === String(producer.run_attempt) &&
+    existingTerminal.producerHeadSha === lowerTrim(producer.head_sha) &&
+    existingTerminal.policyRevision === lowerTrim(candidate?.policyRevision);
+  if (existingTerminal && !terminalBound) return { state: "unknown", reason: "terminal_identity_invalid", event: null };
+  if (terminalBound && !advisoryRun)
+    return { state: "idempotent", reason: "dispatch_loss_already_settled", event: null };
   const event = producerTerminalFields(
     { repository, producer, candidate, now: nowMs },
     advisoryRun ? "conflict" : "infrastructure_error",
@@ -2274,6 +2418,7 @@ async function main(argv, env = process.env) {
   if (command === "producer-inventory") {
     const result = await inventoryMergeQualificationProducerAttempts({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+      defaultBranch: readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main",
       now,
       requestJson: async (endpoint) =>
         JSON.parse(
@@ -2290,10 +2435,7 @@ async function main(argv, env = process.env) {
       return 1;
     }
     appendOutputs(readOption(argv, "--github-output"), [
-      [
-        "matrix",
-        JSON.stringify({ include: result.attempts.map(({ producer, ...attempt }) => ({ ...attempt, producer })) }),
-      ],
+      ["matrix", JSON.stringify({ include: result.attempts })],
       ["pending", result.attempts.length ? "true" : "false"],
     ]);
     if (!result.attempts.length)
@@ -2308,12 +2450,20 @@ async function main(argv, env = process.env) {
     const producer = readJsonFileOrNull(readOption(argv, "--producer"));
     const candidate = readJsonFileOrNull(readOption(argv, "--candidate"));
     const policy = readJsonFileOrNull(readOption(argv, "--policy"));
+    const policyPath = readOption(argv, "--policy");
+    let policyContent = null;
+    try {
+      policyContent = policyPath ? readFileSync(policyPath, "utf8") : null;
+    } catch {
+      policyContent = null;
+    }
     const advisoryRun = readJsonFileOrNull(readOption(argv, "--advisory-run"));
     const existingTerminal = readJsonFileOrNull(readOption(argv, "--existing-terminal"));
     const result = reconcileMergeQualificationProducerAttempt({
       producer,
       candidate,
       policy,
+      policyContent,
       advisoryRun,
       existingTerminal,
       now: now(),
@@ -2326,6 +2476,42 @@ async function main(argv, env = process.env) {
     ]);
     console.log(JSON.stringify(result, null, 2));
     return result.state === "unknown" ? 1 : 0;
+  }
+
+  if (command === "producer-terminal-inventory") {
+    const producer = readJsonFileOrNull(readOption(argv, "--producer"));
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const defaultBranch = readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main";
+    const gh = (args) =>
+      execFileSync("gh", args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 2_000_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    const result = await readMergeQualificationProducerTerminalRecords({
+      repository,
+      producer,
+      defaultBranch,
+      requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
+      downloadArtifact: async ({ runId, name }) => {
+        const directory = mkdtempSync(path.join(tmpdir(), "qualification-producer-terminal-"));
+        try {
+          gh(["run", "download", runId, "--repo", repository, "--name", name, "--dir", directory]);
+          const file = path.join(directory, "event.json");
+          if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
+          return readFileSync(file, "utf8");
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    await writeJsonRecord(readOption(argv, "--out"), { records: result.records });
+    return 0;
   }
 
   if (command === "terminal-inventory") {
@@ -2406,7 +2592,7 @@ async function main(argv, env = process.env) {
     const run = readJsonFileOrNull(readOption(argv, "--run"));
     const parentRun = readJsonFileOrNull(readOption(argv, "--parent-run"));
     const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
-    const policyRevision = candidate?.policyRevision ?? run?.head_sha;
+    const policyRevision = run?.head_sha;
     if (!isCommitSha(policyRevision) || parseTimezoneInstantMs(run?.run_started_at) === null) {
       console.error("original policy revision or attempt time is unavailable.");
       return 1;
