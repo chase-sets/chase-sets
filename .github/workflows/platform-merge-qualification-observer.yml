@@ -135,7 +135,7 @@ jobs:
           fi
           cleanup_arg=()
           if [ "$terminal_state" = "advisory_cleanup_complete" ] || [ "$terminal_state" = "conflict_settled" ]; then
-            cleanup_arg=(--advisory-cleanup-complete)
+            cleanup_arg=(--advisory-cleanup-complete true)
           fi
           terminals_arg=()
           if [ "$(jq '.records | length' artifacts/merge-qualification-producer/terminal/records.json)" -gt 0 ]; then
@@ -146,6 +146,7 @@ jobs:
             --producer artifacts/merge-qualification-producer/producer.json \
             --candidate artifacts/merge-qualification-producer/candidate/candidate.json \
             --policy artifacts/merge-qualification-producer/policy.json \
+            --policy-authority-error "${{ matrix.historicalPolicyReason }}" \
             --advisory-run artifacts/merge-qualification-producer/advisory.json \
             "${existing_arg[@]}" \
             "${terminals_arg[@]}" \

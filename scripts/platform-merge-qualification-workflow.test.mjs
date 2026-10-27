@@ -8,6 +8,7 @@ const platformPr = read(".github/workflows/platform-pr.yml");
 const advisory = read(".github/workflows/platform-merge-qualification.yml");
 const gate = read(".github/workflows/platform-merge-gate-verification.yml");
 const observer = read(".github/workflows/platform-merge-qualification-observer.yml");
+const mergeQualification = read("scripts/merge-qualification.mjs");
 const production = read(".github/workflows/platform-production.yml");
 const previewCleanup = read(".github/workflows/platform-preview-cleanup.yml");
 
@@ -70,6 +71,21 @@ describe("genuinely advisory workflow topology", () => {
 });
 
 describe("producer-loss authority pins", () => {
+  it("does not publish the unused advisory self head output", () => {
+    expect(advisory).not.toContain('echo "head_sha=$(jq -r');
+  });
+  it("routes producer inventory through the real image eligibility reader", () => {
+    const start = mergeQualification.indexOf('if (command === "producer-inventory")');
+    const end = mergeQualification.indexOf('if (command === "producer-reconcile")', start);
+    const cli = mergeQualification.slice(start, end);
+    expect(cli).toContain("readMergeQualificationProducerImageEligibility");
+    expect(cli).toContain("readProducerImageEligibility:");
+    expect(mergeQualification).toContain('fileName = "event.json"');
+    expect(mergeQualification).toContain(
+      "entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName",
+    );
+    expect(mergeQualification).toContain('fileName: name.startsWith("merge-qualification-cleanup-complete-")');
+  });
   it("inspects only image-eligible producers and uses the advisory run head for recovery", () => {
     const inspect = step(observer, "Inspect joined producer candidate and policy");
     expect(step(observer, "Inventory completed producer attempts missing advisory dispatch")).toContain(
@@ -78,6 +94,7 @@ describe("producer-loss authority pins", () => {
     expect(inspect).toContain(
       'git merge-base --is-ancestor "$policy_revision" "origin/${{ github.event.repository.default_branch }}"',
     );
+    expect(inspect).toContain('--policy-authority-error "${{ matrix.historicalPolicyReason }}"');
     const recovery = step(observer, "Inspect complete advisory run evidence");
     expect(recovery).toContain("revision=\"$(jq -r '.head_sha' artifacts/merge-qualification/run.json)\"");
     const decision = step(advisory, "Persist original run-attempt decision");
@@ -88,7 +105,11 @@ describe("producer-loss authority pins", () => {
     const inspect = step(observer, "Inspect joined producer candidate and policy");
     expect(inspect).toContain("--advisory-run artifacts/merge-qualification-producer/advisory.json");
     expect(inspect).toContain("--advisory-cleanup-complete");
+    expect(inspect).toContain("cleanup_arg=(--advisory-cleanup-complete true)");
     expect(inspect).toContain("conflict_settled");
+    expect(step(observer, "Upload producer dispatch-loss terminal")).toContain(
+      "if: steps.inspect.outputs.event_written == 'true'",
+    );
   });
 });
 

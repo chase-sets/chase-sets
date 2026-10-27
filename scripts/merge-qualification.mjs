@@ -24,7 +24,7 @@
 // operator secrets, live drills, and the soak evidence belong to the
 // enablement issue; this module ships with the policy disabled.
 
-import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -1340,46 +1340,67 @@ function validateProducerRun(run, repository) {
   return null;
 }
 
-export function readHistoricalProducerPolicy({
+export async function readHistoricalProducerPolicy({
   run,
+  repository,
   defaultBranch = "main",
   execFile = execFileSync,
   readPolicy = readOriginalQualificationPolicy,
+  readLandingEvidence,
 } = {}) {
   if (!run || typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch)) {
     throw new Error("producer_policy_authority_invalid");
   }
   const at = run.run_started_at;
-  if (parseTimezoneInstantMs(at) === null) throw new Error("producer_policy_time_invalid");
+  const startMs = parseTimezoneInstantMs(at);
+  if (startMs === null) throw new Error("producer_policy_time_invalid");
   const ref = defaultBranch.startsWith("origin/")
     ? defaultBranch
     : `origin/${defaultBranch.replace(/^refs\/heads\//u, "")}`;
-  const revision = execFile(
-    "git",
-    ["log", "-1", "--format=%H", `--until=${at}`, ref, "--", MERGE_QUALIFICATION_POLICY_PATH],
-    {
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 65_536,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  ).trim();
-  if (!isCommitSha(revision)) throw new Error("producer_policy_revision_unavailable");
-  try {
-    execFile("git", ["merge-base", "--is-ancestor", revision, ref], {
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 65_536,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch {
-    // A merge-group producer or unlanded queue predecessor can be visible to
-    // git log but is not policy authority. Refuse it as explicit unknown.
-    throw new Error("producer_policy_ancestry_unavailable");
+  const history = execFile("git", ["log", "--format=%H%x09%cI", ref, "--", MERGE_QUALIFICATION_POLICY_PATH], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 65_536,
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  const candidates = history
+    .split(/\r?\n/u)
+    .map((line) => {
+      const [revision, committedAt] = line.split("\t");
+      return { revision, committedMs: parseTimezoneInstantMs(committedAt) };
+    })
+    .filter(({ revision, committedMs }) => isCommitSha(revision) && committedMs !== null && committedMs <= startMs);
+  if (!candidates.length) throw new Error("producer_policy_revision_unavailable");
+  if (typeof readLandingEvidence !== "function") throw new Error("producer_policy_landing_evidence_unavailable");
+  for (const { revision } of candidates) {
+    const landing = await readLandingEvidence({ repository, revision, defaultBranch });
+    const landed = Array.isArray(landing)
+      ? landing.filter(
+          (pull) =>
+            pull?.base?.ref === defaultBranch.replace(/^refs\/heads\//u, "") &&
+            typeof pull?.merged_at === "string" &&
+            pull?.merge_commit_sha === revision,
+        )
+      : [];
+    if (landed.length > 1) throw new Error("producer_policy_landing_evidence_ambiguous");
+    if (landed.length === 0) throw new Error("producer_policy_landing_evidence_unavailable");
+    const landedMs = parseTimezoneInstantMs(landed[0].merged_at);
+    if (landedMs === null || landedMs > startMs) continue;
+    try {
+      execFile("git", ["merge-base", "--is-ancestor", revision, ref], {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 65_536,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch {
+      throw new Error("producer_policy_ancestry_unavailable");
+    }
+    if (revision === lowerTrim(run.head_sha)) throw new Error("producer_policy_authority_unavailable");
+    const content = await readPolicy(revision);
+    return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
   }
-  if (revision === lowerTrim(run.head_sha)) throw new Error("producer_policy_authority_unavailable");
-  const content = readPolicy(revision);
-  return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
+  throw new Error("producer_policy_landing_evidence_unavailable");
 }
 
 async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, windowStart, kind, event }) {
@@ -1408,10 +1429,8 @@ async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, wi
   return runs;
 }
 
-// A skipped Docker Image Build job means the producer was not image-eligible;
-// it must not become a permanent missing-candidate failure. Any other terminal
-// job result represents an attempted image path and remains eligible for
-// candidate-loss inspection.
+// Image eligibility is proven only by the one job and one successful push step;
+// a job that merely ran is not evidence that an image was published.
 export async function readMergeQualificationProducerImageEligibility({ repository, run, requestJson } = {}) {
   if (!isRepositoryIdentity(repository) || validateProducerRun(run, repository))
     throw new Error("producer_image_eligibility_invalid");
@@ -1424,7 +1443,11 @@ export async function readMergeQualificationProducerImageEligibility({ repositor
   });
   const imageJobs = jobs.jobs.filter((job) => job?.name === "Docker Image Build");
   if (imageJobs.length !== 1) throw new Error("producer_image_eligibility_invalid");
-  return imageJobs[0].conclusion !== "skipped";
+  const pushSteps = Array.isArray(imageJobs[0].steps)
+    ? imageJobs[0].steps.filter((step) => step?.name === "Push boot-smoked merge-group image")
+    : [];
+  if (pushSteps.length !== 1) throw new Error("producer_image_eligibility_invalid");
+  return pushSteps[0].conclusion === "success";
 }
 
 export async function inventoryMergeQualificationProducerAttempts({
@@ -1441,6 +1464,7 @@ export async function inventoryMergeQualificationProducerAttempts({
     Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
   if (!Number.isFinite(windowStartMs)) return refused("producer_window_invalid");
   const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
+  const landingCache = new Map();
   try {
     const [producerRuns, advisoryRuns] = await Promise.all([
       inventoryWorkflowRuns({
@@ -1490,14 +1514,58 @@ export async function inventoryMergeQualificationProducerAttempts({
         parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
       )
         continue;
-      const imageEligible = readProducerImageEligibility
-        ? await readProducerImageEligibility({ run, repository })
-        : true;
+      let imageEligible;
+      try {
+        imageEligible = readProducerImageEligibility ? await readProducerImageEligibility({ run, repository }) : true;
+      } catch (error) {
+        attempts.push({
+          run_id: String(run.id),
+          run_attempt: String(run.run_attempt),
+          workflow_id: String(run.workflow_id),
+          conclusion: run.conclusion,
+          historicalPolicyRevision: null,
+          historicalPolicyState: "unknown",
+          historicalPolicyReason: error instanceof Error ? error.message : "producer_image_eligibility_unavailable",
+          advisoryRunPresent: Boolean(advisoryRun),
+          imageEligible: null,
+          eligibleAfterTick: true,
+        });
+        continue;
+      }
       if (imageEligible === false) continue;
       if (imageEligible !== true) throw new Error("producer_image_eligibility_unavailable");
-      const historical = readHistoricalPolicyContent
-        ? await readHistoricalPolicyContent({ run, repository, defaultBranch })
-        : readHistoricalProducerPolicy({ run, defaultBranch });
+      let historical;
+      try {
+        historical = readHistoricalPolicyContent
+          ? await readHistoricalPolicyContent({ run, repository, defaultBranch })
+          : await readHistoricalProducerPolicy({
+              run,
+              repository,
+              defaultBranch,
+              readLandingEvidence: async ({ revision }) => {
+                if (!landingCache.has(revision))
+                  landingCache.set(revision, await requestJson(`repos/${repository}/commits/${revision}/pulls`));
+                return landingCache.get(revision);
+              },
+            });
+      } catch (error) {
+        const eligibleAfterTick =
+          nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
+        if (!eligibleAfterTick) continue;
+        attempts.push({
+          run_id: String(run.id),
+          run_attempt: String(run.run_attempt),
+          workflow_id: String(run.workflow_id),
+          conclusion: run.conclusion,
+          historicalPolicyRevision: null,
+          historicalPolicyState: "unknown",
+          historicalPolicyReason: error instanceof Error ? error.message : "producer_policy_authority_unavailable",
+          advisoryRunPresent: Boolean(advisoryRun),
+          imageEligible: true,
+          eligibleAfterTick,
+        });
+        continue;
+      }
       const policyDecision =
         historical?.decision ??
         evaluateMergeQualificationPolicy(historical?.content, {
@@ -1516,6 +1584,8 @@ export async function inventoryMergeQualificationProducerAttempts({
         conclusion: run.conclusion,
         historicalPolicyRevision: historical?.revision ?? null,
         historicalPolicyState: policyDecision.enabled === true ? "enabled" : "unknown",
+        historicalPolicyReason:
+          policyDecision.enabled === true ? null : (policyDecision.reasonCode ?? "policy_disabled"),
         advisoryRunPresent: Boolean(advisoryRun),
         imageEligible: true,
         eligibleAfterTick,
@@ -1598,7 +1668,14 @@ export function validateMergeQualificationProducerTerminal(record) {
   return errors;
 }
 
-async function readNamedProducerArtifact({ repository, name, defaultBranch, requestJson, downloadArtifact }) {
+async function readNamedProducerArtifact({
+  repository,
+  name,
+  fileName = "event.json",
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+}) {
   const base = `repos/${repository}/actions`;
   const artifacts = [];
   const ids = new Set();
@@ -1645,7 +1722,7 @@ async function readNamedProducerArtifact({ repository, name, defaultBranch, requ
     !["schedule", "workflow_run"].includes(owner?.event)
   )
     throw new Error("producer_marker_writer_invalid");
-  const bytes = await downloadArtifact({ runId: writerId, name });
+  const bytes = await downloadArtifact({ runId: writerId, name, fileName });
   if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536)
     throw new Error("producer_marker_payload_invalid");
   return bytes;
@@ -1676,6 +1753,7 @@ export async function readMergeQualificationAdvisoryCleanupMarkers({
       const bytes = await readNamedProducerArtifact({
         repository,
         name,
+        fileName: name.startsWith("merge-qualification-cleanup-complete-") ? "cleanup-complete.json" : "event.json",
         defaultBranch,
         requestJson,
         downloadArtifact,
@@ -1853,6 +1931,7 @@ export function reconcileMergeQualificationProducerAttempt({
   candidate = null,
   policy = null,
   policyContent = null,
+  policyAuthorityError = null,
   existingTerminal = null,
   existingTerminals = null,
   advisoryCleanupComplete = false,
@@ -1865,6 +1944,7 @@ export function reconcileMergeQualificationProducerAttempt({
     validateProducerRun(producer, repository)
   )
     return { state: "unknown", reason: "producer_invalid", event: null };
+  if (policyAuthorityError) return { state: "unknown", reason: policyAuthorityError, event: null };
   const candidateErrors = candidate ? validateMergeQualificationCandidate(candidate) : ["candidate_missing"];
   const boundCandidate =
     candidateErrors.length === 0 &&
@@ -2675,6 +2755,7 @@ async function main(argv, env = process.env) {
     const producer = readJsonFileOrNull(readOption(argv, "--producer"));
     const candidate = readJsonFileOrNull(readOption(argv, "--candidate"));
     const policy = readJsonFileOrNull(readOption(argv, "--policy"));
+    const policyAuthorityError = readOption(argv, "--policy-authority-error");
     const policyPath = readOption(argv, "--policy");
     let policyContent = null;
     try {
@@ -2690,6 +2771,7 @@ async function main(argv, env = process.env) {
       candidate,
       policy,
       policyContent,
+      policyAuthorityError,
       advisoryRun,
       existingTerminal,
       existingTerminals,
@@ -2724,11 +2806,14 @@ async function main(argv, env = process.env) {
       advisoryRun,
       defaultBranch,
       requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
-      downloadArtifact: async ({ runId, name }) => {
+      downloadArtifact: async ({ runId, name, fileName = "event.json" }) => {
         const directory = mkdtempSync(path.join(tmpdir(), "qualification-producer-terminal-"));
         try {
           gh(["run", "download", runId, "--repo", repository, "--name", name, "--dir", directory]);
-          const file = path.join(directory, "event.json");
+          const entries = readdirSync(directory, { withFileTypes: true });
+          if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName)
+            throw new Error("terminal_payload_extra_files");
+          const file = path.join(directory, fileName);
           if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
           return readFileSync(file, "utf8");
         } finally {
@@ -2761,11 +2846,14 @@ async function main(argv, env = process.env) {
       decision,
       defaultBranch: readOption(argv, "--default-branch"),
       requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
-      downloadArtifact: async ({ runId, name }) => {
+      downloadArtifact: async ({ runId, name, fileName = "event.json" }) => {
         const directory = mkdtempSync(path.join(tmpdir(), "qualification-terminal-"));
         try {
           gh(["run", "download", runId, "--repo", decision.repository, "--name", name, "--dir", directory]);
-          const file = path.join(directory, "event.json");
+          const entries = readdirSync(directory, { withFileTypes: true });
+          if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName)
+            throw new Error("terminal_payload_extra_files");
+          const file = path.join(directory, fileName);
           if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
           return readFileSync(file, "utf8");
         } finally {
