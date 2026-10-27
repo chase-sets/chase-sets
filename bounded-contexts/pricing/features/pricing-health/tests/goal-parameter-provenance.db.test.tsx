@@ -91,6 +91,7 @@ describeDb("Pricing Health goal parameter and Economics provenance", () => {
     }));
     const runs = await services.health.compare(comparisonAccountId, comparisonPolicyId, dryRunContext, edited);
     expect(runs).toHaveLength(data!.goals!.length);
+    expect(resolve).toHaveBeenCalledTimes(1);
     const fixed = runs!.find((run) => run.goalId === "fixed-percentile")!;
     const row = await pools.pricing.query<{
       body: { rules: Array<{ directive: { anchorChain: Array<{ parameters?: Record<string, number> }> } }> };

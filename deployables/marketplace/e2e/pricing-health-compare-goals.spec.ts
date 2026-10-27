@@ -224,8 +224,19 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     expect(await (await page.request.get(`${policiesApi}/${created.policyId}`)).json()).toEqual(before);
     const implicitTarget = await (await page.request.get(healthApi)).json();
     expect(implicitTarget.target?.policyId, "The implicit target is not the created policy.").toBe(created.policyId);
+    const editedGoal = editedGoals.find((goal) => Object.values(goal.parameters).includes(editedValue));
+    expect(editedGoal).toBeDefined();
+    const editedCandidate = completed.comparison.find(
+      (row) => row.goalId === editedGoal!.goalId && row.goalVersion === editedGoal!.goalVersion,
+    );
+    expect(editedCandidate?.dryRunId).toBeTruthy();
+    const defaultReadback = (await (
+      await page.request.get(`${healthApi}?policyId=${encodeURIComponent(created.policyId)}`)
+    ).json()) as PricingHealthResponse;
+    expect(defaultReadback.comparison.some((row) => row.dryRunId === editedCandidate!.dryRunId)).toBe(false);
+    const defaultCompletedCount = defaultReadback.comparison.filter((row) => row.status === "completed").length;
     await page.goto("/account/desk/pricing-health");
-    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(completed.goals.length, {
+    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(defaultCompletedCount, {
       timeout: 15_000,
     });
     const computeVerdict = page.getByRole("button", { name: "Compute verdict", exact: true });

@@ -25,8 +25,14 @@ import {
   type GoalChoice,
   type Recommendation,
 } from "./goal-comparison";
-import { createPricingHealthWhatIfAdapter, type PricingHealthWhatIfResult } from "./portfolio-what-if";
+import {
+  type PricingHealthEconomicsResolver,
+  createPricingHealthWhatIfAdapter,
+  type PricingHealthWhatIfResult,
+} from "./portfolio-what-if";
 import type { EconomicsServices } from "../../economics/api/services";
+import type { ResolveEconomicsRequest } from "../../economics/domain/contracts";
+import type { EconomicsResolution } from "../../economics/domain/resolution";
 
 export class PricingHealthCandidateRefusedError extends Error {
   constructor() {
@@ -95,9 +101,13 @@ export function createPricingHealthServices({
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
   economics: Pick<EconomicsServices, "resolve">;
 }>) {
-  const whatIf = economics ? createPricingHealthWhatIfAdapter({ db, economics }) : null;
-  const readWhatIf = async (accountId: string, now: string): Promise<PricingHealthWhatIfResult | null> => {
-    if (!whatIf) return null;
+  const readWhatIf = async (
+    accountId: string,
+    now: string,
+    resolve: PricingHealthEconomicsResolver,
+  ): Promise<PricingHealthWhatIfResult | null> => {
+    if (!economics) return null;
+    const whatIf = createPricingHealthWhatIfAdapter({ db, economics, resolve });
     try {
       return await whatIf.get(accountId, now);
     } catch {
@@ -136,10 +146,12 @@ export function createPricingHealthServices({
     accountId?: string,
     target?: Awaited<ReturnType<typeof currentTarget>>,
     now?: string,
+    resolve?: PricingHealthEconomicsResolver,
   ): Promise<readonly GoalChoice[]> => {
     const adoptions = await forecastLedger.listGoalAdoptions();
     const selected = selectableGoalChoices(pricingGoalDefinitions(), adoptions);
     if (!accountId || !target || !now || !selected.some((goal) => goal.requiresEconomics)) return selected;
+    if (!resolve) return selected;
     const listing = await db.query<{
       inventory_item_id: string | null;
       catalog_catalog_item_id: string;
@@ -165,7 +177,7 @@ export function createPricingHealthServices({
     const row = listing.rows[0];
     const resolution =
       row?.inventory_item_id && row.price_currency_code
-        ? await economics.resolve({
+        ? await resolve({
             accountId,
             scope: { kind: "native-marketplace" },
             catalogItemId: row.catalog_catalog_item_id,
@@ -227,6 +239,7 @@ export function createPricingHealthServices({
         };
       const target = await currentTarget(accountId, selected.policyId);
       if (!target) return null;
+      const resolve = createRequestScopedEconomicsResolver(economics.resolve);
       const stored = await readPricingHealthRun(db, {
         accountId,
         policyId: target.policyId,
@@ -268,9 +281,12 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
-          whatIf: await readWhatIf(accountId, now),
+          whatIf: await readWhatIf(accountId, now, resolve),
         };
-      const goalChoices = validateGoalParameterRequests(await choices(accountId, target, now), parameterRequests);
+      const goalChoices = validateGoalParameterRequests(
+        await choices(accountId, target, now, resolve),
+        parameterRequests,
+      );
       const currentFacts = stored.run
         ? await readComparisonFacts(db, { accountId, dryRunId: stored.run.dryRunId, now })
         : null;
@@ -319,7 +335,7 @@ export function createPricingHealthServices({
         run: currentHealth ? stored.run : null,
         computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
-        whatIf: await readWhatIf(accountId, now),
+        whatIf: await readWhatIf(accountId, now, resolve),
       };
     },
     compute: async (
@@ -481,6 +497,18 @@ export function createPricingHealthServices({
         alerts: { floorBinding, evidenceFloorBinding },
       };
     },
+  };
+}
+
+function createRequestScopedEconomicsResolver(resolve: EconomicsServices["resolve"]): PricingHealthEconomicsResolver {
+  const memo = new Map<string, Promise<EconomicsResolution>>();
+  return (request: ResolveEconomicsRequest) => {
+    const key = JSON.stringify(request);
+    const existing = memo.get(key);
+    if (existing) return existing;
+    const pending = resolve(request);
+    memo.set(key, pending);
+    return pending;
   };
 }
 
