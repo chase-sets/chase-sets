@@ -56,8 +56,9 @@ describe("Playwright Chromium installer primitive", () => {
     expect(advisory).toContain("timeout-minutes: 79");
     expect(route).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-route-matrix-evidence");
     expect(wake).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-wake-drills");
-    expect(production).toContain("id: staging-playwright-retry");
-    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT: "2"');
+    expect(production).toContain("timeout-minutes: 21");
+    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT: "1"');
+    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT=\"2\" node scripts/playwright-chromium-install.mjs');
     expect(production).toContain("staging-browser-install.txt");
     expect(platformPr).toContain("PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture");
     expect(platformPr).toContain("timeout-minutes: 15");

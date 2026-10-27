@@ -2177,9 +2177,7 @@ jobs:
 
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
-        id: staging-playwright-install
-        timeout-minutes: 11
-        continue-on-error: true
+        timeout-minutes: 21
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
@@ -2191,29 +2189,13 @@ jobs:
           status=${PIPESTATUS[0]}
           reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' artifacts/release-health/staging-browser-install.txt | tail -n 1)"
           case "$reason" in
-            timeout|partial-download|cache-restore-failure|incomplete-cache) retryable=true ;;
-            *) retryable=false ;;
+            timeout|partial-download|cache-restore-failure|incomplete-cache)
+              sleep 5
+              PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a artifacts/release-health/staging-browser-install.txt
+              status=${PIPESTATUS[0]}
+              ;;
           esac
-          printf 'retryable=%s\n' "$retryable" >> "$GITHUB_OUTPUT"
           exit "$status"
-
-      - name: Retry Playwright Chromium install for staging critical flows
-        id: staging-playwright-retry
-        if: env.SHOULD_DEPLOY != 'false' && steps.staging-playwright-install.outcome == 'failure' && steps.staging-playwright-install.outputs.retryable == 'true'
-        timeout-minutes: 11
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
-          PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
-          PLAYWRIGHT_INSTALL_ATTEMPT: "2"
-        run: |
-          set -o pipefail
-          mkdir -p artifacts/release-health
-          sleep 5
-          node scripts/playwright-chromium-install.mjs 2>&1 | tee -a artifacts/release-health/staging-browser-install.txt
-
-      - name: Require staging Playwright Chromium install
-        if: always() && env.SHOULD_DEPLOY != 'false' && steps.staging-playwright-install.outcome == 'failure' && steps.staging-playwright-retry.outcome != 'success'
-        run: exit 1
 
       - name: Await staging projection convergence
         id: projection_convergence_gate
