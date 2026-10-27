@@ -2282,3 +2282,319 @@ pub struct PostageProviderEvent {
     pub processing_result: Option<String>,
     pub status_detail: Option<String>,
 }
+
+const IDENTITY: &str = "identity";
+/// Identity's lookup of an account-management attempt (`GET ..?action=&target=`, the attempt as
+/// `Idempotency-Key`), which always answers 200 with an `outcome`.
+const ACCOUNT_ATTEMPTS: &str = "/api/identity/account-management/attempts";
+
+/// A saved shipping address (Identity's `ShippingAddress`, the fields the page shows and edits).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShippingAddress {
+    pub shipping_address_id: String,
+    pub label: Option<String>,
+    pub recipient_name: String,
+    pub company: Option<String>,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub is_default: bool,
+}
+
+#[derive(Deserialize)]
+struct ShippingAddressList {
+    #[serde(default)]
+    items: Vec<ShippingAddress>,
+}
+
+/// What a create or an update sends (marketplace's `addressBody`): optional text trimmed or
+/// `null`, required text trimmed, an empty country `US`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddressCommand {
+    pub label: Option<String>,
+    pub name: String,
+    pub company: Option<String>,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub make_default: bool,
+    /// The choice the seller made between the address and the one the API suggested
+    /// (`accept-suggested`, `keep-original`).
+    pub address_verification_decision: Option<String>,
+}
+
+/// An address the API suggests instead of the one sent (`ShippingAddressSnapshot`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SuggestedAddress {
+    pub name: String,
+    pub company: Option<String>,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+}
+
+/// A shipping address write (Identity's `MutationAction` for the address book).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AddressAction {
+    Create,
+    Update,
+    Default,
+    Archive,
+}
+
+impl AddressAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AddressAction::Create => "create",
+            AddressAction::Update => "update",
+            AddressAction::Default => "default",
+            AddressAction::Archive => "archive",
+        }
+    }
+}
+
+/// Its `Display` writes the word serde reads back (todd-skelton/corten#129).
+impl std::fmt::Display for AddressAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What Identity answered about an attempt (`MutationResult`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum AddressAnswer {
+    /// Recorded, now or before: the receipt the list waits for (from the headers, or the lookup's
+    /// `destination`).
+    Committed(Option<String>),
+    /// Nothing was recorded, for `code`: `validation-failed` (with the field a required-field
+    /// refusal names), `address-standardization-suggested` (with the address), and the rest.
+    NotRecorded { code: String, field: Option<String>, suggested: Option<Box<SuggestedAddress>> },
+    /// The address book changed under the write (`owner-state-conflict`, `attempt-hash-conflict`, ..).
+    Conflict,
+    /// The API cannot say what came of it.
+    Indeterminate,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnswerBody {
+    outcome: Option<String>,
+    code: Option<String>,
+    destination: Option<String>,
+    suggested_address: Option<SuggestedAddress>,
+    error: Option<AnswerError>,
+}
+
+#[derive(Deserialize)]
+struct AnswerError {
+    code: Option<String>,
+    #[serde(default)]
+    details: Vec<AnswerDetail>,
+}
+
+#[derive(Deserialize)]
+struct AnswerDetail {
+    field: Option<String>,
+}
+
+/// The `afterWrite` a lookup's `destination` carries (`/account/shipping-addresses?afterWrite=..`,
+/// the receipt's JSON encoded twice), as the page's `after_write`.
+fn after_write_of(destination: &str) -> Option<String> {
+    let (_, query) = destination.split_once('?')?;
+    let value = query.split('&').find_map(|pair| pair.strip_prefix("afterWrite="))?;
+    let once = percent_encoding::percent_decode_str(value).decode_utf8().ok()?;
+    let twice = percent_encoding::percent_decode_str(&once).decode_utf8().ok()?;
+    Receipt::from_param(Some(&twice)).map(|r| r.param())
+}
+
+impl AddressAnswer {
+    /// The answer `status` and `body` say; an error the page handles itself (sign in, forbidden,
+    /// anything else) is `Err`.
+    fn read(status: u16, body: &str, receipt: Option<Receipt>) -> Result<Self, ApiError> {
+        let parsed: Option<AnswerBody> = serde_json::from_str(body).ok();
+        let outcome = parsed.as_ref().and_then(|b| b.outcome.as_deref());
+        let code = parsed.as_ref().and_then(|b| b.code.clone()).unwrap_or_default();
+        match (status, outcome) {
+            (200, Some("committed")) => {
+                let from_destination = parsed.as_ref().and_then(|b| b.destination.as_deref()).and_then(after_write_of);
+                Ok(AddressAnswer::Committed(receipt.map(|r| r.param()).or(from_destination)))
+            }
+            (200 | 400, Some("not-recorded")) => Ok(AddressAnswer::NotRecorded {
+                code,
+                field: None,
+                suggested: parsed.and_then(|b| b.suggested_address).map(Box::new),
+            }),
+            (200 | 409, Some("conflict")) => Ok(AddressAnswer::Conflict),
+            (_, Some("indeterminate")) | (500..=599, _) => Ok(AddressAnswer::Indeterminate),
+            (400, None) => {
+                let error = parsed.and_then(|b| b.error);
+                match error {
+                    Some(AnswerError { code: Some(c), details }) if c == "validation_failed" => Ok(AddressAnswer::NotRecorded {
+                        code: "validation-failed".into(),
+                        field: details.into_iter().find_map(|d| d.field),
+                        suggested: None,
+                    }),
+                    error => Err(ApiError::Status {
+                        status: StatusCode::BAD_REQUEST,
+                        code: error.and_then(|e| e.code),
+                        message: String::new(),
+                    }),
+                }
+            }
+            (200, _) => Ok(AddressAnswer::Indeterminate),
+            _ => {
+                let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+                Err(ApiError::Status { status, code: Some(code).filter(|c| !c.is_empty()), message: String::new() })
+            }
+        }
+    }
+}
+
+/// The account's shipping addresses (Identity's `accounts/{account}/shipping-addresses`), as the
+/// signed-in member. Each write is an account-management attempt: the form's `SubmitKey` as
+/// `Idempotency-Key`, applied once and answered again with its first result.
+pub trait Addresses {
+    /// The account's active addresses.
+    async fn shipping_addresses(&self, account: &str) -> Result<Vec<ShippingAddress>, ApiError>;
+    /// Send `action` on `target` (`None` for a create) as `attempt`, with the address for a
+    /// create or an update. A call with no answer is `Err(ApiError::Transport)`.
+    async fn write_address(
+        &self,
+        account: &str,
+        action: AddressAction,
+        target: Option<&str>,
+        attempt: &str,
+        command: Option<&AddressCommand>,
+    ) -> Result<AddressAnswer, ApiError>;
+    /// What came of `attempt` (Identity's attempt lookup).
+    async fn address_attempt(
+        &self,
+        action: AddressAction,
+        target: Option<&str>,
+        attempt: &str,
+    ) -> Result<AddressAnswer, ApiError>;
+}
+
+impl Addresses for Caller<'_> {
+    async fn shipping_addresses(&self, account: &str) -> Result<Vec<ShippingAddress>, ApiError> {
+        let list: ShippingAddressList =
+            self.read(&format!("/api/identity/accounts/{}/shipping-addresses", segment(account)), IDENTITY).await?;
+        Ok(list.items)
+    }
+
+    async fn write_address(
+        &self,
+        account: &str,
+        action: AddressAction,
+        target: Option<&str>,
+        attempt: &str,
+        command: Option<&AddressCommand>,
+    ) -> Result<AddressAnswer, ApiError> {
+        let book = format!("/api/identity/accounts/{}/shipping-addresses", segment(account));
+        let target = target.map(segment).unwrap_or_default();
+        let (method, path) = match action {
+            AddressAction::Create => (Method::POST, book),
+            AddressAction::Update => (Method::PUT, format!("{book}/{target}")),
+            AddressAction::Default => (Method::POST, format!("{book}/{target}/default")),
+            AddressAction::Archive => (Method::POST, format!("{book}/{target}/archive")),
+        };
+        let req = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt);
+        let req = match command {
+            Some(command) => req.json(command),
+            None => req.json(&serde_json::json!({})),
+        };
+        let res = req.send().await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let body = res.text().await?;
+        AddressAnswer::read(status, &body, receipt)
+    }
+
+    async fn address_attempt(
+        &self,
+        action: AddressAction,
+        target: Option<&str>,
+        attempt: &str,
+    ) -> Result<AddressAnswer, ApiError> {
+        let mut path = format!("{ACCOUNT_ATTEMPTS}?action={}", action.as_str());
+        if let Some(target) = target {
+            path.push_str(&format!("&target={}", segment(target)));
+        }
+        let res = self.request(Method::GET, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).send().await?;
+        let status = res.status().as_u16();
+        let body = res.text().await?;
+        AddressAnswer::read(status, &body, None)
+    }
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::*;
+
+    #[test]
+    fn identity_answers_read_as_the_page_needs_them() {
+        let committed = r#"{"outcome":"committed","newlyCommitted":true,"current":{"id":"adr_1","version":2,"status":"active"}}"#;
+        assert_eq!(AddressAnswer::read(200, committed, None).unwrap(), AddressAnswer::Committed(None));
+        let required = r#"{"error":{"code":"validation_failed","message":"City is required.","details":[{"field":"city","code":"required","message":"City is required."}]}}"#;
+        assert_eq!(
+            AddressAnswer::read(400, required, None).unwrap(),
+            AddressAnswer::NotRecorded { code: "validation-failed".into(), field: Some("city".into()), suggested: None }
+        );
+        let suggested = r#"{"outcome":"not-recorded","code":"address-standardization-suggested","suggestedAddress":{"name":"A","company":null,"line1":"1 TEST WAY","line2":null,"city":"AUSTIN","state":"TX","postalCode":"78701-0001","country":"US","phone":null,"email":null}}"#;
+        let AddressAnswer::NotRecorded { suggested: Some(address), .. } = AddressAnswer::read(400, suggested, None).unwrap()
+        else {
+            panic!("a suggestion")
+        };
+        assert_eq!(address.postal_code, "78701-0001");
+        let conflict =
+            r#"{"outcome":"conflict","code":"owner-state-conflict","current":{"id":"adr_1","version":3,"status":"archived"}}"#;
+        assert_eq!(AddressAnswer::read(409, conflict, None).unwrap(), AddressAnswer::Conflict);
+        assert_eq!(
+            AddressAnswer::read(503, r#"{"outcome":"indeterminate","code":"INDETERMINATE"}"#, None).unwrap(),
+            AddressAnswer::Indeterminate
+        );
+        assert_eq!(AddressAnswer::read(502, "", None).unwrap(), AddressAnswer::Indeterminate);
+        assert_eq!(
+            AddressAnswer::read(401, r#"{"error":{"code":"authentication_required"}}"#, None).unwrap_err().status(),
+            Some(StatusCode::UNAUTHORIZED)
+        );
+        assert_eq!(
+            AddressAnswer::read(403, r#"{"outcome":"not-recorded","code":"authorization_forbidden"}"#, None)
+                .unwrap_err()
+                .status(),
+            Some(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn a_lookup_reads_its_receipt_from_the_destination() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+        let receipt = format!(
+            r#"{{"observedAtMs":{now},"sources":[{{"sourceContextName":"identity","maxGlobalPosition":"83","eventIds":["evt_1"]}}]}}"#
+        );
+        let once = percent_encoding::utf8_percent_encode(&receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let twice = percent_encoding::utf8_percent_encode(&once, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let body = format!(
+            r#"{{"outcome":"committed","newlyCommitted":false,"destination":"/account/shipping-addresses?afterWrite={twice}"}}"#
+        );
+        let AddressAnswer::Committed(Some(after)) = AddressAnswer::read(200, &body, None).unwrap() else { panic!("a receipt") };
+        assert!(after.contains(r#""maxGlobalPosition":"83""#), "{after}");
+        assert_eq!(after_write_of("/account/shipping-addresses"), None);
+    }
+}

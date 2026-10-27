@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod account_page;
+mod address_page;
 mod cart_item;
 mod decision_card;
 mod item_detail;
@@ -38,6 +39,7 @@ mod set_page;
 mod shipment_page;
 
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
+pub use address_page::AddressPage;
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
@@ -83,6 +85,10 @@ pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
 
 /// The notification center (`/account/notifications`).
 pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
+
+/// The account's shipping addresses (`/account/shipping-addresses`): its stylesheet, and corten-ui's
+/// handler that makes a refused update's dialog modal.
+pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];

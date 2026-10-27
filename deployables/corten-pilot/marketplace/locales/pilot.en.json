@@ -98,5 +98,12 @@
     "discard_confirmation": "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
     "storage_unavailable": "Shipment recovery storage is unavailable. No change was sent.",
     "copied": "Copied"
+  },
+  "addresses": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "check": "Check again",
+    "suggested": "Suggested address",
+    "entered": "Address entered"
   }
 }

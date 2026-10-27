@@ -4,8 +4,9 @@
 //! write through the platform API as the signed-in account, and the public item page
 //! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`), and the account's orders
 //! (`/account/purchases`, `/account/sales`) and shipments (`/account/shipments`,
-//! `/account/sales/shipments/{id}`). See README.md.
+//! `/account/sales/shipments/{id}`) and shipping addresses (`/account/shipping-addresses`). See README.md.
 mod accounts;
+mod addresses;
 mod api;
 mod app;
 mod auth;

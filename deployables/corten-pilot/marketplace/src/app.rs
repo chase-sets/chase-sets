@@ -26,6 +26,7 @@
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
+//! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
@@ -54,6 +55,8 @@ pub const MANAGE: &str = "inventory.manage";
 pub const GUEST_CHECKOUT: &str = "guest-checkout.manage";
 /// An account's own pages (the notification center), as marketplace's loaders require.
 pub const ACCOUNTS_VIEW: &str = "accounts.view";
+/// Changing them (the shipping addresses' writes).
+pub const ACCOUNTS_MANAGE: &str = "accounts.manage";
 /// The account's orders, as marketplace's order loaders and actions require.
 pub const ORDERS_VIEW: &str = "orders.view";
 pub const ORDERS_MANAGE: &str = "orders.manage";
@@ -94,6 +97,7 @@ pub type Shared = Arc<Config>;
 /// the caller every handler there takes.
 pub mod url {
     pub use accounts::{Account, AccountReviewReport, AccountsArea};
+    pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::{Categories, Category};
     pub use home::Home;
@@ -436,6 +440,38 @@ pub mod url {
         }
     }
 
+    /// The account's shipping addresses (Identity's `account-shipping-addresses`): the list is the
+    /// area's route, and every handler takes an `AddressOwner` (`accounts.view` to read,
+    /// `accounts.manage` to write).
+    #[corten::routes(state = crate::app::Shared, area = ShippingAddresses, caller = crate::auth::AddressOwner)]
+    pub mod addresses {
+        /// The addresses, read after the write whose receipt it carries, and what the write did.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/shipping-addresses", get = crate::addresses::page, post = crate::addresses::create)]
+        pub struct ShippingAddresses {
+            #[route(query)]
+            pub place: crate::addresses::Place,
+        }
+
+        /// Update an address.
+        #[route("/account/shipping-addresses/{id}", post = crate::addresses::update)]
+        pub struct AddressUpdate<'a> {
+            pub id: &'a str,
+        }
+
+        /// Make an address the default.
+        #[route("/account/shipping-addresses/{id}/default", post = crate::addresses::make_default)]
+        pub struct AddressDefault<'a> {
+            pub id: &'a str,
+        }
+
+        /// Archive an address.
+        #[route("/account/shipping-addresses/{id}/archive", post = crate::addresses::archive)]
+        pub struct AddressArchive<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
     /// is the area's route, and every handler takes an `OrderBuyer`.
     #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
@@ -625,6 +661,7 @@ pub fn app(config: Config) -> App {
         .area::<url::Shipments>(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
         .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
+        .area::<url::ShippingAddresses>(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .error_page(views::error_page, shared)
 }
 

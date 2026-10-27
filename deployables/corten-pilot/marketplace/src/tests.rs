@@ -369,6 +369,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "shipper" => actor(&["fulfillment.view", "fulfillment.manage"]),
             // A seller who may see the shipments but not pack them.
             "tracker" => actor(&["fulfillment.view"]),
+            // An account that may change its shipping addresses (`watcher` may only read them).
+            "addresser" => actor(&["accounts.view", "accounts.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -381,6 +383,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             .into_response(),
             None => refusal(StatusCode::NOT_FOUND, "inventory_attempt_unavailable", "Inventory result is unavailable."),
         };
+    }
+    if let Some(answer) = identity(&method, &uri, &headers, &body) {
+        return answer;
     }
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
         return answer;
@@ -5521,4 +5526,267 @@ async fn a_packing_page_not_caught_up_with_its_write_reads_itself_again() {
     let (status, _, html) = pilot.send(get(&page, Some("shipper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("data-corten-read-again=\"2\""), "the shipment's page too: {html}");
+}
+
+const BOOK: &str = "/api/identity/accounts/acc_seller/shipping-addresses";
+const ADDRESSES: &str = "/account/shipping-addresses";
+
+fn shipping_address(id: &str, label: &str, default: bool) -> Value {
+    json!({
+        "shipping_address_id": id, "account_id": "acc_seller", "label": label, "recipient_name": "Synthetic Collector",
+        "company": null, "line1": "1 Test Way", "line2": null, "city": "Austin", "state": "TX", "postal_code": "78701",
+        "country": "US", "phone": null, "email": null, "is_default": default, "is_archived": false,
+    })
+}
+
+/// An Identity attempt's committed answer, with a receipt at 42.
+fn address_committed(id: &str) -> Response {
+    let body = json!({
+        "outcome": "committed", "newlyCommitted": true, "current": { "id": id, "version": 2, "status": "active" },
+        "destination": "/account/shipping-addresses",
+    });
+    committed(StatusCode::OK, "identity", "42", body)
+}
+
+/// The stand-in Identity address book of `acc_seller`: Home (the default) and Work. A read that
+/// waits for 45 is still catching up. A write's attempt decides an answer it cannot get otherwise:
+/// `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered `indeterminate`, and the lookup
+/// then says nothing was recorded, that it was (with the receipt in `destination`), or cannot say.
+/// A create without a city is refused for it, `1 Suggest Way` is answered with a suggestion until a
+/// choice is sent, `0 Nowhere` is undeliverable; making `adr_gone` the default is a conflict.
+fn identity(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let indeterminate = || {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
+    };
+    if path == "/api/identity/account-management/attempts" {
+        return Some(match attempt {
+            APPLIED_BEFORE => {
+                let receipt = receipt_at("42");
+                Json(json!({ "outcome": "committed", "newlyCommitted": false, "destination": format!("/account/shipping-addresses?afterWrite={}", receipt.replace('%', "%25")) })).into_response()
+            }
+            CHECK_DOWN => Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })).into_response(),
+            _ => Json(json!({ "outcome": "not-recorded", "code": "not-recorded" })).into_response(),
+        });
+    }
+    let rest = path.strip_prefix(BOOK)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    match (method.as_str(), rest) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("45") => Some(refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        )),
+        ("GET", "") => {
+            let items = [shipping_address("adr_home", "Home", true), shipping_address("adr_work", "Work", false)];
+            Some(Json(json!({ "items": items, "total": 2, "count": 2 })).into_response())
+        }
+        _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => Some(indeterminate()),
+        ("POST", "") if sent["city"] == "" => {
+            let message = "City is required.";
+            Some((StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": [{ "field": "city", "code": "required", "message": message }] } }))).into_response())
+        }
+        ("POST", "") if sent["line1"] == "1 Suggest Way" && sent["addressVerificationDecision"].is_null() => Some(
+            (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "address-standardization-suggested", "suggestedAddress": {
+                "name": "Synthetic Collector", "company": null, "line1": "1 SUGGEST WAY", "line2": null, "city": "AUSTIN", "state": "TX",
+                "postalCode": "78701-0001", "country": "US", "phone": null, "email": null,
+            } })))
+                .into_response(),
+        ),
+        ("POST", "") if sent["line1"] == "0 Nowhere" => Some(
+            (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "shipping-address-undeliverable" }))).into_response(),
+        ),
+        ("POST", "") => Some(address_committed("adr_new")),
+        ("POST", "/adr_gone/default") => Some(
+            (StatusCode::CONFLICT, Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "adr_gone", "version": 3, "status": "archived" } })))
+                .into_response(),
+        ),
+        ("POST" | "PUT", id) => Some(address_committed(id.trim_start_matches('/').split('/').next().unwrap_or_default())),
+        _ => Some(StatusCode::METHOD_NOT_ALLOWED.into_response()),
+    }
+}
+
+/// The address writes the pilot sent: method, path under the book, attempt and body.
+fn address_writes(pilot: &Pilot) -> Vec<(Method, String, String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with(BOOK) && c.method != Method::GET)
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (
+                c.method.clone(),
+                c.path.trim_start_matches(BOOK).to_owned(),
+                attempt,
+                serde_json::from_str(&c.body).unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
+/// An add form's body with every field, at `line1` and `city`.
+fn address_body(attempt: &str, line1: &str, city: &str) -> String {
+    format!(
+        "attempt={attempt}&label=Office&name=Synthetic+Collector&company=&country=US&line1={}&line2=&city={city}&state=TX\
+         &postal_code=78701&phone=&email=&make_default=true",
+        line1.replace(' ', "+")
+    )
+}
+
+#[tokio::test]
+async fn shipping_addresses_need_accounts_view_to_see_and_accounts_manage_to_change() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(ADDRESSES, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without accounts.view");
+    let (status, headers, _) = pilot.send(get(ADDRESSES, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fshipping-addresses"));
+    let (status, _, html) = pilot.send(get(ADDRESSES, Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let (status, _, _) = pilot.send(post(ADDRESSES, "watcher", &address_body(ATTEMPT, "1 Test Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs accounts.manage");
+    assert!(address_writes(&pilot).is_empty(), "nothing is sent for who may not write");
+}
+
+#[tokio::test]
+async fn the_addresses_page_shows_each_address_with_its_actions() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ADDRESSES, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Account Shipping Addresses Manage reusable recipient destinations for faster checkout."), "{shown}");
+    assert!(shown.contains("Home Default Synthetic Collector 1 Test Way Austin, TX 78701 US"), "{shown}");
+    assert!(html.contains(r#"href="http://localhost:7753/account">Back to account</a>"#), "{html}");
+    assert!(html.contains(r#"action="/account/shipping-addresses/adr_work/default""#), "Work may be made the default");
+    assert!(!html.contains(r#"action="/account/shipping-addresses/adr_home/default""#), "Home is the default already");
+    assert!(html.contains(r#"action="/account/shipping-addresses/adr_home/archive""#), "{html}");
+    assert!(html.contains(r#"action="/account/shipping-addresses/adr_work""#), "Work's update form");
+    assert!(html.contains(r#"command="show-modal""#) && html.contains("<dialog"), "{html}");
+    assert!(html.contains(r#"autocomplete="postal-code""#), "{html}");
+    assert_eq!(html.matches(ATTEMPT_INPUT).count(), 6, "every write form carries an attempt: {html}");
+}
+
+#[tokio::test]
+async fn an_added_address_is_read_after_its_write_and_the_page_says_it_was_saved() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post(ADDRESSES, "addresser", &address_body(ATTEMPT, "1 Test Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/shipping-addresses?"), "{to}");
+    let place = query(to);
+    assert_eq!(place["saved"], ATTEMPT);
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    let writes = address_writes(&pilot);
+    assert_eq!((&writes[0].0, writes[0].1.as_str(), writes[0].2.as_str()), (&Method::POST, "", ATTEMPT));
+    let sent = &writes[0].3;
+    assert_eq!(sent["postalCode"], "78701", "{sent}");
+    assert_eq!(sent["makeDefault"], true, "{sent}");
+    assert_eq!(sent["company"], Value::Null, "{sent}");
+    let (status, _, html) = pilot.send(get(to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
+    let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BOOK).cloned().unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the list waits for the write");
+}
+
+#[tokio::test]
+async fn a_refused_address_says_why_in_its_form_with_a_new_attempt() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post(ADDRESSES, "addresser", &address_body(ATTEMPT, "1 Test Way", ""), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("City is required."), "{}", text(&html));
+    assert!(html.contains(r#"name="city" value="" autocomplete="address-level2" required aria-invalid="true""#), "{html}");
+    assert!(html.contains(r#"value="Office""#), "what was sent is kept: {html}");
+    assert_ne!(drawn_attempt(&html), ATTEMPT, "drawn with a new attempt");
+
+    let (status, _, html) = pilot.send(post(ADDRESSES, "addresser", &address_body(ATTEMPT, "0 Nowhere", "Austin"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("We could not verify this as a deliverable address."), "{}", text(&html));
+
+    let (status, _, _) =
+        pilot.send(post(ADDRESSES, "addresser", &address_body("not-an-attempt", "1 Test Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(address_writes(&pilot).len(), 2, "an address without the pilot's attempt is not sent");
+}
+
+#[tokio::test]
+async fn an_address_the_api_would_change_offers_its_suggestion_and_sends_the_choice() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post(ADDRESSES, "addresser", &address_body(ATTEMPT, "1 Suggest Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Choose which address to save in a new attempt."), "{shown}");
+    assert!(shown.contains("Suggested address 1 SUGGEST WAY, AUSTIN, TX, 78701-0001, US"), "{shown}");
+    assert!(html.contains(r#"name="decision" value="accept-suggested">Use suggested address</button>"#), "{html}");
+    assert!(html.contains(r#"name="decision" value="keep-original">"#), "{html}");
+    let again = drawn_attempt(&html);
+    let body = format!("{}&decision=accept-suggested", address_body(&again, "1 Suggest Way", "Austin"));
+    let (status, _, _) = pilot.send(post(ADDRESSES, "addresser", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let writes = address_writes(&pilot);
+    assert_eq!(writes[1].3["addressVerificationDecision"], "accept-suggested");
+    assert_eq!(writes[1].2, again, "in a new attempt");
+}
+
+#[tokio::test]
+async fn an_address_write_without_an_answer_is_asked_about_and_one_that_cannot_be_confirmed_holds_its_form() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post(ADDRESSES, "addresser", &address_body(APPLIED_BEFORE, "1 Test Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "the lookup says it was saved");
+    let place = query(headers["location"].to_str().unwrap());
+    assert_eq!(place["saved"], APPLIED_BEFORE);
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "the lookup's receipt: {place:?}");
+
+    let (status, _, html) =
+        pilot.send(post(ADDRESSES, "addresser", &address_body(NO_RECORD, "1 Test Way", "Austin"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("No change was recorded. Review and submit again."), "{}", text(&html));
+
+    let archive = "/account/shipping-addresses/adr_work/archive";
+    let (status, headers, _) = pilot.send(post(archive, "addresser", &format!("attempt={CHECK_DOWN}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["check"], CHECK_DOWN);
+    assert_eq!((query(&to)["action"].as_str(), query(&to)["target"].as_str()), ("archive", "adr_work"));
+    let (status, _, html) = pilot.send(get(&to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        text(&html).contains("We could not confirm the result. Do not repeat this action yet. Check again"),
+        "{}",
+        text(&html)
+    );
+    assert!(html.contains(&format!(r#"href="{}">Check again</a>"#, to.replace('&', "&amp;"))), "{html}");
+    let work = html.find(r#"action="/account/shipping-addresses/adr_work/archive""#).unwrap();
+    assert!(html[work..].split("</form>").next().unwrap().contains("disabled"), "Work's archive is held");
+    let home = html.find(r#"action="/account/shipping-addresses/adr_home/archive""#).unwrap();
+    assert!(!html[home..].split("</form>").next().unwrap().contains("disabled"), "Home's is not");
+}
+
+#[tokio::test]
+async fn a_default_on_a_changed_address_says_the_account_changed_and_a_list_still_catching_up_says_so() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/account/shipping-addresses/adr_gone/default", "addresser", &format!("attempt={ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The account changed. Review its current state before submitting again."), "{}", text(&html));
+    let (status, headers, _) = pilot
+        .send(post("/account/shipping-addresses/adr_work", "addresser", &address_body(ATTEMPT, "2 Test Way", "Austin"), false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().contains("saved="));
+    assert_eq!(address_writes(&pilot)[1].0, Method::PUT);
+    assert_eq!(address_writes(&pilot)[1].1, "/adr_work");
+
+    let to = format!("{ADDRESSES}?after_write={}&saved={ATTEMPT}", receipt_at("45"));
+    let (status, _, html) = pilot.send(get(&to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Shipping addresses are still updating. Reload this page in a moment."), "{}", text(&html));
+    assert!(html.contains(r#"data-corten-read-again="2""#), "the page reads itself again: {html}");
 }

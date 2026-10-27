@@ -16,8 +16,8 @@ pub use platform::{
 use crate::{
     api::Identity,
     app::{
-        ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE, ORDERS_MANAGE, ORDERS_VIEW,
-        Shared, VIEW, sign_in_at,
+        ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE,
+        ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
     },
     views,
 };
@@ -124,6 +124,24 @@ impl Identify<Shared> for Member {
             Found::Account(viewer) if viewer.actor.can(ACCOUNTS_VIEW) => Ok(Member(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(sign_in_at("/account/notifications"))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// An account on its shipping addresses: reading needs `accounts.view`, writing `accounts.manage`,
+/// as Identity's loader and action require (the API checks both again). Anyone not signed in is
+/// sent to marketplace's sign-in, back to the addresses.
+#[derive(Clone, Debug, Hash)]
+pub struct AddressOwner(pub Viewer);
+
+impl Identify<Shared> for AddressOwner {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { ACCOUNTS_VIEW } else { ACCOUNTS_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(AddressOwner(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at("/account/shipping-addresses"))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
     }
