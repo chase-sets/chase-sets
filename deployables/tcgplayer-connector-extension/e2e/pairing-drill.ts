@@ -1220,6 +1220,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       // The next click opens the stored connection's page in a new tab, served through the browser.
       const reopenedAt = Date.now();
       let popupPage: Page | undefined;
+      let popupResponse: BrowserResponse | undefined;
       let popupDocument: DeployedPageRow | undefined;
       const observePopupPage = (candidate: Page) => {
         if (candidate !== page && popupPage === undefined) popupPage = candidate;
@@ -1228,17 +1229,26 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         if (popupDocument !== undefined) return;
         const request = response.request();
         if (request.resourceType() !== "document") return;
-        let candidate: Page;
-        try {
-          candidate = request.frame().page();
-        } catch {
-          return;
-        }
-        if (candidate === page) return;
         const url = new URL(request.url());
         if (url.origin !== platformOrigin || url.pathname !== connectionPage) return;
-        if (popupPage !== undefined && candidate !== popupPage) return;
-        popupPage ??= candidate;
+        // The response can precede the target/page event. Retain the exact
+        // response and bind it to the surfaced tab once its frame is attached.
+        popupResponse = response;
+      };
+      const bindPopupDocument = () => {
+        if (popupDocument !== undefined || popupPage === undefined || popupResponse === undefined) return false;
+        let responsePage: Page;
+        try {
+          responsePage = popupResponse.frame().page();
+        } catch {
+          return false;
+        }
+        if (responsePage !== popupPage || !context.pages().includes(popupPage)) return false;
+        const response = popupResponse;
+        const request = response.request();
+        const url = new URL(request.url());
+        if (new URL(popupPage.url()).origin !== platformOrigin || new URL(popupPage.url()).pathname !== connectionPage)
+          return false;
         popupDocument = {
           method: request.method(),
           host: url.host,
@@ -1249,6 +1259,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           at: Date.now(),
         };
         pages.push(popupDocument);
+        return true;
       };
       // Arm both signals before the extension creates its tab. Chromium can emit the
       // initial document response before Playwright surfaces the new page event.
@@ -1259,13 +1270,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       try {
         if (!(await triggerAction(context, page))) fail("connector-drill-page-status");
         reopened = await waitFor(
-          () =>
-            popupDocument?.status === 200 &&
-            popupDocument.at >= reopenedAt &&
-            popupPage !== undefined &&
-            context.pages().includes(popupPage) &&
-            new URL(popupPage.url()).origin === platformOrigin &&
-            new URL(popupPage.url()).pathname === connectionPage,
+          () => bindPopupDocument() && popupDocument?.status === 200 && popupDocument.at >= reopenedAt,
         );
       } finally {
         context.off("page", observePopupPage);

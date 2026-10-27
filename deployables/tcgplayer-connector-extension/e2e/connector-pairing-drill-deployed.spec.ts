@@ -289,8 +289,10 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   expect(receipt.pages).toContainEqual(
     expect.objectContaining({ path: "/account/channels/<connectionId>", status: 200, host: stagingHost }),
   );
-  // The stored page is opened before Generate, after its form redirect, in the popup, and for Unpair.
-  // Requiring four document rows makes the popup capture discriminating; the earlier observer rows alone are only three.
+  // The stored page is opened before Generate, after its form redirect, in the
+  // extension-created popup (bound to its document response), and for Unpair.
+  // Requiring four document rows makes the popup capture discriminating; the
+  // earlier observer rows alone are only three.
   expect(
     receipt.pages.filter(({ path, status }) => path === "/account/channels/<connectionId>" && status === 200),
   ).toHaveLength(4);
