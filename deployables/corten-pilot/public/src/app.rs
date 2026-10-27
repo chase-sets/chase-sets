@@ -78,7 +78,15 @@ pub fn public_web() -> &'static str {
 /// Every URL the app serves.
 pub mod url {
     pub use files::Sitemap;
-    pub use market::{Market, MarketPage};
+    pub use market::MarketPage;
+
+    /// The market area's prefix: only the start of its pages' paths, which `market` names
+    /// (`area = ..`) for its routes and stylesheet. Nothing links to it and nothing serves it
+    /// (public-web answers it 404). Corten's routes module requires a handler for its area's
+    /// prefix, so it is declared here instead (CORTEN_GAP).
+    #[derive(corten::Route)]
+    #[route("/market")]
+    pub struct Market;
 
     /// The home page and the crawler files, outside every area.
     #[corten::routes(state = crate::app::Shared)]
@@ -95,12 +103,8 @@ pub mod url {
     }
 
     /// The market pages, public.
-    #[corten::routes(state = crate::app::Shared, area = Market)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Market)]
     pub mod market {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/market", link)]
-        pub struct Market;
-
         /// An item's market page, by its catalog slug.
         #[derive(Clone, Debug)]
         #[route("/market/{slug}", get = crate::market::page)]
@@ -115,6 +119,6 @@ pub fn app(config: Config) -> App {
     App::new(url::files::router(shared.clone()))
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
-        .area::<url::Market>(|area| url::market::area(area, shared).components(views::MARKET))
+        .area(|area| url::market::area(area, shared).components(views::MARKET))
         .error_page(views::error_page, ())
 }

@@ -103,17 +103,14 @@ pub type Shared = Arc<Config>;
 /// Every URL the pilot serves, by area. Each area's routes module names each route's handler and
 /// the caller every handler there takes.
 pub mod url {
-    pub use accounts::{Account, AccountReviewReport, AccountsArea};
+    pub use accounts::{Account, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
-    pub use categories::{Categories, Category};
+    pub use categories::Category;
     pub use home::Home;
-    pub use inventory::{Archive, InventoryArea, Location, Locations, Restock, Restocked, WrittenOff};
-    pub use items::{
-        Item, ItemAdded, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSaved, ItemSellList, ItemShipFrom,
-        ItemWatch, ItemWatched, ItemWritten, ItemsArea,
-    };
-    pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
+    pub use inventory::{Archive, Location, Locations, Restock, Restocked, WrittenOff};
+    pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
+    pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
@@ -122,8 +119,37 @@ pub mod url {
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
-    pub use sets::{Set, Sets};
+    pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
+
+    /// The prefixes of the areas with no page of their own: each is only the start of its area's
+    /// paths, which its routes module names (`area = ..`) for its routes and stylesheet. Nothing
+    /// links to them and nothing serves them (marketplace's own answer there is its not-found
+    /// page). Corten's routes module requires a handler for its area's prefix, so they are
+    /// declared here instead (CORTEN_GAP).
+    #[derive(corten::Route)]
+    #[route("/categories")]
+    pub struct Categories;
+
+    #[derive(corten::Route)]
+    #[route("/accounts")]
+    pub struct AccountsArea;
+
+    #[derive(corten::Route)]
+    #[route("/listings")]
+    pub struct ListingsArea;
+
+    #[derive(corten::Route)]
+    #[route("/sets")]
+    pub struct Sets;
+
+    #[derive(corten::Route)]
+    #[route("/items")]
+    pub struct ItemsArea;
+
+    #[derive(corten::Route)]
+    #[route("/account/inventory")]
+    pub struct InventoryArea;
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
     /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
@@ -153,12 +179,8 @@ pub mod url {
     }
 
     /// A category's search page, public.
-    #[corten::routes(state = crate::app::Shared, area = Categories)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Categories)]
     pub mod categories {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/categories", link)]
-        pub struct Categories;
-
         /// The results for the address's terms, in the category.
         #[derive(Clone, Debug)]
         #[route("/categories/{slug}", get = crate::search::category)]
@@ -171,12 +193,8 @@ pub mod url {
 
     /// An account's public page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`; Report review posts to the review's own path.
-    #[corten::routes(state = crate::app::Shared, area = AccountsArea)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::AccountsArea)]
     pub mod accounts {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/accounts", link)]
-        pub struct AccountsArea;
-
         /// The account (`slug` is its slug, or an old one or its id, which moves), the reviews'
         /// role and page, and the review a report was just received for.
         #[route("/accounts/{slug}", get = crate::accounts::page)]
@@ -198,12 +216,8 @@ pub mod url {
 
     /// A listing's public page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`; Buy this listing and Report listing post to their own paths.
-    #[corten::routes(state = crate::app::Shared, area = ListingsArea)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::ListingsArea)]
     pub mod listings {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/listings", link)]
-        pub struct ListingsArea;
-
         /// The listing (`slug` is its slug, or an old one, which moves), and whether a report
         /// of it was just received.
         #[derive(Clone, Debug)]
@@ -229,12 +243,8 @@ pub mod url {
 
     /// A set's page, public: a handler that shows who is signed in reads
     /// `Option<Caller<Session>>`.
-    #[corten::routes(state = crate::app::Shared, area = Sets)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::Sets)]
     pub mod sets {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/sets", link)]
-        pub struct Sets;
-
         /// The set and its cataloged items (`slug` is its slug, or an old one, which moves).
         #[derive(Clone, Debug)]
         #[route("/sets/{slug}", get = crate::sets::page)]
@@ -246,12 +256,8 @@ pub mod url {
     /// Marketplace's item pages, public: no caller is required (a handler that shows whose offers
     /// are theirs reads `Option<Caller<Session>>`), and each route names its handler, so a link
     /// from an item page cannot reach a route nobody serves.
-    #[corten::routes(state = crate::app::Shared, area = ItemsArea)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::ItemsArea)]
     pub mod items {
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/items", link)]
-        pub struct ItemsArea;
-
         /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
         /// slug).
         #[derive(Clone, Debug)]
@@ -260,6 +266,9 @@ pub mod url {
             pub slug: &'a str,
             #[route(query)]
             pub state: crate::items::Address,
+            /// What the write before left for the page to say (its receipt), if any.
+            #[route(query)]
+            pub after: crate::items::After,
         }
 
         /// The item page's market parts, drawn again on each change to the item
@@ -323,60 +332,13 @@ pub mod url {
         pub struct ItemShipFrom<'a> {
             pub slug: &'a str,
         }
-
-        /// A link (the item's route serves it): the item after a seller's write (ship-from setup, a
-        /// listing), whose reads wait for the write's receipt (empty for none).
-        #[route("/items/{slug}", link)]
-        pub struct ItemWritten<'a> {
-            pub slug: &'a str,
-            #[route(query)]
-            pub state: crate::items::Address,
-            pub after_write: &'a str,
-        }
-
-        /// A link (the item's route serves it): the item on its Watch tab after Set alert: the page says the alert was saved, with the
-        /// write's receipt (empty for none).
-        #[route("/items/{slug}", link)]
-        pub struct ItemWatched<'a> {
-            pub slug: &'a str,
-            #[route(query)]
-            pub state: crate::items::Address,
-            pub watched: &'a str,
-        }
-
-        /// A link (the item's route serves it): the item after Add to List's Add Product: the page
-        /// says so, with the write's receipt (empty for none), the list, the quantity added and
-        /// the line's status (`added` or `merged`).
-        #[route("/items/{slug}", link)]
-        pub struct ItemSaved<'a> {
-            pub slug: &'a str,
-            #[route(query)]
-            pub state: crate::items::Address,
-            pub saved: &'a str,
-            pub saved_list: &'a str,
-            pub saved_quantity: &'a str,
-            pub saved_line: &'a str,
-        }
-
-        /// A link (the item's route serves it): the item after Add to cart: the page says so, with the write's receipt (empty for none).
-        #[route("/items/{slug}", link)]
-        pub struct ItemAdded<'a> {
-            pub slug: &'a str,
-            #[route(query)]
-            pub state: crate::items::Address,
-            pub added: &'a str,
-        }
     }
 
     /// The seller's inventory screens: every handler takes a `Seller` (`inventory.view` to read,
     /// `inventory.manage` to write).
-    #[corten::routes(state = crate::app::Shared, area = InventoryArea, caller = crate::auth::Seller)]
+    #[corten::routes(state = crate::app::Shared, area = crate::app::url::InventoryArea, caller = crate::auth::Seller)]
     pub mod inventory {
         use crate::recovery::Check;
-
-        /// The area: its prefix (no page of its own) and stylesheet.
-        #[route("/account/inventory", link)]
-        pub struct InventoryArea;
 
         /// The storage locations, and the write to confirm.
         #[derive(Clone, Debug, Default)]
@@ -738,29 +700,29 @@ pub fn app(config: Config) -> App {
         // stylesheet for `/` alone would trade for a blocking request on the most visited page
         // (todd-skelton/corten#95, measured there).
         .components(views::SEARCH)
-        .area::<url::InventoryArea>(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
-        .area::<url::Cart>(|area| url::cart::area(area, shared.clone()).components(views::CART))
-        .area::<url::ItemsArea>(|area| url::items::area(area, shared.clone()).components(views::ITEM))
-        .area::<url::Search>(|area| url::search::area(area, shared.clone()))
-        .area::<url::Categories>(|area| url::categories::area(area, shared.clone()))
-        .area::<url::Sets>(|area| url::sets::area(area, shared.clone()).components(views::SET))
-        .area::<url::ListingsArea>(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
-        .area::<url::AccountsArea>(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
-        .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
-        .area::<url::Sales>(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
-        .area::<url::Shipments>(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
-        .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
-        .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
-        .area::<url::ShippingAddresses>(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
+        .area(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
+        .area(|area| url::cart::area(area, shared.clone()).components(views::CART))
+        .area(|area| url::items::area(area, shared.clone()).components(views::ITEM))
+        .area(|area| url::search::area(area, shared.clone()))
+        .area(|area| url::categories::area(area, shared.clone()))
+        .area(|area| url::sets::area(area, shared.clone()).components(views::SET))
+        .area(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
+        .area(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
+        .area(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
+        .area(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
+        .area(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
+        .area(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
+        .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
+        .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
-        .area::<url::SellerListings>(|area| {
+        .area(|area| {
             url::seller_listings::area(area, shared.clone())
                 .components(views::SELLER_LISTING)
                 .deadline(crate::seller_listing::DEADLINE)
         })
-        .area::<url::OfferMatches>(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
-        .area::<url::NewListing>(|area| {
+        .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
+        .area(|area| {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })
         .error_page(views::error_page, shared)

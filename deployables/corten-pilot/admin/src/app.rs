@@ -123,9 +123,9 @@ pub fn app(config: Config) -> App {
     App::new(Routes::new())
         .messages::<Msg>()
         .components(views::COMPONENTS)
-        .area::<url::Policies>(|area| url::area(area, shared.clone()).components(views::POSTAGE))
-        .area::<crate::operations::url::Attention>(|area| crate::operations::area(area, shared.clone()))
-        .area::<catalog::url::Catalog>(|area| catalog::area(area, shared.clone()))
+        .area(|area| url::area(area, shared.clone()).components(views::POSTAGE))
+        .area(|area| crate::operations::area(area, shared.clone()))
+        .area(|area| catalog::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

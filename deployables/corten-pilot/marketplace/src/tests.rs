@@ -2561,10 +2561,10 @@ fn the_address_reads_as_marketplace_reads_it_and_writes_its_choices_back() {
     assert_eq!(a.book(), Book::Offers);
     assert_eq!(read("market=nope").market, Market::Buy);
     assert!(!read("dimension.d3=+").filtered, "a blank option is no filter");
-    let link = crate::app::url::Item { slug: "a b", state: a.with_book(Book::Listings) }.href();
+    let link = crate::app::url::Item { slug: "a b", state: a.with_book(Book::Listings), after: Default::default() }.href();
     assert_eq!(link, "/items/a%20b?market=sell&listing=a&book=listings&dimension.d1=o1");
     assert_eq!(
-        crate::app::url::Item { slug: "x", state: a.with_book(Book::Offers) }.href(),
+        crate::app::url::Item { slug: "x", state: a.with_book(Book::Offers), after: Default::default() }.href(),
         "/items/x?market=sell&listing=a&dimension.d1=o1"
     );
 }

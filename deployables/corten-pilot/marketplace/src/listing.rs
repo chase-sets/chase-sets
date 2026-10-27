@@ -41,7 +41,7 @@ use crate::{
 };
 
 /// The item page's parameter after a seller's write: the write's receipt, which its reads wait
-/// for (`url::ItemWritten`).
+/// for (`items::After`).
 pub const WRITTEN: &str = "after_write";
 /// Marketplace's anonymous listing draft cookie (`MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME`).
 pub const ANONYMOUS_LISTING_DRAFT_COOKIE: &str = "chase_sets_anonymous_listing_drafts";
@@ -216,7 +216,7 @@ pub(crate) async fn list(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let input = ListInput {
         price: first(&raw, field::PRICE),
@@ -329,7 +329,11 @@ pub(crate) async fn list(
         Ok((listing, receipt)) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();
             let state = address.with_listing(&listing);
-            req.redirect(&url::ItemWritten { slug: &slug, state, after_write: &receipt })
+            req.redirect(&url::Item {
+                slug: &slug,
+                state,
+                after: crate::items::After { after_write: Some(receipt), ..Default::default() },
+            })
         }
         Err((Failed::SignIn, ..)) => sign_in(&req, &slug),
         Err((Failed::Error(error), ..)) => Err(error),
@@ -349,7 +353,7 @@ pub(crate) async fn ship_from(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let input = ShipFromInput {
         name: first(&raw, field::NAME),
@@ -400,7 +404,11 @@ pub(crate) async fn ship_from(
     match caller.create_location(&attempt, &command).await {
         Ok(written) => {
             let receipt = written.receipt.map(|r| r.param()).unwrap_or_default();
-            req.redirect(&url::ItemWritten { slug: &slug, state: address, after_write: &receipt })
+            req.redirect(&url::Item {
+                slug: &slug,
+                state: address,
+                after: crate::items::After { after_write: Some(receipt), ..Default::default() },
+            })
         }
         Err(error) => match failed(error) {
             Failed::SignIn => sign_in(&req, &slug),

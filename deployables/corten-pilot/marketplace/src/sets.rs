@@ -53,7 +53,7 @@ pub(crate) async fn page(
         <meta property="og:type" content="website">
         <JsonLd value={&breadcrumb} />
     };
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let viewer = session.and_then(Session::viewer);
     req.page(html! {
         <views::Layout req={&req} viewer={viewer} title={&title} head={head}>

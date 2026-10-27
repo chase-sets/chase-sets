@@ -655,7 +655,12 @@ fn ListingCard<'a>(
                     >
                         {t.page_view_listing()}
                     </a>
-                    <a class={Secondary} href={&url::Item { slug: item, state: Address::default() }.href()}>{t.page_compare()}</a>
+                    <a
+                        class={Secondary}
+                        href={&url::Item { slug: item, state: Address::default(), after: Default::default() }.href()}
+                    >
+                        {t.page_compare()}
+                    </a>
                 </div>
             </div>
         </li>

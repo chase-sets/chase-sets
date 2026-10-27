@@ -195,6 +195,22 @@ pub struct Address {
     pub filtered: bool,
 }
 
+/// What a write on the item page left for the page to say, each the write's receipt (empty for
+/// none): a seller's write (`after_write`, `listing::WRITTEN`), Set alert (`watched`), Add to List's
+/// Add Product (`saved` with the list, the quantity added and the line's status) and Add to cart
+/// (`added`). The page reads them from its query; a redirect after the write writes them.
+#[derive(Clone, Debug, Default, Route)]
+#[route(query)]
+pub struct After {
+    pub after_write: Option<String>,
+    pub watched: Option<String>,
+    pub saved: Option<String>,
+    pub saved_list: Option<String>,
+    pub saved_quantity: Option<String>,
+    pub saved_line: Option<String>,
+    pub added: Option<String>,
+}
+
 impl Address {
     /// The address's parameters, as marketplace reads them.
     pub fn read(raw: &Raw) -> Self {
@@ -765,7 +781,7 @@ fn option_summaries(schema: &Schema, picks: &Picks, market: Market, listings: &[
 /// The item's address on marketplace's origin, which the pilot serves the same paths as: the
 /// canonical link.
 pub fn canonical(slug: &str) -> String {
-    format!("{}{}", marketplace_origin(), url::Item { slug, state: Address::default() }.href())
+    format!("{}{}", marketplace_origin(), url::Item { slug, state: Address::default(), after: Default::default() }.href())
 }
 
 pub(crate) async fn page(
@@ -777,7 +793,7 @@ pub(crate) async fn page(
     Path(id): Path<String>,
     Query(raw): Query<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
     // After a seller's write (a listing, the ship-from setup), the page reads with its receipt, so
     // the listing or the setup is there. A read the write's projection has not caught up with yet
@@ -818,7 +834,7 @@ pub(crate) async fn page(
     };
     // An id or an old slug moves to the item's slug for good, its parameters kept as sent.
     if let Some(slug) = item.slug.as_deref().filter(|slug| *slug != id) {
-        let mut to = url::Item { slug, state: Address::default() }.href();
+        let mut to = url::Item { slug, state: Address::default(), after: Default::default() }.href();
         if let Some(query) = uri.query() {
             to.push('?');
             to.push_str(query);
@@ -1058,7 +1074,7 @@ pub(crate) async fn live(
     Path(id): Path<String>,
     Query(raw): Query<Raw>,
 ) -> LiveResponse {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let (t, viewing, address): (ItemMsg, _, _) = (req.t(), Viewing::of(session), Address::read(&raw));
     let topic = format!("item:{id}");
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);

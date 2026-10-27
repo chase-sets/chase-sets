@@ -429,7 +429,9 @@ pub fn item_live_parts<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Addr
 /// (`#rail-title`), so they work without JavaScript, and the rail is the one form.
 #[component(css = ItemDetail)]
 fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
-    let to_rail = move |market: Market| format!("{}#rail-title", url::Item { slug, state: address.with_market(market) }.href());
+    let to_rail = move |market: Market| {
+        format!("{}#rail-title", url::Item { slug, state: address.with_market(market), after: Default::default() }.href())
+    };
     let summary = &screen.summary;
     let price = match screen.market {
         Market::Buy if screen.selected_listing().is_some() => screen.selected_listing().map(|l| listing_price(t, l)),
@@ -511,7 +513,7 @@ fn Similar<'a>(t: ItemMsg, items: &'a [SimilarItem]) -> impl Render {
 #[component(css = ItemDetail)]
 fn SimilarCard<'a>(t: ItemMsg, item: &'a SimilarItem) -> impl Render {
     let slug = if item.slug.is_empty() { item.catalog_item_id.as_str() } else { item.slug.as_str() };
-    let href = url::Item { slug, state: Address::default() }.href();
+    let href = url::Item { slug, state: Address::default(), after: Default::default() }.href();
     let alt = match item.subtitle.as_deref().filter(|s| !s.is_empty()) {
         Some(subtitle) => t.identity_title_and_subtitle(&item.title, subtitle).to_string(),
         None => t.identity_title(&item.title).to_string(),
@@ -585,7 +587,7 @@ pub fn similar_image(item: &SimilarItem) -> Option<Image> {
 #[component(css = ItemDetail)]
 fn Sales<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let p = Pilot::default();
-    let again = url::Item { slug, state: address.clone() }.href();
+    let again = url::Item { slug, state: address.clone(), after: Default::default() }.href();
     html! {
         <div class={Panel}>
             match &screen.history {
@@ -719,7 +721,7 @@ fn SalesRead<'a>(
 /// may have the sales a narrow one lacks.
 #[component(css = ItemDetail)]
 fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
-    let range = move |r: Range| url::Item { slug, state: address.with_range(r) }.href();
+    let range = move |r: Range| url::Item { slug, state: address.with_range(r), after: Default::default() }.href();
     let current = move |r: Range| (address.range == r).then_some("true");
     html! {
         <nav class={(Segmented, ChartRanges)} aria-label={t.panel_range_selector_label()}>
@@ -860,7 +862,7 @@ fn Stale<'a>(title: &'a str, text: &'a str) -> impl Render {
 /// on that side.
 #[component(css = ItemDetail)]
 fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
-    let link = move |market: Market| url::Item { slug, state: address.with_market(market) }.href();
+    let link = move |market: Market| url::Item { slug, state: address.with_market(market), after: Default::default() }.href();
     let current = move |market: Market| (screen.market == market).then_some("true");
     html! {
         <nav class={Segmented} aria-label={t.page_choose_market_intent()}>
@@ -945,7 +947,8 @@ fn DimensionChoice<'a>(
             }
         }
         let next = normalize(schema, &next);
-        url::Item { slug, state: address.with_picks(schema, &next, option.is_none().then_some(id)) }.href()
+        url::Item { slug, state: address.with_picks(schema, &next, option.is_none().then_some(id)), after: Default::default() }
+            .href()
     };
     // The other options, which the form sends along with this one.
     let others: Vec<(String, &String)> =
@@ -1126,7 +1129,7 @@ fn Rail<'a>(
         (_, Some(_)) => t.route_best_offer_heading(),
         _ => t.route_selected_product(),
     };
-    let here = url::Item { slug, state: address.clone() }.href();
+    let here = url::Item { slug, state: address.clone(), after: Default::default() }.href();
     let continue_on = on_marketplace(&here);
     let buying = screen.market == Market::Buy;
     let product = screen.product_id.as_deref().filter(|_| buying);
@@ -2053,13 +2056,17 @@ fn Reputation<'a>(t: ItemMsg, name: &'a str, slug: Option<&'a str>, rating: Opti
 #[component(css = ItemDetail)]
 fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let book = address.book();
-    let tab = move |b: Book| url::Item { slug, state: address.with_book(b) }.href();
+    let tab = move |b: Book| url::Item { slug, state: address.with_book(b), after: Default::default() }.href();
     let current = move |b: Book| (book == b).then_some("page");
     let schema = screen.item.product_schema.as_ref();
     let filtered = !screen.picks.is_empty();
     let clear = schema.map(|schema| {
-        url::Item { slug, state: address.with_picks(schema, &Picks::new(), screen.picks.keys().next().map(String::as_str)) }
-            .href()
+        url::Item {
+            slug,
+            state: address.with_picks(schema, &Picks::new(), screen.picks.keys().next().map(String::as_str)),
+            after: Default::default(),
+        }
+        .href()
     });
     html! {
         <section class={BookSection} id="market-book-section" aria-labelledby="market-book">
@@ -2138,7 +2145,7 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
                             quantity={&t.page_listing_available_count(available(l)).to_string()}
                             limit={purchase_limit(l)}
                             selected={screen.listing_id.as_deref() == Some(l.listing_id.as_str())}
-                            select={&url::Item { slug, state: address.with_listing(&l.listing_id) }.href()}
+                            select={&url::Item { slug, state: address.with_listing(&l.listing_id), after: Default::default() }.href()}
                             label={&t.page_listing_row_label(&listing_price(t, l), l.seller_display_name.as_deref().unwrap_or(t.page_seller())).to_string()}
                         />
                     }
@@ -2190,7 +2197,7 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
                             quantity={&t.page_offer_requested_count(o.quantity_requested).to_string()}
                             limit={None}
                             selected={screen.offer_id.as_deref() == Some(o.offer_id.as_str())}
-                            select={&url::Item { slug, state: address.with_offer(&o.offer_id) }.href()}
+                            select={&url::Item { slug, state: address.with_offer(&o.offer_id), after: Default::default() }.href()}
                             label={&t.page_offer_row_label(&offer_price(t, o), o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id)).to_string()}
                         />
                     }

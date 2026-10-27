@@ -682,7 +682,7 @@ pub fn ItemCards<'a>(t: SearchMsg, items: &'a [SearchItem], action: &'a str, fro
 fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a str, from: Option<&'a str>) -> impl Render {
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
-    let href = url::Item { slug, state: Address::default() }.href();
+    let href = url::Item { slug, state: Address::default(), after: Default::default() }.href();
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
         None => t.identity_title(&card.title).to_string(),
@@ -830,6 +830,7 @@ pub fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, inde
         url::Item {
             slug,
             state: Address { market, options: options.clone(), filtered: !options.is_empty(), ..Address::default() },
+            after: Default::default(),
         }
         .href()
     };

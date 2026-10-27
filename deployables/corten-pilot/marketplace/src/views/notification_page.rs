@@ -283,7 +283,7 @@ fn detail(t: NotificationsMsg, alert: &ProductAlert) -> String {
 fn AlertCard<'a>(t: NotificationsMsg, alert: &'a ProductAlert) -> impl Render {
     let active = alert.status == "active";
     let action = url::ProductAlertChange { id: &alert.alert_id }.href();
-    let product = url::Item { slug: &alert.catalog_catalog_item_id, state: Address::default() }.href();
+    let product = url::Item { slug: &alert.catalog_catalog_item_id, state: Address::default(), after: Default::default() }.href();
     let f = AlertInput::FIELDS;
     html! {
         <article class={Card}>

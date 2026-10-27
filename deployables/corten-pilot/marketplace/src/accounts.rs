@@ -150,7 +150,7 @@ pub(crate) async fn page(
     Path(slug): Path<String>,
     Query(query): Query<AccountQuery>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let caller = config.platform.caller(&headers, config.proto, None);
     let role = Role::read(query.role.as_deref());
     let page = page_number(query.page.as_deref());
@@ -252,7 +252,7 @@ pub(crate) async fn report_review(
     Query(query): Query<AccountQuery>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let role = Role::read(query.role.as_deref());

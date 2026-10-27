@@ -595,7 +595,7 @@ async fn show(
         let to: Uri = place.href(&next).parse().map_err(corten::Error::new)?;
         return req.redirect(&to);
     }
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let viewer = session.and_then(Session::viewer);
     let failed = results.is_none();
     // A category the path names that does not exist shows no results, as marketplace's does.

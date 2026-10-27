@@ -187,7 +187,7 @@ pub(crate) async fn watch(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
     let input = WatchInput {
@@ -266,7 +266,11 @@ pub(crate) async fn watch(
     match caller.create_product_alert(&alert).await {
         Ok(receipt) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();
-            req.redirect(&url::ItemWatched { slug: &slug, state: address, watched: &receipt })
+            req.redirect(&url::Item {
+                slug: &slug,
+                state: address,
+                after: crate::items::After { watched: Some(receipt), ..Default::default() },
+            })
         }
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => match sign_in_at(&back) {
             Some(to) => req.redirect(&to),

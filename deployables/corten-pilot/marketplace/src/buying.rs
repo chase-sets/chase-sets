@@ -412,7 +412,7 @@ fn refused(req: &Req, session: Option<&Session>, item: Item, input: BuyInput, me
 
 /// Marketplace's sign-in, back to the item: the session ended between the page and the post.
 fn sign_in(req: &Req, slug: &str) -> HtmlResult {
-    match sign_in_at(&url::Item { slug, state: Address::default() }.href()) {
+    match sign_in_at(&url::Item { slug, state: Address::default(), after: Default::default() }.href()) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
     }
@@ -427,7 +427,7 @@ pub(crate) async fn add(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.attempt = cart_attempt::attempt_id(&input.attempt);
@@ -454,7 +454,11 @@ pub(crate) async fn add(
             let to = cart_href(session, &receipt);
             req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)?
         }
-        Attempted::Succeeded => req.redirect(&url::ItemAdded { slug: &slug, state: input.address.clone(), added: &receipt })?,
+        Attempted::Succeeded => req.redirect(&url::Item {
+            slug: &slug,
+            state: input.address.clone(),
+            after: items::After { added: Some(receipt), ..Default::default() },
+        })?,
         Attempted::Ambiguous => {
             let address = input.address.clone();
             let notice = BuyNotice::Ambiguous { cart: cart_href(session, ""), resend: input };
@@ -488,7 +492,7 @@ pub(crate) async fn buy(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.intent = Intent::BuyNow;
@@ -577,7 +581,7 @@ pub(crate) async fn offer(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
     input.intent = Intent::Offer;

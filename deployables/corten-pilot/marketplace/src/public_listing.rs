@@ -71,7 +71,7 @@ pub(crate) async fn page(
     Path(slug): Path<String>,
     Query(reported): Query<Reported>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let caller = config.platform.caller(&headers, config.proto, None);
     let listing = read(&caller, &slug).await?;
     if !listing.listing_slug.is_empty() && listing.listing_slug != slug {
@@ -164,7 +164,7 @@ pub(crate) async fn buy(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ListingMsg = req.t();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
@@ -234,7 +234,7 @@ pub(crate) async fn report(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let listing = read(&caller, &slug).await?;

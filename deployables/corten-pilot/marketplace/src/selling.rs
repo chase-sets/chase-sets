@@ -329,7 +329,7 @@ pub(crate) async fn add(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
     let Some(intent) = SellIntent::read(&first(field::INTENT)) else {
@@ -381,7 +381,7 @@ pub(crate) async fn add(
     let receipt = match caller.add_sell_list_line(&line, guest.as_deref()).await {
         Ok(receipt) => receipt.map(|r| r.param()).unwrap_or_default(),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
-            return match sign_in_at(&url::Item { slug: &slug, state: Address::default() }.href()) {
+            return match sign_in_at(&url::Item { slug: &slug, state: Address::default(), after: Default::default() }.href()) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             };

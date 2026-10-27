@@ -338,7 +338,7 @@ pub(crate) async fn save(
     Path(slug): Path<String>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    let session = session.as_ref().map(|corten::Caller(s)| s);
+    let session = session.as_deref();
     let t: ItemMsg = req.t();
     let p = Pilot::default();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();
@@ -375,7 +375,8 @@ pub(crate) async fn save(
     let Some(viewer) = viewer else {
         // No one signed in: the intent, then marketplace's registration, which claims it on the
         // way back to marketplace's item page.
-        let source = url::Item { slug: item.slug.as_deref().unwrap_or(&slug), state: address.clone() }.href();
+        let source =
+            url::Item { slug: item.slug.as_deref().unwrap_or(&slug), state: address.clone(), after: Default::default() }.href();
         let label = product_label(&screen);
         let intent = IntentRequest { source_path: &source, source_surface: "item-detail", product, product_summary: &label };
         let owner = guest_owner(&headers);
@@ -431,17 +432,20 @@ pub(crate) async fn save(
         Ok((added, receipt)) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();
             let slug = item.slug.as_deref().unwrap_or(&slug);
-            req.redirect(&url::ItemSaved {
+            req.redirect(&url::Item {
                 slug,
                 state: address,
-                saved: &receipt,
-                saved_list: &added.list_id,
-                saved_quantity: &tracked.to_string(),
-                saved_line: &added.line_status,
+                after: crate::items::After {
+                    saved: Some(receipt),
+                    saved_list: Some(added.list_id),
+                    saved_quantity: Some(tracked.to_string()),
+                    saved_line: Some(added.line_status),
+                    ..Default::default()
+                },
             })
         }
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
-            match sign_in_at(&url::Item { slug: &slug, state: address }.href()) {
+            match sign_in_at(&url::Item { slug: &slug, state: address, after: Default::default() }.href()) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             }
