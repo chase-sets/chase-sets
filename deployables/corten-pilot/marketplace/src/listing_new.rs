@@ -40,7 +40,7 @@ use crate::{
     listing::{ANONYMOUS_LISTING_DRAFT_COOKIE, accepted_snapshot, listing_id},
     recovery::valid_attempt,
     text::{ListingNewMsg, Pilot},
-    uploads::{self, Limits, Over, Unread},
+    uploads::{self, Limits, Over},
     views::{self, Layout},
 };
 
@@ -612,14 +612,14 @@ pub(crate) async fn create(
     let f = ListingFields::FIELDS;
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut errors = Errors::new();
-    let posted = match uploads::read(&headers, upload, LIMITS).await {
+    let posted = match uploads::read(upload, LIMITS).await {
         Ok(posted) => posted,
-        Err(Unread::TooLarge) => {
+        Err(UploadError::TooLarge { .. }) => {
             // What came after the limit is lost, the fields too: the form starts again.
             errors.add(f.evidence, p.listing_new_photos_too_large());
             return refuse(&req, &viewer, &caller, Draft::default(), errors, false, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
-        Err(Unread::Refused(error)) => return Err(error),
+        Err(other) => return Err(other.into()),
     };
     // Only the photo input's files are photos.
     let mut posted = posted;

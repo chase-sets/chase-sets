@@ -3,10 +3,7 @@
 //! alike) and each file whole, up to its limit. A file over its limit, or one past the count, is
 //! read past and left out, so the form keeps every other field.
 use bytes::Bytes;
-use corten::{
-    Upload,
-    axum::http::{HeaderMap, header},
-};
+use corten::{Upload, UploadError};
 
 use crate::items::Raw;
 
@@ -50,30 +47,15 @@ pub enum Over {
     TooManyFiles,
 }
 
-/// Why a body was not read.
-#[derive(Debug)]
-pub enum Unread {
-    /// The body says it is over `Limits::whole`, so none of it is read.
-    TooLarge,
-    /// Corten refused it: over the limit as it arrived (413), broken (400) or fields that are not
-    /// `Raw` (422).
-    Refused(corten::Error),
-}
-
 /// Reads a multipart form. A file input left empty is no file.
 ///
-/// A body over the limit is a 413 `corten::Error` from `Upload`, which a handler cannot tell
-/// from a broken one: the error's status is not readable (todd-skelton/corten#150). So a body
-/// whose `Content-Length` is over the limit is refused here first, and the page can say the
-/// photos were too large; one without a length that turns out too large is Corten's 413.
-pub async fn read(headers: &HeaderMap, mut upload: Upload<Raw>, limits: Limits) -> Result<Posted, Unread> {
-    let length = headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<usize>().ok());
-    if length.is_some_and(|length| length > limits.whole) {
-        return Err(Unread::TooLarge);
-    }
+/// A body over `Limits::whole`, with a `Content-Length` or without, is
+/// `UploadError::TooLarge`: nothing it sent is kept, so the page draws the form again and says
+/// the photos were too large. Corten reads past the rest so the browser receives that answer.
+pub async fn read(mut upload: Upload<Raw>, limits: Limits) -> Result<Posted, UploadError> {
     upload.limit(limits.whole);
     let (mut files, mut over) = (Vec::new(), None);
-    while let Some(mut file) = upload.next_file().await.map_err(Unread::Refused)? {
+    while let Some(mut file) = upload.next_file().await? {
         if files.len() == limits.files {
             over.get_or_insert(Over::TooManyFiles);
             continue;
@@ -81,14 +63,14 @@ pub async fn read(headers: &HeaderMap, mut upload: Upload<Raw>, limits: Limits) 
         let field = file.field().to_owned();
         let filename = file.filename().to_owned();
         let content_type = file.content_type().split(';').next().unwrap_or_default().trim().to_owned();
-        match file.bytes_up_to(limits.file).await.map_err(Unread::Refused)? {
+        match file.bytes_up_to(limits.file).await? {
             Some(bytes) => files.push(Sent { field, filename, content_type, bytes }),
             None => {
                 over.get_or_insert(Over::FileTooLarge);
             }
         }
     }
-    let fields = upload.fields().await.map_err(Unread::Refused)?;
+    let fields = upload.fields().await?;
     Ok(Posted { fields, files, over })
 }
 
@@ -106,7 +88,11 @@ pub fn is_picture(content_type: &str, bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use corten::axum::{body::Body, extract::FromRequest, http::Request};
+    use corten::axum::{
+        body::Body,
+        extract::FromRequest,
+        http::{Request, header},
+    };
 
     use super::*;
 
@@ -133,10 +119,9 @@ mod tests {
             .unwrap()
     }
 
-    async fn read_with(req: Request<Body>, limits: Limits) -> Result<Posted, Unread> {
-        let headers = req.headers().clone();
-        let upload = Upload::<Raw>::from_request(req, &()).await.map_err(|_| Unread::TooLarge).expect("a multipart body");
-        read(&headers, upload, limits).await
+    async fn read_with(req: Request<Body>, limits: Limits) -> Result<Posted, UploadError> {
+        let upload = Upload::<Raw>::from_request(req, &()).await.map_err(|_| ()).expect("a multipart body");
+        read(upload, limits).await
     }
 
     #[tokio::test]
@@ -171,19 +156,16 @@ mod tests {
         let three = [("evidence", Some("1.png"), "a"), ("evidence", Some("2.png"), "b"), ("evidence", Some("3.png"), "c")];
         let posted = read_with(multipart(&three), LIMITS).await.unwrap();
         assert_eq!((posted.over, posted.files.len()), (Some(Over::TooManyFiles), 2));
-        let small = Limits { whole: 40, ..LIMITS };
-        let refused = read_with(multipart(&[("evidence", Some("1.png"), "a")]), small).await;
-        assert!(matches!(refused, Err(Unread::TooLarge)), "a body whose length is over the limit is not read");
     }
 
     #[tokio::test]
-    async fn a_body_over_the_limit_without_a_length_is_corten_s_413() {
+    async fn a_body_over_the_limit_is_too_large_with_a_length_or_without() {
+        let small = Limits { whole: 40, ..LIMITS };
+        let refused = read_with(multipart(&[("evidence", Some("1.png"), "a")]), small).await;
+        assert!(matches!(refused, Err(UploadError::TooLarge { limit: 40 })), "with a length");
         let mut req = multipart(&[("evidence", Some("1.png"), "a")]);
         req.headers_mut().remove(header::CONTENT_LENGTH);
-        let refused = read_with(req, Limits { whole: 40, ..LIMITS }).await;
-        let Err(Unread::Refused(error)) = refused else { panic!("not refused") };
-        let res = corten::axum::response::IntoResponse::into_response(error);
-        assert_eq!(res.status(), corten::axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(matches!(read_with(req, small).await, Err(UploadError::TooLarge { limit: 40 })), "without one");
     }
 
     #[test]

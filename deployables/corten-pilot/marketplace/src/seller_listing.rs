@@ -29,7 +29,7 @@ use crate::{
     items::Raw,
     listing_new::LIMITS,
     text::{Pilot, SellerListingMsg},
-    uploads::{self, Over, Unread},
+    uploads::{self, Over},
     views::{self, Layout},
 };
 
@@ -454,14 +454,14 @@ pub(crate) async fn photos(
 ) -> HtmlResult {
     let p: Pilot = req.t();
     let f = ListingForm::FIELDS;
-    let posted = match uploads::read(&headers, upload, LIMITS).await {
+    let posted = match uploads::read(upload, LIMITS).await {
         Ok(posted) => posted,
-        Err(Unread::TooLarge) => {
+        Err(UploadError::TooLarge { .. }) => {
             let mut edits = Edits { photos_lost: true, ..Edits::default() };
             edits.errors.add_form(p.seller_listing_photos_too_large());
             return render(&req, &viewer, &config, &headers, &id, (None, None), edits, None, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
-        Err(Unread::Refused(error)) => return Err(error),
+        Err(other) => return Err(other.into()),
     };
     let first = |name: FieldName| crate::listing_new::first(&posted.fields, name.as_str());
     let form = ListingForm {
