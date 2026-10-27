@@ -151,6 +151,22 @@ each, as the collector.
 The mobile LCP is the cards' picture again: the sandbox's 1,451,020 B card back, three of them.
 The page's CSS is search's (its cards) and its own.
 
+The 14.7 s is that picture's bytes, not the page. Traced at the `b35c934` pin (one 390 px phone
+load each, the mobile profile): the largest paint on the set page is the card back at 14,832 ms,
+and on search's results at 15,288 ms. The same loads with the card backs answered by a 27,540 B
+picture (the sandbox's Lorcana card back) paint at 1,084 ms and 1,316 ms. Marketplace's pages load
+the same files, so its mobile LCP waits for them too
+([chase-sets/chase-sets#10586 [discovery] Shrink the Pokemon card-back fallback pictures (1.45 MB and 2.95 MB PNGs)](https://github.com/chase-sets/chase-sets/issues/10586)).
+
+The carried-over mobile `Layout` cost (the account page, below) is the web fonts. Under 4x CPU on
+the listing page, the first layouts take about 550 to 850 ms with every stylesheet, about 265 ms
+without `components.css`, and the same with `components.css` but `--font-body` and
+`--font-display` set to `sans-serif` (about 350 ms) or Arial (about 400 ms). The `:root` tokens
+alone bring back the cost; no other block does. Dropping `ui-sans-serif` or `system-ui` from the
+stacks changes nothing. Preloading the two other faces, or `font-display: optional`, moved
+single pages either way in 7 loads (the account page painted later with `optional`), so the fonts
+stay as public-web and marketplace load them.
+
 A listing's page (the seeded Lugia, BGS 9.5), the same way. Measured once, 7 loads each, as the
 collector. One of marketplace's loads navigated while measured and was taken again.
 
@@ -190,8 +206,9 @@ number; the order was not traced. Blocking the
 card pictures changed nothing. Removing `overflow-wrap: anywhere`, the page's grids, the
 pictures' `aspect-ratio` or the rating bars changed little. Setting every font to `system-ui`
 brought it to about 450 to 540 ms. So the cost is shared by the pilot's pages (the web fonts and
-the site's base styles), not this page's. It is not profiled further yet. It is likely the same
-effect as search's slower mobile interactive at this pin (above).
+the site's base styles), not this page's. A later trace (the set page, above) puts it on the web
+fonts the `:root` tokens name. It is likely the same effect as search's slower mobile interactive
+at this pin (above).
 
 The notification center (the collector's feed, 25 notifications, and its settings), the pilot's
 release build at the `43079a1` commit (`d824f40` pin) against marketplace's dev server, desktop
