@@ -699,6 +699,7 @@ export function createPlatformApiHost(
     runtimeProfile,
     hostPorts: {
       inventoryDraftListingConsumer,
+      draftListingDelivery: inventoryDraftListingConsumer,
       ...options.hostPorts,
       operationsAttentionRuntimeReads: {
         loadBlockedProjections: async () => {

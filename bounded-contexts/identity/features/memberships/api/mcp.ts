@@ -29,6 +29,26 @@ function requireOperator(actor: ResolvedActor | null): ResolvedActor {
   return actor;
 }
 
+function requireViewer(actor: ResolvedActor | null): ResolvedActor {
+  if (!actor) throw new Error("An authenticated operator is required.");
+  if (!actor.permissions.includes("memberships.view")) {
+    throw new Error("Missing required permission: memberships.view.");
+  }
+  return actor;
+}
+
+function optionalString(args: Readonly<Record<string, unknown>>, key: string) {
+  return readMcpStringArgument(args, key) || undefined;
+}
+
+function optionalInteger(args: Readonly<Record<string, unknown>>, key: string) {
+  const value = args[key];
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${key} must be a non-negative integer.`);
+  return parsed;
+}
+
 function requiredString(args: Readonly<Record<string, unknown>>, key: string) {
   const value = readMcpStringArgument(args, key);
   if (!value) throw new Error(`${key} is required.`);
@@ -87,6 +107,30 @@ export function createMembershipMcpHandlers(
     return { actor: scopedActor, membership, membershipId };
   };
 
+  const loadMembershipForRead = async (actor: ResolvedActor | null, args: Readonly<Record<string, unknown>>) => {
+    const scopedActor = requireViewer(actor);
+    const membershipId = readMcpTypedIdArgument(args, "membershipId", "mbr");
+    const membership = await services.getMembership(membershipId);
+    if (!membership) throw new Error("Membership not found.");
+    if (!canManageMembership(scopedActor, membership.account_id)) {
+      throw new Error("The authenticated actor cannot view this membership.");
+    }
+    return membership;
+  };
+
+  const getMembership: McpToolHandler = async ({ actor, arguments: args }) => loadMembershipForRead(actor, args);
+
+  const listMembershipItems: McpToolHandler = async ({ actor, arguments: args }) => {
+    const scopedActor = requireViewer(actor);
+    const result = await services.listMemberships({
+      search: scopedActor.roleKey === PLATFORM_ADMIN_ROLE_KEY ? optionalString(args, "search") : scopedActor.accountId,
+      status: optionalString(args, "status"),
+      limit: optionalInteger(args, "limit"),
+      offset: optionalInteger(args, "offset"),
+    });
+    return { items: result.items, total: result.total, count: result.items.length };
+  };
+
   const changeMembershipRole: McpToolHandler = async ({ actor, arguments: args }) => {
     const { actor: scopedActor, membership, membershipId } = await loadMembership(actor, args);
     const roleKey = parseGrantableRoleKey(requiredString(args, "roleKey"));
@@ -128,6 +172,8 @@ export function createMembershipMcpHandlers(
   return {
     toolHandlers: {
       "identity.change-membership-role": changeMembershipRole,
+      "identity.get-membership": getMembership,
+      "identity.list-memberships": listMembershipItems,
       "identity.reinstate-membership": reinstateMembership,
       "identity.revoke-membership": revokeMembership,
     },

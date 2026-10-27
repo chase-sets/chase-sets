@@ -2,6 +2,7 @@ import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-st
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { contractInventoryImportSources } from "../api/source-migration";
+import { inventoryDraftListingOutboxSchemaSql } from "../api/draft-listing-delivery";
 
 export const inventoryImportSnapshotSchemaSql = `
 ALTER TABLE inventory_import_batch_job_inputs
@@ -157,6 +158,8 @@ ${durableJobWorkUnitSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
   workUnitsTable: "inventory_import_batch_work_units",
 })}
+
+${inventoryDraftListingOutboxSchemaSql}
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [

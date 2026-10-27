@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
+import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
 import type {
   InventoryProductSchema,
@@ -77,6 +78,14 @@ type StoredLocation = Readonly<{
   name: string;
   description: string | null;
   ship_from_code: string;
+  ship_from_address?: Readonly<{
+    name: string;
+    line1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  }>;
   is_archived: boolean;
   updated_at: string;
 }>;
@@ -370,11 +379,15 @@ class ImportBatchDb implements PgQueryable {
               status: "committed",
               committed_inventory_item_id: String(values[1]),
               committed_listing_id: typeof values[2] === "string" ? values[2] : null,
-              committed_at: row.committed_at ?? now,
+              committed_at: row.committed_at ?? String(values[3] ?? now),
               updated_at: now,
             }
           : row,
       );
+      return this.result([]);
+    }
+
+    if (sql.includes("INSERT INTO inventory_import_draft_listing_outbox")) {
       return this.result([]);
     }
 
@@ -393,7 +406,12 @@ class ImportBatchDb implements PgQueryable {
       return this.result(rows as Row[]);
     }
 
-    if (sql.includes("FROM inventory_import_batch_rows") && sql.includes("WHERE batch_id = $1")) {
+    if (
+      sql.includes("FROM inventory_import_batch_rows") &&
+      (sql.includes("WHERE batch_id = $1") ||
+        sql.includes("WHERE rows.batch_id = $1") ||
+        sql.includes("WHERE import_row.batch_id = $1"))
+    ) {
       const rows = this.rows
         .filter((row) => row.batch_id === values[0])
         .sort((left, right) => left.row_number - right.row_number);
@@ -636,6 +654,14 @@ function dbWithLocations() {
     name: "Active shelf",
     description: null,
     ship_from_code: "CHI",
+    ship_from_address: {
+      name: "Seller",
+      line1: "1 Main St",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    },
     is_archived: false,
     updated_at: now,
   });
@@ -1723,6 +1749,17 @@ describe("inventory import batch runtime", () => {
     expect(itemIds).toHaveLength(1);
     expect(firstCommit.rows[0]?.committed_inventory_item_id).toBe(itemIds[0]);
     expect(firstCommit.rows[0]?.committed_listing_id).toBeDefined();
+    const outboxInsert = db.queries.find((query) =>
+      query.sql.includes("INSERT INTO inventory_import_draft_listing_outbox"),
+    );
+    expect(outboxInsert).toBeDefined();
+    expect(outboxInsert?.values[0]).toBe(firstCommit.rows[0]?.row_id);
+    const outboxMessage = inventoryDraftListingMessageSchema.parse(JSON.parse(String(outboxInsert?.values[6])));
+    expect(outboxMessage).toMatchObject({
+      messageId: firstCommit.rows[0]?.row_id,
+      snapshot: { committedAt: expect.any(String) },
+    });
+    expect(outboxMessage.snapshot.committedAt).toBe(firstCommit.rows[0]?.committed_at);
     expect(secondCommit).toEqual(firstCommit);
     expect(db.queries.slice(queriesBeforeReplay).some((query) => query.sql.trimStart().startsWith("UPDATE"))).toBe(
       false,

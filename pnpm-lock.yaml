@@ -773,6 +773,9 @@ importers:
       '@chase-sets/identity-seed':
         specifier: workspace:*
         version: link:../../contracts/identity-seed
+      '@chase-sets/inventory-draft-listing':
+        specifier: workspace:*
+        version: link:../../contracts/inventory-draft-listing
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
