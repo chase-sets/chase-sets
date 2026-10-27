@@ -173,6 +173,7 @@ jobs:
       CI: "true"
       PLAYWRIGHT_SKIP_WEB_SERVER: "true"
       CATALOG_STAGING_PROVIDER_UAT: "true"
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ matrix.journey_scope }}
       CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
@@ -200,21 +201,25 @@ jobs:
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: ~/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium
+        timeout-minutes: 21
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_MAX_ATTEMPTS: "2"
+          PLAYWRIGHT_INSTALL_JOB_TIMEOUT_MINUTES: "60"
+          PLAYWRIGHT_INSTALL_SITE: catalog-staging-provider-uat
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging provider sync UAT
         id: provider-uat
         timeout-minutes: 55
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
 
       # Scope Sync Batch preview probe (#9244): publish only the exact receipt,
@@ -257,6 +262,7 @@ jobs:
       contents: read
       actions: read
     env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: scope-sync-count-lifecycle
@@ -272,7 +278,11 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scope-sync-count-lifecycle
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture count lifecycle without confirmation
         id: capture
         env:
@@ -311,6 +321,7 @@ jobs:
       contents: read
       actions: read
     env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-coordinate-preview
@@ -323,7 +334,11 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-coordinate-preview
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex coordinate preview
         id: capture
         env:
@@ -380,6 +395,7 @@ jobs:
       contents: read
       actions: read
     env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-cache-capture
@@ -392,7 +408,11 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-cache-capture
+        run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex option cache without refresh
         id: capture
         env:
@@ -450,7 +470,11 @@ jobs:
         with:
           install: true
       - name: Install isolated Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-force-refresh-bounded
+        run: node scripts/playwright-chromium-install.mjs
       - name: Run bounded Scrydex force refresh
         id: refresh
         env:

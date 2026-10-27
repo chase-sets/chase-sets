@@ -453,9 +453,12 @@ describe("admission webhook root cause", () => {
     admissionWebhookTransientCode: null,
   });
 
-  it("places doks-admission-webhook-unreachable immediately before unknown", () => {
-    expect(DEPLOY_ROOT_CAUSE_CODES.indexOf("doks-admission-webhook-unreachable")).toBe(
+  it("keeps closed staging-browser-install and doks-admission codes ahead of unknown", () => {
+    expect(DEPLOY_ROOT_CAUSE_CODES.indexOf("staging-browser-install")).toBe(
       DEPLOY_ROOT_CAUSE_CODES.indexOf("unknown") - 1,
+    );
+    expect(DEPLOY_ROOT_CAUSE_CODES.indexOf("doks-admission-webhook-unreachable")).toBeLessThan(
+      DEPLOY_ROOT_CAUSE_CODES.indexOf("unknown"),
     );
   });
 

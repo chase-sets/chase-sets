@@ -62,6 +62,7 @@ jobs:
     if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       PROMETHEUS_URL: ${{ inputs.prometheus_url }}
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
       PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}
       ROUTE_MATRIX_EVIDENCE_WINDOW: ${{ inputs.window }}
       ROUTE_MATRIX_EVIDENCE_ENVIRONMENT: staging
@@ -92,7 +93,13 @@ jobs:
           install: true
 
       - name: Install Playwright Chromium for route-matrix sampler
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 21
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_MAX_ATTEMPTS: "2"
+          PLAYWRIGHT_INSTALL_JOB_TIMEOUT_MINUTES: "45"
+          PLAYWRIGHT_INSTALL_SITE: staging-route-matrix-evidence
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Validate Prometheus query configuration
         run: |
@@ -253,7 +260,7 @@ jobs:
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           deploy_window_status="$(jq -r '.status // "unknown"' "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}" 2>/dev/null || echo unknown)"

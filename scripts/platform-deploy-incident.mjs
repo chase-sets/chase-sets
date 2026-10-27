@@ -22,6 +22,7 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "superseded-pre-mutation",
   "agent-grant-revocation-activation-refused",
   "doks-admission-webhook-unreachable",
+  "staging-browser-install",
   "unknown",
 ]);
 
@@ -86,6 +87,13 @@ const ROOT_CAUSES = Object.freeze({
       "The deploy restores the last-known-good release and retries once; when that retry is refused or fails, confirm the admission webhook answers a server dry-run, then rerun the failed Platform Deploy run.",
     phase: "production-deploy",
     affectedComponent: "doks-control-plane",
+  },
+  "staging-browser-install": {
+    summary: "The bounded Playwright Chromium installer failed during staging.",
+    remediation:
+      "Inspect the bounded installer diagnostic and repair the browser download or runner cache before retrying staging.",
+    phase: "staging-browser-install",
+    affectedComponent: "staging-browser-install",
   },
   unknown: {
     summary: "The deployment failed without a known safe classification.",
@@ -355,6 +363,8 @@ export function classifyDeploymentRootCause(input = {}) {
     /advisory.{0,40}(?:seed|e2e)|(?:seed|e2e).{0,40}advisory|end-to-end.{0,80}auth(?:entication|orization)|e2e.{0,80}(?:login|auth(?:entication|orization))/i;
   const stagingVerificationPattern =
     /projection.{0,80}(?:convergence|checkpoint|freshness).{0,80}(?:timed out|timeout|failed)|blocking verification/i;
+  const stagingBrowserInstallPattern =
+    /Playwright Chromium install failed|playwright-chromium-install|staging-playwright-install|staging-browser-install/i;
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
@@ -408,6 +418,15 @@ export function classifyDeploymentRootCause(input = {}) {
       steps,
       text,
       providerOverridesForMatch(steps, text, stagingAdvisoryPattern),
+    );
+  }
+  if (/staging-browser-install/.test(phaseHint) || stagingBrowserInstallPattern.test(allText)) {
+    return rootCauseRecord(
+      "staging-browser-install",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, stagingBrowserInstallPattern),
     );
   }
   if (/staging-verification|blocking-staging/.test(phaseHint) || stagingVerificationPattern.test(allText)) {

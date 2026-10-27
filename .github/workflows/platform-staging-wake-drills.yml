@@ -95,6 +95,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
     steps:
       - name: Confirm staging wake drill
         run: |
@@ -302,7 +303,13 @@ jobs:
 
       - name: Install Playwright Chromium for canary writes
         if: inputs.drill == 'load' || !inputs.skip_canary_write
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 21
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_MAX_ATTEMPTS: "2"
+          PLAYWRIGHT_INSTALL_JOB_TIMEOUT_MINUTES: "45"
+          PLAYWRIGHT_INSTALL_SITE: staging-wake-drill
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging wake drill
         env:

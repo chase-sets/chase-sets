@@ -216,6 +216,7 @@ export function runInstaller({
   spawnImpl = spawn,
   signalGroupImpl = signalGroup,
   write = (line) => console.log(line),
+  installerCommand = ["bash", "scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
 } = {}) {
   const startedAt = now().toISOString();
   const base = {
@@ -236,12 +237,18 @@ export function runInstaller({
   const childEnv = buildMinimalProcessEnvironment(
     env,
     Object.fromEntries(
-      ["GITHUB_ACTIONS", "RUNNER_ENVIRONMENT", "ImageOS", "ImageVersion", "BOUNDARY_HEAD_SHA"].map((name) => [
-        name,
-        env[name],
-      ]),
+      [
+        "GITHUB_ACTIONS",
+        "RUNNER_ENVIRONMENT",
+        "ImageOS",
+        "ImageVersion",
+        "BOUNDARY_HEAD_SHA",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "HOME",
+      ].map((name) => [name, env[name]]),
     ),
   );
+  childEnv.PROVIDER_BROWSER_INSTALL_COMMAND = JSON.stringify(installerCommand);
   let phase = "runner-identity";
   let cache = "not-applicable";
   let source = "provider-download";
@@ -380,11 +387,19 @@ export function runInstaller({
   });
 }
 
-export function superviseInstaller({ runtime = process, spawnImpl = spawn, signalGroupImpl = signalGroup } = {}) {
+export function superviseInstaller({
+  runtime = process,
+  spawnImpl = spawn,
+  signalGroupImpl = signalGroup,
+  installerCommand = JSON.parse(
+    runtime.env?.PROVIDER_BROWSER_INSTALL_COMMAND ??
+      '["bash","scripts/provider-object-disposition/browser-boundary/ci-setup.sh"]',
+  ),
+} = {}) {
   // This detached group leader survives TERM and installer exit until the
   // owner releases it or kills the group, reserving its group id during grace.
   runtime.on("SIGTERM", () => {});
-  const installer = spawnImpl("bash", ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"], {
+  const installer = spawnImpl(installerCommand[0], installerCommand.slice(1), {
     stdio: ["ignore", "inherit", "inherit"],
   });
   installer.once("error", () => runtime.send({ installerStatus: 1 }));
@@ -399,6 +414,144 @@ export function superviseInstaller({ runtime = process, spawnImpl = spawn, signa
       /* The KILL deadline remains mandatory. */
     }
     setTimeout(() => signalGroupImpl(runtime.pid, "KILL"), INSTALLER_TIMEOUT_GRACE_MS);
+  });
+}
+
+// Shared deadline-bound process supervision for hosted browser installers. The
+// provider-boundary installer above remains the authority-aware implementation;
+// this small primitive owns only process lifetime and never receives provider
+// credentials.
+export function runBoundedProcess({
+  command,
+  env = process.env,
+  timeoutMs = INSTALLER_TIMEOUT_MS,
+  graceMs = INSTALLER_TIMEOUT_GRACE_MS,
+  maxAttempts = 1,
+  retryDelayMs = 0,
+  spawnImpl = spawn,
+  signalGroupImpl = signalGroup,
+  write = (line) => console.log(line),
+  site = "unknown",
+  now = () => Date.now(),
+  runtime = process,
+  processKillImpl = process.kill,
+} = {}) {
+  if (!Array.isArray(command) || command.length < 1 || !command.every((value) => typeof value === "string" && value))
+    return Promise.resolve({ status: 1, reason: "invalid-command", attempts: 0 });
+  if (
+    ![1, 2].includes(maxAttempts) ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    !Number.isSafeInteger(graceMs) ||
+    graceMs < 0
+  )
+    return Promise.resolve({ status: 1, reason: "invalid-budget", attempts: 0 });
+
+  let cancelCurrent;
+  const onCancel = () => cancelCurrent?.();
+  runtime.on?.("SIGTERM", onCancel);
+  runtime.on?.("SIGINT", onCancel);
+  runtime.on?.("SIGHUP", onCancel);
+  const runAttempt = (attempt) =>
+    new Promise((resolve) => {
+      let child;
+      let settled = false;
+      let deadline;
+      let killTimer;
+      let reason = "exit";
+      let stopping = false;
+      const finish = (status, terminalReason = reason) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        clearTimeout(killTimer);
+        resolve({ status: status ?? 1, reason: terminalReason, attempt });
+      };
+      const stop = (terminalReason) => {
+        if (settled || stopping) return;
+        stopping = true;
+        reason = terminalReason;
+        try {
+          signalGroupImpl(child.pid, "TERM");
+        } catch {
+          finish(1, "cleanup-refused");
+          return;
+        }
+        killTimer = setTimeout(() => {
+          try {
+            signalGroupImpl(child.pid, "KILL");
+          } catch {
+            finish(1, "cleanup-refused");
+            return;
+          }
+          try {
+            processKillImpl(-child.pid, 0);
+            finish(1, "cleanup-refused");
+          } catch (error) {
+            if (error?.code === "ESRCH") finish(1, terminalReason);
+            else finish(1, "cleanup-refused");
+          }
+        }, graceMs);
+      };
+      cancelCurrent = () => stop("cancellation");
+      try {
+        child = spawnImpl(command[0], command.slice(1), {
+          detached: true,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      } catch {
+        finish(1, "spawn-refused");
+        return;
+      }
+      if (!Number.isSafeInteger(child.pid) || child.pid < 1) {
+        finish(1, "spawn-refused");
+        return;
+      }
+      const consume = (stream) =>
+        stream?.on("data", (chunk) => {
+          const text = String(chunk).replace(/\s+/g, " ").trim().slice(0, 240);
+          if (text) write(`Playwright Chromium install site=${site} attempt=${attempt}: ${text}`);
+        });
+      consume(child.stdout);
+      consume(child.stderr);
+      deadline = setTimeout(() => stop("timeout"), timeoutMs);
+      child.once("error", () => finish(1, "process-error"));
+      child.once("close", (status) => {
+        if (settled || stopping) return;
+        if (status === 0) finish(0, "success");
+        else {
+          try {
+            processKillImpl(-child.pid, 0);
+            stop("exit");
+          } catch (error) {
+            if (error?.code === "ESRCH") finish(status || 1, "exit");
+            else finish(1, "cleanup-refused");
+          }
+        }
+      });
+    });
+
+  const execute = async () => {
+    const started = now();
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      write(`Playwright Chromium install site=${site} attempt=${attempt}/${maxAttempts}`);
+      const result = await runAttempt(attempt);
+      if (result.status === 0) return { ...result, elapsedMs: now() - started };
+      const retryable = attempt < maxAttempts && ["timeout", "exit", "process-error"].includes(result.reason);
+      if (!retryable) {
+        write(`Playwright Chromium install failed: site=${site} attempt=${attempt} reason=${result.reason}`);
+        return { ...result, elapsedMs: now() - started };
+      }
+      if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+    return { status: 1, reason: "exhausted", attempts: maxAttempts, elapsedMs: now() - started };
+  };
+  return execute().finally(() => {
+    runtime.off?.("SIGTERM", onCancel);
+    runtime.off?.("SIGINT", onCancel);
+    runtime.off?.("SIGHUP", onCancel);
   });
 }
 

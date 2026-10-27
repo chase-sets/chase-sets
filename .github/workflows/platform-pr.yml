@@ -455,7 +455,7 @@ jobs:
           test "${CHASE_SETS_LANE_MODE+x}" != x
           printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
             "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
-          pnpm exec playwright install --with-deps chromium
+          node scripts/playwright-chromium-install.mjs
           CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
             pnpm --filter @chase-sets/channels run test:unit \
             features/connector-client/integrations/order-authority-probe/capture.test.ts \

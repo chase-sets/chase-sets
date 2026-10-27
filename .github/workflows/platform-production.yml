@@ -2119,19 +2119,21 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: /home/runner/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
+        timeout-minutes: 21
         env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_MAX_ATTEMPTS: "2"
+          PLAYWRIGHT_INSTALL_JOB_TIMEOUT_MINUTES: "180"
+          PLAYWRIGHT_INSTALL_SITE: deploy-staging
+          PLAYWRIGHT_INSTALL_DIAGNOSTIC_PATH: artifacts/release-health/staging-playwright-install.json
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Await staging projection convergence
         id: projection_convergence_gate
@@ -2299,7 +2301,7 @@ jobs:
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"
@@ -2665,6 +2667,7 @@ jobs:
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
+            --diagnostics artifacts/release-health/staging-playwright-install.json \
             --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
             --diagnostics artifacts/release-health/account-buy-now-freshness-probe.json \
             --diagnostics artifacts/release-health/account-cart-consistency-probe.json \

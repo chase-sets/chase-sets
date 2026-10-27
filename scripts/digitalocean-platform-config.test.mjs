@@ -4890,14 +4890,14 @@ describe("DigitalOcean platform configuration", () => {
       "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0",
     );
     expect(stagingPlaywrightCacheStep).toContain("id: staging-playwright-chromium-cache");
-    expect(stagingPlaywrightCacheStep).toContain("path: /home/runner/.cache/ms-playwright");
+    expect(stagingPlaywrightCacheStep).toContain("path: ${{ runner.temp }}/playwright-chromium");
     expect(stagingPlaywrightCacheStep).toContain(
       "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
     );
     expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
     expect(stagingPlaywrightInstallStep).not.toContain("cache-hit != 'true'");
-    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
-    expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
+    expect(stagingPlaywrightInstallStep).toContain("node scripts/playwright-chromium-install.mjs");
     expect(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
       platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
     );
@@ -4911,7 +4911,7 @@ describe("DigitalOcean platform configuration", () => {
     ).toBeLessThan(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
     expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
-    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
