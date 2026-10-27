@@ -542,7 +542,7 @@ const reviewedRetiredVerifierRemovals = new Set([
 // #10626 reviewed removal: the deploy-staging installer no longer receives infrastructure secrets because the
 // supervisor-backed primitive has no provider boundary. Keep the immutable indices explicit so parity proves the
 // removal rather than silently accepting a generated count change.
-const reviewedStagingBrowserInstallRemovals = new Set([1124, 1125, 1126]);
+const reviewedStagingBrowserInstallRemovals = new Set([1026, 1027, 1028]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
