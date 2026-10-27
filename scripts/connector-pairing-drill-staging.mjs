@@ -8,10 +8,12 @@ import {
   stagingReceiptComment,
 } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill-staging.ts";
 import { readConnectorDrillDeployBinding } from "./connector-pairing-drill-deploy-binding.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
 try {
+  acquireHeavySlot("playwright");
   const { receipt } = await runStagingDrill(process.argv.slice(2), {
     resolveDeployBinding: (request) => readConnectorDrillDeployBinding(request),
     dist: resolve(root, "artifacts/connector-extension/staging"),
