@@ -489,9 +489,10 @@ describe("issue-7125 boundary lock", () => {
   const actor = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test" };
   const refusal = "Another account change is in progress. Wait for it to finish before trying again.";
   const reauth = "Sign in again to check this action's result.";
-  function Rows() {
+  function Rows({ phase = "initial" }: { phase?: string }) {
     return (
       <>
+        <span data-testid="route-phase">{phase}</span>
         {["A", "B"].map((name) => (
           <AccountMutationForm key={name} method="post">
             <HiddenInput name="intent" value="default" />
@@ -548,7 +549,11 @@ describe("issue-7125 boundary lock", () => {
   });
   it("releases the boundary lock only after the revalidated route commit", async () => {
     const transport = stubHeldAccountManagementTransport();
-    const { loads } = renderHeldAccountManagementRoute("/account/shipping-addresses", null, () => <Rows />);
+    const { loads } = renderHeldAccountManagementRoute(
+      "/account/shipping-addresses",
+      { phase: "before" },
+      ({ phase }) => <Rows phase={phase} />,
+    );
     await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
 
     fireEvent.click(button("A"));
@@ -558,8 +563,21 @@ describe("issue-7125 boundary lock", () => {
     expect(button("A").getAttribute("aria-busy")).toBe("true");
     expect(button("B").getAttribute("aria-busy")).toBeNull();
 
-    loads[0](null);
+    const states: { phase: string; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    const observer = new MutationObserver(() => {
+      const phase = screen.getByTestId("route-phase").textContent ?? "";
+      const state = { phase, busy: button("A").getAttribute("aria-busy") };
+      states.push(state);
+      if (phase === "before" && state.busy === null) staleUnlocked = true;
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    loads[0]({ phase: "after" });
     await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    observer.disconnect();
+    expect(screen.getByTestId("route-phase").textContent).toBe("after");
+    expect(staleUnlocked).toBe(false);
+    expect(states.some(({ phase, busy }) => phase === "before" && busy === null)).toBe(false);
   });
   it("superseded flight releases the boundary lock", async () => {
     const transport = stubHeldAccountManagementTransport();

@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate, useRevalidator } from "react-router";
+import { useLocation, useMatches, useNavigate, useNavigation, useRevalidator } from "react-router";
 import { Banner, Button, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm, type RouterFormProps } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
@@ -23,8 +23,6 @@ type Controller = Readonly<{
   activeForm: HTMLFormElement | null;
   /** The form whose mutation holds the boundary lock, from activation until it settles. */
   pendingForm: HTMLFormElement | null;
-  isSettlementReady: () => boolean;
-  commitSettlement: () => void;
   ready: boolean;
   isHeld: (form: HTMLFormElement) => boolean;
   submit: (event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) => void;
@@ -51,7 +49,6 @@ export function AccountMutationForm({
     (controller.activeForm === ref.current && ["reauth-required", "route-denied"].includes(controller.state));
   useLayoutEffect(() => {
     setHeld(Boolean(ref.current && controller?.isHeld(ref.current)));
-    if (controller?.isSettlementReady()) controller.commitSettlement();
   });
   useLayoutEffect(() => {
     if (controller?.state === "succeeded") {
@@ -120,7 +117,10 @@ export function AccountMutationBoundary({
   );
   const [activeForm, setActiveForm] = useState<HTMLFormElement | null>(null);
   const [pendingForm, setPendingForm] = useState<HTMLFormElement | null>(null);
-  const settlement = useRef<{ generation: number; retained: boolean } | null>(null);
+  const settlement = useRef<{ generation: number; retained: boolean; from: unknown } | null>(null);
+  const matches = useMatches();
+  const navigation = useNavigation();
+  const committedMatches = useRef<unknown>(matches);
   const [settlementVersion, setSettlementVersion] = useState(0);
   const status = useRef<HTMLDivElement>(null);
   const descriptor = useRef<MutationDescriptor | null>(null);
@@ -178,7 +178,6 @@ export function AccountMutationBoundary({
     setActiveForm(null);
     setPendingForm(null);
     settlement.current = null;
-    setSettlementVersion((version) => version + 1);
     setRefusals(0);
     setSuggestion(null);
     setCallerPresented(false);
@@ -192,14 +191,21 @@ export function AccountMutationBoundary({
     };
   }, [actorKey, parent !== null]);
 
-  useLayoutEffect(() => {
+  function commitSettlement() {
     const pending = settlement.current;
     if (!pending || pending.generation !== generation.current) return;
+    if (navigation.state !== "idle" || revalidator.state !== "idle") return;
+    if (committedMatches.current === pending.from) return;
     settlement.current = null;
     busy.current = pending.retained;
     setPendingForm(null);
     setRefusals(0);
-  }, [settlementVersion]);
+  }
+
+  useLayoutEffect(() => {
+    committedMatches.current = matches;
+    commitSettlement();
+  }, [matches, navigation.state, revalidator.state, settlementVersion]);
 
   const activeNotification = useRef<MutationNotificationHandler | undefined>(undefined);
 
@@ -264,6 +270,7 @@ export function AccountMutationBoundary({
       }
     };
     const currentGeneration = generation.current;
+    const from = committedMatches.current;
     void (async () => {
       let sent = false;
       let retained = false;
@@ -341,10 +348,9 @@ export function AccountMutationBoundary({
             await navigate(result.destination, { replace: true });
           else await revalidator.revalidate();
           if (generation.current === currentGeneration) {
-            settlement.current = { generation: currentGeneration, retained };
+            settlement.current = { generation: currentGeneration, retained, from };
             awaitingSettlement = true;
-            if (!result.destination || result.destination === location.pathname)
-              setSettlementVersion((version) => version + 1);
+            setSettlementVersion((version) => version + 1);
           }
         }
       } catch {
@@ -375,15 +381,6 @@ export function AccountMutationBoundary({
         state,
         activeForm,
         pendingForm,
-        isSettlementReady: () => settlement.current?.generation === generation.current,
-        commitSettlement: () => {
-          const pending = settlement.current;
-          if (!pending || pending.generation !== generation.current) return;
-          settlement.current = null;
-          busy.current = pending.retained;
-          setPendingForm(null);
-          setRefusals(0);
-        },
         submit,
         isHeld: (form) => heldPairs.includes(pair(form)),
       }}

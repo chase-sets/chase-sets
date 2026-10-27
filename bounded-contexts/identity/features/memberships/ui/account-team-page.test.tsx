@@ -122,8 +122,25 @@ describe("TeamPage pending state", () => {
     fireEvent.click(confirm);
     expect(transport.posts()).toHaveLength(1);
 
+    let staleUnlocked = false;
+    let reclicked = false;
+    const observer = new MutationObserver(() => {
+      const current = screen.queryByRole("button", { name: "Confirm revoke" });
+      const snapshot = { connected: Boolean(current), busy: current?.getAttribute("aria-busy") ?? null };
+      if (snapshot.connected && snapshot.busy === null) {
+        staleUnlocked = true;
+        if (!reclicked) {
+          reclicked = true;
+          fireEvent.click(current!);
+        }
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     loads[0]([membership("mem_1", "Alex", "revoked"), membership("mem_2", "Blair")]);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    observer.disconnect();
+    expect(staleUnlocked).toBe(false);
+    expect(transport.posts()).toHaveLength(1);
     expect(router.state.location.search).toBe("?afterWrite=synthetic");
     const change = screen.getAllByRole("button", { name: "Change Role" })[1];
     expect(busy(change)).toEqual({ disabled: false, busy: null });
@@ -169,11 +186,28 @@ describe("TeamPage pending state", () => {
     fireEvent.click(confirm);
     expect(transport.posts()).toHaveLength(1);
 
+    let staleUnlocked = false;
+    let reclicked = false;
+    const observer = new MutationObserver(() => {
+      const current = screen.queryByRole("button", { name: "Confirm cancellation" });
+      const snapshot = { connected: Boolean(current), busy: current?.getAttribute("aria-busy") ?? null };
+      if (snapshot.connected && snapshot.busy === null) {
+        staleUnlocked = true;
+        if (!reclicked) {
+          reclicked = true;
+          fireEvent.click(current!);
+        }
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     loads[0]({
       memberships: [membership("mem_1", "Alex")],
       invitations: [invitation("ivt_1", "invitee@example.test", "cancelled")],
     });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull());
+    observer.disconnect();
+    expect(staleUnlocked).toBe(false);
+    expect(transport.posts()).toHaveLength(1);
     const change = screen.getByRole("button", { name: "Change Role" });
     expect(busy(change)).toEqual({ disabled: false, busy: null });
   });
