@@ -421,6 +421,7 @@ function kubectlArgsAfterContext(args) {
   return args[0]?.startsWith("--context=") ? args.slice(1) : args;
 }
 export function assertReadOnlyKubectl(args) {
+  if (args[0] !== `--context=${STAGING_CONTEXT}`) throw new Error("ac5_read_only_command_refused");
   const actual = kubectlArgsAfterContext(args);
   const verb = actual[0];
   const resources = new Set([
@@ -609,6 +610,25 @@ function assertNoForbiddenInventory(inventory) {
 
 async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseArgs(argv);
+  try {
+    return await executeProbe(options, dependencies);
+  } catch (error) {
+    if (!(error instanceof Error) || !/^ac5_[a-z0-9_]+$/.test(error.message)) throw error;
+    const refusal = error.message;
+    const overall = "INCONCLUSIVE";
+    mkdirSync(dirname(options.output), { recursive: true });
+    writeFileSync(
+      options.output,
+      `${JSON.stringify({ schemaVersion: AC5_PROBE_VERSION, overall, refusal })}\n`,
+      "utf8",
+    );
+    console.error(`INCONCLUSIVE ${refusal}`);
+    process.exitCode = verdictExitCode(overall);
+    return { overall, refusal, exitCode: process.exitCode };
+  }
+}
+
+async function executeProbe(options, dependencies) {
   const runner = dependencies.runner ?? execFileAsync;
   const now = dependencies.now ?? (() => Date.now());
   const sleep = dependencies.sleep ?? ((ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)));
@@ -675,7 +695,7 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     timeout: READ_TIMEOUT_MS,
   });
   if (ancestor.exit !== 0) throw new Error("ac5_fix_sha_not_ancestor");
-  const chart = chartValues();
+  const chart = chartValues(dependencies.root);
   const workloadRef = findResourceName(options.marketplaceWorkload);
   const collectorDaemonSet = jsonOutput(
     await runKubectl([
@@ -784,7 +804,7 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     .some((rule) => wildcardMatches(rule.host, options.r4Host));
   if (!ip || !stagingRule || r4Captured) throw new Error("ac5_ingress_host_qualification_failed");
   const collector = classifyCollectorConfig(collectorConfig);
-  const nonce = randomBytes(8).toString("hex");
+  const nonce = (dependencies.randomBytes ?? randomBytes)(8).toString("hex");
   const userAgent = `ac5-probe/${nonce}`;
   const sentinels = [];
   const requests = [];
@@ -857,22 +877,16 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     requests,
     qualification: { defaultBackendLoggingDisabled: true },
   });
-  const overall = overallVerdict(rows);
+  let overall = overallVerdict(rows);
   let output;
   try {
     output = serializeEvidence({
       qualification: {
-        context: options.context,
         deployRunId: options.deployRunId,
         mergeSha: options.mergeSha,
         fixMergeSha: fixSha,
-        promotedDigest: options.promotedDigest,
         marketplaceReady,
         controllerReady,
-        controllerIP: ip,
-        stagingHost: options.stagingHost,
-        r4Host: options.r4Host,
-        controllerDefaultBackendLogging: configData["enable-access-log-for-default-backend"] ?? "absent",
         t0: window.t0,
         t1: window.t1,
       },
@@ -884,17 +898,20 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     });
   } catch (error) {
     if (!(error instanceof Error) || error.message !== "ac5_evidence_sentinel") throw error;
+    overall = "FAIL";
     output = `${JSON.stringify({ schemaVersion: AC5_PROBE_VERSION, overall: "FAIL", refusal: "evidence contained a probe sentinel and was not retained" })}\n`;
   }
   mkdirSync(dirname(options.output), { recursive: true });
   writeFileSync(options.output, output, "utf8");
   process.exitCode = verdictExitCode(overall);
+  console.log(`AC5 ${overall} ${ROW_NAMES.map((name) => `${name}=${rows[name].status}`).join(" ")}`);
   return { rows, overall, exitCode: process.exitCode };
 }
 
 export { main };
 if (process.argv[1] && process.argv[1].endsWith("ac5-logging-probe.mjs"))
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : "ac5_probe_failed");
-    process.exitCode = 1;
+    const code = error instanceof Error && /^ac5_[a-z0-9_]+$/.test(error.message) ? error.message : "ac5_probe_failed";
+    console.error(`INCONCLUSIVE ${code}`);
+    process.exitCode = 2;
   });
