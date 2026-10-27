@@ -1,7 +1,10 @@
+import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   inspectCache,
@@ -9,6 +12,7 @@ import {
   removeCache,
   validateCachePath,
 } from "./playwright-chromium-install.mjs";
+import { runInstaller } from "./provider-browser-install-timeout.mjs";
 
 const directories = [];
 const makeCache = () => {
@@ -27,6 +31,7 @@ const envFor = (cachePath) => ({
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   while (directories.length > 0) rmSync(directories.pop(), { recursive: true, force: true });
 });
 
@@ -72,6 +77,165 @@ describe("Playwright Chromium installer primitive", () => {
       cancelSignal: controller.signal,
     });
     expect(result).toMatchObject({ status: 1, reason: "cancelled" });
+  });
+
+  it("AC2 composes the real supervisor with the primitive command, env boundary and release", async () => {
+    vi.useFakeTimers();
+    const cache = makeCache();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 4567,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      send: vi.fn(),
+    });
+    const spawnImpl = vi.fn(() => child);
+    const signalGroupImpl = vi.fn();
+    const buildInvocationImpl = vi.fn(() => ({ command: process.execPath, args: ["-e", "process.exit(0)"] }));
+    const lines = [];
+    const resultPromise = installPlaywrightChromium({
+      env: envFor(cache),
+      buildInvocationImpl,
+      runInstallerImpl: (options) => runInstaller({ ...options, spawnImpl, signalGroupImpl }),
+      write: (line) => lines.push(line),
+    });
+    const spawnArgs = spawnImpl.mock.calls[0][1];
+    expect(JSON.parse(Buffer.from(spawnArgs[2], "base64url").toString("utf8"))).toEqual({
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+    });
+    expect(spawnImpl.mock.calls[0][2].env).toMatchObject({
+      PLAYWRIGHT_BROWSERS_PATH: path.resolve(cache),
+      PLAYWRIGHT_INSTALL_SITE: "staging-uat",
+      PLAYWRIGHT_INSTALL_ATTEMPT: "2",
+    });
+    expect(spawnImpl.mock.calls[0][2].env).not.toHaveProperty("GH_TOKEN");
+    expect(spawnImpl.mock.calls[0][2].env).not.toHaveProperty("PROVIDER_SECRET");
+    mkdirSync(path.join(cache, "chromium-1"), { recursive: true });
+    writeFileSync(path.join(cache, "chromium-1", "chrome"), "payload");
+    writeFileSync(path.join(cache, "chromium-1", "package.json"), "{}");
+    child.emit("message", { installerStatus: 0 });
+    expect(child.send).toHaveBeenCalledWith("release");
+    child.emit("close", 0);
+    await expect(resultPromise).resolves.toMatchObject({ status: 0, reason: "success" });
+    expect(lines).toEqual([]);
+    expect(signalGroupImpl).not.toHaveBeenCalled();
+  });
+
+  it("AC2 emits one primitive terminal line when the supervisor succeeds without a cache payload", async () => {
+    vi.useFakeTimers();
+    const cache = makeCache();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 4567,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      send: vi.fn(),
+    });
+    const lines = [];
+    const resultPromise = installPlaywrightChromium({
+      env: envFor(cache),
+      runInstallerImpl: (options) => runInstaller({ ...options, spawnImpl: () => child, signalGroupImpl: vi.fn() }),
+      write: (line) => lines.push(line),
+    });
+    child.emit("message", { installerStatus: 0 });
+    child.emit("close", 0);
+    await expect(resultPromise).resolves.toMatchObject({ status: 1, reason: "incomplete-cache" });
+    expect(lines).toEqual([expect.stringContaining('"reason":"incomplete-cache"')]);
+    expect(lines[0]).not.toContain("provider-browser-install-timing/v1");
+  });
+
+  it("AC2 uses the fake child lifecycle for cancellation, timeout, cleanup refusal and spawn refusal", async () => {
+    vi.useFakeTimers();
+    const runCase = ({ cancel = false, signalGroupImpl = vi.fn(), emitError = false } = {}) => {
+      const cache = makeCache();
+      const child = Object.assign(new EventEmitter(), {
+        pid: 4567,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        send: vi.fn(),
+      });
+      const spawnImpl = vi.fn(() => child);
+      const controller = new AbortController();
+      const lines = [];
+      const resultPromise = installPlaywrightChromium({
+        env: envFor(cache),
+        cancelSignal: cancel ? controller.signal : undefined,
+        runInstallerImpl: (options) => runInstaller({ ...options, spawnImpl, signalGroupImpl }),
+        write: (line) => lines.push(line),
+      });
+      if (emitError) child.emit("error", new Error("synthetic spawn failure"));
+      else if (cancel) controller.abort();
+      else vi.advanceTimersByTime(600_000);
+      return { child, controller, lines, resultPromise, signalGroupImpl, spawnImpl };
+    };
+
+    const cancelled = runCase({ cancel: true });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await cancelled.resultPromise).toMatchObject({ status: 1, reason: "cancelled" });
+    expect(cancelled.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(cancelled.spawnImpl).toHaveBeenCalledOnce();
+    expect(cancelled.lines).toHaveLength(1);
+    expect(cancelled.lines[0]).not.toContain("provider-browser-install-timing/v1");
+
+    const timedOut = runCase();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await timedOut.resultPromise).toMatchObject({ status: 1, reason: "timeout" });
+    expect(timedOut.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+
+    const cleanup = runCase({
+      signalGroupImpl: vi.fn(() => {
+        throw new Error("synthetic cleanup refusal");
+      }),
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await cleanup.resultPromise).toMatchObject({ status: 1, reason: "cleanup-failure" });
+    expect(cleanup.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+
+    const refused = runCase({ emitError: true });
+    expect(await refused.resultPromise).toMatchObject({ status: 1, reason: "refused" });
+    expect(refused.lines).toHaveLength(1);
+  });
+
+  it("AC5 refuses invalid environment fields before composition", async () => {
+    for (const [key, value] of [
+      ["PLAYWRIGHT_INSTALL_SITE", "bad site;x"],
+      ["PLAYWRIGHT_INSTALL_ATTEMPT", "bad attempt"],
+    ]) {
+      const cache = makeCache();
+      const runInstallerImpl = vi.fn();
+      const lines = [];
+      const result = await installPlaywrightChromium({
+        env: { ...envFor(cache), [key]: value },
+        runInstallerImpl,
+        write: (line) => lines.push(line),
+      });
+      expect(result).toMatchObject({ status: 1, reason: "invalid-environment", cache: "invalid" });
+      expect(runInstallerImpl).not.toHaveBeenCalled();
+      expect(lines).toEqual([expect.stringContaining('"reason":"invalid-environment"')]);
+    }
+  });
+
+  it("AC5 propagates the CLI refusal exit and never prints the caller secret", () => {
+    const result = spawnSync(process.execPath, ["scripts/playwright-chromium-install.mjs"], {
+      cwd: process.cwd(),
+      env: {
+        PATH: process.env.PATH,
+        PLAYWRIGHT_BROWSERS_PATH: "relative/cache",
+        GH_TOKEN: "PRIVATE_TOKEN",
+      },
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toContain('"reason":"invalid-path"');
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("PRIVATE_TOKEN");
   });
 
   it("AC3 passes only explicit non-secret child metadata and never relays raw provider output", async () => {
@@ -121,7 +285,7 @@ describe("Playwright Chromium installer primitive", () => {
     expect(mismatched).toMatchObject({ state: "mismatched", owned: false });
   });
 
-  it("AC4 removes the complete failed tree before cache publication", async () => {
+  it("AC4 removes the incomplete failed tree before cache publication", async () => {
     const cache = makeCache();
     mkdirSync(path.join(cache, "restored", "deps"), { recursive: true });
     writeFileSync(path.join(cache, "restored", "deps", "package.json"), "{}");

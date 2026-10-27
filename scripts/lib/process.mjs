@@ -19,7 +19,6 @@ const minimalProcessEnvironmentNames = new Set(
     "PATH",
     "PATHEXT",
     "PNPM_HOME",
-    "PLAYWRIGHT_BROWSERS_PATH",
     "ProgramFiles",
     "ProgramW6432",
     "SYSTEMROOT",

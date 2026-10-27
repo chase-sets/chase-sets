@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation } from "./lib/process.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
+import { TIMING_RECORD_PREFIX } from "./provider-browser-install-timing.mjs";
 
 export const PLAYWRIGHT_INSTALL_COMMAND = ["exec", "playwright", "install", "chromium"];
 export const PLAYWRIGHT_INSTALL_SITE = "playwright-chromium";
@@ -120,7 +121,7 @@ export async function installPlaywrightChromium({
     return refusal({ site, attempt, reason: "invalid-path", cache: "invalid", write });
   }
   const cacheBefore = inspectCacheImpl(cachePath);
-  const childEnv = {
+  const callerEnv = {
     ...env,
     INSTALLER_TIMEOUT_SECONDS: "600",
   };
@@ -131,10 +132,13 @@ export async function installPlaywrightChromium({
   };
   let result;
   try {
-    const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: childEnv });
+    const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: callerEnv });
+    const writeInstaller = (line) => {
+      if (typeof line !== "string" || !line.startsWith(TIMING_RECORD_PREFIX)) write(line);
+    };
     result = await runInstallerImpl({
-      identity: identityFromEnvironment(childEnv),
-      env: childEnv,
+      identity: identityFromEnvironment(callerEnv),
+      env: callerEnv,
       installerCommand: invocation.command,
       installerArgs: invocation.args,
       installerEnv: explicitEnv,
@@ -142,7 +146,7 @@ export async function installPlaywrightChromium({
       requireComplete: false,
       cancelSignal,
       now,
-      write,
+      write: writeInstaller,
     });
   } catch {
     return refusal({ site, attempt, reason: "authority-refusal", cache: cacheBefore.state, write });
