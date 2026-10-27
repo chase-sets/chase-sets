@@ -119,7 +119,9 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
         body.whatIf === null
           ? null
           : {
-              portfolios: body.whatIf.portfolios.map(({ snapshotHash: _snapshotHash, ...portfolio }) => portfolio),
+              portfolios: body.whatIf.portfolios.map((portfolio: Record<string, unknown>) =>
+                Object.fromEntries(Object.entries(portfolio).filter(([key]) => key !== "snapshotHash")),
+              ),
             },
     });
     expect(withoutSnapshotHashes(afterBody)).toEqual(withoutSnapshotHashes(beforeBody));
