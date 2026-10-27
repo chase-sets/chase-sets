@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  drainContextRuntime,
+  resolveModuleSubscriptions,
+} from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -158,6 +162,19 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     expect(
       await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
     ).toBe(1);
+
+    const projectionRuntime = {
+      subscriptionRunners: resolveModuleSubscriptions([
+        {
+          contextName: "inventory",
+          module: { ...inventoryModule, buildSubscriptions: () => [] },
+          services: inventory,
+          pool: pools.inventory,
+          projectionHandlerSets: inventoryModule.projectionHandlerSets?.(inventory) ?? [],
+        },
+      ]),
+    };
+    await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
 
     const stock = await pools.inventory.query(
       `SELECT total_quantity FROM inventory_items WHERE item_id = 'inv_c51a_1' AND account_id = $1`,
