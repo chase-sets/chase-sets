@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   precheckSCorpus:
-    name: precheckSCorpus (M18 source and shipped DB corpus)
+    name: precheckSCorpus (M9 source and shipped DB corpus)
     if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 10
