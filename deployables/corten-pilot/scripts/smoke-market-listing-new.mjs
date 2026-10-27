@@ -112,6 +112,16 @@ const picture = await (async () => {
   await page.getByRole("button", { name: "Save as draft" }).click();
   await page.getByText("Each photo must be a JPEG, PNG or WebP image.").waitFor();
   check((await page.getByLabel("Price", { exact: true }).inputValue()) === price(1), "a file that is not a picture is refused with the form as typed");
+  const input = page.locator("input[type=file]");
+  const kept = await input.evaluate((el) => ({
+    invalid: el.getAttribute("aria-invalid"),
+    files: Array.from(el.files ?? []).map((f) => f.name),
+    described: (el.getAttribute("aria-describedby") ?? "").split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? "").join(" "),
+  }));
+  check(
+    kept.invalid === "true" && kept.files.join() === "notes.png" && kept.described.includes("JPEG, PNG or WebP"),
+    `the refused photo input is marked invalid, keeps its file and names its message (${JSON.stringify(kept)})`,
+  );
 
   await page.locator("input[type=file]").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: picture });
   await page.getByRole("button", { name: "Save as draft" }).click();

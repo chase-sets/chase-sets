@@ -40,9 +40,9 @@ pub struct FeesId;
 /// The three buttons, which the product turns on and off.
 #[derive(Id)]
 pub struct ActionsId;
-/// The photos' message: patched, since the file input is not (it would lose its files).
+/// The photos' fieldset: patched with its input, which keeps its files through a refusal.
 #[derive(Id)]
-pub struct PhotoErrorId;
+pub struct PhotosId;
 
 /// An amount in its currency, or "Not set" (`formatMoney`).
 fn money(t: ListingNewMsg, amount: Option<&str>, currency: &str) -> String {
@@ -76,7 +76,6 @@ fn inventory_label(t: ListingNewMsg, item: &SupplyItem) -> String {
 #[component(css)]
 pub fn NewListingPage<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Render {
     let f = ListingFields::FIELDS;
-    let e = screen.errors.within(ListingFormId);
     let back = on_marketplace("/account/listings");
     html! {
         <header class={Header}>
@@ -118,21 +117,7 @@ pub fn NewListingPage<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScre
             <div class={Columns}>
                 <ProductPart t={t} p={p} screen={screen} />
                 <div class={Column}>
-                    <fieldset class={Photos}>
-                        <legend class={Label}>{t.page_listing_photos()}</legend>
-                        <p class={Muted}>{t.page_listing_photos_description()}</p>
-                        <input
-                            type="file"
-                            name={f.evidence}
-                            accept={PICTURES}
-                            multiple
-                            capture="environment"
-                            aria-describedby="listing-photos-hint"
-                            {..e.aria(f.evidence)}
-                        >
-                        <p id="listing-photos-hint" class={Hint}>{t.page_choose_photos()}</p>
-                        <PhotoErrorPart screen={screen} />
-                    </fieldset>
+                    <PhotosPart t={t} screen={screen} />
                     <ReadinessPart t={t} screen={screen} />
                 </div>
             </div>
@@ -157,21 +142,48 @@ pub fn NewListingParts<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScr
     html! {
         <NoticePart t={t} p={p} screen={screen} />
         <ProductPart t={t} p={p} screen={screen} />
-        <PhotoErrorPart screen={screen} />
+        <PhotosPart t={t} screen={screen} />
         <ReadinessPart t={t} screen={screen} />
         <ActionsPart t={t} screen={screen} />
         <FeesPart t={t} screen={screen} />
     }
 }
 
-/// The photos' message. The file input is outside every patched part so it keeps its files, and
-/// so has no `aria-invalid` after a refusal with JavaScript (todd-skelton/corten#143); the
-/// message is announced from its own live region.
+/// The photos' fieldset: the file input, marked invalid with its message after a refusal. A
+/// patch keeps the files chosen in it (Corten's `keep`), so a refused create redraws it in place.
 #[component(css = NewListingPage)]
-fn PhotoErrorPart<'a>(screen: &'a NewListingScreen) -> impl Patch {
+fn PhotosPart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch {
+    let f = ListingFields::FIELDS;
     let e = screen.errors.within(ListingFormId);
+    let invalid = screen.errors.has(f.evidence);
+    // The hint and, after a refusal, the message: one attribute, since `e.aria` writes its own
+    // `aria-describedby` and a second one is ignored (todd-skelton/corten#147).
+    let described = if invalid {
+        let mut ids = String::from("listing-photos-hint ");
+        corten::view::Id::write_id(&ListingFormId, &mut ids);
+        ids.push('-');
+        ids.push_str(f.evidence.as_str());
+        ids.push_str("-error");
+        ids
+    } else {
+        "listing-photos-hint".to_owned()
+    };
     html! {
-        <div id={PhotoErrorId} role="status" aria-live="polite">{e.message(ListingFields::FIELDS.evidence)}</div>
+        <fieldset id={PhotosId} class={Photos}>
+            <legend class={Label}>{t.page_listing_photos()}</legend>
+            <p class={Muted}>{t.page_listing_photos_description()}</p>
+            <input
+                type="file"
+                name={f.evidence}
+                accept={PICTURES}
+                multiple
+                capture="environment"
+                aria-invalid={invalid.then_some("true")}
+                aria-describedby={&described}
+            >
+            <p id="listing-photos-hint" class={Hint}>{t.page_choose_photos()}</p>
+            {e.message(f.evidence)}
+        </fieldset>
     }
 }
 

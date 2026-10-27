@@ -1,4 +1,5 @@
-# Corten pilot
+
+| `76eda4f` | Corten `main` with [todd-skelton/corten#146 A patch keeps the files chosen in a file input it replaces](https://github.com/todd-skelton/corten/pull/146), closing [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143). Not breaking. The workaround is removed: Create listing's photo fieldset is a patched part (`PhotosPart`), its input marked `aria-invalid` and described by its message after a refusal, and `PhotoErrorPart` is gone. Its smoke now checks that the refused input keeps its file, is invalid and names the message. That check found [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): the input writes its own `aria-describedby` until it is fixed. `corten check` passed at admin 62, marketplace 195, platform 8, public 19 |# Corten pilot
 
 Pilot ports of Chase Sets screens to [Corten](https://github.com/todd-skelton/corten), the Rust
 full-stack framework, to find what Corten lacks for real screens with real data and auth. It is
@@ -1497,10 +1498,10 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([chase-sets/chase-sets#10650 [marketplace] Create listing with photos is refused: the form sends purchaseLimits, which the multipart create does not take](https://github.com/chase-sets/chase-sets/issues/10650)).
     The area's deadline is 150 s (`Area::deadline`), because the API turns each photo into six
     sizes. The page differs from marketplace's in two ways. "Advanced inventory and limits" is
-    open when an inventory item is chosen, so what was chosen is in view. A JavaScript refusal does not mark the photo input
-    `aria-invalid`: the message is in its own live region under the input, because a patch of the
-    input would drop its files
-    ([todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143)).
+    open when an inventory item is chosen, so what was chosen is in view. A refused photo marks the input `aria-invalid` with its message, with or without
+    JavaScript; the patch keeps the files chosen (since the `76eda4f` pin), and the input names
+    its hint and the message in one `aria-describedby` it writes itself
+    ([todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147)).
     One column on a phone, two from 64rem ([`listing_new.rs`](marketplace/src/listing_new.rs),
     [`uploads.rs`](marketplace/src/uploads.rs),
     [`listing_new_page.rs`](marketplace/src/views/listing_new_page.rs)).
@@ -1538,10 +1539,12 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open at the `07d7f65` pin, each with its workaround in the pilot:
+Open at the `76eda4f` pin, each with its workaround in the pilot:
 
 1. [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140): Create listing and a seller's listing's photo writes read their bodies with multer (`uploads::read`), keeping each file in memory.
-2. [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143): the photo input is outside every patched part; its message is a separate live region (`PhotoErrorPart`).
+2. [todd-skelton/corten#147 A field with its own hint cannot also point at its error: Within::aria writes a second aria-describedby, which the browser drops](https://github.com/todd-skelton/corten/issues/147): Create listing's photo input writes `aria-invalid` and one `aria-describedby` (its hint and the message's id, `{form}-{field}-error`, built by hand) instead of `e.aria` (`PhotosPart`).
+
+Closed since the `07d7f65` pin, at `76eda4f`: [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143), its workaround (`PhotoErrorPart`) removed.
 
 Closed since the `a12c78b` pin, at `07d7f65`: [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120), its workaround (`platform::client`) removed for `ClientIp`.
 
