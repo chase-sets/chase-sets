@@ -1,0 +1,583 @@
+name: 10404 Bootstrap DB Input Capture Only
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Repository that owns the admitted candidate
+        required: true
+        type: string
+      branch:
+        description: Exact candidate branch
+        required: true
+        type: string
+      host_ticket:
+        description: Host-issued capture admission ticket
+        required: true
+        type: string
+permissions:
+  contents: read
+
+jobs:
+  precheckSCorpus:
+    name: precheckSCorpus (M10 source and shipped DB corpus)
+    if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Derive candidate source binding and precheck the corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_head="$(git rev-parse HEAD)"
+          source_base="$(git rev-parse HEAD^)"
+          candidate_parents="$(git rev-parse HEAD^@)"
+          test "$candidate_parents" = "$source_base"
+          export SOURCE_BASE="$source_base"
+          test "$candidate_head" = "${{ github.sha }}"
+          test "$source_base" = "$(git rev-parse HEAD^)"
+          test "$(git diff --name-only "$source_base" HEAD)" = '.github/workflows/10404-bootstrap-db-input-capture.yml'
+          test "${{ github.repository }}" = "${{ inputs.repository }}"
+          test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
+          test -n "${{ inputs.host_ticket }}"
+          printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
+            "$candidate_head" "$source_base" "$source_base" "$candidate_parents" \
+            "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
+            > candidate-binding.json
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const workflow = readFileSync('.github/workflows/10404-bootstrap-db-input-capture.yml', 'utf8');
+          assert.equal(/(?:sourceBase|captureParent|source_base)\s*[:=]\s*['\"`]?[0-9a-f]{40}/.test(workflow), false,
+            'source and parent bindings must be derived, never stale literals');
+          NODE
+          set +e
+          node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs > stale-enrollment-check.txt 2>&1
+          checker_status=$?
+          set -e
+          test "$checker_status" = 1
+          node --input-type=module - stale-enrollment-check.txt <<'STALE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          export function assertStaleEnrollment(text) {
+            const expected = [
+              "Platform API bootstrap DB enrollment failed with 2 violation(s):",
+              '- ' + process.cwd().replaceAll('\\', '/') + "/deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts:227:3 bootstrap DB case 'records context schema migrations once during concurrent bootstrap' has semantic identity '41eda869b48e6c66' but the manifest freezes '9d02b6a444073ea6'; its assertions or the data-profile shapes it runs under changed",
+              "- the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget",
+              "Platform API DB census: 16 entries = 12 bootstrap + 4 non-bootstrap; 56 include-selected entries scanned.",
+            ];
+            assert.deepEqual(text.replaceAll('\r\n', '\n').trimEnd().split('\n'), expected,
+              'only the exact frozen identity and historical-model minimality refusals are diagnostic');
+          }
+          assertStaleEnrollment(readFileSync(process.argv[2], 'utf8'));
+          STALE
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { derivePlatformApiDbTestCensus } from './deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs';
+          const root = './deployables/platform-api';
+          const scripts = JSON.parse(readFileSync(`${root}/package.json`, 'utf8')).scripts;
+          const units = ['test:db:1', 'test:db:2', 'test:db:3'];
+          assert.deepEqual(Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)), units);
+          for (const unit of units) assert.match(scripts[unit], /--maxWorkers=3/);
+          const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
+          assert.deepEqual(census.violations, []);
+          assert.equal(census.dbEntries.length, 16);
+          console.log(`precheckSCorpus PASS sourceBase=${process.env.SOURCE_BASE ?? 'derived-in-step'} dbEntries=${census.dbEntries.length}`);
+          NODE
+
+  shipped:
+    name: Diagnostic API Bootstrap Measurement Only (current three-unit)
+    needs: [precheckSCorpus]
+    if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      imageOS: ${{ steps.image.outputs.imageOS }}
+      imageVersion: ${{ steps.image.outputs.imageVersion }}
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      EXPECTED_REPOSITORY: ${{ inputs.repository }}
+      EXPECTED_BRANCH: ${{ inputs.branch }}
+      HOST_TICKET: ${{ inputs.host_ticket }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Record stale enrollment checker result before fresh capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/10404-reference-capture
+          set +e
+          node ./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs \
+            > artifacts/10404-reference-capture/stale-enrollment-check.txt 2>&1
+          checker_status=$?
+          set -e
+          test "$checker_status" = 1
+          node --input-type=module - artifacts/10404-reference-capture/stale-enrollment-check.txt <<'STALE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          export function assertStaleEnrollment(text) {
+            const expected = [
+              "Platform API bootstrap DB enrollment failed with 2 violation(s):",
+              '- ' + process.cwd().replaceAll('\\', '/') + "/deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts:227:3 bootstrap DB case 'records context schema migrations once during concurrent bootstrap' has semantic identity '41eda869b48e6c66' but the manifest freezes '9d02b6a444073ea6'; its assertions or the data-profile shapes it runs under changed",
+              "- the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget",
+              "Platform API DB census: 16 entries = 12 bootstrap + 4 non-bootstrap; 56 include-selected entries scanned.",
+            ];
+            assert.deepEqual(text.replaceAll('\r\n', '\n').trimEnd().split('\n'), expected,
+              'only the exact frozen identity and historical-model minimality refusals are diagnostic');
+          }
+          assertStaleEnrollment(readFileSync(process.argv[2], 'utf8'));
+          STALE
+
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          target_max_locks_per_transaction=512
+          target_max_connections=300
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
+            "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
+            "ALTER SYSTEM SET max_connections = ${target_max_connections};"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "PostgreSQL did not become ready within 30s after restart." >&2
+            docker logs "$POSTGRES_CONTAINER_ID" >&2 || true
+            exit 1
+          fi
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
+          if [ "$effective" != "$target_max_locks_per_transaction" ]; then
+            echo "Expected max_locks_per_transaction=${target_max_locks_per_transaction} but Postgres reports ${effective}." >&2
+            exit 1
+          fi
+          echo "PostgreSQL max_locks_per_transaction is now ${effective}."
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')"
+          if [ "$effective" != "$target_max_connections" ]; then
+            echo "Expected max_connections=${target_max_connections} but Postgres reports ${effective}." >&2
+            exit 1
+          fi
+          mkdir -p artifacts/10404-reference-capture
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' \
+            | tee artifacts/10404-reference-capture/postgres-settings.txt
+          docker image inspect pgvector/pgvector:pg16 --format '{{json .RepoDigests}}' \
+            | tee artifacts/10404-reference-capture/postgres-image-digests.json
+
+      - name: Derive candidate binding and restore immutable diagnostic-only census helper
+        run: |
+          set -euo pipefail
+          candidate_head="$(git rev-parse HEAD)"
+          source_base="$(git rev-parse HEAD^)"
+          candidate_parents="$(git rev-parse HEAD^@)"
+          test "$candidate_parents" = "$source_base"
+          test "$candidate_head" = "${{ github.sha }}"
+          test "$source_base" = "$(git rev-parse HEAD^)"
+          test "${{ github.repository }}" = "${{ inputs.repository }}"
+          test "${{ github.ref }}" = "refs/heads/${{ inputs.branch }}"
+          test -n "${{ inputs.host_ticket }}"
+          printf '{"candidateHead":"%s","sourceBase":"%s","captureParent":"%s","parents":["%s"],"repository":"%s","branch":"%s","hostTicket":"%s","attempt":%s}\n' \
+            "$candidate_head" "$source_base" "$source_base" "$candidate_parents" \
+            "${{ github.repository }}" "${{ inputs.branch }}" "${{ inputs.host_ticket }}" "${{ github.run_attempt }}" \
+            > artifacts/10404-reference-capture/candidate-binding.json
+          test "$(git rev-parse --is-shallow-repository)" = "false"
+          git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
+          git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
+          node --input-type=module <<'PATCH'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'deployables/platform-api/scripts/8396-capture-census.mjs';
+          const source = readFileSync(path, 'utf8');
+          const replacement = `export const captureCensusFiles = Object.freeze([\n  "operator-session/operator-session-grant-mint.db.test.ts",\n  "operator-session/operator-session-grant-scope.db.test.ts",\n  "operator-session/operator-session-push.db.test.ts",\n  "seed-command-catalog.db.test.ts",\n]);`;
+          const updated = source.replace(/export const captureCensusFiles = Object\.freeze\(\[.*?\]\);/s, replacement);
+          if (updated === source) throw new Error('capture census file list was not found');
+          writeFileSync(path, updated);
+          PATCH
+          sha256sum deployables/platform-api/scripts/8396-capture-census.mjs \
+            | tee artifacts/10404-reference-capture/census-helper.sha256
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const workflow = readFileSync('.github/workflows/10404-bootstrap-db-input-capture.yml', 'utf8');
+          assert.equal(/(?:sourceBase|captureParent|source_base)\s*[:=]\s*['\"`]?[0-9a-f]{40}/.test(workflow), false,
+            'source and parent bindings must be derived, never stale literals');
+          NODE
+
+      - name: Measure exact API partitions without granting enrollment authority
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/10404-reference-capture
+          cat > artifacts/10404-reference-capture/reporter.mjs <<'REPORTER'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { basename } from 'node:path';
+          import { deriveBootstrapDbCaseIdentities } from '../../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs';
+          export default class MeasurementReporter {
+            onTestModuleEnd(module) {
+              const source = readFileSync(module.moduleId, 'utf8');
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({
+                file: basename(module.moduleId),
+                sourceSha256: createHash('sha256').update(source).digest('hex'),
+                identities: deriveBootstrapDbCaseIdentities(basename(module.moduleId), source),
+                state: module.state(), diagnostic: module.diagnostic(), errors: module.errors(),
+                cases: [...module.children.allTests()].map(test => ({
+                  name: test.name, fullName: test.fullName,
+                  result: test.result(), diagnostic: test.diagnostic(),
+                })),
+              }) + '\n');
+            }
+            onTestRunEnd(modules, errors, reason) {
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({
+                runEnd: true, moduleCount: modules.length, errors, reason,
+              }) + '\n');
+            }
+          }
+          REPORTER
+          cat > artifacts/10404-reference-capture/s-binding.mjs <<'BINDING'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { basename } from 'node:path';
+          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          export const deriveCandidateGroups = scripts => {
+            const units = Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)).sort();
+            assert.deepEqual(units, ['test:db:1', 'test:db:2', 'test:db:3'], 'the shipped three-unit route');
+            return Object.fromEntries(units.map(unit => {
+              const files = [...scripts[unit].matchAll(/__tests__\/([^ ]+\.db\.test\.ts)/g)].map(match => match[1]);
+              assert.equal(new Set(files).size, files.length, `${unit} has duplicate files`);
+              assert(files.length > 0, `${unit} has no DB files`);
+              return [unit, files];
+            }));
+          };
+          const guard = 'node ./scripts/check-bootstrap-db-enrollment.mjs && ';
+          const commandBody = files => 'vitest run --config ./vitest.config.ts '
+            + files.map(file => '__tests__/' + file).join(' ')
+            + ' --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs';
+          export function assertCandidateParent({ parents, captureParent, sourceBase, candidateHead }) {
+            assert.match(candidateHead, /^[0-9a-f]{40}$/);
+            assert.match(captureParent, /^[0-9a-f]{40}$/);
+            assert.equal(sourceBase, captureParent, 'source base and capture parent are derived together');
+            assert.deepEqual(parents, [captureParent], 'the candidate has one actual parent');
+          }
+          export function bindSScripts(scripts, groups) {
+            assert.deepEqual(Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)).sort(), Object.keys(groups).sort(),
+              'numbered DB scripts');
+            assert.equal(scripts['test:db'], Object.keys(groups).map(unit => 'pnpm run ' + unit).join(' && '), 'test:db unit order');
+            const commands = {};
+            for (const [unit, files] of Object.entries(groups)) {
+              commands[unit] = commandBody(files);
+              assert.equal(scripts[unit], guard + commands[unit], unit + ' equals the frozen S command');
+            }
+            return commands;
+          }
+          // Builds the case manifest from S's sources and requires every file's unit to equal
+          // S's mirrored checker declaration (bootstrap manifest or non-bootstrap census).
+          export function deriveSCaseManifest({ groups, readTest, fixture, deriveBootstrapDbCaseIdentities,
+            captureCensusFiles, deriveCaptureCensusCaseNames, declaredManifest, declaredCensus }) {
+            const manifest = {};
+            for (const [unit, selected] of Object.entries(groups)) {
+              for (const file of selected) {
+                const bytes = readTest(file);
+                const source = bytes.toString('utf8');
+                const cases = deriveBootstrapDbCaseIdentities(file, source);
+                assert.deepEqual(deriveBootstrapDbCaseIdentities(basename(file), source), cases, file + ' basename identity');
+                const entry = { executionUnit: unit, sourceSha256: hash(bytes), cases };
+                if (captureCensusFiles.includes(file)) {
+                  entry.censusCaseNames = deriveCaptureCensusCaseNames(file, source, fixture);
+                  assert.equal(declaredManifest[basename(file)], undefined, file + ' is not a declared bootstrap file');
+                  assert.equal(declaredCensus.entries['__tests__/' + file], unit, file + ' declared census unit');
+                } else {
+                  const declared = declaredManifest[basename(file)];
+                  assert(declared, file + ' declared bootstrap entry');
+                  assert.equal(declared.executionUnit, unit, file + ' declared unit');
+                  // The frozen enrollment may contain the stale pre-capture W1/W2
+                  // identity. The admitted capture must execute the current source
+                  // and derive fresh identities from its own reporter artifact.
+                }
+                assert.equal(manifest[basename(file)], undefined, file + ' captured once');
+                manifest[basename(file)] = entry;
+              }
+            }
+            assert.deepEqual(Object.keys(declaredManifest).sort(),
+              Object.keys(manifest).filter(name => !manifest[name].censusCaseNames).sort(), 'declared bootstrap files');
+            assert.deepEqual(Object.keys(declaredCensus.entries).sort(),
+              Object.values(groups).flat().filter(file => captureCensusFiles.includes(file)).map(file => '__tests__/' + file).sort(),
+              'declared non-bootstrap census files');
+            return { manifest, manifestBytes: Buffer.from(JSON.stringify(manifest, null, 2) + '\n') };
+          }
+          export function precheckSCorpus({ groups, scripts, census, readTest, fixture, deriveBootstrapDbCaseIdentities,
+            captureCensusFiles, deriveCaptureCensusCaseNames, declaredManifest, declaredCensus }) {
+            assert.deepEqual(census.violations, []);
+            assert.deepEqual([...census.dbEntries].sort(), Object.values(groups).flat().map(file => '__tests__/' + file).sort());
+            assert.deepEqual(census.dbEntries.filter(entry => !census.bootstrapEntries.includes(entry)).sort(),
+              captureCensusFiles.map(file => '__tests__/' + file).sort(), 'non-bootstrap census files');
+            const commands = bindSScripts(scripts, groups);
+            const { manifest, manifestBytes } = deriveSCaseManifest({ groups, readTest, fixture, deriveBootstrapDbCaseIdentities,
+              captureCensusFiles, deriveCaptureCensusCaseNames, declaredManifest, declaredCensus });
+            assert.equal(Object.keys(manifest).length, census.dbEntries.length);
+            assert(Object.values(manifest).flatMap(entry => entry.censusCaseNames ?? entry.cases).length > 0);
+            for (const name of ['test:unit', 'test:fast']) {
+              assert.deepEqual([...scripts[name].matchAll(/--exclude ([^ ]+)/g)].map(match => match[1]).sort(), [...census.dbEntries].sort(),
+                name + ' excludes');
+            }
+            const commandsBytes = Buffer.from(JSON.stringify(commands, null, 2));
+            const censusBytes = Buffer.from(JSON.stringify(census, null, 2));
+            return { commands, commandsBytes, manifest, manifestBytes, censusBytes };
+          }
+          export function deriveCandidateDigests({ manifestBytes, commandsBytes, censusBytes, sourceBytes, helperBytes }) {
+            return {
+              caseManifestSha256: hash(manifestBytes),
+              commandsSha256: hash(commandsBytes),
+              censusSha256: hash(censusBytes),
+              sourceManifestSha256: hash(sourceBytes),
+              censusHelperSha256: hash(helperBytes),
+            };
+          }
+          BINDING
+          node --input-type=module <<'RUNNER'
+          import { spawn, execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { performance } from 'node:perf_hooks';
+          const root = process.cwd();
+          const output = resolve(root, 'artifacts/10404-reference-capture');
+          const cwd = resolve(root, 'deployables/platform-api');
+          const scripts = JSON.parse(readFileSync(resolve(cwd, 'package.json'), 'utf8')).scripts;
+          const commandText = (file, args, options = {}) => execFileSync(file, args, {
+            cwd, encoding: 'utf8', timeout: 10000, ...options,
+          }).trim();
+          const identity = {
+            checkoutSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            job: process.env.GITHUB_JOB, event: process.env.GITHUB_EVENT_NAME,
+            workflow: process.env.GITHUB_WORKFLOW, workflowRef: process.env.GITHUB_WORKFLOW_REF,
+            workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
+            ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
+            githubSha: process.env.GITHUB_SHA, pushAfter: process.env.GITHUB_SHA,
+            candidateHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+            captureParent: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
+            sourceBase: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
+            hostTicket: process.env.HOST_TICKET,
+            role: 'current-three-unit',
+            jobName: 'Diagnostic API Bootstrap Measurement Only (current three-unit)',
+            parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
+              .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
+            node: process.version, pnpm: commandText('pnpm', ['--version']),
+            vitest: commandText('pnpm', ['exec', 'vitest', '--version']),
+            imageOS: process.env.ImageOS, imageVersion: process.env.ImageVersion,
+            runnerImage: 'ubuntu-latest', postgresImage: 'pgvector/pgvector:pg16',
+            postgresImageDigests: JSON.parse(readFileSync(resolve(output, 'postgres-image-digests.json'), 'utf8')),
+            laneMode: process.env.CHASE_SETS_LANE_MODE ?? null,
+            maxWorkers: 3, workspaceConcurrency: 2, serialUnits: 3,
+            unitDeadlineMs: 600000, aggregateDeadlineMs: 1800000, modeledUnitCeilingMs: 420000, modeledAggregateCeilingMs: 1080000,
+          };
+          writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
+          const units = [];
+          const saveUnits = () => writeFileSync(resolve(output, 'units.json'), JSON.stringify(units, null, 2));
+          saveUnits();
+          if (identity.checkoutSha !== identity.githubSha || identity.pushAfter !== identity.githubSha
+            || identity.candidateHead !== identity.githubSha || identity.runAttempt !== '1' || identity.event !== 'workflow_dispatch'
+            || identity.repository !== process.env.EXPECTED_REPOSITORY
+            || identity.ref !== `refs/heads/${process.env.EXPECTED_BRANCH}`
+            || identity.hostTicket !== process.env.HOST_TICKET || !identity.captureParent || !identity.sourceBase
+            || JSON.stringify(identity.parents) !== JSON.stringify([identity.captureParent])
+            || identity.laneMode !== null || !identity.node.startsWith('v24.') || identity.pnpm !== '11.0.9'
+            || !identity.imageOS || !identity.imageVersion || identity.postgresImageDigests.length === 0) {
+            throw new Error('Capture identity, source parent, or current settings mismatch');
+          }
+          const { createHash } = await import('node:crypto');
+          const { basename } = await import('node:path');
+          const { deriveBootstrapDbCaseIdentities, derivePlatformApiDbTestCensus,
+            bootstrapDbEnrollmentManifest, platformApiNonBootstrapDbCensus } =
+            await import('./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs');
+          const { captureCensusFiles, deriveCaptureCensusCaseNames } =
+            await import('./deployables/platform-api/scripts/8396-capture-census.mjs');
+          const { pathToFileURL } = await import('node:url');
+          const binding = await import(pathToFileURL(resolve(output, 's-binding.mjs')).href);
+          const assert = (await import('node:assert/strict')).default;
+          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          binding.assertCandidateParent(identity);
+          const helperBytes = readFileSync(resolve(cwd, 'scripts/8396-capture-census.mjs'));
+          const files = binding.deriveCandidateGroups(scripts);
+          const sourceFiles = commandText('git', ['ls-files', 'bounded-contexts', 'contracts',
+            'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
+            'pnpm-workspace.yaml', 'package.json', '.github/actions/setup-pnpm-workspace', 'vitest.shared.mjs'],
+            { cwd: root }).split('\n').filter(file => !file.includes('/8396-capture-'));
+          const sourceBytes = Buffer.from(JSON.stringify({ sourceBase: identity.sourceBase,
+            files: Object.fromEntries(sourceFiles.map(file => [file, hash(readFileSync(resolve(root, file)))])),
+          }, null, 2) + '\n');
+          assert.deepEqual(commandText('git', ['diff', '--name-only', identity.sourceBase, 'HEAD'], { cwd: root })
+            .split('\n').filter(Boolean), ['.github/workflows/10404-bootstrap-db-input-capture.yml'],
+            'only the authorized temporary workflow may differ from the derived parent');
+          commandText('git', ['diff', '--exit-code', identity.sourceBase, '--', 'bounded-contexts', 'contracts',
+            'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
+            'pnpm-workspace.yaml', 'package.json', '.github/actions/setup-pnpm-workspace', 'vitest.shared.mjs'],
+            { cwd: root });
+          const sourceBinding = JSON.parse(sourceBytes);
+          assert.equal(sourceBinding.sourceBase, identity.sourceBase);
+          for (const [file, expected] of Object.entries(sourceBinding.files)) {
+            assert.equal(hash(readFileSync(resolve(root, file))), expected, file + ' source equality');
+          }
+          writeFileSync(resolve(output, 'capture-sources.json'), sourceBytes);
+          const census = derivePlatformApiDbTestCensus({ platformApiRoot: cwd });
+          const fixture = readFileSync(resolve(cwd, '__tests__/operator-session/fixture.ts'), 'utf8');
+          const { commands: captureCommands, commandsBytes, manifest, manifestBytes, censusBytes } = binding.precheckSCorpus({
+            groups: files, scripts, census, readTest: file => readFileSync(resolve(cwd, '__tests__', file)), fixture,
+            deriveBootstrapDbCaseIdentities, captureCensusFiles, deriveCaptureCensusCaseNames,
+            declaredManifest: bootstrapDbEnrollmentManifest, declaredCensus: platformApiNonBootstrapDbCensus });
+          writeFileSync(resolve(output, 'capture-manifest.json'), manifestBytes);
+          writeFileSync(resolve(output, 'source-census.json'), censusBytes);
+          writeFileSync(resolve(output, 'capture-commands.json'), commandsBytes);
+          Object.assign(identity, binding.deriveCandidateDigests({ manifestBytes, commandsBytes, censusBytes, sourceBytes, helperBytes }));
+          identity.bindingModuleSha256 = hash(readFileSync(resolve(output, 's-binding.mjs')));
+          writeFileSync(resolve(output, 's-binding.json'), JSON.stringify({ sourceBase: identity.sourceBase,
+            groups: files, digests: { caseManifestSha256: identity.caseManifestSha256,
+              commandsSha256: identity.commandsSha256, censusSha256: identity.censusSha256,
+              sourceManifestSha256: identity.sourceManifestSha256, censusHelperSha256: identity.censusHelperSha256 },
+            bindingModuleSha256: identity.bindingModuleSha256, censusHelperSha256: identity.censusHelperSha256,
+          }, null, 2));
+          writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
+          for (const unit of Object.keys(files)) {
+            const args = ['exec', ...captureCommands[unit].split(' '),
+              `--reporter=${resolve(output, 'reporter.mjs')}`, '--reporter=json',
+              `--outputFile.json=${resolve(output, unit.replaceAll(':', '-') + '.json')}`];
+            const startedAt = new Date().toISOString();
+            const start = performance.now();
+            const record = { unit, ordinaryCommand: scripts[unit], command: ['pnpm', ...args],
+              startedAt, deadlineMs: 600000, status: 'running', timedOut: false, interrupted: null };
+            units.push(record);
+            saveUnits();
+            const child = spawn('pnpm', args, { cwd, stdio: 'inherit', detached: true, env: {
+              ...process.env, BOOTSTRAP_DB_EVIDENCE_UNIT: unit,
+              MEASUREMENT_OUTPUT: resolve(output, unit.replaceAll(':', '-') + '.jsonl'),
+            }});
+            record.pid = child.pid ?? null;
+            const groupMembers = () => child.pid ? commandText('ps', ['-eo', 'pid=,ppid=,pgid=,stat=,comm='], { timeout: 1000 })
+              .split('\n').map(line => line.trim().split(/\s+/))
+              .filter(fields => Number(fields[2]) === child.pid) : [];
+            const terminateGroup = reason => {
+              record.terminationReason ??= reason;
+              record.terminationAt = new Date().toISOString();
+              if (child.pid) {
+                try { process.kill(-child.pid, 'SIGKILL'); }
+                catch (error) { if (error.code !== 'ESRCH') record.terminationError = error.message; }
+              }
+              saveUnits();
+            };
+            const onTerm = () => { record.interrupted = 'SIGTERM'; terminateGroup('host-cancellation'); };
+            const onInt = () => { record.interrupted = 'SIGINT'; terminateGroup('host-cancellation'); };
+            process.on('SIGTERM', onTerm);
+            process.on('SIGINT', onInt);
+            const timer = setTimeout(() => {
+              record.timedOut = true;
+              terminateGroup('unit-deadline');
+            }, Math.max(0, 600000 - (performance.now() - start)));
+            const result = await new Promise(resolveResult => {
+              child.once('error', error => resolveResult({ status: null, signal: null, error }));
+              child.once('exit', (status, signal) => resolveResult({ status, signal }));
+            });
+            clearTimeout(timer);
+            record.processExitedAt = new Date().toISOString();
+            record.exitCode = result.status;
+            record.signal = result.signal;
+            record.error = result.error?.message ?? null;
+            const cleanupStart = performance.now();
+            record.cleanupStartedAt = new Date().toISOString();
+            record.membersAtExit = groupMembers();
+            if (record.membersAtExit.length > 0) terminateGroup('descendants-after-exit');
+            while (performance.now() - cleanupStart < 1000 && groupMembers().length > 0) {
+              await new Promise(resolveWait => setTimeout(resolveWait, 10));
+            }
+            record.membersAfterCleanup = groupMembers();
+            record.cleanupComplete = record.membersAfterCleanup.length === 0 && !record.terminationError;
+            record.finishedAt = new Date().toISOString();
+            record.cleanupDurationMs = performance.now() - cleanupStart;
+            record.durationMs = performance.now() - start;
+            record.status = result.status === 0 && !record.timedOut && !record.interrupted
+              && !record.terminationReason && record.cleanupComplete && record.durationMs <= 600000
+              ? 'passed' : 'failed';
+            saveUnits();
+            process.off('SIGTERM', onTerm);
+            process.off('SIGINT', onInt);
+            if (record.status !== 'passed') { process.exitCode = 1; break; }
+          }
+          if (units.length !== Object.keys(files).length || units.some(unit => unit.status !== 'passed')) process.exitCode = 1;
+          if (!process.exitCode) {
+            for (const [unit, selected] of Object.entries(files)) {
+              const rows = readFileSync(resolve(output, unit.replaceAll(':', '-') + '.jsonl'), 'utf8')
+                .trim().split('\n').map(line => JSON.parse(line));
+              const completed = rows.filter(row => row.runEnd);
+              assert.equal(completed.length, 1);
+              assert.equal(completed[0].reason, 'passed');
+              assert.deepEqual(completed[0].errors, []);
+              const modules = rows.filter(row => !row.runEnd);
+              assert.deepEqual(modules.map(row => row.file).sort(), selected.map(file => basename(file)).sort());
+              for (const row of modules) {
+                const entry = manifest[row.file];
+                assert.equal(row.state, 'passed');
+                assert.deepEqual(row.errors, []);
+                assert.equal(row.sourceSha256, entry.sourceSha256);
+                assert.deepEqual(row.identities, entry.cases);
+                assert.deepEqual(row.cases.map(test => test.name).sort(),
+                  (entry.censusCaseNames ?? entry.cases.map(test => test.name)).sort());
+                for (const test of row.cases) {
+                  assert.equal(test.result.state, 'passed');
+                  assert(Number.isFinite(test.diagnostic.duration) && test.diagnostic.duration >= 0);
+                }
+              }
+            }
+          }
+          RUNNER
+
+      - name: Record shipped runner image identity
+        id: image
+        run: |
+          set -euo pipefail
+          node -e 'const fs = require("node:fs"); const i = JSON.parse(fs.readFileSync("artifacts/10404-reference-capture/identity.json", "utf8")); if (!i.imageOS || !i.imageVersion || i.imageOS !== process.env.ImageOS || i.imageVersion !== process.env.ImageVersion) { throw new Error("SHIPPED_IMAGE_IDENTITY_MISMATCH"); } fs.appendFileSync(process.env.GITHUB_OUTPUT, "imageOS=" + i.imageOS + "\n" + "imageVersion=" + i.imageVersion + "\n");'
+
+      - name: Preserve all diagnostic measurements including failures
+        if: always() && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 10404-current-three-unit-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/10404-reference-capture/
+            deployables/platform-api/artifacts/bootstrap-db-evidence/
+          if-no-files-found: error
