@@ -134,6 +134,7 @@ jobs:
               echo "candidate_sha=$(jq -r '.candidateSha' artifacts/merge-qualification/candidate/candidate.json)"
               echo "candidate_tree=$(jq -r '.candidateTreeSha' artifacts/merge-qualification/candidate/candidate.json)"
               echo "built_image_digest=$(jq -r '.builtImageDigest' artifacts/merge-qualification/candidate/candidate.json)"
+              echo "policy_revision=$(jq -r '.policyRevision' artifacts/merge-qualification/candidate/candidate.json)"
             } >> "$GITHUB_OUTPUT"
           else
             {
@@ -141,6 +142,7 @@ jobs:
               echo "candidate_sha="
               echo "candidate_tree="
               echo "built_image_digest="
+              echo "policy_revision="
             } >> "$GITHUB_OUTPUT"
           fi
           {
@@ -203,7 +205,7 @@ jobs:
             --parent-run-id "$PARENT_RUN_ID" \
             --parent-run-attempt "$PARENT_RUN_ATTEMPT" \
             --policy-enabled "${{ steps.policy.outputs.enabled }}" \
-            --policy-revision "${{ github.workflow_sha }}" \
+            --policy-revision "${{ steps.parent.outputs.policy_revision }}" \
             --observed-at "${{ steps.self.outputs.started_at }}" \
             --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
             --classifier-class "${{ steps.route.outputs.classifier_class }}" \
