@@ -6140,6 +6140,14 @@ async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_
     let page = text(&html);
     assert!(page.contains("Each photo must be a JPEG, PNG or WebP image."), "{page}");
     assert!(page.contains("If you had chosen photos, choose them again."), "{page}");
+    // One attribute names the input's hint, then its error (todd-skelton/corten#147).
+    let input = html.split(r#"type="file""#).nth(1).and_then(|rest| rest.split('>').next()).expect("the photo input");
+    assert!(
+        input.contains(r#"aria-invalid="true" aria-describedby="listing-photos-hint listing-form-evidence-error""#),
+        "{input}"
+    );
+    assert_eq!(input.matches("aria-describedby").count(), 1, "{input}");
+    assert!(html.contains(r#"id="listing-photos-hint""#) && html.contains(r#"id="listing-form-evidence-error""#), "{html}");
     assert!(html.contains(r#"value="45.00""#), "the form keeps what was typed: {html}");
     // Too large.
     let big = [PNG, &vec![0u8; 10 * 1024 * 1024]].concat();

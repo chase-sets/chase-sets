@@ -28,6 +28,10 @@ pub struct ListingFormId;
 /// What the form says about itself: a refusal, a draft saved, a notice.
 #[derive(Id)]
 pub struct NoticeId;
+
+/// The photo input's hint, which describes the input ahead of its error.
+#[derive(Id)]
+pub struct ListingPhotosHintId;
 /// The product, price, quantity, ship-from and advanced parts.
 #[derive(Id)]
 pub struct ProductId;
@@ -155,19 +159,6 @@ pub fn NewListingParts<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScr
 fn PhotosPart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch {
     let f = ListingFields::FIELDS;
     let e = screen.errors.within(ListingFormId);
-    let invalid = screen.errors.has(f.evidence);
-    // The hint and, after a refusal, the message: one attribute, since `e.aria` writes its own
-    // `aria-describedby` and a second one is ignored (todd-skelton/corten#147).
-    let described = if invalid {
-        let mut ids = String::from("listing-photos-hint ");
-        corten::view::Id::write_id(&ListingFormId, &mut ids);
-        ids.push('-');
-        ids.push_str(f.evidence.as_str());
-        ids.push_str("-error");
-        ids
-    } else {
-        "listing-photos-hint".to_owned()
-    };
     html! {
         <fieldset id={PhotosId} class={Photos}>
             <legend class={Label}>{t.page_listing_photos()}</legend>
@@ -178,10 +169,9 @@ fn PhotosPart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch 
                 accept={PICTURES}
                 multiple
                 capture="environment"
-                aria-invalid={invalid.then_some("true")}
-                aria-describedby={&described}
+                {..e.aria(f.evidence).hint(&ListingPhotosHintId)}
             >
-            <p id="listing-photos-hint" class={Hint}>{t.page_choose_photos()}</p>
+            <p id={ListingPhotosHintId} class={Hint}>{t.page_choose_photos()}</p>
             {e.message(f.evidence)}
         </fieldset>
     }
