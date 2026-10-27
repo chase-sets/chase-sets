@@ -705,6 +705,23 @@ describe("render platform Helm values", () => {
     });
   });
 
+  it("reserves staging marketplace memory and preserves one Ready replica during rollout", () => {
+    const staging = buildPlatformHelmStagingValues();
+    const marketplace = staging.components.marketplace;
+    expect(marketplace.replicas).toBe(1);
+    expect(marketplace.resources).toEqual({
+      requests: { cpu: "200m", memory: "1280Mi" },
+      limits: { cpu: "1", memory: "1536Mi" },
+    });
+    expect(marketplace.rollout).toMatchObject({
+      enabled: true,
+      canary: { maxSurge: 1, maxUnavailable: 0 },
+    });
+    const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
+    expect(rolloutTemplate).toContain("maxSurge: {{ . }}");
+    expect(rolloutTemplate).toContain("maxUnavailable: {{ . }}");
+  });
+
   it("merges base + staging platform-api values into the same tolerant-liveness/strict-readiness shape Helm would render", () => {
     // Simulates Helm's `-f values.yaml -f values.staging.yaml` shallow merge
     // per top-level component key (values.staging.yaml never sets

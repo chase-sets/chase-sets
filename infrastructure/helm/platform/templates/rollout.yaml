@@ -27,6 +27,12 @@ spec:
 {{ include "chase-sets-platform.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
   strategy:
     canary:
+      {{- with $component.rollout.canary.maxSurge }}
+      maxSurge: {{ . }}
+      {{- end }}
+      {{- with $component.rollout.canary.maxUnavailable }}
+      maxUnavailable: {{ . }}
+      {{- end }}
       stableService: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
       canaryService: {{ include "chase-sets-platform.canaryServiceName" (dict "root" $ "name" $name) }}
       {{- if $component.rollout.canary.trafficRouting.nginx.enabled }}
