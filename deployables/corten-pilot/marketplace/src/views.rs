@@ -26,6 +26,7 @@ mod address_page;
 mod cart_item;
 mod decision_card;
 mod item_detail;
+mod listing_new_page;
 mod listing_page;
 mod location_card;
 mod market_nav;
@@ -46,6 +47,7 @@ pub use cart_item::{
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
+pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
@@ -89,6 +91,9 @@ pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
 /// The account's shipping addresses (`/account/shipping-addresses`): its stylesheet, and corten-ui's
 /// handler that makes a refused update's dialog modal.
 pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT];
+
+/// Create listing's page and its script.
+pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];

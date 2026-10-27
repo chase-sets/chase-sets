@@ -16,8 +16,8 @@ pub use platform::{
 use crate::{
     api::Identity,
     app::{
-        ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_VIEW, MANAGE,
-        ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
+        ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
+        MANAGE, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
     },
     views,
 };
@@ -195,6 +195,24 @@ impl Identify<Shared> for Shipper {
         let permission = if parts.method.is_safe() { FULFILLMENT_VIEW } else { FULFILLMENT_MANAGE };
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(Shipper(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller creating a listing: any account may open the page, which says when it may not
+/// manage listings (marketplace's "Account access required", `listings.view`); writing needs
+/// `listings.manage`, as marketplace's action requires (the API checks again). Anyone not signed
+/// in is sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ListingSeller(pub Viewer);
+
+impl Identify<Shared> for ListingSeller {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if parts.method.is_safe() || viewer.actor.can(LISTINGS_MANAGE) => Ok(ListingSeller(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

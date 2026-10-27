@@ -48,6 +48,11 @@
 //   (identity.features.shippingAddresses.ui.shippingAddressPage.* and .errors.*, Identity's account-management
 //   states and address choice, identity.accountManagement.*, the route's words,
 //   identity.routes.marketplace.accountShippingAddresses.*, and identity.support.routeSupport.accountActionErrors.*).
+// - marketplace/locales/listing-new.en.json: Create listing's English catalog
+//   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
+//   route.*, the evidence checklist's marketplace.features.listings.ui.evidence.* and the API's coverage words
+//   marketplace.features.listings.evidenceCoverage.* as coverage.*, and the authored-text guidance,
+//   marketplace.features.reviews.ui.authoredTextGuidance.*, as guidance.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
@@ -451,6 +456,18 @@ const outputs = [
         ["identity.accountManagement.", "manage"],
         ["identity.routes.marketplace.accountShippingAddresses.", "route"],
         ["identity.support.routeSupport.accountActionErrors.", "action"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/listing-new.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.listings.ui.listingCreatePage.", "page"],
+        ["marketplace.routes.accountListingsNew.", "route"],
+        ["marketplace.features.listings.ui.evidence.", "evidence"],
+        ["marketplace.features.listings.evidenceCoverage.", "coverage"],
+        ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
       ]),
     ),
   ],

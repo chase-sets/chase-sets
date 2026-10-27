@@ -105,5 +105,21 @@
     "check": "Check again",
     "suggested": "Suggested address",
     "entered": "Address entered"
+  },
+  "listing_new": {
+    "find": "Find",
+    "choose": "Choose",
+    "change_item": "Choose another item",
+    "update_options": "Update options",
+    "use_inventory": "Use this inventory",
+    "choose_options": "Choose every product option to list this item.",
+    "photo_type": "Each photo must be a JPEG, PNG or WebP image.",
+    "photo_size": "Each photo must be 10 MB or smaller.",
+    "photo_count": "Choose at most 24 photos.",
+    "photos_too_large": "These photos are too large to send together (60 MB at most).",
+    "photos_again": "If you had chosen photos, choose them again.",
+    "photos_unprocessed": "The photos could not be processed, so nothing was created. Check each photo and try again.",
+    "draft_saved": "The listing was saved as a draft and not published.",
+    "open_draft": "Open the draft"
   }
 }

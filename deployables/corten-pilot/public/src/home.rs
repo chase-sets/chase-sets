@@ -436,18 +436,10 @@ impl FeePreview {
     }
 }
 
-/// Basis points as a percentage with at most two decimals (`formatBpsPercent`): 290 is 2.9%.
-/// Corten writes no percentage (todd-skelton/corten#119 asks for one), so this writes the number
-/// in the locale and puts the sign after it, as public-web does.
+/// Basis points as a percentage with at most two decimals (`formatBpsPercent`): 290 is 2.9%, in
+/// the locale's way (`2,9 %` in French).
 fn rate(t: HomeMsg, bps: u32) -> String {
-    let (whole, hundredths) = (bps / 100, bps % 100);
-    let text = match hundredths {
-        0 => whole.to_string(),
-        h if h % 10 == 0 => format!("{whole}.{}", h / 10),
-        h => format!("{whole}.{h:02}"),
-    };
-    let number = Decimal::parse(&text).map_or(text.clone(), |d| t.number(d).to_string());
-    format!("{number}%")
+    t.percent(Decimal::new(i128::from(bps), 4), 2).to_string()
 }
 
 /// What the page reads besides the address: the fee terms (live, or the compiled ones), the
@@ -580,13 +572,9 @@ pub(crate) async fn page(req: Req, State(config): State<Shared>, uri: Uri) -> Pu
     let landing = Landing::read(&uri);
     if legacy_share(&landing.params) {
         let to = format!("{}/compare/tcgplayer?{}", public_web(), uri.query().unwrap_or(""));
-        // An `http::Uri` has no fragment, so the anchor the calculator owns is put back on the
-        // Location by hand (todd-skelton/corten#123 asks for an external address with one).
-        let moved = to.parse::<Uri>().map_err(corten::Error::new).and_then(|to| req.moved(&to)).and_then(|mut res| {
-            let location = format!("{to}#fee-calculator").parse().map_err(corten::Error::new)?;
-            res.headers_mut().insert(corten::axum::http::header::LOCATION, location);
-            Ok(res)
-        });
+        // The compare page's calculator, which owns the anchor.
+        let moved =
+            to.parse::<Uri>().map_err(corten::Error::new).and_then(|to| req.moved(&corten::Elsewhere::at(&to, "fee-calculator")));
         return Public::new(FRESH, moved);
     }
     let reads = read(&config).await;

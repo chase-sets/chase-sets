@@ -958,7 +958,8 @@ pub struct DimensionRef {
 pub struct Dimension {
     pub dimension_id: String,
     pub dimension_name: String,
-    /// `ordered`, `numeric` or `unordered`.
+    /// `ordered`, `numeric` or `unordered`; Inventory's catalog item read leaves it out.
+    #[serde(default)]
     pub value_kind: String,
     #[serde(default)]
     pub required: bool,
@@ -1635,6 +1636,275 @@ impl Listings for Caller<'_> {
             .header(ANONYMOUS_LISTING_DRAFT_HEADER, guest)
             .json(body);
         Ok(self.write(req).await?.0)
+    }
+}
+
+/// One of the seller's inventory items a listing can use (`MarketplaceListingInventoryItemOption`):
+/// what the page shows of it, and the snapshot a create sends when Marketplace's supply read is
+/// ahead of Inventory's (`inventorySnapshotFromMarketplaceSupplyItem`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SupplyItem {
+    pub item_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: Option<String>,
+    pub item_title: Option<String>,
+    pub item_subtitle: Option<String>,
+    #[serde(default)]
+    pub selected_options: Vec<Selected>,
+    pub graded_card: Option<serde_json::Value>,
+    pub product_summary: Option<String>,
+    /// `null` when the catalog has no shipping measure for the product: it cannot be published.
+    pub product_measure_snapshot: Option<serde_json::Value>,
+    pub storage_location_id: Option<String>,
+    pub storage_location_name: Option<String>,
+    pub ship_from_code: Option<String>,
+    pub ship_from_address: Option<serde_json::Value>,
+    #[serde(default)]
+    pub total_quantity: u64,
+    #[serde(default)]
+    pub available_quantity: u64,
+    pub acquisition_cost_amount: Option<String>,
+}
+
+impl SupplyItem {
+    /// The inventory snapshot a create takes from this item.
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "inventoryItemId": self.item_id,
+            "catalogItemId": self.catalog_catalog_item_id,
+            "productId": self.product_id,
+            "selectedOptions": self.selected_options,
+            "gradedCard": self.graded_card,
+            "storageLocationId": self.storage_location_id,
+            "storageLocationName": self.storage_location_name,
+            "shipFromCode": self.ship_from_code,
+            "shipFromAddress": self.ship_from_address,
+            "totalQuantity": self.total_quantity,
+            "availableQuantity": self.available_quantity,
+            "acquisitionCostAmount": self.acquisition_cost_amount,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct SupplyItems {
+    pub items: Vec<SupplyItem>,
+}
+
+/// What a listing at a price would cost the seller (`MarketplaceListingTermsPreview`), the fields
+/// shown.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TermsPreview {
+    pub account_type: String,
+    pub basis_amount: Option<String>,
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub shipping_allowance_percentage_bps: Option<u32>,
+    pub schedule_id: Option<String>,
+}
+
+/// Whether an inventory item's listing has the evidence the active policy requires to publish
+/// (`MarketplaceListingEvidenceReadiness`), the fields shown.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceReadiness {
+    pub ready: bool,
+    pub requirements: Requirements,
+    pub coverage: Coverage,
+    #[serde(default)]
+    pub next_actions: Vec<NextAction>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Requirements {
+    #[serde(default)]
+    pub required_slots: Vec<RequiredSlot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequiredSlot {
+    pub slot_id: String,
+    pub minimum_width_pixels: Option<u32>,
+    pub minimum_height_pixels: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Coverage {
+    pub complete: bool,
+    #[serde(default)]
+    pub slots: Vec<SlotCoverage>,
+    pub active_photo_count: u32,
+    pub minimum_photo_count: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotCoverage {
+    pub slot_id: String,
+    pub view_kind: String,
+    pub satisfied: bool,
+    pub unmet_code: Option<String>,
+}
+
+/// What the seller does next for an unmet code; the page writes the code's words.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NextAction {
+    pub code: String,
+}
+
+/// A catalog item the search suggests (`/api/marketplace/items/suggest`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestion {
+    pub catalog_item_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub category: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Suggestions {
+    #[serde(default)]
+    items: Vec<Suggestion>,
+}
+
+/// A catalog item as Inventory reads it (`/api/inventory/catalog-items/{id}`): its words, whether
+/// it is active, and the product options a listing of it chooses.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CatalogItem {
+    pub catalog_item_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub status: String,
+    pub product_schema: Option<Schema>,
+}
+
+/// A guest's listing draft an account claims (`MarketplaceAnonymousListingDraftIntent`): the form
+/// it starts.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ClaimedDraft {
+    pub catalog_item_id: String,
+    #[serde(default)]
+    pub selected_options: Vec<Selected>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub quantity_cap: u64,
+    pub max_units_per_order: Option<u64>,
+    pub max_units_per_day: Option<u64>,
+    pub max_units_per_customer_account: Option<u64>,
+}
+
+/// A photo a create sends.
+pub struct Photo {
+    pub filename: String,
+    pub content_type: String,
+    pub bytes: bytes::Bytes,
+}
+
+/// How long a create with photos may take: the API normalizes each one into six sizes.
+const UPLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Create listing's calls (marketplace's `account-listings-new` route): the seller's inventory
+/// and Listing stock, a fee and evidence preview, the catalog search, a guest's draft, and the
+/// create with its photos.
+pub trait ListingCreate {
+    /// The seller's inventory a listing can use, the first 100, or the one named.
+    async fn supply_items(&self, item: Option<&str>) -> Result<Vec<SupplyItem>, ApiError>;
+    /// Whether the seller has a supply location named `name` (the Listing stock).
+    async fn has_location_named(&self, name: &str) -> Result<bool, ApiError>;
+    async fn preview_terms(&self, price: &str) -> Result<TermsPreview, ApiError>;
+    async fn evidence_readiness(&self, item: &str, price: &str) -> Result<EvidenceReadiness, ApiError>;
+    async fn suggest(&self, words: &str) -> Result<Vec<Suggestion>, ApiError>;
+    /// An active catalog item, or `None` (none by that id, or not active).
+    async fn catalog_item(&self, id: &str) -> Result<Option<CatalogItem>, ApiError>;
+    /// Claims a guest's draft for the signed-in account.
+    async fn claim_draft(&self, guest: &str, intent: &str) -> Result<ClaimedDraft, ApiError>;
+    /// Creates a listing, a draft, from `fields` (the API's multipart fields) and `photos`.
+    async fn create_listing_with(
+        &self,
+        fields: &[(&str, String)],
+        photos: &[Photo],
+    ) -> Result<(CreatedListing, Option<Receipt>), ApiError>;
+}
+
+impl ListingCreate for Caller<'_> {
+    async fn supply_items(&self, item: Option<&str>) -> Result<Vec<SupplyItem>, ApiError> {
+        let query = match item {
+            Some(id) => format!("inventoryItemId={}&limit=1&offset=0", segment(id)),
+            None => "limit=100&offset=0".to_owned(),
+        };
+        let path = format!("/api/marketplace/account/listing-inventory?{query}");
+        Ok(self.read::<SupplyItems>(&path, MARKETPLACE).await?.items)
+    }
+
+    async fn has_location_named(&self, name: &str) -> Result<bool, ApiError> {
+        #[derive(Deserialize)]
+        struct Exists {
+            exists: bool,
+        }
+        let path = format!("/api/marketplace/account/supply-locations/exists?name={}", segment(name));
+        Ok(self.read::<Exists>(&path, MARKETPLACE).await?.exists)
+    }
+
+    async fn preview_terms(&self, price: &str) -> Result<TermsPreview, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/marketplace/account/listings/preview", MARKETPLACE)
+            .json(&serde_json::json!({ "priceAmount": price }));
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn evidence_readiness(&self, item: &str, price: &str) -> Result<EvidenceReadiness, ApiError> {
+        let body = serde_json::json!({ "inventoryItemId": item, "priceAmount": if price.is_empty() { "0" } else { price } });
+        let req =
+            self.request(Method::POST, "/api/marketplace/account/listings/evidence-readiness/preview", MARKETPLACE).json(&body);
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn suggest(&self, words: &str) -> Result<Vec<Suggestion>, ApiError> {
+        let path = format!("{ITEMS}/suggest?q={}", segment(words));
+        Ok(self.read::<Suggestions>(&path, DISCOVERY).await?.items)
+    }
+
+    async fn catalog_item(&self, id: &str) -> Result<Option<CatalogItem>, ApiError> {
+        let path = format!("/api/inventory/catalog-items/{}", segment(id));
+        match self.read::<CatalogItem>(&path, INVENTORY).await {
+            Ok(item) if item.catalog_item_id == id && item.status == "active" => Ok(Some(item)),
+            Ok(_) => Ok(None),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn claim_draft(&self, guest: &str, intent: &str) -> Result<ClaimedDraft, ApiError> {
+        let path = format!("/api/marketplace/account/listing-draft-intents/{}/claim", segment(intent));
+        let req = self
+            .request(Method::POST, &path, MARKETPLACE)
+            .header(ANONYMOUS_LISTING_DRAFT_HEADER, guest)
+            .json(&serde_json::json!({}));
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn create_listing_with(
+        &self,
+        fields: &[(&str, String)],
+        photos: &[Photo],
+    ) -> Result<(CreatedListing, Option<Receipt>), ApiError> {
+        let mut form = reqwest::multipart::Form::new();
+        for (name, value) in fields {
+            form = form.text(name.to_string(), value.clone());
+        }
+        for photo in photos {
+            let part = reqwest::multipart::Part::stream(photo.bytes.clone())
+                .file_name(photo.filename.clone())
+                .mime_str(&photo.content_type)?;
+            form = form.part("evidence", part);
+        }
+        let req =
+            self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form);
+        self.write(req).await
     }
 }
 

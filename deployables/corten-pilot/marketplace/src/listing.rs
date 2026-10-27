@@ -119,7 +119,7 @@ pub fn listing_features(session: Option<&Session>) -> bool {
 /// `verification`, so marketplace's own Create listing fails for every product
 /// (chase-sets/chase-sets#10599). Workaround: each is left out when it is null, so nothing is
 /// lost; one with a value is sent as it is, and refused. Remove it when that issue lands.
-fn accepted_snapshot(mut snapshot: serde_json::Value) -> serde_json::Value {
+pub fn accepted_snapshot(mut snapshot: serde_json::Value) -> serde_json::Value {
     fn drop_null(fields: Option<&mut serde_json::Map<String, serde_json::Value>>, key: &str) {
         if let Some(fields) = fields
             && fields.get(key).is_some_and(serde_json::Value::is_null)

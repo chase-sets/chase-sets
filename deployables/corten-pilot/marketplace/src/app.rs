@@ -27,6 +27,7 @@
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
+//! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //!
@@ -62,6 +63,8 @@ pub const ORDERS_VIEW: &str = "orders.view";
 pub const ORDERS_MANAGE: &str = "orders.manage";
 /// A sale's pages need it too (marketplace's `account-sale` and `account-sales` loaders).
 pub const LISTINGS_VIEW: &str = "listings.view";
+/// Creating a listing (marketplace's `account-listings-new` action).
+pub const LISTINGS_MANAGE: &str = "listings.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
 pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
@@ -107,6 +110,7 @@ pub mod url {
         ItemWatch, ItemWatched, ItemWritten, ItemsArea,
     };
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
+    pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
@@ -472,6 +476,15 @@ pub mod url {
         }
     }
 
+    /// Create listing (marketplace's `account-listings-new`): the form, and the create with its
+    /// photos (see `listing_new`). Every handler takes a `ListingSeller`.
+    #[corten::routes(state = crate::app::Shared, area = NewListing, caller = crate::auth::ListingSeller)]
+    pub mod new_listing {
+        /// The form as the address asks, and the create.
+        #[route("/account/listings/new", get = crate::listing_new::page, post = crate::listing_new::create)]
+        pub struct NewListing;
+    }
+
     /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
     /// is the area's route, and every handler takes an `OrderBuyer`.
     #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
@@ -662,6 +675,10 @@ pub fn app(config: Config) -> App {
         .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area::<url::ShippingAddresses>(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
+        // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
+        .area::<url::NewListing>(|area| {
+            url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
+        })
         .error_page(views::error_page, shared)
 }
 

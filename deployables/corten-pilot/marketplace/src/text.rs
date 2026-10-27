@@ -1,6 +1,6 @@
 //! The screens' text. `Msg` (storage locations) and `Restock` (restock decisions) are the
 //! Inventory context's own catalogs for each screen, `ItemMsg` the Discovery context's item page's,
-//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ShipmentsMsg` the Fulfillment context's shipment pages', and `CartMsg` the Checkout context's cart page's (exported from contracts/localization by
+//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `ListingNewMsg` the Marketplace context's Create listing page's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ShipmentsMsg` the Fulfillment context's shipment pages', and `CartMsg` the Checkout context's cart page's (exported from contracts/localization by
 //! scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell, input checks and
 //! the routes' own messages. `messages!` checks every call against the catalogs when the crate
 //! compiles.
@@ -10,6 +10,7 @@ pub use cart::CartMsg;
 pub use inventory::Msg;
 pub use item::ItemMsg;
 pub use listing::ListingMsg;
+pub use listing_new::ListingNewMsg;
 pub use notifications::NotificationsMsg;
 pub use orders::OrdersMsg;
 pub use pilot::Pilot;
@@ -68,6 +69,12 @@ mod cart {
 mod item {
     corten::i18n::messages! {
         pub struct ItemMsg { "en" => "locales/item.en.json" }
+    }
+}
+
+mod listing_new {
+    corten::i18n::messages! {
+        pub struct ListingNewMsg { "en" => "locales/listing-new.en.json" }
     }
 }
 

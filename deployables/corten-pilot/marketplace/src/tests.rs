@@ -7,7 +7,7 @@ use std::{
 
 use corten::axum::{
     Json, Router,
-    body::Body,
+    body::{Body, Bytes},
     extract::State,
     http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
@@ -154,6 +154,13 @@ fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: 
                 StatusCode::BAD_REQUEST,
                 "command-rejected",
                 "Listings require a resolved shipping measure before publication.",
+            ));
+        }
+        if listing["inventoryItemId"] == "inv_bare" {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "listing_evidence_incomplete",
+                "Listing evidence is incomplete for the active policy.",
             ));
         }
         listing["published"] = json!(true);
@@ -332,7 +339,9 @@ fn waits_for(headers: &HeaderMap) -> Option<String> {
 /// makes the lookup fail. A write named `Refused` is refused, `Broken` fails, and a write that
 /// repeats an applied attempt with other fields is refused as the API refuses it. A read that
 /// waits for position 43 is still catching up; one that waits for 44 fails.
-async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers: HeaderMap, body: String) -> Response {
+async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
+    // A create's photos are bytes; the stand-in reads every body as text.
+    let body = String::from_utf8_lossy(&body).into_owned();
     stand.calls.lock().unwrap().push(Call {
         method: method.clone(),
         path: uri.to_string(),
@@ -404,6 +413,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = ordering(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = listing_create(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
@@ -5789,4 +5801,458 @@ async fn a_default_on_a_changed_address_says_the_account_changed_and_a_list_stil
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Shipping addresses are still updating. Reload this page in a moment."), "{}", text(&html));
     assert!(html.contains(r#"data-corten-read-again="2""#), "the page reads itself again: {html}");
+}
+
+// Create listing (marketplace's account-listings-new).
+
+const LISTING_NEW: &str = "/account/listings/new";
+const SUPPLY: &str = "/api/marketplace/account/listing-inventory";
+const LOCATION_EXISTS: &str = "/api/marketplace/account/supply-locations/exists";
+const TERMS_PREVIEW: &str = "/api/marketplace/account/listings/preview";
+const READINESS_PREVIEW: &str = "/api/marketplace/account/listings/evidence-readiness/preview";
+const CLAIMS: &str = "/api/marketplace/account/listing-draft-intents/";
+/// A PNG's first bytes: what the pilot checks a photo's type against.
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+
+/// A listing inventory item: `inv_etb` has a shipping measure, `inv_bare` none.
+fn supply_item(id: &str, title: &str, measured: bool) -> Value {
+    json!({
+        "item_id": id, "catalog_catalog_item_id": "cat_etb", "product_id": "cat_etb", "item_title": title,
+        "item_subtitle": "Sealed", "selected_options": [], "graded_card": null, "product_summary": title,
+        "product_measure_snapshot": if measured { json!({ "weightOunces": 32 }) } else { Value::Null },
+        "storage_location_id": "loc_main", "storage_location_name": "Main shelf", "ship_from_code": "MAIN",
+        "ship_from_address": { "line1": "1 Test Way" }, "total_quantity": 4, "available_quantity": 3,
+        "acquisition_cost_amount": "80.00",
+    })
+}
+
+/// A multipart body's fields as (name, filename, value), parted at the boundary its type names.
+fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Option<String>, String)>> {
+    let kind = headers.get(header::CONTENT_TYPE)?.to_str().ok()?;
+    let boundary = kind.strip_prefix("multipart/form-data; boundary=")?;
+    let quoted =
+        |head: &str, key: &str| head.split(&format!("{key}=\"")).nth(1).and_then(|r| r.split('"').next()).map(str::to_owned);
+    Some(
+        body.split(&format!("--{boundary}"))
+            .filter_map(|part| {
+                let (head, value) = part.split_once("\r\n\r\n")?;
+                let name = quoted(head, " name")?;
+                Some((name, quoted(head, "filename"), value.strip_suffix("\r\n").unwrap_or(value).to_owned()))
+            })
+            .collect(),
+    )
+}
+
+/// Create listing's reads and its multipart create, as the stand-in answers them. The seller has
+/// two inventory items in its first page and `inv_late` and `inv_missing` past it; `inv_missing`
+/// is ahead in Marketplace's read, so Inventory does not know it. Only `lister` has its Listing
+/// stock. A fee preview at 1.00 is refused. `inv_etb`'s evidence is complete, the others' is not.
+/// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
+/// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
+/// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`
+/// (chase-sets/chase-sets#10650), answers 500 for a photo named `broken.png`
+/// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
+fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    let query = uri.query().unwrap_or_default();
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    match (method.as_str(), path) {
+        ("GET", SUPPLY) => {
+            let items = match query.split('&').find_map(|p| p.strip_prefix("inventoryItemId=")) {
+                Some(id @ ("inv_late" | "inv_missing")) => vec![supply_item(id, "Late box", true)],
+                Some(_) => vec![],
+                None => vec![supply_item("inv_etb", "Elite Trainer Box", true), supply_item("inv_bare", "Bare box", false)],
+            };
+            Some(Json(json!({ "items": items })).into_response())
+        }
+        ("GET", LOCATION_EXISTS) => Some(Json(json!({ "exists": session == "lister" })).into_response()),
+        ("POST", TERMS_PREVIEW) if sent["priceAmount"] == "1.00" => {
+            Some(refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum."))
+        }
+        ("POST", TERMS_PREVIEW) => Some(
+            Json(json!({
+                "account_type": "individual", "basis_amount": sent["priceAmount"], "marketplace_sales_fee_unit_amount": "4.50",
+                "seller_net_unit_amount": "40.50", "shipping_allowance_percentage_bps": 500, "schedule_id": "fs_1",
+            }))
+            .into_response(),
+        ),
+        ("POST", READINESS_PREVIEW) => {
+            let complete = sent["inventoryItemId"] == "inv_etb";
+            let slot = |id: &str, view: &str| json!({ "slotId": id, "viewKind": view, "satisfied": complete, "unmetCode": if complete { Value::Null } else { json!("slot-missing") } });
+            Some(
+                Json(json!({
+                    "ready": complete,
+                    "requirements": { "requiredSlots": [{ "slotId": "front", "minimumWidthPixels": 800, "minimumHeightPixels": 800 }] },
+                    "coverage": { "complete": complete, "slots": [slot("front", "front")], "activePhotoCount": if complete { 1 } else { 0 }, "minimumPhotoCount": 1 },
+                    "nextActions": if complete { json!([]) } else { json!([{ "code": "slot-missing" }]) },
+                }))
+                .into_response(),
+            )
+        }
+        ("GET", "/api/marketplace/items/suggest") => Some(match query {
+            q if q.contains("q=broken") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            q if q.contains("q=twilight") => Json(json!({ "items": [{ "catalogItemId": "cat_etb", "title": "Twilight Masquerade Elite Trainer Box", "subtitle": "Sealed", "category": "sealed" }] })).into_response(),
+            _ => Json(json!({ "items": [] })).into_response(),
+        }),
+        ("GET", "/api/inventory/catalog-items/cat_etb") => Some(
+            Json(json!({ "catalog_item_id": "cat_etb", "title": "Twilight Masquerade Elite Trainer Box", "subtitle": "Sealed", "status": "active", "product_schema": null }))
+                .into_response(),
+        ),
+        ("GET", "/api/inventory/catalog-items/cat_card") => {
+            let option = |id: &str, label: &str| json!({ "optionId": id, "code": id, "label": label, "displayOrder": 0 });
+            Some(
+                Json(json!({
+                    "catalog_item_id": "cat_card", "title": "Charizard", "subtitle": "Base Set", "status": "active",
+                    "product_schema": {
+                        "dimensions": [
+                            { "dimensionId": "dim_form", "dimensionName": "Form", "required": true, "appliesWhen": [],
+                              "allowedOptions": [option("chc_raw", "Raw"), option("chc_graded", "Graded")] },
+                            { "dimensionId": "dim_condition", "dimensionName": "Condition", "required": true,
+                              "appliesWhen": [{ "dimensionId": "dim_form", "optionIds": ["chc_raw"] }],
+                              "allowedOptions": [option("chc_nm", "Near Mint"), option("chc_lp", "Lightly Played")] },
+                            { "dimensionId": "dim_grade", "dimensionName": "Grade", "required": true,
+                              "appliesWhen": [{ "dimensionId": "dim_form", "optionIds": ["chc_graded"] }],
+                              "allowedOptions": [option("chc_grade_10", "10")] },
+                        ],
+                        "canonicalDimensionOrder": [{ "dimensionId": "dim_form" }, { "dimensionId": "dim_condition" }, { "dimensionId": "dim_grade" }],
+                    },
+                }))
+                .into_response(),
+            )
+        }
+        ("GET", p) if p.starts_with("/api/inventory/catalog-items/") => {
+            Some(refusal(StatusCode::NOT_FOUND, "catalog_item_not_found", "Catalog item was not found."))
+        }
+        ("POST", p) if p.strip_prefix(CLAIMS).is_some_and(|rest| rest.ends_with("/claim")) => {
+            let owner = headers.get("x-marketplace-anonymous-listing-draft-id").and_then(|v| v.to_str().ok());
+            if p != format!("{CLAIMS}ldi_1/claim") || !owner.is_some_and(|o| o.starts_with("anon_")) {
+                return Some(refusal(StatusCode::NOT_FOUND, "listing_draft_intent_not_found", "That listing draft could not be found."));
+            }
+            Some(
+                Json(json!({
+                    "catalog_item_id": "cat_etb", "selected_options": [], "price_amount": "45.00", "price_currency_code": "USD",
+                    "quantity_cap": 2, "max_units_per_order": 1, "max_units_per_day": null, "max_units_per_customer_account": null,
+                }))
+                .into_response(),
+            )
+        }
+        ("POST", CREATE_LISTING) => {
+            let parts = multipart_fields(headers, body)?;
+            let mut fields = serde_json::Map::new();
+            let mut photos = Vec::new();
+            for (name, filename, value) in parts {
+                match filename {
+                    Some(filename) => photos.push(json!({ "field": name, "filename": filename })),
+                    None => {
+                        let value = match name.as_str() {
+                            "inventorySnapshot" => serde_json::from_str(&value).unwrap_or(Value::Null),
+                            _ => Value::String(value),
+                        };
+                        fields.insert(name, value);
+                    }
+                }
+            }
+            let sent = Value::Object(fields);
+            if sent.get("purchaseLimits").is_some() {
+                return Some(refusal(StatusCode::BAD_REQUEST, "listing_request_unknown_field", "Remove unrecognized fields and try again."));
+            }
+            if photos.iter().any(|p| p["filename"] == "broken.png") {
+                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
+            if sent["inventoryItemId"] == "inv_missing" && sent["inventorySnapshot"].is_null() {
+                return Some(refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item was not found."));
+            }
+            if sent["priceAmount"] == "1.00" {
+                return Some(refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum."));
+            }
+            let id = sent["listingIdOverride"].as_str().unwrap_or("lst_new").to_owned();
+            let mut record = sent;
+            record["photos"] = json!(photos);
+            stand.listings.lock().unwrap().entry(id.clone()).or_insert(record);
+            let created = json!({ "id": id, "version": 1, "status": "draft", "feeQuoteFingerprint": "fq_1", "state": { "status": "draft" } });
+            Some(committed(StatusCode::CREATED, "marketplace", "30", created))
+        }
+        _ => None,
+    }
+}
+
+/// A multipart form post, as a browser sends Create listing: `fields`, then `files` as
+/// (input name, filename, type, bytes).
+fn post_multipart(uri: &str, session: &str, fields: &[(&str, &str)], files: &[(&str, &str, &str, &[u8])]) -> Request<Body> {
+    const BOUNDARY: &str = "pilotTestBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+    for (name, value) in fields {
+        body.extend_from_slice(
+            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").as_bytes(),
+        );
+    }
+    for (name, filename, kind, bytes) in files {
+        body.extend_from_slice(
+            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: {kind}\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    Request::post(uri)
+        .header(header::HOST, "localhost:7791")
+        .header(header::COOKIE, format!("chase_sets_session={session}"))
+        .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
+        .body(Body::from(body))
+        .unwrap()
+}
+
+/// The creates the stand-in kept, by listing id.
+fn created(pilot: &Pilot, id: &str) -> Value {
+    pilot.stand.listings.lock().unwrap().get(id).cloned().unwrap_or_default()
+}
+
+fn create_calls(pilot: &Pilot) -> usize {
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::POST && c.path == CREATE_LISTING).count()
+}
+
+/// A create's fields from inventory: the attempt the form drew, the intent, the item and price.
+fn inventory_create<'a>(attempt: &'a str, intent: &'a str, item: &'a str, price: &'a str) -> Vec<(&'a str, &'a str)> {
+    vec![
+        ("attempt", attempt),
+        ("intent", intent),
+        ("inventoryItemId", item),
+        ("priceAmount", price),
+        ("priceCurrencyCode", "USD"),
+        ("quantityCap", "2"),
+        ("maxUnitsPerOrder", "1"),
+        ("maxUnitsPerDay", ""),
+        ("maxUnitsPerCustomerAccount", ""),
+    ]
+}
+
+#[tokio::test]
+async fn create_listing_reads_the_sellers_inventory_and_only_a_listing_manager_writes() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(LISTING_NEW, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"enctype="multipart/form-data""#), "the form posts its photos: {html}");
+    assert!(html.contains(r#"accept="image/jpeg,image/png,image/webp""#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Elite Trainer Box") && page.contains("Bare box"), "{page}");
+    let reads: Vec<String> =
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET).map(|c| c.path.clone()).collect();
+    assert!(reads.contains(&format!("{SUPPLY}?limit=100&offset=0")), "{reads:?}");
+    assert!(reads.contains(&format!("{LOCATION_EXISTS}?name=Listing%20stock")), "{reads:?}");
+    // Nothing chosen: neither write is on.
+    assert!(!html.contains(r#"value="create-listing" formmethod"#), "{html}");
+    // Signed out: marketplace's sign-in, back to the page.
+    let (status, headers, _) = pilot.send(get(LISTING_NEW, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .starts_with("http://localhost:7753/sign-in?returnTo=%2Faccount%2Flistings%2Fnew")
+    );
+    // An account that may not list reads the access page and cannot post.
+    let (status, _, html) = pilot.send(get(LISTING_NEW, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    let (status, _, _) = pilot
+        .send(post_multipart(LISTING_NEW, "trader", &inventory_create(ATTEMPT, "create-listing", "inv_etb", "45.00"), &[]))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(create_calls(&pilot), 0);
+}
+
+#[tokio::test]
+async fn the_catalog_search_finds_chooses_and_asks_for_each_option_that_applies() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?q=twilight"), Some("lister"))).await;
+    assert!(text(&html).contains("Twilight Masquerade Elite Trainer Box"), "{html}");
+    assert!(html.contains(r#"name="choose" value="cat_etb""#), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?q=zzz"), Some("lister"))).await;
+    assert!(text(&html).contains("No active catalog items matched that search."), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?q=broken"), Some("lister"))).await;
+    assert!(text(&html).contains("Catalog item lookup failed."), "{html}");
+    // Chosen: a raw card asks for its condition, not a grade.
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?choose=cat_card"), Some("lister"))).await;
+    assert!(html.contains(r#"name="option.dim_form""#) && html.contains(r#"name="option.dim_condition""#), "{html}");
+    assert!(!html.contains(r#"name="option.dim_grade""#), "{html}");
+    // Graded: the grade, and no condition.
+    let (_, _, html) = pilot
+        .send(get(&format!("{LISTING_NEW}?catalogItemId=cat_card&option.dim_form=chc_graded&redraw=1"), Some("lister")))
+        .await;
+    assert!(html.contains(r#"name="option.dim_grade""#) && !html.contains(r#"name="option.dim_condition""#), "{html}");
+    // With JavaScript a redraw is the parts, not the page.
+    let mut req = get(&format!("{LISTING_NEW}?q=twilight&redraw=1"), Some("lister"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, _, patch) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!patch.contains("<html") && patch.contains("Twilight Masquerade Elite Trainer Box"), "{patch}");
+}
+
+#[tokio::test]
+async fn a_draft_from_inventory_sends_its_photos_and_limits_and_goes_to_its_listing() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb"), Some("lister"))).await;
+    let attempt = drawn_attempt(&html);
+    let fields = inventory_create(&attempt, "create-listing", "inv_etb", "45.00");
+    let files: [(&str, &str, &str, &[u8]); 2] =
+        [("evidence", "front.png", "image/png", PNG), ("other", "notes.png", "image/png", PNG)];
+    let (status, headers, html) = pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &files)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let id = crate::listing::listing_id(&attempt).unwrap();
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with(&format!("http://localhost:7753/account/listings/{id}?evidenceEvent=upload_completed&afterWrite=")),
+        "{to}"
+    );
+    let sent = created(&pilot, &id);
+    assert_eq!(
+        (&sent["inventoryItemId"], &sent["priceAmount"], &sent["quantityCap"], &sent["maxUnitsPerOrder"]),
+        (&json!("inv_etb"), &json!("45.00"), &json!("2"), &json!("1"))
+    );
+    assert!(sent.get("maxUnitsPerDay").is_none() && sent.get("purchaseLimits").is_none(), "only the limits given: {sent}");
+    assert_eq!(sent["photos"], json!([{ "field": "evidence", "filename": "front.png" }]), "only the photo input's files");
+    // The same form again is the same listing.
+    let (status, _, _) = pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &files)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_created() {
+    let pilot = Pilot::new().await;
+    let fields = inventory_create(ATTEMPT, "create-listing", "inv_etb", "45.00");
+    // Not a picture, whatever its type says.
+    let (status, _, html) =
+        pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "notes.png", "image/png", b"hello")])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Each photo must be a JPEG, PNG or WebP image."), "{page}");
+    assert!(page.contains("If you had chosen photos, choose them again."), "{page}");
+    assert!(html.contains(r#"value="45.00""#), "the form keeps what was typed: {html}");
+    // Too large.
+    let big = [PNG, &vec![0u8; 10 * 1024 * 1024]].concat();
+    let (status, _, html) =
+        pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "big.png", "image/png", &big)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Each photo must be 10 MB or smaller."), "{html}");
+    assert_eq!(create_calls(&pilot), 0);
+    // The API's 500 for a photo it cannot decode (chase-sets/chase-sets#10649) is the form again.
+    let (status, _, html) =
+        pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "broken.png", "image/png", PNG)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The photos could not be processed, so nothing was created."), "{html}");
+    assert!(pilot.stand.listings.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn publish_goes_to_the_listing_says_when_evidence_blocks_it_and_keeps_a_refused_draft() {
+    let pilot = Pilot::new().await;
+    let publish = |attempt: &'static str, item: &'static str, price: &'static str| {
+        post_multipart(LISTING_NEW, "lister", &inventory_create(attempt, "create-and-publish-listing", item, price), &[])
+    };
+    let (status, headers, html) = pilot.send(publish(ATTEMPT, "inv_etb", "45.00")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("?evidenceEvent=publication_succeeded&afterWrite="));
+    assert_eq!(created(&pilot, LISTED)["published"], true);
+    let (status, headers, _) = pilot.send(publish("1b6f3c1e-4d2a-4b8e-9f00-1234567890ab", "inv_bare", "45.00")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("?evidenceEvent=publication_blocked&afterWrite="));
+    // A publication refused for another reason: the draft is kept and linked.
+    let (status, _, html) = pilot.send(publish("2b6f3c1e-4d2a-4b8e-9f00-1234567890ab", "inv_etb", "2.00")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Listings require a resolved shipping measure before publication."), "{page}");
+    assert!(page.contains("The listing was saved as a draft and not published. Open the draft"), "{page}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/listings/lst_2b6f3c1e4d2a4b8e9f001234567890ab""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_catalog_product_ensures_its_listing_stock_and_creates_from_its_snapshot() {
+    let pilot = Pilot::new().await;
+    let fields = [
+        ("attempt", ATTEMPT),
+        ("intent", "create-listing"),
+        ("catalogItemId", "cat_card"),
+        ("option.dim_condition", "chc_lp"),
+        ("option.dim_form", "chc_raw"),
+        ("priceAmount", "30.00"),
+        ("priceCurrencyCode", "USD"),
+        ("quantityCap", "3"),
+    ];
+    let (status, _, html) = pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let ensure = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path == ENSURE).cloned().expect("the stock is ensured");
+    assert_eq!(ensure.headers["inventory-mutation-attempt"], ATTEMPT);
+    let stock: Value = serde_json::from_str(&ensure.body).unwrap();
+    assert_eq!(
+        stock,
+        json!({ "catalogItemId": "cat_card", "quantity": 3, "selectedOptions": [
+            { "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" },
+        ] })
+    );
+    let sent = created(&pilot, LISTED);
+    assert_eq!(sent["inventoryItemId"], "", "{sent}");
+    assert_eq!(sent["inventorySnapshot"]["inventoryItemId"], "inv_stock", "{sent}");
+    // A graded card without its grade writes nothing.
+    let graded = [
+        ("attempt", ATTEMPT),
+        ("intent", "create-listing"),
+        ("catalogItemId", "cat_card"),
+        ("option.dim_form", "chc_graded"),
+        ("priceAmount", "30.00"),
+    ];
+    let (status, _, html) = pilot.send(post_multipart(LISTING_NEW, "lister", &graded, &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose every product option to list this item."), "{html}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == ENSURE).count(), 1);
+}
+
+#[tokio::test]
+async fn an_item_marketplace_reads_before_inventory_does_is_created_from_marketplaces_snapshot() {
+    let pilot = Pilot::new().await;
+    let fields = inventory_create(ATTEMPT, "create-listing", "inv_missing", "45.00");
+    let (status, _, html) = pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(create_calls(&pilot), 2);
+    let sent = created(&pilot, LISTED);
+    assert_eq!(
+        (&sent["inventoryItemId"], &sent["inventorySnapshot"]["inventoryItemId"]),
+        (&json!("inv_missing"), &json!("inv_missing"))
+    );
+    assert_eq!(sent["inventorySnapshot"]["shipFromCode"], "MAIN");
+}
+
+#[tokio::test]
+async fn a_guests_draft_is_claimed_into_the_form_and_one_it_cannot_claim_says_so() {
+    let pilot = Pilot::new().await;
+    let claim = |cookie: &str| {
+        let mut req = get(&format!("{LISTING_NEW}?claimListingIntent=ldi_1"), Some("lister"));
+        req.headers_mut().insert(header::COOKIE, format!("chase_sets_session=lister; {cookie}").parse().unwrap());
+        req
+    };
+    let (status, _, html) = pilot.send(claim("chase_sets_anonymous_listing_drafts=anon_cmd_1")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with(CLAIMS)).cloned().expect("the claim");
+    assert_eq!(sent.headers["x-marketplace-anonymous-listing-draft-id"], "anon_cmd_1");
+    assert!(html.contains(r#"value="45.00""#) && text(&html).contains("Twilight Masquerade Elite Trainer Box"), "{html}");
+    // Without the guest's owner nothing is asked.
+    let (status, _, html) = pilot.send(claim("other=1")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(CLAIMS)).count(), 1);
+    assert!(!html.contains(r#"value="45.00""#), "{html}");
+}
+
+#[tokio::test]
+async fn the_fee_preview_draws_the_terms_or_the_apis_refusal() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot
+        .send(get(
+            &format!("{LISTING_NEW}?inventoryItemId=inv_etb&priceAmount=45.00&priceCurrencyCode=USD&preview=1"),
+            Some("lister"),
+        ))
+        .await;
+    let page = text(&html);
+    assert!(page.contains("Basis amount: $45.00 Locked Fee $4.50") && page.contains("$40.50"), "{page}");
+    let (_, _, html) =
+        pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb&priceAmount=1.00&preview=1"), Some("lister"))).await;
+    assert!(text(&html).contains("Listing price is below the marketplace minimum."), "{html}");
 }
