@@ -267,7 +267,7 @@ async fn an_unknown_page_is_not_found_and_a_failed_read_is_a_502_no_cache_keeps(
         page.contains("Page not found") && page.contains("This public page does not exist or is no longer available."),
         "{page}"
     );
-    assert!(page.contains(r#"href="/" data-reload"#), "the home page is this app's, in the other layout: {page}");
+    assert!(page.contains(r#"href="/">"#), "the home page is this app's, in the other layout: {page}");
     let (status, headers, page) = site.get("/market/down", None).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{page}");
     assert_eq!(cache(&headers), "private, no-cache");

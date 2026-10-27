@@ -13,8 +13,6 @@
 //! page's writes are off; the seller checks again or discards the record. Every page confirms a
 //! record of any of the pilot's families, as marketplace's `InventoryMutationProvider` does on
 //! every Inventory page.
-use std::fmt;
-
 use corten::{Fields, Route};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +25,7 @@ use crate::{
 
 /// The kind of write an attempt is (`InventoryMutationFamily`), as the API keeps it: the
 /// storage locations' three and a restock decision's.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, corten::UrlValue)]
 pub enum Family {
     #[serde(rename = "location-create")]
     Create,
@@ -78,12 +76,6 @@ impl Check {
     /// The same check, without the receipt: the status's "check again".
     pub fn again(&self) -> Self {
         Check { after_write: None, ..self.clone() }
-    }
-}
-
-impl fmt::Display for Family {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 

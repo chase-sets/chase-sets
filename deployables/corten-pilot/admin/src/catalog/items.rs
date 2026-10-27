@@ -72,20 +72,11 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did, for the list it redirects to.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum ItemDone {
         Created,
         DraftsRemoved,
-    }
-
-    impl std::fmt::Display for ItemDone {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(match self {
-                ItemDone::Created => "created",
-                ItemDone::DraftsRemoved => "drafts_removed",
-            })
-        }
     }
 
     /// The list's filters (the filter form's fields) and page (from 1): what the list, its live

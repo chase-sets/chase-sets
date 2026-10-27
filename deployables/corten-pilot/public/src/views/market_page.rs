@@ -127,7 +127,7 @@ pub fn MarketPage<'a>(t: MarketMsg, p: Pilot, screen: &'a Screen) -> impl Render
         <div class={Wide}>
             <nav class={Crumbs} aria-label={p.shell_breadcrumb()}>
                 <ol>
-                    <li><a href={&screen.home} data-reload>{t.page_home()}</a></li>
+                    <li><a href={&screen.home}>{t.page_home()}</a></li>
                     <li aria-current="page">{&page.title}</li>
                 </ol>
             </nav>

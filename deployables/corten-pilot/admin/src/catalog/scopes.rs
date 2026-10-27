@@ -50,20 +50,11 @@ pub mod url {
     }
 
     /// What an attention queue command did: admin-web's banner (queued, or the command failed).
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum AttentionDone {
         Queued,
         Failed,
-    }
-
-    impl std::fmt::Display for AttentionDone {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(match self {
-                AttentionDone::Queued => "queued",
-                AttentionDone::Failed => "failed",
-            })
-        }
     }
 
     /// What the write before left on the list: its receipt, its banner, and the item a park took

@@ -54,9 +54,8 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
 
 /// The public-presence shell (`PublicPresencePageShell`) around the home page: the skip link, the
 /// promo bar, the nav, the page and the footer, on the design system's wide container. A client
-/// navigation keeps the shell, so a link from a page with the other [`Layout`] to this one (or
-/// back) is marked `data-reload`: Corten's shell key does not tell the two layouts apart
-/// (todd-skelton/corten#122).
+/// navigation between it and a page in the other [`Layout`] loads the page in full, since Corten's
+/// shell key names the layout.
 #[component(css)]
 pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
     req: &'a Req,
@@ -145,7 +144,7 @@ fn NotFound<'a>(t: MarketMsg, title: &'a str, text: &'a str, detail: Option<&'a 
                     <pre class={Detail}>{detail}</pre>
                 }
                 <p class={Cue}>{t.root_error_trust_cue()}</p>
-                <a class={Button} href={home} data-reload>{t.root_go_home()}</a>
+                <a class={Button} href={home}>{t.root_go_home()}</a>
             </div>
         </div>
     }

@@ -30,8 +30,6 @@
 //! A bulk change is admin-web's `BulkLifecycleActionBar`: the checked rows (or every record the
 //! filters match) and an action, previewed by the API, then confirmed; the API runs it as a job,
 //! whose progress the list's dialog follows from the job's own stream.
-use std::fmt;
-
 use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{jobs::Update, receipt::Receipt};
@@ -256,7 +254,7 @@ pub mod url {
 }
 
 /// What a write did, for the page it redirects to: admin-web's success toasts.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
 #[serde(rename_all = "snake_case")]
 pub enum Done {
     Created,
@@ -269,23 +267,6 @@ pub enum Done {
     OptionDeprecated,
     OptionReactivated,
     Reordered,
-}
-
-impl fmt::Display for Done {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Done::Created => "created",
-            Done::Revised => "revised",
-            Done::Activated => "activated",
-            Done::Deprecated => "deprecated",
-            Done::Archived => "archived",
-            Done::OptionAdded => "option_added",
-            Done::OptionRevised => "option_revised",
-            Done::OptionDeprecated => "option_deprecated",
-            Done::OptionReactivated => "option_reactivated",
-            Done::Reordered => "reordered",
-        })
-    }
 }
 
 impl Done {

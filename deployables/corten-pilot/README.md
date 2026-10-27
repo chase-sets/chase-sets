@@ -588,6 +588,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `8cb28fb` | Corten `main` with [todd-skelton/corten#110 Public::shared (s-maxage); a patch can ask to be read again (ReadAgain::from)](https://github.com/todd-skelton/corten/pull/110) merged, closing [#104](https://github.com/todd-skelton/corten/issues/104) and [#106](https://github.com/todd-skelton/corten/issues/106), each adopted, and [#95](https://github.com/todd-skelton/corten/issues/95) closed as not planned, its workaround removed (see [Corten gaps](#corten-gaps)). No breaking change for the pilot: `Public::shared` and `ReadAgain::from` are new |
 | `cf48958` | Corten `main` with [todd-skelton/corten#118 A patch's read again stops quietly when the server fails it](https://github.com/todd-skelton/corten/pull/118): a read again's answer that is a patch is applied whatever its status, so an alert's read that fails after its write now says so in place (502) where it navigated. No breaking change for the pilot |
 | `b35c934` | Corten `main` with [todd-skelton/corten#124 Answer only localhost, IP addresses and listed host names (421 otherwise)](https://github.com/todd-skelton/corten/pull/124) (breaking: an app answers only `localhost`, IP literals and the names in `HOSTS`; the pilot runs on `localhost`, and a deployment under a domain would set `HOSTS`), [todd-skelton/corten#127 App::task: work that lives as long as the app, stopped and waited for on shutdown](https://github.com/todd-skelton/corten/pull/127) (breaking: `corten::serve` takes an `App`, which the pilot's three `main.rs` already pass; `Abort::Shutdown`, which it matches nowhere) and [todd-skelton/corten#128 The error page keeps the headers of the failure it replaces](https://github.com/todd-skelton/corten/pull/128). No change to the pilot's code: `corten check` passed at admin 62, marketplace 158, platform 9, public 19, and the packing, shipments, notifications, public home and public market smokes passed on its release build |
+| `4bd06d3` | Corten `main` with [todd-skelton/corten#132 #[derive(UrlValue)]: an enum in an address spells its words once](https://github.com/todd-skelton/corten/pull/132) (`811b274`, closing [todd-skelton/corten#129 A query value must be Display while it is read with serde, so an enum in an address spells its words twice](https://github.com/todd-skelton/corten/issues/129)) and [todd-skelton/corten#134 A page in another layout has another shell key](https://github.com/todd-skelton/corten/pull/134) (`4bd06d3`, closing [todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122)). Neither is breaking. The seven hand-written `Display` impls for the enums in addresses became `#[derive(UrlValue)]`, and the `data-reload` links between the two public layouts are gone. `corten check` passed at admin 62, marketplace 169, platform 9, public 19, and the public home, public market, shipments, packing, notifications and shipping addresses smokes passed on its release build |
 
 **Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
 ([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
@@ -1267,9 +1268,9 @@ postage, storage locations, cart, item and Add to List. What changed:
     leaves it out), and a failed read answers 502 instead of a sitemap without the market pages,
     which a crawler would keep for an hour. One canonical origin (`CHASE_SETS_PUBLIC_ORIGIN`) for
     the page and the sitemap, where public-web's market route falls back to the request's origin
-    and its layout to chasesets.com. Home is this app's `/` now (decision 49); its
-    link reloads the page, since it has its own layout
-    ([todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122)).
+    and its layout to chasesets.com. Home is this app's `/` now (decision 49), in its own layout;
+    a client navigation to it loads it in full, since the shell key names the layout (since the
+    `4bd06d3` pin, [todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122)).
     Not ported: the waitlist analytics bridge public-web's layout inlines in every page (the
     market page sends no event; the home page's script carries its own), the favicons and the
     manifest
@@ -1352,8 +1353,8 @@ postage, storage locations, cart, item and Add to List. What changed:
     the address. The legacy fee-calculator share link moves to public-web's compare page with its
     `Location` written by hand to add `#fee-calculator`
     ([todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123)).
-    Links between `/` and the market page carry `data-reload`, since a client navigation
-    keeps the first page's layout (#122 above). The analytics bridge posts to
+    A client navigation between `/` and the market page loads the other layout in full (#122
+    above, fixed at the `4bd06d3` pin). The analytics bridge posts to
     `/api/public-presence/analytics/waitlist` on the page's own origin, as public-web's does; in
     production the ingress sends `/api` to the platform API, and locally it is a 404. The words
     are public-web's (`locales/home.en.json`, exported), the brand's foil colors are tokens, and
@@ -1386,8 +1387,8 @@ postage, storage locations, cart, item and Add to List. What changed:
     does (a reference exactly, its short form, then a title containing it) and sends one more
     packed. Start redirects to the packing page and Finish to the shipment's page, each read after
     the write; the shipment's page reads itself again while it has not caught up. The scan's
-    result is in the address (`?scan=matched`), whose words `Display` writes beside serde's
-    ([todd-skelton/corten#129 A query value must be Display while it is read with serde, so an enum in an address spells its words twice](https://github.com/todd-skelton/corten/issues/129)). The seller's Back goes straight to marketplace's command center, since a client
+    result is in the address (`?scan=matched`), its words written by `#[derive(UrlValue)]` from
+    serde's ([todd-skelton/corten#129 A query value must be Display while it is read with serde, so an enum in an address spells its words twice](https://github.com/todd-skelton/corten/issues/129), fixed at the `4bd06d3` pin). The seller's Back goes straight to marketplace's command center, since a client
     navigation to the pilot's address, which redirects there, is blocked by `connect-src` and
     reloads ([todd-skelton/corten#131 A client navigation to a route that redirects to another origin is blocked by connect-src, then reloads](https://github.com/todd-skelton/corten/issues/131)). The seeded shipments cannot be packed in the sandbox ([chase-sets/chase-sets#10645 Let the seed seller pack a seeded shipment instead of Shipment mutation authority is unavailable](https://github.com/chase-sets/chase-sets/issues/10645)), so the
     smoke stops at the page asking about the refused start; the writes are checked by the router
@@ -1422,14 +1423,17 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open at the `b35c934` pin, each with its workaround in the pilot (Corten agreed to and queued #119, #120, #122 and #123; #129 and #131 are new):
+Open at the `4bd06d3` pin, each with its workaround in the pilot (Corten has #131 in progress, then #119, #120 and #123):
 
 1. [todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119): the home page writes `t.number` and a literal `%` (`home::rate`).
 2. [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120): `platform::client::address` reads `X-Forwarded-For` and `X-Real-IP` itself, only behind a trusted proxy; with none it sends nothing.
-3. [todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122): the market page's and error page's links to `/` carry `data-reload`. Corten will put the layout's call site in the shell key; keep the links until that commit is reported.
-4. [todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123): the share link's move writes its `Location` again with `#fee-calculator` (`home::page`).
-5. [todd-skelton/corten#129 A query value must be Display while it is read with serde, so an enum in an address spells its words twice](https://github.com/todd-skelton/corten/issues/129): each enum in an address has a hand-written `Display` beside its `#[serde(rename_all)]` (`packing::Scanned`, and admin's `Done`, `ItemDone`, `AttentionDone` and `Change`).
-6. [todd-skelton/corten#131 A client navigation to a route that redirects to another origin is blocked by connect-src, then reloads](https://github.com/todd-skelton/corten/issues/131): the packing page's Back links marketplace's command center directly, not the pilot's `/account/sales/shipments` (decision 50).
+3. [todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123): the share link's move writes its `Location` again with `#fee-calculator` (`home::page`).
+4. [todd-skelton/corten#131 A client navigation to a route that redirects to another origin is blocked by connect-src, then reloads](https://github.com/todd-skelton/corten/issues/131): the packing page's Back links marketplace's command center directly, not the pilot's `/account/sales/shipments` (decision 50).
+
+Closed since the `b35c934` pin, and their workarounds removed at `4bd06d3`:
+
+1. [todd-skelton/corten#122 Client navigation between pages with different layouts keeps the first layout, because the shell key does not include the layout](https://github.com/todd-skelton/corten/issues/122), fixed by Corten's `4bd06d3` (a page in another layout has another shell key, so a client navigation to it loads it in full). The market page's breadcrumb Home and the error page's Go home no longer carry `data-reload`; a client navigation from a market page to `/` was checked to draw the home page's own layout (its promo bar, footer and headline).
+2. [todd-skelton/corten#129 A query value must be Display while it is read with serde, so an enum in an address spells its words twice](https://github.com/todd-skelton/corten/issues/129), fixed by Corten's `811b274` (`#[derive(UrlValue)]` writes `Display` from the same `rename_all` and `rename` serde reads). The seven hand-written `Display` impls are gone: admin's `Done`, `ItemDone`, `AttentionDone` and `Change`, and marketplace's `recovery::Family`, `packing::Scanned` and `api::AddressAction` derive it.
 
 Closed as not planned: [todd-skelton/corten#121 There is no way to keep an upstream read for a while across requests, so a page that every visitor opens reads the same data each time](https://github.com/todd-skelton/corten/issues/121). An in-process cache is the app's choice (its key, staleness and failures); Corten points to `moka::future::Cache` with `time_to_live` and `try_get_with`. The pilot keeps `public::kept::Kept` (a lock around the last good read and when it was read, in the app's state), which also serves the last good read when a new one fails, as the page needs (decision 49).
 

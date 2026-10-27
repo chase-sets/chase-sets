@@ -45,12 +45,10 @@ use crate::{
 /// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    use std::fmt;
-
     use serde::Deserialize;
 
     /// What a write did, for the page it redirects to: the toast, and the part it opens.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Change {
         Published,
@@ -70,30 +68,6 @@ pub mod url {
         ProductRefLinked,
         ProductRefUnlinked,
         ContentsUpdated,
-    }
-
-    impl fmt::Display for Change {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str(match self {
-                Change::Published => "published",
-                Change::Archived => "archived",
-                Change::BlueprintAssigned => "blueprint_assigned",
-                Change::FieldSet => "field_set",
-                Change::FieldCleared => "field_cleared",
-                Change::CategoryAssigned => "category_assigned",
-                Change::CategoryRemoved => "category_removed",
-                Change::MetadataRevised => "metadata_revised",
-                Change::TagsUpdated => "tags_updated",
-                Change::ImageUrlsUpdated => "image_urls_updated",
-                Change::FallbackUpdated => "fallback_updated",
-                Change::FallbackCleared => "fallback_cleared",
-                Change::CatalogRefLinked => "catalog_ref_linked",
-                Change::CatalogRefUnlinked => "catalog_ref_unlinked",
-                Change::ProductRefLinked => "product_ref_linked",
-                Change::ProductRefUnlinked => "product_ref_unlinked",
-                Change::ContentsUpdated => "contents_updated",
-            })
-        }
     }
 
     /// The item's page, and the receipt and change of the write before.

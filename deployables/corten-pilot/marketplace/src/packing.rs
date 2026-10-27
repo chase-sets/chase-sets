@@ -47,9 +47,9 @@ pub struct Place {
     pub line: Option<String>,
 }
 
-/// What a scan found (`handleScanSubmit`). Its `Display` writes the word serde reads back
-/// (todd-skelton/corten#129).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+/// What a scan found (`handleScanSubmit`), written in the address as the word serde reads
+/// (`UrlValue`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum Scanned {
     /// One more of the line is packed.
@@ -60,17 +60,6 @@ pub enum Scanned {
     Ambiguous,
     /// No line matched.
     None,
-}
-
-impl std::fmt::Display for Scanned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Scanned::Matched => "matched",
-            Scanned::Complete => "complete",
-            Scanned::Ambiguous => "ambiguous",
-            Scanned::None => "none",
-        })
-    }
 }
 
 /// A write's form: its attempt.

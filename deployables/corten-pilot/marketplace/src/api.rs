@@ -2350,7 +2350,7 @@ pub struct SuggestedAddress {
 }
 
 /// A shipping address write (Identity's `MutationAction` for the address book).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AddressAction {
     Create,
@@ -2367,13 +2367,6 @@ impl AddressAction {
             AddressAction::Default => "default",
             AddressAction::Archive => "archive",
         }
-    }
-}
-
-/// Its `Display` writes the word serde reads back (todd-skelton/corten#129).
-impl std::fmt::Display for AddressAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
