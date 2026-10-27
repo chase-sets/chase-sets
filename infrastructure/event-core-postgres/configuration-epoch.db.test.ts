@@ -93,8 +93,8 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     let closure: ReturnType<typeof source.driveClosure> | undefined;
     try {
       await terminal.query("BEGIN");
-      // Candidate adapter actually takes and verifies its lock; the lock mutant
-      // is a terminal bypass, not a production switch.
+      // The named lock mutant bypasses the production grant path, so closure
+      // must not observe a waiter on the consumer key.
       if (mutant === "REMOVE_SHARED_LOCK")
         await createPostgresEventStore({ pool: consumerPool }).appendToStreamInTransaction(terminal, input("terminal"));
       else
@@ -104,35 +104,42 @@ describeDb("A-S separate owner and consumer database protocol", () => {
       await source.beginClosure(key);
       closure = source.driveClosure(key);
       if (mutant === "REMOVE_CLOSED_THROUGH_WAIT") {
-        // Mutant installs business state without using the receipt-checked API.
-        await createPostgresEventStore({ pool: ownerPool }).appendToStream(input("owner.change"));
+        // A production install attempt must remain receipt-gated before COMMIT.
+        await source.installClosure(key);
       }
-      const lockState = await observer.query<{ waiting: string }>(
-        "SELECT count(*)::text AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-      );
-      // Observe a real PostgreSQL wait, not wall-clock timing.
-      if (mutant === "none") {
-        for (let n = 0; n < 100 && lockState.rows[0]?.waiting === "0"; n++) {
-          const next = await observer.query<{ waiting: string }>(
+      let observedWait =
+        (
+          await observer.query<{ waiting: string }>(
             "SELECT count(*)::text AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-          );
-          if (next.rows[0]?.waiting !== "0") break;
-        }
+          )
+        ).rows[0]?.waiting !== "0";
+      // Observe a real PostgreSQL wait, not wall-clock timing.
+      for (let n = 0; n < 100 && !observedWait; n++) {
+        const next = await observer.query<{ waiting: string }>(
+          "SELECT count(*)::text AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+        );
+        observedWait = next.rows[0]?.waiting !== "0";
       }
+      expect(observedWait, "closure must wait on the terminal's held SHARED lock").toBe(true);
+      const consumerHistoryBeforeCommit = await observer.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM event_configuration_guard_history WHERE role = 'consumer' AND key = $1",
+        [key],
+      );
+      expect(consumerHistoryBeforeCommit.rows[0]?.count, "CLOSED-THROUGH cannot publish before terminal COMMIT").toBe(
+        "0",
+      );
       const before = await source.status(key);
       expect(before.status).not.toBe("OPEN");
-      expect(
-        await createPostgresEventStore({ pool: ownerPool }).readStream({ streamId: "owner.change" }),
-        "owner change cannot install before consumer COMMIT",
-      ).toHaveLength(0);
-      if (mutant === "REMOVE_SHARED_LOCK") {
-        await closure;
-        expect((await source.status(key)).pendingConsumers).toHaveLength(1);
-      }
+      expect(before.pendingConsumers).toEqual([identity]);
       await terminal.query("COMMIT");
       committed = true;
       const status = await closure;
-      expect(status.pendingConsumers).toHaveLength(0);
+      expect(status.pendingConsumers).toEqual([]);
+      const consumerHistoryAfterCommit = await observer.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM event_configuration_guard_history WHERE role = 'consumer' AND key = $1",
+        [key],
+      );
+      expect(consumerHistoryAfterCommit.rows[0]?.count, "exactly one CLOSED-THROUGH receipt follows COMMIT").toBe("1");
       await source.installClosure(key);
       const next = await source.captureGrant(key, identity);
       const store = createPostgresEventStore({ pool: consumerPool });
@@ -152,7 +159,7 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     await expect(orderingScenario("REMOVE_SHARED_LOCK")).rejects.toThrow();
   });
   it("AC1 named REMOVE_CLOSED_THROUGH_WAIT mutant fails the ordering oracle", async () => {
-    await expect(orderingScenario("REMOVE_CLOSED_THROUGH_WAIT")).rejects.toThrow("owner change");
+    await expect(orderingScenario("REMOVE_CLOSED_THROUGH_WAIT")).rejects.toThrow("every CLOSED-THROUGH");
   });
   it("AC2(a,e) pending refuses new grants, registration and retirement", async () => {
     const source = owner();
