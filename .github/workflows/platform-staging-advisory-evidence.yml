@@ -602,11 +602,33 @@ jobs:
           };
           const queryRuns = async (workflow, from) => {
             const created = encodeURIComponent(`>=${new Date(from - 30 * 24 * 60 * 60 * 1000).toISOString()}`);
-            const page = await api(`actions/workflows/${workflow}/runs?created=${created}&per_page=100&page=1`);
-            if (!Array.isArray(page.workflow_runs) || !Number.isSafeInteger(page.total_count) || page.total_count < 0 || page.total_count > 100 || page.workflow_runs.length !== page.total_count) {
-              throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+            const pageSize = 100;
+            const pageCap = 20;
+            const runs = [];
+            const ids = new Set();
+            let expectedTotal = null;
+            for (let pageNumber = 1; pageNumber <= pageCap; pageNumber += 1) {
+              const page = await api(`actions/workflows/${workflow}/runs?created=${created}&per_page=${pageSize}&page=${pageNumber}`);
+              if (!Array.isArray(page.workflow_runs) || page.workflow_runs.length > pageSize || !Number.isSafeInteger(page.total_count) || page.total_count < 0) {
+                throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+              }
+              if (expectedTotal === null) expectedTotal = page.total_count;
+              if (page.total_count !== expectedTotal || expectedTotal > pageCap * pageSize) {
+                throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+              }
+              for (const run of page.workflow_runs) {
+                if (!Number.isSafeInteger(run?.id) || ids.has(run.id)) {
+                  throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+                }
+                ids.add(run.id);
+                runs.push(run);
+              }
+              if (runs.length === expectedTotal) return runs;
+              if (page.workflow_runs.length === 0 || runs.length > expectedTotal) {
+                throw new Error(`GitHub authority census is incomplete for ${workflow}`);
+              }
             }
-            return page.workflow_runs;
+            throw new Error(`GitHub authority census is incomplete for ${workflow}`);
           };
           const jobsFor = async (run, workflow) => {
             const body = await api(`actions/runs/${run.id}/attempts/${run.run_attempt ?? run.runAttempt ?? 1}/jobs?per_page=100&page=1`);
@@ -691,7 +713,7 @@ jobs:
             }
             for (const { run, workflow } of activeMemberRuns.values()) {
               const jobs = await jobsFor(run, workflow);
-              if (jobs.some((job) => activeJobStatuses.has(job.status) || activeRunStatuses.has(run.status))) {
+              if (jobs.some((job) => activeJobStatuses.has(job.status) || (activeRunStatuses.has(run.status) && !job.completed_at && !job.conclusion))) {
                 staleReason ||= `${workflow} run ${run.id} remained active at publication`;
               }
             }
