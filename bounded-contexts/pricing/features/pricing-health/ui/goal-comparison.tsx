@@ -49,7 +49,7 @@ export function GoalPicker({
         })),
       ),
     );
-    if (navigate) navigate(`${url.pathname}${url.search}`, { replace: true });
+    if (navigate) void navigate(`${url.pathname}${url.search}`, { replace: true });
     else window.history.replaceState({}, "", url);
   };
   return (
