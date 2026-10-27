@@ -98,6 +98,7 @@ const coordinateCaptureEnv = {
   CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
   CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
   GH_TOKEN: "${{ github.token }}",
+  PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/playwright-chromium",
 };
 
 function coordinateJob(document) {
