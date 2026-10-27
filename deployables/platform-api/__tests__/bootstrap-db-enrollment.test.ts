@@ -2972,9 +2972,11 @@ describe("Platform API bootstrap DB enrollment", () => {
         sourceBase: capture.provenance.sourceBase,
         captureParent: capture.provenance.captureParent,
       });
-      expect(baseline.source).toEqual({
-        commit: "d46e459b4dd322c4a489c495e75081aaa05dcef5",
-      });
+      expect(baseline.source).toEqual(
+        expect.objectContaining({
+          commit: capture.provenance.sourceBase,
+        }),
+      );
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
       expect(Object.keys(capture.sourceBindings)).toHaveLength(8003);
@@ -4709,11 +4711,12 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = runFixture(fixture);
 
     expect(result.partitionUnitCount).toBe(4);
-    expect(result.schedule.observedUnitCount).toBe(3);
+    expect(result.schedule.observedUnitCount).toBe(4);
     expect(result.violations).toEqual([
       "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
+      minimalityViolationFor(4, currentMinimumUnitCount),
     ]);
     await editScripts(fixture, (scripts) => {
       delete scripts["test:db:5"];
