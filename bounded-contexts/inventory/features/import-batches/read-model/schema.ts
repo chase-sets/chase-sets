@@ -195,7 +195,7 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
   accepted_rows jsonb NOT NULL,
   created_at timestamptz NOT NULL
 );`,
-      `CREATE INDEX IF NOT EXISTS inventory_import_commit_inputs_batch_idx
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_commit_inputs_batch_idx
         ON inventory_import_commit_inputs (account_id, batch_id, created_at DESC)`,
     ],
   },
