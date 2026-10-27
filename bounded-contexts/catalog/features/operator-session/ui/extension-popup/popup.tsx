@@ -51,8 +51,7 @@ export function OperatorExtensionPopup({
     Object.fromEntries(setNamesProbeUnitConstraints.map((unit) => [unit.unitKey, unit.productLineId])),
   );
   const [probeBusy, setProbeBusy] = useState(false);
-  const [probeReport, setProbeReport] = useState<string | null>(null);
-  const [probeSha, setProbeSha] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<Readonly<{ report: string; sha: string }> | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [probeCopyError, setProbeCopyError] = useState(false);
   async function run(command: OperatorCommand) {
@@ -90,8 +89,7 @@ export function OperatorExtensionPopup({
     if (!setNameRequest) return;
     setProbeBusy(true);
     setProbeError(null);
-    setProbeReport(null);
-    setProbeSha(null);
+    setProbeResult(null);
     setProbeCopyError(false);
     try {
       const report = await probeTcgplayerSetNames({
@@ -104,8 +102,8 @@ export function OperatorExtensionPopup({
           .filter((target) => /^\d+$/.test(target.productLineId)),
       });
       const serialized = serializeSetNamesProbeReport(report);
-      setProbeReport(serialized);
-      setProbeSha(await sha256SetNamesProbeReport(report));
+      const sha = await sha256SetNamesProbeReport(report);
+      setProbeResult({ report: serialized, sha });
       const reasons = [...new Set(report.rows.flatMap((row) => row.qualification.reasons))];
       if (reasons.length > 0) setProbeError(reasons.join(", "));
     } catch {
@@ -217,16 +215,21 @@ export function OperatorExtensionPopup({
         {probeError ? <Text role="alert">{probeError}</Text> : null}
         {!probeBusy &&
         !probeError &&
-        !probeReport &&
+        !probeResult &&
         !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim())) ? (
           <Text>{t("catalog.operatorExtension.probe.empty")}</Text>
         ) : null}
-        {probeReport ? (
+        {probeResult ? (
           <Stack gap={2}>
             <Text role="status">{t("catalog.operatorExtension.probe.success")}</Text>
-            <Textarea label={t("catalog.operatorExtension.probe.report")} value={probeReport} readOnly rows={8} />
+            <Textarea
+              label={t("catalog.operatorExtension.probe.report")}
+              value={probeResult.report}
+              readOnly
+              rows={8}
+            />
             <Text size="sm">
-              {t("catalog.operatorExtension.probe.sha256")}: {probeSha}
+              {t("catalog.operatorExtension.probe.sha256")}: {probeResult.sha}
             </Text>
             <Button
               tone="secondary"
@@ -234,7 +237,7 @@ export function OperatorExtensionPopup({
                 setProbeCopyError(false);
                 try {
                   if (!copyProbeReport) throw new Error("unavailable");
-                  await copyProbeReport(probeReport);
+                  await copyProbeReport(probeResult.report);
                 } catch {
                   setProbeCopyError(true);
                 }
