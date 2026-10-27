@@ -64,15 +64,28 @@ jobs:
           checker_status=$?
           set -e
           test "$checker_status" = 1
-          grep -F "41eda869b48e6c66" stale-enrollment-check.txt
-          grep -F "9d02b6a444073ea6" stale-enrollment-check.txt
+          node --input-type=module - stale-enrollment-check.txt <<'STALE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          export function assertStaleEnrollment(text) {
+            const expected = [
+              "Platform API bootstrap DB enrollment failed with 2 violation(s):",
+              '- ' + process.cwd().replaceAll('\\', '/') + "/deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts:227:3 bootstrap DB case 'records context schema migrations once during concurrent bootstrap' has semantic identity '41eda869b48e6c66' but the manifest freezes '9d02b6a444073ea6'; its assertions or the data-profile shapes it runs under changed",
+              "- the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget",
+              "Platform API DB census: 16 entries = 12 bootstrap + 4 non-bootstrap; 56 include-selected entries scanned.",
+            ];
+            assert.deepEqual(text.replaceAll('\r\n', '\n').trimEnd().split('\n'), expected,
+              'only the exact frozen identity and historical-model minimality refusals are diagnostic');
+          }
+          assertStaleEnrollment(readFileSync(process.argv[2], 'utf8'));
+          STALE
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { derivePlatformApiDbTestCensus } from './deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs';
           const root = './deployables/platform-api';
           const scripts = JSON.parse(readFileSync(`${root}/package.json`, 'utf8')).scripts;
-          const units = ['test:db:1', 'test:db:2'];
+          const units = ['test:db:1', 'test:db:2', 'test:db:3'];
           assert.deepEqual(Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)), units);
           for (const unit of units) assert.match(scripts[unit], /--maxWorkers=3/);
           const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
@@ -82,7 +95,7 @@ jobs:
           NODE
 
   shipped:
-    name: Diagnostic API Bootstrap Measurement Only (current two-unit)
+    name: Diagnostic API Bootstrap Measurement Only (current three-unit)
     needs: [precheckSCorpus]
     if: github.event_name == 'workflow_dispatch' && github.repository == inputs.repository && inputs.repository == 'chase-sets/chase-sets' && github.ref == format('refs/heads/{0}', inputs.branch) && inputs.branch == 'codex/10404-impl-g1' && inputs.host_ticket != '' && github.run_attempt == 1
     runs-on: ubuntu-latest
@@ -131,8 +144,21 @@ jobs:
           checker_status=$?
           set -e
           test "$checker_status" = 1
-          grep -F "41eda869b48e6c66" artifacts/10404-reference-capture/stale-enrollment-check.txt
-          grep -F "9d02b6a444073ea6" artifacts/10404-reference-capture/stale-enrollment-check.txt
+          node --input-type=module - artifacts/10404-reference-capture/stale-enrollment-check.txt <<'STALE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          export function assertStaleEnrollment(text) {
+            const expected = [
+              "Platform API bootstrap DB enrollment failed with 2 violation(s):",
+              '- ' + process.cwd().replaceAll('\\', '/') + "/deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts:227:3 bootstrap DB case 'records context schema migrations once during concurrent bootstrap' has semantic identity '41eda869b48e6c66' but the manifest freezes '9d02b6a444073ea6'; its assertions or the data-profile shapes it runs under changed",
+              "- the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget",
+              "Platform API DB census: 16 entries = 12 bootstrap + 4 non-bootstrap; 56 include-selected entries scanned.",
+            ];
+            assert.deepEqual(text.replaceAll('\r\n', '\n').trimEnd().split('\n'), expected,
+              'only the exact frozen identity and historical-model minimality refusals are diagnostic');
+          }
+          assertStaleEnrollment(readFileSync(process.argv[2], 'utf8'));
+          STALE
 
       - name: Raise PostgreSQL lock table capacity for DB Profile
         env:
@@ -252,7 +278,7 @@ jobs:
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
           export const deriveCandidateGroups = scripts => {
             const units = Object.keys(scripts).filter(name => /^test:db:\d+$/.test(name)).sort();
-            assert.deepEqual(units, ['test:db:1', 'test:db:2'], 'the shipped two-unit route');
+            assert.deepEqual(units, ['test:db:1', 'test:db:2', 'test:db:3'], 'the shipped three-unit route');
             return Object.fromEntries(units.map(unit => {
               const files = [...scripts[unit].matchAll(/__tests__\/([^ ]+\.db\.test\.ts)/g)].map(match => match[1]);
               assert.equal(new Set(files).size, files.length, `${unit} has duplicate files`);
@@ -369,8 +395,8 @@ jobs:
             captureParent: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
             sourceBase: execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: root, encoding: 'utf8' }).trim(),
             hostTicket: process.env.HOST_TICKET,
-            role: 'current-two-unit',
-            jobName: 'Diagnostic API Bootstrap Measurement Only (current two-unit)',
+            role: 'current-three-unit',
+            jobName: 'Diagnostic API Bootstrap Measurement Only (current three-unit)',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
             node: process.version, pnpm: commandText('pnpm', ['--version']),
@@ -379,7 +405,7 @@ jobs:
             runnerImage: 'ubuntu-latest', postgresImage: 'pgvector/pgvector:pg16',
             postgresImageDigests: JSON.parse(readFileSync(resolve(output, 'postgres-image-digests.json'), 'utf8')),
             laneMode: process.env.CHASE_SETS_LANE_MODE ?? null,
-            maxWorkers: 3, workspaceConcurrency: 2, serialUnits: 2,
+            maxWorkers: 3, workspaceConcurrency: 2, serialUnits: 3,
             unitDeadlineMs: 600000, aggregateDeadlineMs: 1800000, modeledUnitCeilingMs: 420000, modeledAggregateCeilingMs: 1080000,
           };
           writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
@@ -550,7 +576,7 @@ jobs:
         if: always() && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: 10404-current-two-unit-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          name: 10404-current-three-unit-capture-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/10404-reference-capture/
             deployables/platform-api/artifacts/bootstrap-db-evidence/
