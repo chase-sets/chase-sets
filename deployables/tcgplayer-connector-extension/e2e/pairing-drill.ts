@@ -1044,10 +1044,14 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     const landed = new URL(page.url());
     return response?.status() === 200 && landed.origin === platformOrigin && landed.pathname === path;
   };
-  const cookieRows = (cookies: readonly { domain: string }[]) =>
-    [...Map.groupBy(cookies, (cookie) => cookie.domain.replace(/^\./, "")).entries()]
-      .map(([domain, rows]) => ({ domain, count: rows.length }))
-      .sort((a, b) => a.domain.localeCompare(b.domain));
+  const cookieRows = (cookies: readonly { domain: string }[]) => {
+    const counts = new Map<string, number>();
+    for (const cookie of cookies) {
+      const domain = cookie.domain.replace(/^\./, "");
+      counts.set(domain, (counts.get(domain) ?? 0) + 1);
+    }
+    return [...counts].map(([domain, count]) => ({ domain, count })).sort((a, b) => a.domain.localeCompare(b.domain));
+  };
 
   const smokeLeg = async (context: BrowserContext): Promise<LegOutcome> => {
     await install(context);
