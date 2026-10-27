@@ -1,13 +1,13 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
 // user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
 // list and a dimension, `screen=catalog`), admin's operations attention queue (`screen=attention`), marketplace's storage locations
-// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) a set's page (`screen=set`, `/sets/{set}`) a listing's (`screen=listing`, `/listings/{listing}`) an account's (`screen=account`, `/accounts/{account}`) the notification center (`screen=notifications`, its feed and its settings), the account's orders (`screen=purchases` as the collector, `screen=sales` as the seller, the list and `order`'s page), the account's shipments (`screen=shipments` as the collector, the list and `shipment`'s page; `screen=sale-shipment`, the seller's page for `shipment`; `screen=packing`, its packing page; `screen=addresses`, the collector's shipping addresses; `screen=listing-new`, the seller's Create listing, blank and from `item`'s inventory; `screen=seller-listing`, the seller's page for `listing`, a draft; `screen=seller-listings`, the seller's list of listings) or public-web's market page (`screen=market`, `/market/{slug}`, signed out) or its home page (`screen=landing`, `/`, signed out), as the auth seed's collector, cold-cache loads on desktop and on a
+// (`screen=marketplace`), its cart (`screen=cart`), an item page (`screen=item`), search (`screen=search`, `/search?q=` and `/search`) the home page (`screen=home`, `/`) a set's page (`screen=set`, `/sets/{set}`) a listing's (`screen=listing`, `/listings/{listing}`) an account's (`screen=account`, `/accounts/{account}`) the notification center (`screen=notifications`, its feed and its settings), the account's orders (`screen=purchases` as the collector, `screen=sales` as the seller, the list and `order`'s page), the account's shipments (`screen=shipments` as the collector, the list and `shipment`'s page; `screen=sale-shipment`, the seller's page for `shipment`; `screen=packing`, its packing page; `screen=addresses`, the collector's shipping addresses; `screen=listing-new`, the seller's Create listing, blank and from `item`'s inventory; `screen=seller-listing`, the seller's page for `listing`, a draft; `screen=seller-listings`, the seller's list of listings; `screen=offer-matches`, the seller's offer matches and `offer`'s page) or public-web's market page (`screen=market`, `/market/{slug}`, signed out) or its home page (`screen=landing`, `/`, signed out), as the auth seed's collector, cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set|listing|account|notifications|purchases|sales|shipments|sale-shipment|packing|addresses|listing-new|seller-listing|seller-listings|market|landing] [q=search words] [runs=7] [state=..] [policy=id]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|attention|marketplace|cart|item|search|home|set|listing|account|notifications|purchases|sales|shipments|sale-shipment|packing|addresses|listing-new|seller-listing|seller-listings|offer-matches|market|landing] [q=search words] [runs=7] [state=..] [policy=id]
 //        [dimension=id] [slug=item slug] [set=set slug] [listing=listing slug, or id for seller-listing] [account=account slug] [order=order id] [shipment=shipment id] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
@@ -16,7 +16,7 @@ import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
 const screen = named.screen ?? "admin";
-const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector", account: "collector", notifications: "collector", purchases: "collector", sales: "marketplace", "listing-new": "marketplace", "seller-listing": "marketplace", "seller-listings": "marketplace", shipments: "collector", "sale-shipment": "marketplace", packing: "marketplace", addresses: "collector", market: "none", landing: "none" }[screen] ?? "admin";
+const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector", account: "collector", notifications: "collector", purchases: "collector", sales: "marketplace", "listing-new": "marketplace", "seller-listing": "marketplace", "seller-listings": "marketplace", "offer-matches": "marketplace", shipments: "collector", "sale-shipment": "marketplace", packing: "marketplace", addresses: "collector", market: "none", landing: "none" }[screen] ?? "admin";
 const {
   screen: _screen,
   runs: runsText = "7",
@@ -62,6 +62,7 @@ const screens = {
   "listing-new": { blank: "/account/listings/new", inventory: `/account/listings/new?inventoryItemId=${named.item ?? "inv_seed_twilight_masquerade_elite_trainer_box"}` },
   "seller-listing": { draft: `/account/listings/${named.listing ?? "lst_seed_lugia_neo_genesis_draft"}` },
   "seller-listings": { all: "/account/listings" },
+  "offer-matches": { list: "/account/offers/matches", match: `/account/offers/matches/${named.offer ?? "off_seed_pikachu_jungle_quick_sale"}` },
   packing: { packing: `/account/sales/shipments/${named.shipment ?? "shp_WZMQH7WMB6QD2E5T42TEE49CFY"}/packing` },
   landing: { home: "/" },
   market: { page: `/market/${named.slug ?? "twilight-masquerade-elite-trainer-box-sealed-elite-trainer-box-uerade-elite-trainer-box-1804cgp"}` },

@@ -66,6 +66,9 @@ pub const ORDERS_MANAGE: &str = "orders.manage";
 pub const LISTINGS_VIEW: &str = "listings.view";
 /// Creating a listing (marketplace's `account-listings-new` action).
 pub const LISTINGS_MANAGE: &str = "listings.manage";
+/// The seller's offer matches: to see them, and to add one to the sell list or decline it.
+pub const OFFERS_VIEW: &str = "offers.view";
+pub const OFFERS_MANAGE: &str = "offers.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
 pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
@@ -113,6 +116,7 @@ pub mod url {
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
+    pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
@@ -527,6 +531,31 @@ pub mod url {
         }
     }
 
+    /// The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`):
+    /// the list, drawn again live, and a match's page with its writes (see `offer_matches`). Every
+    /// handler takes an `OfferReviewer`.
+    #[corten::routes(state = crate::app::Shared, area = OfferMatches, caller = crate::auth::OfferReviewer)]
+    pub mod offer_matches {
+        /// The list, read after the write whose receipt its address carries.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/offers/matches", get = crate::offer_matches::list)]
+        pub struct OfferMatches {
+            #[route(query)]
+            pub place: crate::offer_matches::Place,
+        }
+
+        /// The list's snapshot and rows, drawn again on each change to the account's offers.
+        #[route("/account/offers/matches/live", get = crate::offer_matches::live)]
+        pub struct OfferMatchesLive;
+
+        /// A match, and its writes: Add selected offer to Sell List (and Accept offer match) and
+        /// Decline.
+        #[route("/account/offers/matches/{id}", get = crate::offer_matches::page, post = crate::offer_matches::write)]
+        pub struct OfferMatch<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The account's purchases (Ordering's `account-purchases` and `account-purchase`): the list
     /// is the area's route, and every handler takes an `OrderBuyer`.
     #[corten::routes(state = crate::app::Shared, area = Purchases, caller = crate::auth::OrderBuyer)]
@@ -730,6 +759,7 @@ pub fn app(config: Config) -> App {
                 .components(views::SELLER_LISTING)
                 .deadline(crate::seller_listing::DEADLINE)
         })
+        .area::<url::OfferMatches>(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area::<url::NewListing>(|area| {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })

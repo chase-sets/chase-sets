@@ -36,6 +36,7 @@ pilot owns only the screens:
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache for the `s-maxage` Pricing's answer carries, a day by default, and either serves it stale for an hour): the breadcrumb, the item's title and subtitle, then for each currency it traded in its price history (each day's median or last price, the day's low to high as a band, drawn on the server; an empty or one-day chart says so) and its market stats as a list (last sold and when, the 30- and 90-day medians and their trades, active listings and the lowest asks, the 30-day sell-through), and View active listings, Create a price alert and Sell yours on marketplace. The title, description, social tags, canonical, `noindex` when the site is not indexed, and the Product's lowest ask as JSON-LD on the production site. An unknown item is a 404 with public-web's words, a failed read a 502 no cache keeps. `robots.txt` and the sitemap of the market pages Pricing says are worth indexing follow `CHASE_SETS_PUBLIC_INDEXING` (not ported: public-web's other pages, its favicons and manifest, and its waitlist analytics bridge) |
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) | public-web | anyone, the same page for everyone (`Public`: a browser keeps it a minute, a shared cache four minutes while the fee terms were read live, either a minute stale): the promo bar (one message at a time, turning with a script), the nav, the hero (the seller's or the buyer's copy, by `?intent` or a buyer's `utm` words, swapped by the hero's role with a script) with the early-access form, the five games, open offers, the fee comparison from Commerce's live terms (the compiled terms when the read fails), the founders offer, the full form with the waitlist counter, the FAQ, the footer, the sticky calls to action, and the page's JSON-LD. Join without a script: a signup goes to public-web's `/welcome` with its receipt, role, variant and games (303); a refusal is the page again with the API's words in the form it came from (422, 429 too many, 502). A legacy fee-calculator share link moves for good to public-web's `/compare/tcgplayer` at `#fee-calculator`. The waitlist analytics bridge posts the form's events as public-web's does (to `/api`, which the pilot does not serve) (not ported: `/welcome`, `/compare`, `/founders`, `/faq` and the policies, linked on public-web) |
 | `marketplace/` | The seller's listings, `/account/listings` | marketplace | a seller with `listings.view` to see it and `listings.manage` to change it (signed out goes to sign-in and back, an account without it reads Account access required): the heading with Create listing, the seller's availability (Turn off listings with an optional automatic return, Turn on, and an away window scheduled from a reason and dates and cancelled), the order capacity (Set capacity, Remove cap) with the open orders, the listings health (each status's count, a filter link each) and the seller's reliability (best-effort: a failed read shows none), the filters (status and words) as a GET form with chips, the listings a page at a time (100, up to 250) as rows with a box to pick each (a 44 px target), the item, status, price, quantity cap, fee summary, inventory and Open to the pilot's listing page, the bulk bar once a listing is picked (Publish, Pause and Withdraw selected, each listing's outcome after), and the fee lock report in a `<details>`. The rows, the health and the fee report are drawn again on each change to the account's listings (`<corten-live>` on `account:{id}:listings`). Each write reads after its receipt. Without a script every form posts, and an away window is refused: its dates are days where the seller is, which only the browser knows ([todd-skelton/corten#149 A handler cannot know the visitor's time zone, so a picked date needs a script to become an instant and every date is written in UTC](https://github.com/todd-skelton/corten/issues/149)). Marketplace's Paused listings card shows its raw template ([chase-sets/chase-sets#10653 [marketplace] The listings page's Paused listings card shows the raw template '{count} paused {label}'](https://github.com/chase-sets/chase-sets/issues/10653)); the pilot draws the count with no detail line |
+| `marketplace/` | The seller's offer matches, `/account/offers/matches` and `/account/offers/matches/{id}` | marketplace | a seller with `offers.view` and `listings.view` to see them and `offers.manage` to act (signed out goes to sign-in and back): the best-match snapshot (active matches, ready to accept, at or above ask, the best match as a share of the ask), that listings are off, the Sell List card, and each match (the item and its options, the status and whether the seller can fulfill it or why not, the listing's price and quantities, the best offer with the buyer's rating, offer vs ask with the gap, the quantities requested and available, when it changed) with Add selected offer to Sell List, Open and Decline. The snapshot and the matches are drawn again on each change to the account's offers (`<corten-live>` on `account:{id}:offers`). A match's page: the overview, a managed offer's state, the fee terms accepting it would be priced with (best-effort), the shipping allowance and the steps, with Accept offer match, Add selected offer to Sell List and Decline, at the bottom of the screen on a phone. Adding reads the offer as Checkout's sell list does and goes to marketplace's sell list with the write's receipt; Decline goes back to the list with its receipt; a refusal is the match's page with the API's words |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -428,6 +429,24 @@ screen laid out as they are scrolled near, a probe of six loads each went from a
 3,174 ms to 991 ms. The rest is the throttled network and the fonts. The page's own script is
 1,163 B: the picked count and the away window's instants.
 
+The seller's offer matches (`/account/offers/matches`, the demo seller's 9 matches, and the seeded
+Pikachu quick-sale match's page), the pilot's release build at the `12e0695` pin, 7 cold loads each
+(`measure.mjs screen=offer-matches`, desktop and mobile run separately, in
+`artifacts/corten-pilot/measure-offer-matches-*.json`); marketplace's dev server, desktop only. As
+before, the dev numbers are not a comparison.
+
+| Offer matches, list / a match | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 5,578 / 4,574 ms | 440 / 420 ms | 583 / 540 ms |
+| Largest contentful paint | 3,360 / 2,396 ms | 480 / 520 ms | 1,552 / 1,092 ms |
+| Server time (document) | 3,115 / 2,146 ms | 160 / 303 ms | 78 / 108 ms |
+| JavaScript transferred | 7,692,764 B | 8,911 B | 8,911 B |
+| HTML / CSS transferred | 559,940 / 186,198 B; 435,510 / 186,198 B | 3,169 / 5,837 B; 2,267 / 5,837 B | the same |
+| Requests | 251 | 9 | 9 |
+
+The pages have no script of their own; the JavaScript is Corten's runtime and the live list's
+element. A match's server time is two reads in a row (the match, then its terms at its listing).
+
 An item's page (`/items/{slug}`, the seeded Charizard: four listings, four offers, the
 fallback card back), the pilot's release build against marketplace's dev server, desktop only for
 marketplace, at the `c590b8a` pin. As for the cart, the dev numbers are not a comparison. Measured
@@ -564,6 +583,7 @@ node scripts/smoke-market-addresses.mjs http://localhost:7794 [collector-state] 
 node scripts/smoke-market-listing-new.mjs http://localhost:7794 [seller-state]  # Create listing as the demo seller: 390 px; with a script, find as you type, Choose, Preview fees in place, a non-picture refused, Save as draft with a PNG (the API has the draft and its photo); without one, Save as draft. WRITES drafts at 970-979 USD and withdraws them
 node scripts/smoke-market-seller-listing.mjs http://localhost:7794 [seller-state]  # a seller's listing as the demo seller: a draft made through Create listing lands on it; 390 px; Preview fees, Save price, the quantity cap and the limits, two photos uploaded, described, reordered, one replaced and one removed, Withdraw's dialog (modal) and Cancel; without a script, the quantity cap; then Withdraw. WRITES one draft at 980-989 USD and withdraws it
 node scripts/smoke-market-seller-listings.mjs http://localhost:7794 [seller-state] [api-url]  # the seller's listings as the demo seller: 390 px; the bulk bar; Set capacity and Remove cap; an away window scheduled (its instant the start of the local day) and cancelled; Turn off listings and on; Pause selected on withdrawn listings (each refused); a draft's cap changed through the API redraws its row live; without a script, the filters and the refused away window. WRITES each setting and puts it back
+node scripts/smoke-market-offer-matches.mjs http://localhost:7794 [seller-state] [collector-state] [api-url] [decline]  # the seller's offer matches as the demo seller: 390 px; the snapshot, the Sell List card and the matches; a synthetic offer from the collector (reused, chase-sets/chase-sets#10660) redrawn live when its price moves; a match's page with its terms and its actions at the bottom of a phone; Add selected offer to Sell List with and without a script. WRITES the offer's price and a sell list line it removes; with decline, a second offer it declines for good
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -1584,6 +1604,30 @@ postage, storage locations, cart, item and Add to List. What changed:
     64rem, and the bulk bar sticks to the bottom of the screen while a listing is picked
     ([`seller_listings.rs`](marketplace/src/seller_listings.rs),
     [`seller_listings_page.rs`](marketplace/src/views/seller_listings_page.rs)).
+55. **Offer matches are forms on the match's page, and adding one reads it as Checkout does.**
+    Marketplace's list posts Add selected offer to Sell List to its sell list with sixteen hidden
+    fields copied from the row, and its sell list's action then reads the offer again
+    (`getSellListOfferMatch`) and uses only the id. The pilot's forms post just the intent to the
+    match's page, which reads the offer from Checkout's `/account/sell-list/offer-matches/{id}`
+    and adds the line from that read (`SellListLine::offer_match`, with the listing, prices and
+    both stream versions), then goes to marketplace's sell list with the receipt and its handoff,
+    as the item page's sell writes do. An offer no longer submitted is refused (409) before
+    anything is added. Accept offer match does what marketplace's does: it adds the offer to the
+    Sell List, where the sale is reviewed. Decline posts `decline` and goes back to the list
+    with its receipt; a read still catching up is read again without it. Marketplace disables a
+    match page's Decline while the seller cannot fulfill the offer, which is when declining
+    matters most, while its list allows it; the pilot follows the list. The acceptance terms are
+    best-effort: marketplace's page fails when the preview does, and the pilot draws the match
+    without them. The list is `<corten-live>` on `account:{id}:offers`, which the offers
+    projection writes for every seller with an active listing of the offer's product; the
+    account realtime endpoint serves it (decision 54). Marketplace's list redraws only the rows'
+    data and reloads on a sync; the pilot redraws the snapshot and the rows. The item page's
+    offer line is unchanged: the new fields are left out when empty. The smoke's synthetic offer
+    is the collector's, which cannot withdraw it ([chase-sets/chase-sets#10660 [marketplace] An unverified account can submit an offer but cannot withdraw it (submit needs no offers.manage; pause, resume and withdraw do)](https://github.com/chase-sets/chase-sets/issues/10660)), so every run reuses it and moves its
+    price between two values. One column on a phone, a match's facts beside it from 64rem and a
+    match page's cards two abreast from 48rem
+    ([`offer_matches.rs`](marketplace/src/offer_matches.rs),
+    [`offer_matches_page.rs`](marketplace/src/views/offer_matches_page.rs)).
 
 ## Corten gaps
 

@@ -58,6 +58,10 @@
 //   (marketplace.features.listings.ui.listingListPage.* as list.*, marketplace.routes.accountListings.* as
 //   route.*, the listing API's refusals marketplace.features.listings.api.route.error.* as error.*, the seller
 //   desk's degraded words, and the language labels).
+// - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
+//   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
+//   .priceGap.* as gap.*, marketplace.routes.accountOfferMatch(es).* as route.* and routes.*, and the
+//   managed offer states marketplace.marketFollowing.seller.* as managed.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
@@ -502,6 +506,19 @@ const outputs = [
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
+  ],
+  [
+    "marketplace/locales/offer-matches.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.offers.ui.offerMatchListPage.", "list"],
+        ["marketplace.features.offers.ui.offerMatchDetailPage.", "detail"],
+        ["marketplace.features.offers.ui.priceGap.", "gap"],
+        ["marketplace.routes.accountOfferMatch.", "route"],
+        ["marketplace.routes.accountOfferMatches.", "routes"],
+        ["marketplace.marketFollowing.seller.", "managed"],
+      ]),
+    ),
   ],
   [
     "public/locales/market.en.json",

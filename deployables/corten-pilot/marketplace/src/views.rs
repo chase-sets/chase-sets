@@ -31,6 +31,7 @@ mod listing_page;
 mod location_card;
 mod market_nav;
 mod notification_page;
+mod offer_matches_page;
 mod order_page;
 mod packing_page;
 mod page_actions;
@@ -54,6 +55,7 @@ pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
+pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
 pub use order_page::{OrderList, OrderPage};
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
 pub use page_actions::PageActions;
@@ -101,6 +103,9 @@ pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handle
 
 /// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
 pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
+
+/// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
+pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];

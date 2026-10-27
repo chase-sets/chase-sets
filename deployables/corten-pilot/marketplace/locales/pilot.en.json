@@ -152,5 +152,14 @@
     "choose_listings": "Check the listings to pause or withdraw first.",
     "date": "Enter a date as YYYY-MM-DD.",
     "zone_unknown": "Your time zone could not be read, so nothing was scheduled. Turn on JavaScript for this page and try again."
+  },
+  "offer_matches": {
+    "unavailable": "This offer is no longer open, so nothing was added to your Sell List.",
+    "add_for": "Add {buyer}'s offer for {title} to the Sell List",
+    "decline_for": "Decline {buyer}'s offer for {title}",
+    "open_for": "Open {buyer}'s offer for {title}",
+    "rating": "{rating} out of 5 from {reviews} reviews",
+    "new_buyer": "New",
+    "seller_terms": "Seller terms"
   }
 }

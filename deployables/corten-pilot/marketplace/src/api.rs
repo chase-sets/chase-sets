@@ -3352,3 +3352,109 @@ impl SellerListingList for Caller<'_> {
         answer(req).await
     }
 }
+
+/// A submitted offer that matches a listing of the seller's (`OfferMatchListItem`, the same row
+/// for the list and an offer match's page; Checkout's sell-list read adds `offer_stream_version`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OfferMatch {
+    pub offer_id: String,
+    pub buyer_account_id: String,
+    pub buyer_display_name: Option<String>,
+    pub buyer_average_rating: Option<String>,
+    pub buyer_review_count: u64,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub item_title: String,
+    pub item_subtitle: Option<String>,
+    pub selected_options: Vec<Selected>,
+    pub product_summary: Option<String>,
+    pub price_amount: String,
+    pub price_currency_code: Option<String>,
+    pub last_stream_version: u64,
+    pub offer_stream_version: Option<u64>,
+    pub quantity_requested: u64,
+    /// `submitted`, or what it became.
+    pub status: String,
+    pub listing_id: String,
+    pub listing_price_amount: String,
+    pub listing_price_currency_code: String,
+    pub listing_stream_version: u64,
+    pub listing_quantity_cap: u64,
+    pub listing_visible_quantity: u64,
+    /// The offer's price below the listing's (negative over it), as a decimal.
+    pub offer_price_gap_amount: String,
+    /// The offer as basis points of the listing's price.
+    pub offer_to_listing_price_bps: u32,
+    pub seller_available_quantity: u64,
+    /// `available` or `unavailable` (listings turned off).
+    pub seller_listing_availability_status: String,
+    pub can_fulfill: bool,
+    /// `unavailable`, `held` or `refresh_required` for a managed offer.
+    pub managed_status: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OfferMatches {
+    pub items: Vec<OfferMatch>,
+    pub total: u64,
+}
+
+/// The fee terms accepting an offer would be priced with (`MarketplaceListingTermsPreview`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AcceptanceTerms {
+    pub marketplace_sales_fee_unit_amount: Option<String>,
+    pub seller_net_unit_amount: Option<String>,
+    pub shipping_allowance_percentage_bps: Option<u32>,
+    pub agreement_id: Option<String>,
+    pub resolved_at: Option<String>,
+}
+
+/// The seller's offer matches' calls (marketplace's `account-offer-matches` and
+/// `account-offer-match`, and the sell list's `add-selected-offer`).
+pub trait OfferMatchCalls {
+    /// The first 100 offer matches, as marketplace reads them.
+    async fn offer_matches(&self) -> Result<OfferMatches, ApiError>;
+    /// An offer match, or none when the seller has no such match (404).
+    async fn offer_match(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
+    /// What accepting it at `listing` would be priced with.
+    async fn acceptance_terms(&self, id: &str, listing: &str) -> Result<AcceptanceTerms, ApiError>;
+    /// The offer as Checkout's sell list reads it (`getSellListOfferMatch`), for its line.
+    async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
+    async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError>;
+}
+
+impl OfferMatchCalls for Caller<'_> {
+    async fn offer_matches(&self) -> Result<OfferMatches, ApiError> {
+        self.read(&format!("{ACCOUNT}/offers/matches?limit=100&offset=0"), MARKETPLACE).await
+    }
+
+    async fn offer_match(&self, id: &str) -> Result<Option<OfferMatch>, ApiError> {
+        match self.read(&format!("{ACCOUNT}/offers/matches/{}", segment(id)), MARKETPLACE).await {
+            Ok(offer) => Ok(Some(offer)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn acceptance_terms(&self, id: &str, listing: &str) -> Result<AcceptanceTerms, ApiError> {
+        let path = format!("{ACCOUNT}/offers/matches/{}/terms-preview?listingId={}", segment(id), segment(listing));
+        self.read(&path, MARKETPLACE).await
+    }
+
+    async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError> {
+        match self.read(&format!("{ACCOUNT}/sell-list/offer-matches/{}", segment(id)), CHECKOUT).await {
+            Ok(offer) => Ok(Some(offer)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError> {
+        let path = format!("{ACCOUNT}/offers/matches/{}/decline", segment(id));
+        answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({}))).await
+    }
+}

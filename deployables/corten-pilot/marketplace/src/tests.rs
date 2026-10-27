@@ -398,6 +398,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = identity(&method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = offer_matches(&method, uri.path()) {
+        return answer;
+    }
     // Before Ordering's and the listing page's, whose paths begin the same.
     if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
         return answer;
@@ -717,7 +720,7 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
     if path == GUEST_SELL_LIST && guest.is_none() {
         return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_sell_list_required", "Sign in."));
     }
-    if sent["lineType"] == "selected-offer" {
+    if sent["lineType"] == "selected-offer" && sent["listingId"].is_null() {
         return Some(refusal(
             StatusCode::BAD_REQUEST,
             "validation_failed",
@@ -6775,7 +6778,7 @@ async fn back_to_listings_is_the_pilots_list() {
 
 const LISTINGS: &str = "/account/listings";
 
-/// The calls the list made to the API under \`path\`, as \`METHOD path body\`.
+/// The calls the list made to the API under `path`, as `METHOD path body`.
 fn list_calls(pilot: &Pilot, path: &str) -> Vec<String> {
     let calls = pilot.stand.calls.lock().unwrap();
     calls.iter().filter(|c| c.path.starts_with(path)).map(|c| format!("{} {} {}", c.method, c.path, c.body)).collect()
@@ -7016,4 +7019,189 @@ async fn a_change_to_the_accounts_listings_draws_the_counts_rows_and_report_agai
     let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
     assert!(realtime.path.contains("topic=account%3Aacc_seller%3Alistings"), "{}", realtime.path);
     assert!(calls.iter().any(|c| c.path == "/api/marketplace/account/listings?limit=100&offset=0&status=active"));
+}
+
+/// An offer match as the API sends it: `off_ready` on `lst_pika` below its ask, which the seller
+/// can fulfill.
+fn offer_match(id: &str, status: &str, can_fulfill: bool) -> Value {
+    json!({
+        "offer_id": id, "buyer_account_id": "acc_buyer", "buyer_display_name": "Collector Zero",
+        "buyer_average_rating": "4.50", "buyer_review_count": 12,
+        "catalog_catalog_item_id": "cat_pika", "product_id": "cat_pika::form:raw",
+        "item_title": "Pikachu", "item_subtitle": "Jungle 60/64", "product_summary": "Form: Raw | Condition: Excellent",
+        "selected_options": [{ "dimensionId": "dim_form", "optionId": "raw" }],
+        "price_amount": "17.75", "price_currency_code": "USD", "last_stream_version": 3, "offer_stream_version": 3,
+        "quantity_requested": 2, "status": status,
+        "listing_id": "lst_pika", "listing_price_amount": "19.99", "listing_price_currency_code": "USD",
+        "listing_stream_version": 7, "listing_quantity_cap": 2, "listing_visible_quantity": 2,
+        "offer_price_gap_amount": "2.24", "offer_to_listing_price_bps": 8879, "seller_available_quantity": 2,
+        "seller_listing_availability_status": "available", "can_fulfill": can_fulfill, "managed_status": null,
+        "updated_at": "2026-10-24T03:55:37.712Z",
+    })
+}
+
+/// The seller's offer matches, as the stand-in answers them: `off_ready` and `off_short` (no
+/// supply); `off_gone` is no longer submitted, `off_taken` declines with a refusal, and any other
+/// id is not the seller's.
+fn offer_matches(method: &Method, path: &str) -> Option<Response> {
+    const MATCHES: &str = "/api/marketplace/account/offers/matches";
+    const SELL_LIST_OFFER: &str = "/api/marketplace/account/sell-list/offer-matches/";
+    let known = |id: &str| match id {
+        "off_ready" => Some(offer_match("off_ready", "submitted", true)),
+        "off_short" => Some(offer_match("off_short", "submitted", false)),
+        "off_gone" => Some(offer_match("off_gone", "accepted", true)),
+        "off_taken" => Some(offer_match("off_taken", "submitted", true)),
+        _ => None,
+    };
+    if let Some(id) = path.strip_prefix(SELL_LIST_OFFER) {
+        return Some(match known(id) {
+            Some(offer) => Json(offer).into_response(),
+            None => refusal(StatusCode::NOT_FOUND, "offer_not_found", "Offer not found."),
+        });
+    }
+    let rest = path.strip_prefix(MATCHES)?;
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({
+            "items": [offer_match("off_ready", "submitted", true), offer_match("off_short", "submitted", false)],
+            "total": 2, "count": 2,
+        }))
+        .into_response(),
+        ("GET", rest) if rest.ends_with("/terms-preview") => Json(json!({
+            "marketplace_sales_fee_unit_amount": "1.30", "seller_net_unit_amount": "16.45",
+            "shipping_allowance_percentage_bps": 500, "agreement_id": null, "resolved_at": "2026-10-27T11:19:31.847Z",
+        }))
+        .into_response(),
+        ("POST", "/off_taken/decline") => {
+            refusal(StatusCode::BAD_REQUEST, "offer_command_rejected", "Offer match has already been declined.")
+        }
+        ("POST", rest) if rest.ends_with("/decline") => {
+            committed(StatusCode::CREATED, "marketplace", "61", json!({ "id": "off_ready", "status": "declined" }))
+        }
+        ("GET", rest) => match known(rest.trim_start_matches('/')) {
+            Some(offer) => Json(offer).into_response(),
+            None => refusal(StatusCode::NOT_FOUND, "offer_not_found", "Offer not found."),
+        },
+        _ => return None,
+    })
+}
+
+const OFFER_MATCHES: &str = "/account/offers/matches";
+
+#[tokio::test]
+async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(OFFER_MATCHES, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Offer Matches Compare each best buyer offer",
+        "Active matches 2 Ready to accept 1 At or above ask 0 Best match 88.79%",
+        "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
+        "Your Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
+        "Needs supply",
+    ] {
+        assert!(page.contains(words), "{words:?} in {page}");
+    }
+    // The title and Open (labelled with the buyer and the item) link each match.
+    let mut links = hrefs(&html, "Pikachu");
+    links.dedup();
+    assert_eq!(links, ["/account/offers/matches/off_ready", "/account/offers/matches/off_short"]);
+    assert!(html.contains(r#"<corten-live src="/account/offers/matches/live"></corten-live>"#), "{html}");
+    // Each match posts to its own page; one with no supply cannot be added to the sell list.
+    assert!(html.contains(r#"<form method="post" action="/account/offers/matches/off_short"><input type="hidden" name="intent" value="add-selected-offer"><button class="#), "{html}");
+    let short = html.split(r#"action="/account/offers/matches/off_short""#).nth(1).unwrap();
+    assert!(short.split("</form>").next().unwrap().contains("disabled"), "{short}");
+}
+
+#[tokio::test]
+async fn offer_matches_need_offers_and_listings_to_read_and_offers_manage_to_write() {
+    let pilot = Pilot::new().await;
+    // `lookout` has listings.view only; `lister` reads offers but may not manage them.
+    let (status, _, _) = pilot.send(get(OFFER_MATCHES, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get(OFFER_MATCHES, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(post("/account/offers/matches/off_ready", "lister", "intent=decline-offer", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(OFFER_MATCHES, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"));
+}
+
+#[tokio::test]
+async fn an_offer_matchs_page_shows_its_terms_and_an_unknown_one_is_not_found() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/offers/matches/off_ready", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Offer match Pikachu",
+        "$17.75 Offer is 88.79% of ask, $2.24 below ask.",
+        "Buyer Collector Zero",
+        "Marketplace sales fee $1.30 Shipping allowance rate 5% Terms source Standard terms Seller net $16.45",
+        "Accepting this offer earns 5% toward shipping.",
+        "Accept offer match Add selected offer to Sell List Decline",
+    ] {
+        assert!(page.contains(words), "{words:?} in {page}");
+    }
+    assert_eq!(hrefs(&html, "Back to offer matches"), ["/account/offers/matches"]);
+    let (status, _, _) = pilot.send(get("/account/offers/matches/off_nobody", Some("trader"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // An accepted match has no actions and no terms preview.
+    let (_, _, html) = pilot.send(get("/account/offers/matches/off_gone", Some("trader"))).await;
+    assert!(!text(&html).contains("Accept offer match Add"), "{html}");
+    assert!(!list_calls(&pilot, "/api/marketplace/account/offers/matches/off_gone/terms").iter().any(|_| true));
+}
+
+#[tokio::test]
+async fn adding_an_offer_match_sends_its_line_with_the_listing_and_goes_to_the_sell_list() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=add-selected-offer", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/account/sell-list?afterWrite="), "{to}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/sell-list");
+    let add = sent.iter().find(|c| c.starts_with("POST")).unwrap();
+    let line: Value = serde_json::from_str(add.split_once(' ').unwrap().1.split_once(' ').unwrap().1).unwrap();
+    assert_eq!(line["lineType"], "selected-offer");
+    assert_eq!((line["offerId"].as_str(), line["listingId"].as_str()), (Some("off_ready"), Some("lst_pika")));
+    assert_eq!((line["offerStreamVersion"].as_u64(), line["listingStreamVersion"].as_u64()), (Some(3), Some(7)));
+    assert_eq!((line["buyerAccountId"].as_str(), line["quantity"].as_u64()), (Some("acc_buyer"), Some(2)));
+    // One no longer submitted is refused with words, and nothing is added.
+    let (status, _, html) =
+        pilot.send(post("/account/offers/matches/off_gone", "trader", "intent=add-selected-offer", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("This offer is no longer open"), "{html}");
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/sell-list").iter().filter(|c| c.starts_with("POST")).count(), 1);
+}
+
+#[tokio::test]
+async fn declining_goes_back_to_the_list_with_its_receipt_and_a_refusal_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/offers/matches?afterWrite="), "{to}");
+    assert!(
+        list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline").iter().any(|c| c.starts_with("POST"))
+    );
+    let (status, _, html) = pilot.send(post("/account/offers/matches/off_taken", "trader", "intent=decline-offer", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Offer match has already been declined."), "{html}");
+    let (status, _, _) = pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=accept-everything", false)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_change_to_the_accounts_offers_draws_the_snapshot_and_rows_again() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/account/offers/matches/live", Some("trader")), 1).await;
+    let data = &events[0].2;
+    assert!(data.contains("Best match snapshot") && data.contains("/account/offers/matches/off_ready"), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
+    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);
 }

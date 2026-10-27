@@ -17,7 +17,7 @@ use crate::{
     api::Identity,
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
+        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, Shared, VIEW, sign_in_at,
     },
     views,
 };
@@ -233,6 +233,30 @@ impl Identify<Shared> for ListingManager {
                 if viewer.actor.can(LISTINGS_VIEW) && (parts.method.is_safe() || viewer.actor.can(LISTINGS_MANAGE)) =>
             {
                 Ok(ListingManager(viewer))
+            }
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller on their offer matches (marketplace's `account-offer-matches` and
+/// `account-offer-match`): reading needs `offers.view` and `listings.view`, as their loaders
+/// require, and writing `offers.manage` too, as the action does (the API checks again). Anyone not
+/// signed in is sent to marketplace's sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct OfferReviewer(pub Viewer);
+
+impl Identify<Shared> for OfferReviewer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer)
+                if viewer.actor.can(OFFERS_VIEW)
+                    && viewer.actor.can(LISTINGS_VIEW)
+                    && (parts.method.is_safe() || viewer.actor.can(OFFERS_MANAGE)) =>
+            {
+                Ok(OfferReviewer(viewer))
             }
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(sign_in_at(parts.uri.path()))),

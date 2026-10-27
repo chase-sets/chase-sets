@@ -120,6 +120,20 @@ pub struct SellListLine {
     pub buyer_account_id: Option<String>,
     pub buyer_display_name: Option<String>,
     pub offer_price_amount: Option<String>,
+    /// An offer match's listing, prices and versions (`selectedOfferLineFromOffer`); the item
+    /// page's offer line has none of them, so they are left out rather than sent as null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listing_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offer_price_currency_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offer_stream_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listing_price_amount: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listing_price_currency_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listing_stream_version: Option<u64>,
     pub catalog_item_id: String,
     pub product_id: String,
     pub item_title: String,
@@ -151,15 +165,73 @@ pub fn offer_line(item: &Item, offer: &Offer) -> SellListLine {
         buyer_account_id: None,
         buyer_display_name: offer.buyer_display_name.clone(),
         offer_price_amount: Some(offer.price_amount.clone()),
-        catalog_item_id: item.catalog_item_id.clone(),
-        product_id: offer.product_id.clone(),
-        item_title: item.title.clone(),
-        item_subtitle: item.subtitle.clone(),
-        selected_options: offer.selected_options.clone(),
-        product_summary: offer.product_summary.clone(),
-        quantity: offer.quantity_requested,
-        fallback_mode: "none",
-        minimum_listing_price_amount: None,
+        ..SellListLine::listing_free()
+    }
+    .with_item(item, offer)
+}
+
+impl SellListLine {
+    /// The fields only an offer match's line has, empty.
+    fn listing_free() -> Self {
+        SellListLine {
+            line_type: "selected-offer",
+            offer_id: None,
+            buyer_account_id: None,
+            buyer_display_name: None,
+            offer_price_amount: None,
+            listing_id: None,
+            offer_price_currency_code: None,
+            offer_stream_version: None,
+            listing_price_amount: None,
+            listing_price_currency_code: None,
+            listing_stream_version: None,
+            catalog_item_id: String::new(),
+            product_id: String::new(),
+            item_title: String::new(),
+            item_subtitle: None,
+            selected_options: Vec::new(),
+            product_summary: None,
+            quantity: 0,
+            fallback_mode: "none",
+            minimum_listing_price_amount: None,
+        }
+    }
+
+    fn with_item(self, item: &Item, offer: &Offer) -> Self {
+        SellListLine {
+            catalog_item_id: item.catalog_item_id.clone(),
+            product_id: offer.product_id.clone(),
+            item_title: item.title.clone(),
+            item_subtitle: item.subtitle.clone(),
+            selected_options: offer.selected_options.clone(),
+            product_summary: offer.product_summary.clone(),
+            quantity: offer.quantity_requested,
+            ..self
+        }
+    }
+
+    /// An offer match's line, from Checkout's read of it (`selectedOfferLineFromOffer`).
+    pub fn offer_match(offer: &crate::api::OfferMatch) -> Self {
+        SellListLine {
+            offer_id: Some(offer.offer_id.clone()),
+            listing_id: Some(offer.listing_id.clone()),
+            buyer_account_id: Some(offer.buyer_account_id.clone()),
+            buyer_display_name: offer.buyer_display_name.clone(),
+            offer_price_amount: Some(offer.price_amount.clone()),
+            offer_price_currency_code: offer.price_currency_code.clone(),
+            offer_stream_version: Some(offer.offer_stream_version.unwrap_or(offer.last_stream_version)),
+            listing_price_amount: Some(offer.listing_price_amount.clone()),
+            listing_price_currency_code: Some(offer.listing_price_currency_code.clone()),
+            listing_stream_version: Some(offer.listing_stream_version),
+            catalog_item_id: offer.catalog_catalog_item_id.clone(),
+            product_id: offer.product_id.clone(),
+            item_title: offer.item_title.clone(),
+            item_subtitle: offer.item_subtitle.clone(),
+            selected_options: offer.selected_options.clone(),
+            product_summary: offer.product_summary.clone(),
+            quantity: offer.quantity_requested,
+            ..SellListLine::listing_free()
+        }
     }
 }
 
@@ -172,6 +244,12 @@ pub fn product_line(item: &Item, screen: &ItemScreen, product: &str, quantity: u
         buyer_account_id: None,
         buyer_display_name: None,
         offer_price_amount: None,
+        listing_id: None,
+        offer_price_currency_code: None,
+        offer_stream_version: None,
+        listing_price_amount: None,
+        listing_price_currency_code: None,
+        listing_stream_version: None,
         catalog_item_id: item.catalog_item_id.clone(),
         product_id: product.to_owned(),
         item_title: item.title.clone(),

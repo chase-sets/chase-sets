@@ -20,6 +20,7 @@ mod listing;
 mod listing_new;
 mod locations;
 mod notifications;
+mod offer_matches;
 mod orders;
 mod packing;
 mod public_listing;
