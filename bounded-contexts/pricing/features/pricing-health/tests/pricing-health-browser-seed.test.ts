@@ -6,6 +6,35 @@ import {
 } from "../../../support/runtime-support/pricing-health-browser-seed";
 
 describe("Pricing Health browser input fixture", () => {
+  it("isolates what-if reference-id and null portfolios from the verdict fixture's grades (F3 F5)", async () => {
+    const writes: { sql: string; values: readonly unknown[] }[] = [];
+    const query: PgTransactionalPool["query"] = async <Row>(sql: string, values?: readonly unknown[]) => {
+      writes.push({ sql, values: values ?? [] });
+      return { rows: [] as Row[] };
+    };
+    const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: () => {} }) };
+    const fixture = await seedSyntheticPricingHealthInputs(pool, {
+      accountId: "synthetic-account",
+      listingId: "unused-verdict-listing",
+      now: "2026-10-19T10:00:00.000Z",
+      whatIfPortfolios: true,
+    });
+    expect(
+      writes
+        .filter(({ sql }) => sql.includes("INSERT INTO pricing_catalog_item_inputs"))
+        .map(({ values }) => values.slice(0, 4)),
+    ).toEqual([
+      ["synthetic_what_if_a", "ref_synthetic_what_if_a", "Synthetic Product Line A", 1],
+      ["synthetic_what_if_b", "ref_synthetic_what_if_b", "Synthetic Product Line B", 1],
+      ["synthetic_what_if_none", null, null, null],
+    ]);
+    expect(writes.filter(({ sql }) => sql.includes("INSERT INTO pricing_market_listing_inputs"))).toHaveLength(3);
+    expect(writes.filter(({ sql }) => sql.includes("INSERT INTO pricing_demand_curve_points"))).toHaveLength(3);
+    await fixture.cleanup();
+    expect(writes.filter(({ sql }) => sql.includes("DELETE FROM pricing_market_listing_inputs"))).toHaveLength(3);
+    expect(writes.some(({ sql }) => sql.includes("pricing_forecast_grades"))).toBe(false);
+    expect(writes.some(({ values }) => values.includes("unused-verdict-listing"))).toBe(false);
+  });
   it("uses exact money arithmetic for quantities and the canonical curve sale probability", async () => {
     const query: PgTransactionalPool["query"] = async <Row>(sql: string) => ({
       rows: (sql.includes("FROM pricing_market_listing_inputs")

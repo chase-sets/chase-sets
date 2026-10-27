@@ -10,6 +10,7 @@ const outcomes = new Set([
   "checksum-failure",
   "cache-restore-failure",
   "cleanup-failure",
+  "cancelled",
   "refused",
 ]);
 

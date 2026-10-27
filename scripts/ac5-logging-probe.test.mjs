@@ -151,8 +151,13 @@ function mainFixture(overrides = {}) {
     if (actual[1] === "daemonset") return json(data.daemonSet);
     if (actual[1] === "configmap") return json(actual[2].endsWith("-observability") ? data.collector : data.configMap);
     if (actual[1] === "deployment") return json(data.deployment);
-    if (actual[1] === "pods")
+    if (actual[1] === "pods") {
+      if (actual[3] === "chase-sets-platform" && overrides.marketplacePodsOutput !== undefined)
+        return { stdout: overrides.marketplacePodsOutput, stderr: "" };
+      if (actual[3] === "chase-sets-platform" && overrides.marketplacePodsTruncated)
+        throw Object.assign(new Error("truncated marketplace pod response"), { code: 1 });
       return json(actual[3] === "chase-sets-platform" ? data.marketplacePods : data.controllerPods);
+    }
     if (actual[1] === "service") return json(data.service);
     if (actual[1] === "ingress") return json(data.ingress);
     if (actual[1].startsWith("deployments,")) return json(data.inventory);
@@ -749,6 +754,43 @@ describe("AC5 logging probe", () => {
       stdout.mockRestore();
       fixture.cleanup();
     }
+  });
+
+  it("queries only Running marketplace pods and proceeds with historical terminal pods present (AC1, AC2)", async () => {
+    const fixture = mainFixture({
+      change: (data) => {
+        const ready = data.marketplacePods.items[0];
+        const terminal = Array.from({ length: 97 }, (_, index) => ({
+          metadata: {
+            name: `marketplace-terminal-${index}`,
+            namespace: "chase-sets-platform",
+            labels: {
+              "app.kubernetes.io/name": "chase-sets-platform",
+              "app.kubernetes.io/component": "marketplace",
+            },
+          },
+          status: { phase: "Failed", reason: "Evicted" },
+        }));
+        data.marketplacePods.items = [...terminal, ready];
+      },
+    });
+    try {
+      await expect(fixture.run()).resolves.toMatchObject({ overall: "PASS", exitCode: 0 });
+      const marketplaceCall = fixture.calls.find(
+        (call) => call.command === "kubectl" && call.args[2] === "pods" && call.args[4] === "chase-sets-platform",
+      );
+      expect(marketplaceCall?.args).toContain("--field-selector=status.phase=Running");
+      expect(marketplaceCall?.args).toContain("-l");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it.each([
+    ["truncated", { marketplacePodsTruncated: true }, "ac5_marketplace_pods_read_incomplete"],
+    ["invalid JSON", { marketplacePodsOutput: "{not-json" }, "ac5_marketplace_pods_json_invalid"],
+  ])("refuses %s marketplace pod output before requests (AC2)", async (_name, overrides, code) => {
+    await expectQualificationStop(mainFixture(overrides), code);
   });
 
   it("records an overlong post-send window as INCONCLUSIVE, not FAIL (F1)", async () => {

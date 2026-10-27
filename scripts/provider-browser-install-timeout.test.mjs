@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
@@ -119,6 +120,40 @@ describe("Static Checks provider installer", () => {
     ]);
     runtime.emit("message", "release");
     expect(runtime.exit).toHaveBeenCalledWith(0);
+  });
+
+  it("passes composed installer command and args to the owned group leader", () => {
+    const runtime = Object.assign(new EventEmitter(), { pid: 777, send: vi.fn(), exit: vi.fn() });
+    const installer = new EventEmitter();
+    const spawnImpl = vi.fn(() => installer);
+    superviseInstaller({ runtime, spawnImpl, installerCommand: "node", installerArgs: ["-e", "process.exit(0)"] });
+    expect(spawnImpl.mock.calls[0].slice(0, 2)).toEqual(["node", ["-e", "process.exit(0)"]]);
+  });
+
+  it("entry block decodes a composed installer spec and reports a successful child", async () => {
+    const spec = Buffer.from(
+      JSON.stringify({ command: process.execPath, args: ["-e", "process.exit(0)"] }),
+      "utf8",
+    ).toString("base64url");
+    const child = spawn(
+      process.execPath,
+      ["scripts/provider-browser-install-timeout.mjs", "--installer-process-group", spec],
+      {
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        windowsHide: true,
+      },
+    );
+    const messages = [];
+    const status = await new Promise((resolve, reject) => {
+      child.on("message", (message) => {
+        messages.push(message);
+        child.send("release");
+      });
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    expect(status).toBe(0);
+    expect(messages).toEqual([{ installerStatus: 0 }]);
   });
 
   it("terminates only its own group if its supervising owner disconnects", async () => {
