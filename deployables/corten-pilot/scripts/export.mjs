@@ -41,7 +41,9 @@
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
 // - marketplace/locales/shipments.en.json: the shipment pages' English catalog
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
-//   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*).
+//   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
+//   the packing page's .shipmentPackingPage.* as packing.* and .accountSaleShipmentPacking.* as
+//   pack_route.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
@@ -431,6 +433,8 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
         ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
         ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
+        ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
+        ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
       ]),
     ),
   ],

@@ -18,6 +18,7 @@ mod listing;
 mod locations;
 mod notifications;
 mod orders;
+mod packing;
 mod public_listing;
 mod recovery;
 mod restock;

@@ -84,7 +84,19 @@
   "shipments": {
     "line": "{count} line",
     "lines": "{count} lines",
-    "actions_on_marketplace": "Packing, labels and the shipment's other actions are on marketplace for now.",
+    "actions_on_marketplace": "Labels and the shipment's other actions are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace"
+  },
+  "packing": {
+    "quantity_invalid": "Enter how many of this line are packed as a whole number.",
+    "package_count_invalid": "Enter a package count of 1 or more.",
+    "not_applied": "Nothing was changed. Review the shipment and try again.",
+    "unconfirmed_title": "We could not confirm your last packing change",
+    "unconfirmed": "Packing actions are paused until we can confirm whether it was saved. Check again in a moment.",
+    "check": "Check again",
+    "discard": "Discard recovery metadata",
+    "discard_confirmation": "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
+    "storage_unavailable": "Shipment recovery storage is unavailable. No change was sent.",
+    "copied": "Copied"
   }
 }

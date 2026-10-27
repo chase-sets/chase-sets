@@ -105,7 +105,7 @@ pub mod url {
     pub use listings::{ListingsArea, PublicListing, PublicListingBuy, PublicListingReport};
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
-    pub use sale_shipments::SaleShipments;
+    pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use sets::{Set, Sets};
@@ -516,9 +516,44 @@ pub mod url {
         #[route("/account/sales/shipments", get = crate::shipments::command_center)]
         pub struct SaleShipments;
 
-        /// A shipment the seller sends.
+        /// A shipment the seller sends, read after the write whose receipt it carries.
         #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
         pub struct SaleShipment<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub after: crate::cart::AfterWrite,
+        }
+
+        /// Packing the shipment (see `packing`).
+        #[route("/account/sales/shipments/{id}/packing", get = crate::packing::page)]
+        pub struct Packing<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::packing::Place,
+        }
+
+        /// Start packing.
+        #[route("/account/sales/shipments/{id}/packing/start", post = crate::packing::start)]
+        pub struct PackingStart<'a> {
+            pub id: &'a str,
+        }
+
+        /// How many of a line are packed.
+        #[route("/account/sales/shipments/{id}/packing/lines/{line}", post = crate::packing::line)]
+        pub struct PackingLine<'a> {
+            pub id: &'a str,
+            pub line: &'a str,
+        }
+
+        /// One more of the line a scan names.
+        #[route("/account/sales/shipments/{id}/packing/scan", post = crate::packing::scan)]
+        pub struct PackingScan<'a> {
+            pub id: &'a str,
+        }
+
+        /// Record the package as packed.
+        #[route("/account/sales/shipments/{id}/pack", post = crate::packing::pack)]
+        pub struct Pack<'a> {
             pub id: &'a str,
         }
     }
@@ -588,7 +623,7 @@ pub fn app(config: Config) -> App {
         .area::<url::Purchases>(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
         .area::<url::Sales>(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
         .area::<url::Shipments>(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
-        .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SHIPMENTS))
+        .area::<url::SaleShipments>(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area::<url::Notifications>(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .error_page(views::error_page, shared)
 }

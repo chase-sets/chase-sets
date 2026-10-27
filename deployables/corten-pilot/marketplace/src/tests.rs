@@ -367,6 +367,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "looker" => actor(&["orders.view"]),
             // The account's shipments, as a buyer and as the seller who sends them.
             "shipper" => actor(&["fulfillment.view", "fulfillment.manage"]),
+            // A seller who may see the shipments but not pack them.
+            "tracker" => actor(&["fulfillment.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -390,6 +392,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     // Before Ordering's, whose sales path is a prefix of the seller's shipments.
+    if let Some(answer) = packing(&method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = fulfillment(&method, &uri) {
         return answer;
     }
@@ -5211,4 +5216,309 @@ async fn an_orders_view_fulfillment_opens_the_buyers_shipments_here_and_the_sell
     assert!(html.contains(r#"href="/account/shipments">View fulfillment</a>"#), "{html}");
     let (_, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
     assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+}
+
+/// Packing attempts the stand-in knows: one the API applied before (a repeat is refused, and
+/// mutation-recovery says it succeeded), one it holds no record of, and one whose check fails.
+const APPLIED_BEFORE: &str = "22222222-2222-4222-8222-222222222222";
+const NO_RECORD: &str = "33333333-3333-4333-8333-333333333333";
+const CHECK_DOWN: &str = "44444444-4444-4444-8444-444444444444";
+
+/// A shipment the seller packs: `shp_wait` awaits its package, `shp_pack` is packing with 2 of 3
+/// packed, `shp_full` is packing with all 3. Charizard's line holds 2.
+fn packing_shipment(id: &str) -> Option<Value> {
+    let (status, packed) = match id {
+        "shp_wait" => ("awaiting-package", [None, None]),
+        "shp_pack" => ("packing", [Some(1), Some(1)]),
+        "shp_full" => ("packing", [Some(1), Some(2)]),
+        _ => return None,
+    };
+    let mut detail = shipment(id, status, None);
+    detail["package_status"] = json!("unpacked");
+    detail["total_quantity"] = json!(3);
+    detail["updated_at"] = json!("2026-10-24T15:00:00.000Z");
+    detail["packing_started_at"] = if status == "packing" { json!("2026-10-24T15:00:00.000Z") } else { Value::Null };
+    detail["shipping_destination_snapshot"] = json!({
+        "name": "Collector Zero", "line1": "1 Test Way", "city": "Austin", "state": "TX", "postalCode": "78701", "country": "US",
+    });
+    detail["lines"][0]["order_line_id"] = json!("orl_01ETB0000001");
+    detail["lines"][0]["product_id"] = json!("cat_etb::sealed");
+    detail["lines"][1]["order_line_id"] = json!("orl_01CHARIZARD2");
+    detail["lines"][1]["product_id"] = json!("cat_charizard::raw-nm");
+    detail["lines"][1]["quantity"] = json!(2);
+    for (line, packed) in packed.into_iter().enumerate() {
+        detail["lines"][line]["packing_confirmed_quantity"] = json!(packed);
+    }
+    Some(detail)
+}
+
+/// The stand-in Fulfillment packing API for those shipments: reads (one that waits for position 44
+/// is still catching up), start, a line's count, pack and mutation-recovery. A rule the API keeps
+/// is a 400 `validation_failed` with its words.
+fn packing(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(SELLER_SHIPMENTS)?.strip_prefix('/')?;
+    let (id, command) = rest.split_once('/').unwrap_or((rest, ""));
+    let detail = packing_shipment(id)?;
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let rule = |message: &str| Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", message));
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    match (method.as_str(), command) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("44") => Some(refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        )),
+        ("GET", "") => Some(Json(detail).into_response()),
+        ("GET", "mutation-recovery") => Some(match attempt {
+            APPLIED_BEFORE => Json(json!({ "status": "succeeded", "commandKind": "start-packing" })).into_response(),
+            NO_RECORD => Json(json!({ "status": "confirming" })).into_response(),
+            CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "status": "failed-safe" })).into_response(),
+        }),
+        ("POST", _) if attempt == APPLIED_BEFORE => rule("This request was already processed with a different body."),
+        ("POST", "packing/start") if detail["status"] == "awaiting-package" => Some(written(StatusCode::OK, id)),
+        ("POST", "packing/start") => rule("Packing can only start while the shipment is awaiting its package."),
+        ("POST", line) if line.starts_with("packing/lines/") => {
+            let line = line.trim_start_matches("packing/lines/");
+            let found = detail["lines"].as_array()?.iter().find(|l| l["line_id"] == line)?.clone();
+            match sent["confirmedQuantity"].as_u64() {
+                _ if detail["status"] != "packing" => rule("Lines can only be confirmed while packing."),
+                Some(n) if n <= found["quantity"].as_u64()? => Some(written(StatusCode::OK, id)),
+                _ => rule("Confirmed quantity cannot exceed the line quantity."),
+            }
+        }
+        ("POST", "pack") if id == "shp_full" => Some(written(StatusCode::OK, id)),
+        ("POST", "pack") => rule("Every line must be confirmed before packing completes."),
+        _ => Some(StatusCode::METHOD_NOT_ALLOWED.into_response()),
+    }
+}
+
+/// The packing writes the pilot sent: their path, attempt and body.
+fn packing_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
+    shipment_calls(pilot)
+        .into_iter()
+        .filter(|c| c.method == Method::POST)
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.path.trim_start_matches(SELLER_SHIPMENTS).to_owned(), attempt, c.body)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn packing_needs_fulfillment_manage_to_write_and_view_to_see() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/account/sales/shipments/shp_pack/packing", Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without fulfillment.view");
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_pack/packing", Some("tracker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let (status, _, _) = pilot
+        .send(post("/account/sales/shipments/shp_wait/packing/start", "tracker", &format!("attempt={ATTEMPT}"), false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+    assert!(packing_writes(&pilot).is_empty(), "nothing is sent for who may not pack");
+}
+
+#[tokio::test]
+async fn an_awaiting_shipment_starts_packing_and_the_packing_page_reads_after_the_write() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_wait", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"action="/account/sales/shipments/shp_wait/packing/start""#), "{html}");
+    assert!(html.contains(ATTEMPT_INPUT), "the form carries an attempt: {html}");
+    assert!(text(&html).contains("Start packing"), "{}", text(&html));
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_pack", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_pack/packing">Resume packing</a>"#), "{html}");
+
+    let (status, headers, _) = pilot
+        .send(post("/account/sales/shipments/shp_wait/packing/start", "shipper", &format!("attempt={ATTEMPT}"), false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments/shp_wait/packing?"), "{to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    assert_eq!(packing_writes(&pilot), [("/shp_wait/packing/start".to_owned(), ATTEMPT.to_owned(), "{}".to_owned())]);
+}
+
+#[tokio::test]
+async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_every_line_is_packed() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_pack/packing", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Seller Pack shipment Order ORD-D116ACF7 for Collector Zero."), "{shown}");
+    assert!(shown.contains("Order changes locked while packing Started 10/24/2026, 3:00 PM UTC."), "{shown}");
+    assert!(shown.contains("2 of 3 items packed 67%"), "{shown}");
+    assert!(shown.contains("Charizard Raw Near Mint ×2 1 of 2 packed"), "{shown}");
+    assert!(shown.contains("Check every line before recording the package as packed."), "{shown}");
+    assert!(html.contains(r#"<progress class="#) && html.contains(r#"value="67""#), "{html}");
+    assert!(html.contains(r#"action="/account/sales/shipments/shp_pack/packing/lines/spl_2""#), "{html}");
+    assert!(html.contains(r#"action="/account/sales/shipments/shp_pack/pack""#), "{html}");
+    let finish = html.find("Finish packing").unwrap();
+    assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
+    assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
+    // Straight to marketplace's command center (todd-skelton/corten#131).
+    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back to shipments</a>"#), "{html}");
+
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_full/packing", Some("shipper"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("3 of 3 items packed 100%"), "{shown}");
+    assert!(shown.contains("All lines checked. Record the package when it is sealed."), "{shown}");
+    let finish = html.find("Finish packing").unwrap();
+    assert!(html[..finish].rfind("<button").is_some_and(|at| !html[at..finish].contains("disabled")), "Finish is on: {html}");
+
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_wait/packing", Some("shipper"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Ready to start"), "{shown}");
+    assert!(!html.contains(r#"action="/account/sales/shipments/shp_wait/pack""#), "no Finish before packing starts");
+}
+
+#[tokio::test]
+async fn a_line_write_with_the_script_replaces_the_line_progress_and_finish_and_without_it_loads_the_page() {
+    let pilot = Pilot::new().await;
+    let line = "/account/sales/shipments/shp_pack/packing/lines/spl_2";
+    let (status, _, patch) = pilot.send(post(line, "shipper", &format!("attempt={ATTEMPT}&quantity=2"), true)).await;
+    assert_eq!(status, StatusCode::OK, "{patch}");
+    assert!(!patch.contains("<html"), "a patch, not a page: {patch}");
+    assert!(text(&patch).contains("Saved"), "{}", text(&patch));
+    for part in ["packing-status", "packing-scan", "packing-progress", "packing-footer"] {
+        assert!(patch.contains(&format!(r#"id="{part}""#)), "{part}: {patch}");
+    }
+    assert_eq!(packing_writes(&pilot)[0].2, r#"{"confirmedQuantity":2}"#);
+
+    let (status, headers, _) = pilot.send(post(line, "shipper", &format!("attempt={ATTEMPT}&quantity=0"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments/shp_pack/packing?"), "{to}");
+    assert!(to.ends_with("#packing-line-spl_2"), "back to the line: {to}");
+    assert_eq!(query(to.split('#').next().unwrap())["line"], "spl_2");
+}
+
+#[tokio::test]
+async fn a_refused_line_says_why_in_place_and_a_count_that_is_not_a_number_is_not_sent() {
+    let pilot = Pilot::new().await;
+    let line = "/account/sales/shipments/shp_pack/packing/lines/spl_2";
+    let (status, _, patch) = pilot.send(post(line, "shipper", &format!("attempt={ATTEMPT}&quantity=3"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(text(&patch).contains("Confirmed quantity cannot exceed the line quantity."), "{}", text(&patch));
+    assert!(
+        shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/mutation-recovery")),
+        "a refusal asks what came of the attempt"
+    );
+    let (status, _, html) = pilot.send(post(line, "shipper", &format!("attempt={ATTEMPT}&quantity=two"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter how many of this line are packed as a whole number."), "{}", text(&html));
+    assert_eq!(packing_writes(&pilot).len(), 1, "only the first was sent");
+}
+
+#[tokio::test]
+async fn a_start_the_api_applied_before_reads_as_applied_and_a_refused_one_says_so() {
+    let pilot = Pilot::new().await;
+    let start = "/account/sales/shipments/shp_pack/packing/start";
+    let (status, headers, _) = pilot.send(post(start, "shipper", &format!("attempt={APPLIED_BEFORE}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["done"], APPLIED_BEFORE);
+    let (status, _, html) = pilot.send(post(start, "shipper", &format!("attempt={ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let shown = text(&html);
+    assert!(
+        shown.contains("Packing could not be updated Packing can only start while the shipment is awaiting its package."),
+        "{shown}"
+    );
+    // Refused, and the API cannot say what came of the attempt: the page says so, with the writes off.
+    // The page that asks about it (`a_write_the_page_cannot_confirm_turns_the_writes_off..`).
+    let to = format!("/account/sales/shipments/shp_pack/packing?check={CHECK_DOWN}");
+    let (status, headers, _) = pilot.send(post(start, "shipper", &format!("attempt={CHECK_DOWN}"), false)).await;
+    assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, to.as_str()));
+    let (status, headers, _) = pilot.send(post(start, "shipper", &format!("attempt={CHECK_DOWN}"), true)).await;
+    assert_eq!((status, headers["corten-location"].to_str().unwrap()), (StatusCode::NO_CONTENT, to.as_str()));
+}
+
+#[tokio::test]
+async fn a_scan_packs_one_more_of_the_line_it_names_or_says_what_it_found() {
+    let pilot = Pilot::new().await;
+    let scan = "/account/sales/shipments/shp_pack/packing/scan";
+    let (status, _, patch) =
+        pilot.send(post(scan, "shipper", &format!("attempt={ATTEMPT}&code=charizard&after_write="), true)).await;
+    assert_eq!(status, StatusCode::OK, "{patch}");
+    assert!(text(&patch).contains("Added one packed item for Charizard."), "{}", text(&patch));
+    assert_eq!(
+        packing_writes(&pilot),
+        [("/shp_pack/packing/lines/spl_2".to_owned(), ATTEMPT.to_owned(), r#"{"confirmedQuantity":2}"#.to_owned())]
+    );
+
+    let (_, _, patch) = pilot.send(post(scan, "shipper", &format!("attempt={ATTEMPT}&code=arizard2&after_write="), true)).await;
+    assert!(text(&patch).contains("Added one packed item"), "a reference's short form: {}", text(&patch));
+    let (_, _, patch) = pilot.send(post(scan, "shipper", &format!("attempt={ATTEMPT}&code=pikachu&after_write="), true)).await;
+    assert!(text(&patch).contains("No packing line matched that scan."), "{}", text(&patch));
+    let (_, _, patch) = pilot.send(post(scan, "shipper", &format!("attempt={ATTEMPT}&code=cat_&after_write="), true)).await;
+    assert!(text(&patch).contains("No packing line matched"), "a part of a reference is not a match: {}", text(&patch));
+    let full = "/account/sales/shipments/shp_full/packing/scan";
+    let (_, _, patch) = pilot.send(post(full, "shipper", &format!("attempt={ATTEMPT}&code=charizard&after_write="), true)).await;
+    assert!(text(&patch).contains("Charizard is already fully packed."), "{}", text(&patch));
+    let (status, headers, _) =
+        pilot.send(post(full, "shipper", &format!("attempt={ATTEMPT}&code=pikachu&after_write="), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["scan"], "none", "the page says what the scan found");
+    assert_eq!(packing_writes(&pilot).len(), 2, "a scan that matches nothing to pack sends nothing");
+}
+
+#[tokio::test]
+async fn finish_records_the_package_then_the_shipment_page_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post("/account/sales/shipments/shp_full/pack", "shipper", &format!("attempt={ATTEMPT}&package_count=2"), false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments/shp_full?after_write="), "{to}");
+    assert_eq!(packing_writes(&pilot), [("/shp_full/pack".to_owned(), ATTEMPT.to_owned(), r#"{"packageCount":2}"#.to_owned())]);
+
+    let (status, _, html) = pilot
+        .send(post("/account/sales/shipments/shp_pack/pack", "shipper", &format!("attempt={ATTEMPT}&package_count=1"), false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Every line must be confirmed before packing completes."), "{}", text(&html));
+    let (status, _, html) = pilot
+        .send(post("/account/sales/shipments/shp_full/pack", "shipper", &format!("attempt={ATTEMPT}&package_count=0"), false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a package count of 1 or more."), "{}", text(&html));
+    assert_eq!(packing_writes(&pilot).len(), 2, "a package count under 1 is not sent");
+}
+
+#[tokio::test]
+async fn a_write_the_page_cannot_confirm_turns_the_writes_off_until_the_api_can_say() {
+    let pilot = Pilot::new().await;
+    let page = "/account/sales/shipments/shp_pack/packing";
+    for attempt in [NO_RECORD, CHECK_DOWN, "not-a-uuid"] {
+        let (status, _, html) = pilot.send(get(&format!("{page}?check={attempt}"), Some("shipper"))).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(text(&html).contains("We could not confirm your last packing change"), "{attempt}: {}", text(&html));
+        let fieldsets: Vec<_> =
+            html.match_indices("<fieldset").map(|(at, _)| &html[at..at + html[at..].find('>').unwrap()]).collect();
+        assert!(fieldsets.len() >= 3, "{attempt}: {html}");
+        assert!(fieldsets.iter().all(|f| f.contains("disabled")), "{attempt}: every write is off: {fieldsets:?}");
+        assert!(html.contains(&format!(r#"href="{page}?check={attempt}">Check again</a>"#)), "{html}");
+    }
+    let (_, _, html) = pilot.send(get(&format!("{page}?check={APPLIED_BEFORE}"), Some("shipper"))).await;
+    assert!(!text(&html).contains("We could not confirm"), "{}", text(&html));
+    assert!(html.contains(APPLIED_BEFORE), "the page tells the browser it settles the attempt: {html}");
+}
+
+#[tokio::test]
+async fn a_packing_page_not_caught_up_with_its_write_reads_itself_again() {
+    let pilot = Pilot::new().await;
+    let page = format!("/account/sales/shipments/shp_pack/packing?after_write={}", receipt_at("44"));
+    let (status, _, html) = pilot.send(get(&page, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Shipment update in progress"), "{}", text(&html));
+    assert!(html.contains("data-corten-read-again=\"2\""), "{html}");
+    let page = format!("/account/sales/shipments/shp_pack?after_write={}", receipt_at("44"));
+    let (status, _, html) = pilot.send(get(&page, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-corten-read-again=\"2\""), "the shipment's page too: {html}");
 }

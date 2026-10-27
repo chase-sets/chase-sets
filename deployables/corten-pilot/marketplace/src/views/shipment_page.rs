@@ -8,16 +8,19 @@
 //! progress (status, tracking, carrier), its facts, what it is covered by, the postage policy the
 //! order committed to, the label's document, error and refund; for the seller the postage
 //! diagnostics (each label operation and provider event); its lines and its exceptions. The
-//! seller's actions are marketplace's for now (a link there). The facts are two to a row from
+//! seller starts or resumes packing here (the pilot's packing page); its other actions are
+//! marketplace's for now (a link there). The facts are two to a row from
 //! 48rem, the cover three to a row from 48rem.
 use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace, order_page::display_reference};
+use super::{listing_page::options, on_marketplace, order_page::display_reference, packing_page::WriteForm};
 use crate::{
     api::{PostageOperation, PostagePolicySnapshot, PostageProviderEvent, ShipmentCard, ShipmentDetail, Side},
+    auth::Viewer,
+    packing::AttemptInput,
     shipments::{ListScreen, ShipmentScreen},
     text::{Pilot, ShipmentsMsg},
 };
@@ -147,7 +150,7 @@ fn postage(t: ShipmentsMsg, shipment: &ShipmentDetail) -> String {
 
 /// The shipment's page (`FulfillmentShipmentDetailPage`).
 #[component(css)]
-pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, screen: &'a ShipmentScreen) -> impl Render {
+pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &'a ShipmentScreen) -> impl Render {
     let s = &screen.shipment;
     let side = screen.side;
     let seller = matches!(side, Side::Seller);
@@ -167,6 +170,8 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, screen: &'a ShipmentScreen) -
         crate::api::segment(&s.shipment_id)
     ));
     let on_market = on_marketplace(&format!("/account/sales/shipments/{}", crate::api::segment(&s.shipment_id)));
+    let start = crate::app::url::PackingStart { id: &s.shipment_id }.href();
+    let packing = crate::app::url::Packing { id: &s.shipment_id, place: Default::default() }.href();
     let policy = s.shipping_plan_snapshot.as_ref().and_then(|plan| plan.postage_policy_snapshot.as_ref());
     let step = |done: bool| if done { "complete" } else { "upcoming" };
     let progress = match s.status.as_str() {
@@ -219,7 +224,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, screen: &'a ShipmentScreen) -
                     <h1 class={Title}>{&title}</h1>
                     <p class={Muted}>{&description}</p>
                 </div>
-                <p class={Actions}>
+                <div class={Actions}>
                     if seller {
                         <a
                             class={Primary}
@@ -231,8 +236,23 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, screen: &'a ShipmentScreen) -
                             {t.detail_print_packing_slip()}
                         </a>
                     }
+                    if seller && s.status == "awaiting-package" {
+                        <WriteForm
+                            p={p}
+                            viewer={viewer}
+                            id={&s.shipment_id}
+                            action={&start}
+                            attempt={AttemptInput::FIELDS.attempt}
+                            enabled={true}
+                        >
+                            <button type="submit" class={Primary}>{t.detail_start_packing()}</button>
+                        </WriteForm>
+                    }
+                    if seller && s.status == "packing" {
+                        <a class={Primary} href={&packing}>{t.detail_resume_packing()}</a>
+                    }
                     <a class={Secondary} href={&back}>{t.detail_back()}</a>
-                </p>
+                </div>
             </header>
             <section class={Part} aria-labelledby="shipment-summary">
                 <h2 id="shipment-summary" class={SectionTitle}>{t.detail_summary()}</h2>

@@ -30,6 +30,7 @@ mod location_card;
 mod market_nav;
 mod notification_page;
 mod order_page;
+mod packing_page;
 mod page_actions;
 mod recovery;
 mod search_page;
@@ -48,6 +49,7 @@ pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateF
 pub use market_nav::MarketNav;
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use order_page::{OrderList, OrderPage};
+pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
@@ -84,8 +86,11 @@ pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage];
-/// The shipment pages' (Fulfillment's), for both sides' areas.
+/// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
+/// The seller's: a shipment's page, and the packing page with its script, which the shipment
+/// page's Start packing form also uses. Not the buyer's, whose pages never pack.
+pub const SALE_SHIPMENTS: &[Component] = &[ShipmentPage, PackingPage, packing_page::handlers::COMPONENT];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

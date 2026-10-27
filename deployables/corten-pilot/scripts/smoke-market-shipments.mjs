@@ -3,8 +3,8 @@
 // - Without JavaScript, as the auth seed's collector: Shipments and a shipment of each status the
 //   seeds have say what marketplace's say, word for word; Open shipment opens each card's shipment.
 // - As the auth seed's seller: a shipment's page in each status says what marketplace's says, but
-//   for its Actions and Start packing, which are marketplace's for now (the pilot links there); the
-//   seller's list is
+//   for its Actions, which are marketplace's for now (the pilot links there), and Start or Resume
+//   packing, which smoke-market-packing.mjs checks; the seller's list is
 //   marketplace's command center (chase-sets/chase-sets#10638), where the pilot's address sends it.
 // - Marketplace says each empty state twice (chase-sets/chase-sets#10641); the comparison counts it once.
 // - At 1280 px two cards to a row, at 390 px one; nothing scrolls sideways and every control is at
@@ -67,7 +67,7 @@ const wordsOf = (page) =>
       .replace(/Preparing shipment actions\s+You can read shipment details and open links while actions get ready\./, " ")
       // Marketplace says each empty state twice (chase-sets/chase-sets#10641); the pilot once.
       .replace(/(No shipment exceptions recorded\.|No postage operations recorded\.)\s+\1/g, "$1")
-      // Start and Resume packing are marketplace's packing flow, an action the pilot does not port yet.
+      // Start and Resume packing: smoke-market-packing.mjs compares them.
       .replace(/\n(Start packing|Resume packing)\n/g, "\n")
       .toLowerCase()
       .split(/\s+/)

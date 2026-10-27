@@ -3,20 +3,22 @@
 //! its seller sees it. The seller's list is marketplace's command center, which marketplace builds
 //! from Fulfillment's rules in its own loader; the API does not serve it yet
 //! (chase-sets/chase-sets#10638), so `/account/sales/shipments` sends the seller there. A
-//! shipment's actions (packing, labels, dispatch, delivery, returns, exceptions) are not ported:
-//! the seller's page links to marketplace's for them.
+//! shipment's packing is the pilot's (`packing`); its other actions (labels, dispatch, delivery,
+//! returns, exceptions) are not ported: the seller's page links to marketplace's for them.
 //!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/shipments` | the buyer's shipments (the first 100, as marketplace reads them) |
 //! | `GET /account/shipments/{id}` | a shipment the buyer is sent |
 //! | `GET /account/sales/shipments` | 303 to marketplace's command center |
-//! | `GET /account/sales/shipments/{id}` | a shipment the seller sends, with its postage diagnostics |
+//! | `GET /account/sales/shipments/{id}` | a shipment the seller sends, with its postage diagnostics, read after the write whose receipt it carries |
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;
+
+use platform::receipt::Receipt;
 
 use crate::{
     api::{ApiError, ShipmentDetail, ShipmentList, Shipments as _, Side},
@@ -66,7 +68,7 @@ pub(crate) async fn purchase(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> HtmlResult {
-    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id).await
+    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None).await
 }
 
 pub(crate) async fn sale(
@@ -75,8 +77,10 @@ pub(crate) async fn sale(
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(after): Query<crate::cart::AfterWrite>,
 ) -> HtmlResult {
-    shipment(&req, &viewer, &config, &headers, Side::Seller, &id).await
+    let receipt = Receipt::from_param(after.after_write.as_deref());
+    shipment(&req, &viewer, &config, &headers, Side::Seller, &id, receipt).await
 }
 
 /// The seller's list is marketplace's command center (chase-sets/chase-sets#10638).
@@ -87,10 +91,27 @@ pub(crate) async fn command_center(req: Req, Caller(Shipper(_)): Caller<Shipper>
     }
 }
 
-async fn shipment(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, side: Side, id: &str) -> HtmlResult {
-    let caller = config.platform.caller(headers, config.proto, None);
+/// A shipment's page; after a write (`receipt`), read after it, and while the read is behind the
+/// page says so and reads itself again.
+async fn shipment(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    side: Side,
+    id: &str,
+    receipt: Option<Receipt>,
+) -> HtmlResult {
+    let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let shipment = match caller.shipment(side, id).await {
         Ok(shipment) => shipment,
+        Err(error) if receipt.is_some() && error.catching_up() => {
+            let t: ShipmentsMsg = req.t();
+            let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
+            let view = html! { <views::ShipmentPending t={t} /> };
+            let title = t.sale_shipment_sale_shipment_marketplace();
+            return req.page(html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> });
+        }
         Err(error) => return shipment_failed(req, viewer, error),
     };
     let screen = ShipmentScreen { side, shipment };
@@ -99,7 +120,7 @@ async fn shipment(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderM
         Side::Buyer => t.shipment_shipment_marketplace(),
         Side::Seller => t.sale_shipment_sale_shipment_marketplace(),
     };
-    let view = html! { <views::ShipmentPage t={t} p={req.t()} screen={&screen} /> };
+    let view = html! { <views::ShipmentPage t={t} p={req.t()} viewer={viewer} screen={&screen} /> };
     req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head="">{view}</Layout> })
 }
 

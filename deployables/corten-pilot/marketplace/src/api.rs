@@ -2055,6 +2055,76 @@ impl Shipments for Caller<'_> {
     }
 }
 
+/// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API
+/// applies an attempt once, answers a repeat with its first result, and says later what came of it.
+const IDEMPOTENCY_KEY: &str = "idempotency-key";
+
+/// The seller's packing commands on a shipment (Fulfillment's `account/sales/shipments/{id}/..`),
+/// each sent as `attempt`.
+pub trait Packing {
+    /// Start packing: the shipment is locked from the buyer's changes.
+    async fn start_packing(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, ApiError>;
+    /// How many of `line` are packed.
+    async fn set_packed(&self, id: &str, line: &str, quantity: u64, attempt: &str) -> Result<Option<Receipt>, ApiError>;
+    /// Record the package as packed, in `packages` packages.
+    async fn pack(&self, id: &str, packages: u64, attempt: &str) -> Result<Option<Receipt>, ApiError>;
+    /// What came of `attempt` on the shipment (`mutation-recovery`).
+    async fn packing_attempt(&self, id: &str, attempt: &str) -> Result<PackingAttempt, ApiError>;
+}
+
+/// What the API knows of an attempt (`recoverShipmentMutation`): `succeeded`, `unchanged`,
+/// `failed-safe` or `conflict` once it is settled, `confirming` when the API holds no record of it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PackingAttempt {
+    pub status: String,
+    pub command_kind: Option<String>,
+}
+
+impl PackingAttempt {
+    /// Applied, or found already so (`succeeded`, `unchanged`).
+    pub fn applied(&self) -> bool {
+        matches!(self.status.as_str(), "succeeded" | "unchanged")
+    }
+
+    /// Settled without applying anything (`failed-safe`, `conflict`).
+    pub fn refused(&self) -> bool {
+        matches!(self.status.as_str(), "failed-safe" | "conflict")
+    }
+}
+
+impl Packing for Caller<'_> {
+    async fn start_packing(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{}/{}/packing/start", Side::Seller.shipments(), segment(id));
+        let req = self.request(Method::POST, &path, FULFILLMENT).header(IDEMPOTENCY_KEY, attempt).json(&serde_json::json!({}));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn set_packed(&self, id: &str, line: &str, quantity: u64, attempt: &str) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{}/{}/packing/lines/{}", Side::Seller.shipments(), segment(id), segment(line));
+        let req = self
+            .request(Method::POST, &path, FULFILLMENT)
+            .header(IDEMPOTENCY_KEY, attempt)
+            .json(&serde_json::json!({ "confirmedQuantity": quantity }));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn pack(&self, id: &str, packages: u64, attempt: &str) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{}/{}/pack", Side::Seller.shipments(), segment(id));
+        let req = self
+            .request(Method::POST, &path, FULFILLMENT)
+            .header(IDEMPOTENCY_KEY, attempt)
+            .json(&serde_json::json!({ "packageCount": packages }));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn packing_attempt(&self, id: &str, attempt: &str) -> Result<PackingAttempt, ApiError> {
+        let path = format!("{}/{}/mutation-recovery", Side::Seller.shipments(), segment(id));
+        let req = self.request(Method::GET, &path, FULFILLMENT).header(IDEMPOTENCY_KEY, attempt);
+        Ok(self.write(req).await?.0)
+    }
+}
+
 /// A page of shipments (`ListResponse<FulfillmentShipmentListItem>`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -2105,6 +2175,13 @@ pub struct ShipmentDetail {
     pub label_refund_status: Option<String>,
     pub label_refund_reference: Option<String>,
     pub delivered_at: Option<String>,
+    /// When packing started (the packing page's lock), and when the shipment last changed.
+    pub packing_started_at: Option<String>,
+    pub updated_at: String,
+    pub total_quantity: u64,
+    pub line_count: u64,
+    /// Where it goes (the packing page's Ship to).
+    pub shipping_destination_snapshot: Option<AddressSnapshot>,
     pub shipping_plan_snapshot: Option<PackagePlanSnapshot>,
     pub lines: Vec<ShipmentLine>,
     pub exceptions: Vec<ShipmentException>,
@@ -2143,6 +2220,20 @@ pub struct ShipmentLine {
     pub item_subtitle: Option<String>,
     pub product_summary: Option<String>,
     pub quantity: u64,
+    /// The references a packer scans (the packing page).
+    pub order_line_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    /// How many are packed: the count when there is one, else all once the line was confirmed.
+    pub packing_confirmed_quantity: Option<u64>,
+    pub packing_confirmed_at: Option<String>,
+}
+
+impl ShipmentLine {
+    /// How many are packed (`packedQuantity`).
+    pub fn packed(&self) -> u64 {
+        self.packing_confirmed_quantity.unwrap_or(if self.packing_confirmed_at.is_some() { self.quantity } else { 0 })
+    }
 }
 
 /// An exception raised on the shipment.
