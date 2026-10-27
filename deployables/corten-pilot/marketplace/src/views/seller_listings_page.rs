@@ -5,8 +5,8 @@
 //! the listings (each with a box for Pause selected and Withdraw selected), a page at a time as
 //! links, and the fee lock report in a disclosure.
 //!
-//! Every action is a form and works without JavaScript. The page's script writes a picked date's
-//! instant where the seller is (todd-skelton/corten#149), and counts the checked listings. One
+//! Every action is a form and works without JavaScript; a picked day is read on the server where
+//! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
 //! column on a phone; a listing's facts beside it from 64rem.
 use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
@@ -51,7 +51,7 @@ fn money(t: SellerListingsMsg, amount: Option<&str>, currency: Option<&str>) -> 
     }
 }
 
-/// A time the API sent (`formatDateTime`), in UTC (todd-skelton/corten#149), or "Not set".
+/// A time the API sent, in UTC as marketplace's `formatDateTime` writes it, or "Not set".
 fn when(t: SellerListingsMsg, at: Option<&str>) -> String {
     match at {
         Some(at) => parse_timestamp(at)
@@ -279,7 +279,6 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                     class={Form}
                     method="post"
                     action={screen.filters.here()}
-                    on:formdata={handlers::instants(event)}
                 >
                     <div class={Grid}>
                         <label class={Field}>
@@ -293,7 +292,6 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                                 type="date"
                                 name={f.available_again_on}
                                 value={&on}
-                                data-instant={f.available_again_at}
                                 {..e.aria(f.available_again_on)}
                             >
                             {e.message(f.available_again_on)}
@@ -370,7 +368,6 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                     class={Form}
                     method="post"
                     action={screen.filters.here()}
-                    on:formdata={handlers::instants(event)}
                 >
                     <p class={Muted}>{t.list_away_window_description()}</p>
                     <div class={Grid3}>
@@ -397,7 +394,6 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 name={f.away_window_starts_on}
                                 value={&starts}
                                 required
-                                data-instant={f.away_window_starts_at}
                                 {..e.aria(f.away_window_starts_on)}
                             >
                             {e.message(f.away_window_starts_on)}
@@ -409,7 +405,6 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 type="date"
                                 name={f.away_window_ends_on}
                                 value={&ends}
-                                data-instant={f.away_window_ends_at}
                                 {..e.aria(f.away_window_ends_on)}
                             >
                             {e.message(f.away_window_ends_on)}

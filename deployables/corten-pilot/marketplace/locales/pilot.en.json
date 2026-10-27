@@ -150,8 +150,7 @@
     "next": "Next page",
     "page_of": "Page {page} of {pages}",
     "choose_listings": "Check the listings to pause or withdraw first.",
-    "date": "Enter a date as YYYY-MM-DD.",
-    "zone_unknown": "Your time zone could not be read, so nothing was scheduled. Turn on JavaScript for this page and try again."
+    "date": "Enter a date as YYYY-MM-DD."
   },
   "offer_matches": {
     "unavailable": "This offer is no longer open, so nothing was added to your Sell List.",

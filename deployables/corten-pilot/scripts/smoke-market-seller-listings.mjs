@@ -9,8 +9,9 @@
 //   Turn off listings (with its automatic return) and Turn on listings each come back to the list
 //   saying what was set; Pause selected shows each listing's outcome; a change to a listing redraws
 //   its row without a reload.
-// - Without JavaScript: the filters are a GET form with chips; an away window cannot be scheduled
-//   (the time zone is unknown) and says so.
+// - Without JavaScript: the filters are a GET form with chips; an away window is scheduled from
+//   the start of its day in the zone the account chose in Identity (the browser's is unknown), then
+//   cancelled.
 // - No console errors.
 // Usage: node scripts/smoke-market-seller-listings.mjs [pilot-url] [seller-state] [api-url]
 import { readFileSync } from "node:fs";
@@ -54,6 +55,23 @@ const day = (days) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+/** The start of `date` (YYYY-MM-DD) in the IANA zone `zone`, in ms since the epoch. */
+function startOfDayIn(date, zone) {
+  const parts = (at) =>
+    Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        .formatToParts(at)
+        .map((p) => [p.type, p.value]),
+    );
+  const offset = (at) => {
+    const p = parts(at);
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - at;
+  };
+  const midnight = Date.parse(`${date}T00:00:00Z`);
+  const guess = midnight - offset(midnight);
+  return midnight - offset(guess);
+}
+
 const before = { availability: await read("/listing-availability"), capacity: await read("/order-capacity") };
 const draftBefore = await read(`/listings/${DRAFT}`);
 check(before.availability && before.capacity, "the seller's settings are readable before the run");
@@ -61,7 +79,8 @@ check(before.availability && before.capacity, "the seller's settings are readabl
 const browser = await chromium.launch();
 async function context(options = {}) {
   const { javaScriptEnabled = true, viewport = { width: 1280, height: 900 }, refusals = false } = options;
-  const ctx = await browser.newContext({ javaScriptEnabled, viewport, storageState: state });
+  // A zone far from the machine's, so a day read where the server is would not pass for the browser's.
+  const ctx = await browser.newContext({ javaScriptEnabled, viewport, storageState: state, timezoneId: "Pacific/Auckland" });
   const page = await ctx.newPage();
   page.setDefaultTimeout(60_000);
   const problems = [];
@@ -126,7 +145,7 @@ try {
       const instant = await page.evaluate((d) => new Date(`${d}T00:00:00`).toISOString(), starts);
       check((await main(page)).includes("Scheduled away for Travel"), "Schedule away window comes back with the window");
       const window = await until("/listing-availability", (a) => Boolean(a.away_window_starts_at));
-      check(window && Date.parse(window.away_window_starts_at) === Date.parse(instant), `it starts at the start of that day here (${window?.away_window_starts_at} = ${instant})`);
+      check(window && Date.parse(window.away_window_starts_at) === Date.parse(instant), `it starts at the start of that day where the browser is, Auckland (${window?.away_window_starts_at} = ${instant})`);
       await submit(page, page.getByRole("button", { name: "Cancel scheduled away window" }));
       check((await main(page)).includes("Book time off in advance."), "Cancel comes back with the form");
 
@@ -186,8 +205,15 @@ try {
       await page.locator("#away-reason").selectOption("travel");
       await page.locator("#away-starts").fill(day(30));
       await submit(page, page.getByRole("button", { name: "Schedule away window" }));
-      check((await main(page)).includes("Your time zone could not be read"), "without a script the window is not scheduled, and it says so");
-      check(!(await read("/listing-availability"))?.away_window_starts_at, "and the API has none");
+      const preferences = await fetch(`${api}/api/identity/preferences`, { headers: { cookie } }).then((r) => (r.ok ? r.json() : {}));
+      const zone = preferences?.timeZone ?? "UTC";
+      const scheduled = (await until("/listing-availability", (a) => a.away_window_starts_at != null))?.away_window_starts_at;
+      check(
+        scheduled != null && new Date(scheduled).valueOf() === startOfDayIn(day(30), zone),
+        `without a script the window starts at the day's start in the account's zone, ${zone} (${scheduled})`,
+      );
+      check(page.url().includes("settingsAction=schedule-away-window"), "and the list says what was set");
+      if (scheduled) await send("DELETE", "/listing-availability/away-window");
     }
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
     await ctx.close();
@@ -203,7 +229,14 @@ try {
   }
   const draftNow = draftBefore && (await read(`/listings/${DRAFT}`));
   if (draftNow && draftNow.quantity_cap !== draftBefore.quantity_cap) await send("POST", `/listings/${DRAFT}/quantity-cap`, { quantityCap: draftBefore.quantity_cap, feeQuoteFingerprint: draftBefore.fee_quote_fingerprint });
-  const after = { availability: await read("/listing-availability"), capacity: await read("/order-capacity") };
+  // Each read waits (up to 20 s) for what was put back: a cancel or a cap's removal is projected a moment later.
+  const after = {
+    availability: await until(
+      "/listing-availability",
+      (a) => a.status === before.availability?.status && a.away_window_starts_at === before.availability?.away_window_starts_at,
+    ),
+    capacity: await until("/order-capacity", (c) => c.max_open_orders === before.capacity?.max_open_orders),
+  };
   check(
     after.availability?.status === before.availability?.status &&
       after.availability?.away_window_starts_at === before.availability?.away_window_starts_at &&

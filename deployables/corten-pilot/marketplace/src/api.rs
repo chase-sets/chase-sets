@@ -3870,6 +3870,25 @@ pub struct AttentionSource {
     pub reason: Option<String>,
 }
 
+/// The account holder's preferences in Identity (`GET /api/identity/preferences`): the time zone
+/// they chose (`UTC` until they choose one).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPreferences {
+    #[serde(default)]
+    pub time_zone: Option<String>,
+}
+
+pub trait PreferenceCalls {
+    async fn user_preferences(&self) -> Result<UserPreferences, ApiError>;
+}
+
+impl PreferenceCalls for Caller<'_> {
+    async fn user_preferences(&self) -> Result<UserPreferences, ApiError> {
+        self.read("/api/identity/preferences", IDENTITY).await
+    }
+}
+
 /// The Seller Desk home's own read.
 pub trait DeskCalls {
     async fn seller_attention_queue(&self) -> Result<AttentionQueue, ApiError>;

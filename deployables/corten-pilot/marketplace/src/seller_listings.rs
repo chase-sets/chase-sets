@@ -14,10 +14,11 @@
 //! cancel an away window, set or remove the order capacity (each redirects to the page with its
 //! receipt), and Pause or Withdraw the checked listings (the page again, each listing's outcome
 //! shown, read after the latest write). A date a seller picks means the start of that day where
-//! they are, an instant the page's script writes from the browser's clock: the server cannot know
-//! the seller's time zone (todd-skelton/corten#149).
+//! they are (marketplace's `localDateInputToInstant`): the browser's time zone (`ClientZone`), or
+//! before the runtime has run (a first page, no JavaScript) the zone the account chose in
+//! Identity's preferences, or UTC.
 use corten::{
-    LiveResponse,
+    ClientZone, LiveResponse,
     axum::{
         extract::{Query, State},
         http::{HeaderMap, StatusCode},
@@ -32,7 +33,7 @@ use serde::Deserialize;
 use crate::{
     api::{
         ApiError, Availability, Caller as Api, CommandError, FeeLockRow, ListingCommand, ListingPage, OrderCapacity,
-        SellerListingList as _, SellerListings as _, SellerMetrics, SellerSetting, segment,
+        PreferenceCalls as _, SellerListingList as _, SellerListings as _, SellerMetrics, SellerSetting, segment,
     },
     app::{Shared, read_failed, sign_in, url},
     auth::{ListingManager, Viewer},
@@ -135,14 +136,11 @@ impl Filters {
 pub struct ListingsForm {
     pub intent: String,
     pub reason_category: String,
-    /// The date listings come back, and its start where the seller is (the page's script).
+    /// The date listings come back: a day where the seller is.
     pub available_again_on: String,
-    pub available_again_at: String,
     pub away_window_reason_category: String,
     pub away_window_starts_on: String,
     pub away_window_ends_on: String,
-    pub away_window_starts_at: String,
-    pub away_window_ends_at: String,
     pub max_open_orders: String,
     /// The checked listings, for Pause selected and Withdraw selected.
     pub listing_ids: Vec<String>,
@@ -310,8 +308,33 @@ fn date(text: &str) -> Option<&str> {
     (b.len() == 10 && b[4] == b'-' && b[7] == b'-' && digits(0..4) && digits(5..7) && digits(8..10)).then_some(text)
 }
 
-/// The setting a form changes, or what it got wrong.
-fn setting(form: &ListingsForm, t: SellerListingsMsg, p: Pilot) -> Result<SellerSetting, Errors> {
+/// Where the seller is: the browser's zone, or before the runtime has run on a page (a first page,
+/// no JavaScript) the zone the account chose in Identity's preferences, or UTC when neither is
+/// known or names a zone.
+async fn seller_zone(zone: Option<ClientZone>, caller: &Api<'_>) -> jiff::tz::TimeZone {
+    if let Some(here) = zone.and_then(|ClientZone(name)| jiff::tz::TimeZone::get(&name).ok()) {
+        return here;
+    }
+    match caller.user_preferences().await {
+        Ok(preferences) => preferences.time_zone.and_then(|name| jiff::tz::TimeZone::get(&name).ok()),
+        Err(error) => {
+            tracing::warn!("the account's time zone could not be read, so a picked day is read in UTC: {error:?}");
+            None
+        }
+    }
+    .unwrap_or(jiff::tz::TimeZone::UTC)
+}
+
+/// The start of a picked day (`YYYY-MM-DD`) in `zone`, as marketplace's script writes it
+/// (`toISOString`: `2026-11-02T06:00:00.000Z`). A midnight the zone skips is the first moment after.
+fn start_of_day(day: &str, zone: &jiff::tz::TimeZone) -> Option<String> {
+    let date: jiff::civil::Date = day.parse().ok()?;
+    let at = date.to_zoned(zone.clone()).ok()?.timestamp();
+    Some(format!("{}.{:03}Z", at.strftime("%Y-%m-%dT%H:%M:%S"), at.subsec_millisecond()))
+}
+
+/// The setting a form changes, or what it got wrong. A picked day is read in `zone`.
+fn setting(form: &ListingsForm, zone: &jiff::tz::TimeZone, t: SellerListingsMsg, p: Pilot) -> Result<SellerSetting, Errors> {
     let f = ListingsForm::FIELDS;
     let mut errors = Errors::new();
     let reason = |text: &str, name, errors: &mut Errors| {
@@ -325,12 +348,14 @@ fn setting(form: &ListingsForm, t: SellerListingsMsg, p: Pilot) -> Result<Seller
         "disable-listing-availability" => {
             let reason = reason(&form.reason_category, f.reason_category, &mut errors);
             let on = form.available_again_on.trim();
-            if !on.is_empty() && date(on).is_none() {
-                errors.add(f.available_again_on, p.seller_listings_date());
-            }
-            // Without the page's script there is no instant: the date is then only shown, as
-            // marketplace's API takes it.
-            SellerSetting::Disable { reason, on: on.to_owned(), at: form.available_again_at.trim().to_owned() }
+            let at = match on {
+                "" => String::new(),
+                on => date(on).and_then(|on| start_of_day(on, zone)).unwrap_or_else(|| {
+                    errors.add(f.available_again_on, p.seller_listings_date());
+                    String::new()
+                }),
+            };
+            SellerSetting::Disable { reason, on: on.to_owned(), at }
         }
         "enable-listing-availability" => SellerSetting::Enable,
         "schedule-away-window" => {
@@ -339,20 +364,17 @@ fn setting(form: &ListingsForm, t: SellerListingsMsg, p: Pilot) -> Result<Seller
                 errors.add(f.away_window_reason_category, t.error_away_window_reason_required());
             }
             let (starts_on, ends_on) = (form.away_window_starts_on.trim(), form.away_window_ends_on.trim());
-            let (starts_at, ends_at) = (form.away_window_starts_at.trim(), form.away_window_ends_at.trim());
+            let starts_at = date(starts_on).and_then(|on| start_of_day(on, zone));
+            let ends_at = date(ends_on).and_then(|on| start_of_day(on, zone));
             if starts_on.is_empty() {
                 errors.add(f.away_window_starts_on, t.error_away_window_instant_required());
-            } else if date(starts_on).is_none() {
+            } else if starts_at.is_none() {
                 errors.add(f.away_window_starts_on, p.seller_listings_date());
-            } else if starts_at.is_empty() {
-                errors.add(f.away_window_starts_on, p.seller_listings_zone_unknown());
             }
-            if !ends_on.is_empty() && date(ends_on).is_none() {
+            if !ends_on.is_empty() && ends_at.is_none() {
                 errors.add(f.away_window_ends_on, p.seller_listings_date());
-            } else if !ends_on.is_empty() && ends_at.is_empty() {
-                errors.add(f.away_window_ends_on, p.seller_listings_zone_unknown());
             }
-            SellerSetting::Schedule { reason, starts_at: starts_at.to_owned(), ends_at: ends_at.to_owned() }
+            SellerSetting::Schedule { reason, starts_at: starts_at.unwrap_or_default(), ends_at: ends_at.unwrap_or_default() }
         }
         "cancel-away-window" => SellerSetting::CancelWindow,
         "set-order-capacity" => match form.max_open_orders.trim().parse::<u64>() {
@@ -430,6 +452,7 @@ pub(crate) async fn write(
     req: Req,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
+    zone: Option<ClientZone>,
     headers: HeaderMap,
     Query(place): Query<Place>,
     Form(form): Form<ListingsForm>,
@@ -446,11 +469,16 @@ pub(crate) async fn write(
         let after = After { errors, sent: form, ..After::default() };
         render(&req, &viewer, &config, &headers, &place, None, after, status)
     };
-    let setting = match setting(&form, t, p) {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    // Only a form with a day reads where the seller is, so the others never read Identity.
+    let zone = match form.intent.as_str() {
+        "disable-listing-availability" | "schedule-away-window" => seller_zone(zone, &caller).await,
+        _ => jiff::tz::TimeZone::UTC,
+    };
+    let setting = match setting(&form, &zone, t, p) {
         Ok(setting) => setting,
         Err(errors) => return refused_page(errors, form, StatusCode::UNPROCESSABLE_ENTITY).await,
     };
-    let caller = config.platform.caller(&headers, config.proto, None);
     let error = match caller.seller_setting(&setting).await {
         Ok(receipt) => return req.redirect(&applied(&place, receipt.as_ref(), &setting)),
         Err(CommandError::Api(error)) => error,

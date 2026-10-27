@@ -783,6 +783,8 @@ pub fn app(config: Config) -> App {
                 .form_action(marketplace_origin()),
         )
         .messages::<crate::text::Msg>()
+        // The seller's listings turn a picked day into its start where the seller is.
+        .client_zone()
         .components(views::COMPONENTS)
         // Search is the home page too, outside every area, and at two prefixes, and a set's page
         // shows its cards: its components are in `components.css`, about 2.2 KB brotli, which a
