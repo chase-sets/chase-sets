@@ -175,6 +175,11 @@ describe("registry cleanup provider credential contract (#5952)", () => {
     expect(result.violations).toEqual([]);
     expect(result.checkedSteps).toEqual([
       expect.objectContaining({
+        name: "Resolve registry identity",
+        tools: ["doctl"],
+        requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
+      }),
+      expect.objectContaining({
         name: "Cleanup registry tags",
         tools: ["doctl"],
         requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
@@ -196,6 +201,11 @@ describe("registry cleanup provider credential contract (#5952)", () => {
 
     expect(result.passed).toBe(false);
     expect(result.checkedSteps).toEqual([
+      expect.objectContaining({
+        name: "Resolve registry identity",
+        tools: ["doctl"],
+        requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN"],
+      }),
       expect.objectContaining({
         name: "Cleanup registry tags",
         tools: ["doctl"],

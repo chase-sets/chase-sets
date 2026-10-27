@@ -1700,6 +1700,13 @@
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Mark production release#53",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
     }
   ]
 }
