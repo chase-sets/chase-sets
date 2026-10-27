@@ -136,7 +136,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.goals.economics.source.policy-default": "Policy default",
   "pricing.features.pricingHealth.goals.economics.source.commercial-terms": "Commercial terms",
   "pricing.features.pricingHealth.goals.economics.source.unknown": "{value}",
-  "pricing.features.pricingHealth.goals.economics.reason.insufficient-observed-history": "Insufficient observed history",
+  "pricing.features.pricingHealth.goals.economics.reason.insufficient-observed-history":
+    "Insufficient observed history",
   "pricing.features.pricingHealth.goals.economics.reason.provider-unavailable": "Provider unavailable",
   "pricing.features.pricingHealth.goals.economics.reason.terms-unavailable": "Terms unavailable",
   "pricing.features.pricingHealth.goals.economics.reason.cost-basis-unavailable": "Cost basis unavailable",

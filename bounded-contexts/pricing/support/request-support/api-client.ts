@@ -157,9 +157,7 @@ export function createPricingApiClient({
               json: { goals },
               header: headers,
             });
-      return parseJsonResponse(
-        response,
-      );
+      return parseJsonResponse(response);
     },
     async applyPricingHealthGoal(policyId: string, body: ApplyGoalRequest): Promise<ApplyGoalResult> {
       return parseJsonResponse(
