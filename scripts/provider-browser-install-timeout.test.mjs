@@ -207,6 +207,22 @@ describe("Static Checks provider installer", () => {
     expect(consumeTimingRecords(f.lines, authority)).toHaveLength(1);
   });
 
+  it("honors a native per-caller 180-second bound while retaining the five-second grace", async () => {
+    const f = fixture({ timeoutSeconds: 180 });
+    await vi.advanceTimersByTimeAsync(179_999);
+    expect(f.signalGroupImpl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.signalGroupImpl).toHaveBeenCalledWith(4567, "TERM");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.signalGroupImpl).toHaveBeenLastCalledWith(4567, "KILL");
+    expect((await f.result).record.terminalOutcome).toBe("timeout");
+  });
+
+  it("keeps the existing 600-second default and rejects caller bounds above it", () => {
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 601 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 0 })).toThrow(/600/);
+  });
+
   it.each([
     ["partial download fails closed", "partial download", "partial-download"],
     ["checksum failure fails closed", "checksum mismatch", "checksum-failure"],
