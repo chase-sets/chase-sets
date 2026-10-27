@@ -1,6 +1,7 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createPricingHealthServices } from "../api/services";
+import type { EconomicsServices } from "../../economics/api/services";
 import { createForecastLedgerRuntime } from "../../forecast-ledger/api/runtime";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
@@ -33,7 +34,14 @@ export const comparisonAdvancedTargets = [
   ],
 ] as const;
 
-export function comparisonTestServices(db: PgTransactionalPool) {
+export function comparisonTestServices(
+  db: PgTransactionalPool,
+  economics: Pick<EconomicsServices, "resolve"> = {
+    resolve: async () => {
+      throw new Error("Synthetic comparison fixture must not resolve live Economics.");
+    },
+  },
+) {
   const eventStore = createPostgresEventStore({ pool: db });
   const policies = createPolicyRuntime({ eventStore, db });
   const forecastLedger = createForecastLedgerRuntime({
@@ -58,6 +66,7 @@ export function comparisonTestServices(db: PgTransactionalPool) {
     forecastLedger,
     repricingPolicies,
     repricingEngine,
+    economics,
   });
   return { health, policies: repricingPolicies, worker: repricingEngine, forecastLedger };
 }

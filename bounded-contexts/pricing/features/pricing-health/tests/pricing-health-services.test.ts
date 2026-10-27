@@ -94,13 +94,12 @@ describe("Pricing Health current revision authority", () => {
       },
       repricingEngine: { enqueueDryRun, getDryRun: vi.fn<RepricingEngineServices["getDryRun"]>() },
       forecastLedger: { listGoalAdoptions: async () => [] },
-      economics: whatIfFails
-        ? {
-            resolve: async () => {
-              throw new Error("must not reach Economics");
-            },
-          }
-        : undefined,
+      economics: {
+        resolve: async () => {
+          if (whatIfFails) throw new Error("must not reach Economics");
+          throw new Error("Synthetic service fixture does not resolve Economics.");
+        },
+      },
     });
     return { state, calls, services, loadOwnedRepricingPolicy, enqueueDryRun };
   }

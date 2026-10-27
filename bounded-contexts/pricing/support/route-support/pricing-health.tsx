@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation, useNavigate, useRevalidator } from "react-router";
 import { AlertDialog, Button, NativeSelect, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
@@ -9,6 +9,7 @@ import { createPricingRequestApiClient, PricingApiError } from "../request-suppo
 import { PricingHealthPage } from "../../features/pricing-health/ui/page";
 import { healthCopy as copy } from "../../features/pricing-health/ui/copy";
 import type { CandidateMetrics } from "../../features/pricing-health/api/goal-comparison";
+import type { GoalParameterRequest } from "../../features/pricing-health/api/goal-comparison";
 import type { ApplyGoalResult } from "../../features/pricing-health/api/services";
 
 export const PRICING_HEALTH_HREF = "/account/desk/pricing-health";
@@ -16,10 +17,25 @@ export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "pricing.view" });
   try {
     const policyId = new URL(request.url).searchParams.get("policyId") ?? undefined;
-    return { data: await createPricingRequestApiClient(request).getPricingHealth(policyId), loadFailed: false };
+    const goalsText = new URL(request.url).searchParams.get("goals");
+    let goals: GoalParameterRequest[] | undefined;
+    if (goalsText !== null) {
+      try {
+        const parsed: unknown = JSON.parse(goalsText);
+        if (!Array.isArray(parsed)) throw new Error("goals must be an array");
+        goals = parsed as GoalParameterRequest[];
+      } catch {
+        return { data: null, loadFailed: false, error: copy("goals.validation") };
+      }
+    }
+    return {
+      data: await createPricingRequestApiClient(request).getPricingHealth(policyId, goals),
+      loadFailed: false,
+    };
   } catch (error) {
     if (error instanceof PricingApiError) {
       if (error.status >= 500) return { data: null, loadFailed: true };
+      if (error.status === 400) return { data: null, loadFailed: false, error: copy("goals.validation") };
       throw new Response(null, { status: error.status });
     }
     throw error;
@@ -36,8 +52,22 @@ export const action = defineFormAction({
     },
     compare: async ({ request, formData }) => {
       const policyId = String(formData.get("policyId") ?? "");
-      await createPricingRequestApiClient(request).comparePricingHealth(policyId);
-      return redirect(`${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId })}`);
+      const goalsText = formData.get("goals") ?? new URL(request.url).searchParams.get("goals");
+      const goalsValue = typeof goalsText === "string" ? goalsText : undefined;
+      let goals: GoalParameterRequest[] | undefined;
+      if (goalsValue) {
+        try {
+          const parsed: unknown = JSON.parse(goalsValue);
+          if (!Array.isArray(parsed)) throw new Error("goals must be an array");
+          goals = parsed as GoalParameterRequest[];
+        } catch {
+          return { error: copy("goals.validation") };
+        }
+      }
+      await createPricingRequestApiClient(request).comparePricingHealth(policyId, goals);
+      const query = new URLSearchParams({ policyId });
+      if (goalsValue) query.set("goals", goalsValue);
+      return redirect(`${PRICING_HEALTH_HREF}?${query}`);
     },
     apply: async ({ request, formData }) => {
       const policyId = String(formData.get("policyId") ?? "");
@@ -69,7 +99,13 @@ export const action = defineFormAction({
         ? error.body.error.code
         : null;
     return {
-      error: copy(apiCode === "goal_apply_refused" ? "goals.applyError" : "computeError"),
+      error: copy(
+        apiCode === "goal_apply_refused"
+          ? "goals.applyError"
+          : apiCode === "validation_failed"
+            ? "goals.validation"
+            : "computeError",
+      ),
     };
   },
 });
@@ -157,6 +193,7 @@ export default function PricingHealthRoute() {
   const { data, loadFailed } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as { error?: string; applyResult?: ApplyGoalResult } | undefined;
   const navigation = useNavigation();
+  const navigate = useNavigate();
   const revalidator = useRevalidator();
   useEffect(() => {
     if (!data?.computing || revalidator.state !== "idle") return;
@@ -169,6 +206,7 @@ export default function PricingHealthRoute() {
       loading={navigation.state === "loading" && navigation.formMethod?.toLowerCase() === "get"}
       error={loadFailed ? copy("error.description") : actionData?.error}
       applyResult={actionData?.applyResult}
+      goalNavigate={navigate}
       policySelector={
         data && data.policies.length > 1 ? (
           <RouterForm method="get" action={PRICING_HEALTH_HREF}>

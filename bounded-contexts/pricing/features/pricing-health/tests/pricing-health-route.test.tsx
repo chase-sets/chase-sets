@@ -76,6 +76,31 @@ describe("Pricing Health route", () => {
     expect(response.status).toBe(400);
     expect(services.compare).not.toHaveBeenCalled();
   });
+  it("accepts an absent compare body as defaults and forwards a closed parameter payload", async () => {
+    const { app, services } = setup();
+    services.compare.mockResolvedValue([{ goalId: "fixed-percentile", goalVersion: 1, dryRunId: "run" }] as never);
+    expect((await app.request("/health/rpp_owned/compare", { method: "POST" })).status).toBe(202);
+    expect(services.compare).toHaveBeenCalledWith("acc_owned", "rpp_owned", expect.anything());
+    const goals = [{ goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 70 } }];
+    expect(
+      (
+        await app.request("/health/rpp_owned/compare", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ goals }),
+        })
+      ).status,
+    ).toBe(202);
+    expect(services.compare).toHaveBeenLastCalledWith("acc_owned", "rpp_owned", expect.anything(), goals);
+  });
+  it.each(["%7B", JSON.stringify({ goals: {} }), JSON.stringify({ goals: [], extra: true })])(
+    "rejects malformed GET goals input: %s",
+    async (goals) => {
+      const { app, services } = setup();
+      expect((await app.request(`/health?goals=${encodeURIComponent(goals)}`)).status).toBe(400);
+      expect(services.getHealth).not.toHaveBeenCalled();
+    },
+  );
   it("registers the canonical Seller Desk page and authorized route", () => {
     expect(
       readFileSync(new URL("../../../../../contracts/seller-desk/blueprint.md", import.meta.url), "utf8"),
