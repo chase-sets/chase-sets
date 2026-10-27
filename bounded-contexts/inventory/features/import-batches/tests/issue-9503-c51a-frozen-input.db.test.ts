@@ -92,7 +92,7 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     const attempt = withInventoryMutationAttempt(context, randomUUID());
     const job = await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, attempt);
     await pools.inventory.query(
-      `UPDATE inventory_import_batch_rows SET total_quantity = 99, raw_row = '{"totalQuantity":"99"}'::jsonb
+      `UPDATE inventory_import_batch_rows SET quantity_delta = 99, total_quantity = 99, raw_row = '{"totalQuantity":"99"}'::jsonb
        WHERE row_id = 'imr_c51a_1'`,
     );
     const created: Array<{ totalQuantity: number; itemIdOverride?: InventoryItemId }> = [];
@@ -114,6 +114,166 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     });
     await worker.processNextImportBatchJob({ claimOwnerId: "c51a-worker", claimTtlMs: 30_000 });
     expect(created[0]?.totalQuantity).toBe(2);
+    expect((await worker.getImportBatchJob(job.jobId))?.status).toBe("completed");
+
+    const input = await pools.inventory.query<{
+      tenant_id: string;
+      actor_user_id: string;
+      account_id: string;
+      batch_id: string;
+      snapshot_version: number;
+      snapshot_hash: string;
+      row_count: number;
+      accepted_rows: Array<{ quantity_delta: number }>;
+    }>(
+      `SELECT tenant_id, actor_user_id, account_id, batch_id, snapshot_version, snapshot_hash, row_count, accepted_rows
+       FROM inventory_import_commit_inputs`,
+    );
+    expect(input.rows).toHaveLength(1);
+    expect(input.rows[0]).toMatchObject({
+      tenant_id: context.tenantId,
+      actor_user_id: context.audit.performedByUserId,
+      account_id: accountId,
+      batch_id: "imb_c51a",
+      snapshot_version: 1,
+      row_count: 1,
+    });
+    expect(input.rows[0]?.accepted_rows[0]?.quantity_delta).toBe(2);
+    expect(input.rows[0]?.snapshot_hash).toBe(job.payload.commit?.snapshotHash);
+  });
+
+  it("replayed commit jobs overlay current committed progress", async () => {
+    const inventory = createInventoryServices(pools.inventory);
+    const firstAttempt = withInventoryMutationAttempt(context, randomUUID());
+    const secondAttempt = withInventoryMutationAttempt(context, randomUUID());
+    const first = await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, firstAttempt);
+    const second = await inventory.importBatches.enqueueCommitBatchJob(
+      { accountId, batchId: "imb_c51a" },
+      secondAttempt,
+    );
+
+    expect(
+      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-1", claimTtlMs: 30_000 }),
+    ).toBe(1);
+    expect(
+      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
+    ).toBe(1);
+
+    const stock = await pools.inventory.query(
+      `SELECT total_quantity FROM inventory_items WHERE item_id = 'inv_c51a_1' AND account_id = $1`,
+      [accountId],
+    );
+    expect(stock.rows).toEqual([{ total_quantity: 2 }]);
+    expect((await inventory.importBatches.getImportBatchJob(first.jobId))?.status).toBe("completed");
+    expect((await inventory.importBatches.getImportBatchJob(second.jobId))?.status).toBe("completed");
+  });
+
+  it("rejects a reused attempt from another actor without mutating source rows", async () => {
+    const inventory = createInventoryServices(pools.inventory);
+    const attemptId = randomUUID();
+    const attempt = withInventoryMutationAttempt(context, attemptId);
+    await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, attempt);
+    const before = await pools.inventory.query(
+      `SELECT status, quantity_delta, raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_c51a_1'`,
+    );
+    const foreignContext = withInventoryMutationAttempt(
+      {
+        ...context,
+        audit: { ...context.audit, performedByUserId: "usr_c51a_foreign" as never },
+      },
+      attemptId,
+    );
+    await expect(
+      inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, foreignContext),
+    ).rejects.toThrow("not authorized");
+    const after = await pools.inventory.query(
+      `SELECT status, quantity_delta, raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_c51a_1'`,
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(
+      await pools.inventory.query(`SELECT count(*)::integer AS count FROM inventory_import_batch_jobs`),
+    ).toMatchObject({
+      rows: [{ count: 1 }],
+    });
+  });
+
+  it.each([
+    ["row-count", `UPDATE inventory_import_commit_inputs SET row_count = row_count + 1`],
+    ["hash", `UPDATE inventory_import_commit_inputs SET snapshot_hash = repeat('0', 64)`],
+    ["scope", `UPDATE inventory_import_commit_inputs SET tenant_id = 'tnt_c51a_foreign'`],
+  ])("worker rejects a tampered commit input (%s) before item writes", async (_name, mutation) => {
+    const inventory = createInventoryServices(pools.inventory);
+    const job = await inventory.importBatches.enqueueCommitBatchJob(
+      { accountId, batchId: "imb_c51a" },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    await pools.inventory.query(mutation);
+    const created = vi.fn();
+    const adjusted = vi.fn();
+    const worker = createInventoryImportBatchRuntime({
+      db: pools.inventory,
+      items: {
+        ...inventory.items,
+        createItem: created,
+        adjustItem: adjusted,
+      } as InventoryItemServices,
+      catalogItems: inventory.catalogItems,
+    });
+    const before = await pools.inventory.query(
+      `SELECT status, quantity_delta, raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_c51a_1'`,
+    );
+    expect(await worker.processNextImportBatchJob({ claimOwnerId: `c51a-guard-${_name}`, claimTtlMs: 30_000 })).toBe(1);
+    expect(created).not.toHaveBeenCalled();
+    expect(adjusted).not.toHaveBeenCalled();
+    expect((await worker.getImportBatchJob(job.jobId))?.status).toBe("failed");
+    expect((await worker.getImportBatchJob(job.jobId))?.errorMessage).toBe("import_job_failed_reconciliation_required");
+    const after = await pools.inventory.query(
+      `SELECT status, quantity_delta, raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_c51a_1'`,
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it("accepts a batch with a committed row and commits only the remaining accepted row", async () => {
+    await pools.inventory.query(
+      `UPDATE inventory_import_batches
+       SET total_count = 2, accepted_count = 2, committed_count = 1
+       WHERE batch_id = 'imb_c51a'`,
+    );
+    await pools.inventory.query(
+      `UPDATE inventory_import_batch_rows
+       SET status = 'committed', committed_inventory_item_id = 'inv_existing', committed_at = now()
+       WHERE row_id = 'imr_c51a_1'`,
+    );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_rows
+       (row_id, batch_id, row_number, status, raw_row, row_fingerprint, quantity_mode, quantity_delta,
+        catalog_item_id, product_id, selected_options, storage_location_id, total_quantity,
+        validation_errors, created_at, updated_at)
+       VALUES ('imr_c51a_2', 'imb_c51a', 2, 'accepted', '{"totalQuantity":"3"}'::jsonb,
+        'c51a-row-fingerprint-2', 'add', 3, 'cat_c51a', 'prod_c51a', '[]'::jsonb, 'loc_c51a', 3,
+        '[]'::jsonb, now(), now())`,
+    );
+    const inventory = createInventoryServices(pools.inventory);
+    const job = await inventory.importBatches.enqueueCommitBatchJob(
+      { accountId, batchId: "imb_c51a" },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    const input = await pools.inventory.query<{ accepted_rows: Array<{ committed_at: unknown }> }>(
+      `SELECT accepted_rows FROM inventory_import_commit_inputs`,
+    );
+    expect(input.rows[0]?.accepted_rows[0]?.committed_at).toEqual(expect.any(String));
+
+    const created = vi.fn(async (params: Parameters<InventoryItemServices["createItem"]>[0]) => ({
+      itemId: params.itemIdOverride ?? ("inv_c51a_2" as InventoryItemId),
+      version: 1,
+    }));
+    const worker = createInventoryImportBatchRuntime({
+      db: pools.inventory,
+      items: { ...inventory.items, createItem: created } as InventoryItemServices,
+      catalogItems: inventory.catalogItems,
+    });
+    await worker.processNextImportBatchJob({ claimOwnerId: "c51a-date-worker", claimTtlMs: 30_000 });
+    expect(created).toHaveBeenCalledTimes(1);
     expect((await worker.getImportBatchJob(job.jobId))?.status).toBe("completed");
   });
 });

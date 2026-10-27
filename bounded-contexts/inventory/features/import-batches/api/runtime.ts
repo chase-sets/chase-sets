@@ -1322,8 +1322,20 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       throw new InventoryDomainError("Import validation must finish before committing rows.");
     }
 
-    const rowsToCommit =
-      commitInputRows ?? detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
+    const rowsToCommit = commitInputRows
+      ? commitInputRows.map((row) => {
+          const current = detail.rows.find((candidate) => candidate.row_id === row.row_id);
+          return current?.status === "committed"
+            ? {
+                ...row,
+                status: "committed" as const,
+                committed_inventory_item_id: current.committed_inventory_item_id,
+                committed_listing_id: current.committed_listing_id,
+                committed_at: current.committed_at,
+              }
+            : row;
+        })
+      : detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
     let completed = rowsToCommit.filter((row) => row.status === "committed").length;
     await onProgress?.(importBatchJobProgress("processing", completed, rowsToCommit.length, null, "Committing rows."));
     if (detail.status === "committed" && rowsToCommit.every((row) => row.status === "committed")) {
