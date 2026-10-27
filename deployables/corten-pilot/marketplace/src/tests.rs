@@ -5365,8 +5365,8 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     let finish = html.find("Finish packing").unwrap();
     assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
-    // Straight to marketplace's command center (todd-skelton/corten#131).
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back to shipments</a>"#), "{html}");
+    // The pilot's own address, which redirects to marketplace's command center.
+    assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
     let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_full/packing", Some("shipper"))).await;
     let shown = text(&html);

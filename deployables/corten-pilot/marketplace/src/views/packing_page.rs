@@ -109,9 +109,8 @@ fn counted(s: &ShipmentDetail) -> (u64, bool) {
 /// a write, the route's pending page.
 #[component(css)]
 pub fn PackingPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: &'a PackingScreen) -> impl Render {
-    // marketplace's command center, linked there: a client navigation to the pilot's address,
-    // which redirects there, is blocked by connect-src and reloads (todd-skelton/corten#131).
-    let back = on_marketplace("/account/sales/shipments");
+    // The pilot's address, which redirects to marketplace's command center.
+    let back = url::SaleShipments.href();
     html! {
         if let Some(s) = &screen.shipment {
             <PackingView t={t} p={p} viewer={viewer} id={id} screen={screen} s={s} back={&back} />
@@ -669,9 +668,8 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
 /// A shipment's page while it is catching up with a write (the packing route's pending words).
 #[component(css = PackingPage)]
 pub fn ShipmentPending(t: ShipmentsMsg) -> impl Render {
-    // marketplace's command center, linked there: a client navigation to the pilot's address,
-    // which redirects there, is blocked by connect-src and reloads (todd-skelton/corten#131).
-    let back = on_marketplace("/account/sales/shipments");
+    // The pilot's address, which redirects to marketplace's command center.
+    let back = url::SaleShipments.href();
     html! {
         <div class={Page}>
             <platform::section::PageHeader
