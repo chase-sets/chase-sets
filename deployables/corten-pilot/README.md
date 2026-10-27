@@ -580,7 +580,7 @@ Run `corten dev` inside the app's directory; it also rebuilds on an edit in `pla
 | `CHASE_SETS_MARKETPLACE_ORIGIN` | `https://marketplace.chasesets.com` | public: where Buy or sell links go |
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
 | `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (`/welcome`, the compare pages, the founders' terms, the FAQ, the policies) |
-| `CHASE_SETS_TRUST_FORWARDED_HEADERS` | off | public: `true` when a proxy in front sets `X-Forwarded-For`; Join then sends the visitor's address to the API |
+| `PROXIES` | none | every app (read by Corten): the proxies in front, comma separated addresses or networks (`10.0.0.0/8`), whose `X-Forwarded-For` `ClientIp` follows back to the visitor; without it the visitor is the connection's peer. Set it where a deploy would have set `CHASE_SETS_TRUST_FORWARDED_HEADERS` for the Node apps. public's Join sends the address to the API |
 | `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
 
 `scripts/export.mjs` writes what the apps read from Chase Sets' sources: each screen's English
@@ -637,6 +637,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `15dc546` | Corten `main` with [todd-skelton/corten#136 A client navigation is told about a redirect to another site](https://github.com/todd-skelton/corten/pull/136) (closing [todd-skelton/corten#131 A client navigation to a route that redirects to another origin is blocked by connect-src, then reloads](https://github.com/todd-skelton/corten/issues/131)), [todd-skelton/corten#135 An area or an API sets its own deadline](https://github.com/todd-skelton/corten/pull/135) (closing [todd-skelton/corten#114 App::deadline is one value for the whole app, so one slow route (an upstream call, an upload) lifts it for every page](https://github.com/todd-skelton/corten/issues/114)) and [todd-skelton/corten#137 corten::serve_on serves an app on listeners of its own](https://github.com/todd-skelton/corten/pull/137) (closing [todd-skelton/corten#115 corten::serve takes no listener, so an app that needs TLS or its own socket loses the loopback pair, the stream drain and graceful shutdown](https://github.com/todd-skelton/corten/issues/115)). None is breaking. The packing page's Back links the pilot's `/account/sales/shipments` again; a click there was checked to reach marketplace's command center in one navigation with no console error. `corten check` passed at admin 62, marketplace 169, platform 9, public 19 |
 | `2338bcb` | Corten `main` with [todd-skelton/corten#141 t.percent and t.js().percent: a ratio as the locale writes a percentage](https://github.com/todd-skelton/corten/pull/141) (closing [todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119)) and [todd-skelton/corten#138 Elsewhere::at: a place on a page outside the app keeps its fragment](https://github.com/todd-skelton/corten/pull/138) (closing [todd-skelton/corten#123 An address outside the app cannot carry a #fragment, so req.moved and req.redirect drop the anchor of an external URL](https://github.com/todd-skelton/corten/issues/123)). Not breaking. Both workarounds removed: the home page's rates are `t.percent` (`home::rate`), and the fee calculator's share link moves with `corten::Elsewhere::at(&to, "fee-calculator")`. Create listing was ported at this pin. |
 | `a12c78b` | Corten `main` with [todd-skelton/corten#144 html! and corten fmt read a pattern with braces as Rust does](https://github.com/todd-skelton/corten/pull/144), closing [todd-skelton/corten#142 html! if let cannot take a struct pattern: the pattern's braces are read as the body](https://github.com/todd-skelton/corten/issues/142). Not breaking. The workaround is removed: Create listing's view matches `if let Catalog::Chosen { item, picks, reset } = &screen.catalog`, and `Catalog::chosen()` is gone. |
+| `07d7f65` | Corten `main` with [todd-skelton/corten#145 ClientIp: the visitor's address, from the peer or a trusted proxy's X-Forwarded-For](https://github.com/todd-skelton/corten/pull/145), closing [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120). Not breaking. public's Join takes `Option<corten::ClientIp>`; `platform::client` (the `CHASE_SETS_TRUST_FORWARDED_HEADERS` reader) is gone, and a deploy lists its proxies in `PROXIES`. The router tests give the request a connection address (`ConnectInfo`) and check that, with no proxy listed, the browser's `X-Forwarded-For` is not read. |
 
 **Ported ahead of Corten: `feat/route-handlers`, pinned at `319d3b7`.** Corten's breaking change
 ([todd-skelton/corten#81 A route's handler says what it answers, who may call it and how it caches, checked for every route](https://github.com/todd-skelton/corten/pull/81), first as its local
@@ -1391,10 +1392,9 @@ postage, storage locations, cart, item and Add to List. What changed:
     are named as the API names them (`page_path`, `utm_source`, ..). Percentages are written
     with `t.number` and a literal `%`
     ([todd-skelton/corten#119 i18n writes no percentage, so a rate like 2.9% cannot be localized](https://github.com/todd-skelton/corten/issues/119)).
-    Join sends the visitor's address as `X-Forwarded-For` only when the app is told it sits
-    behind a trusted proxy (`CHASE_SETS_TRUST_FORWARDED_HEADERS`, `platform::client`), the
-    nearest public hop
-    ([todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120));
+    Join sends the visitor's address as `X-Forwarded-For`: Corten's `ClientIp`, the
+    connection's peer or, behind the proxies the deploy lists in `PROXIES`, the nearest address
+    they forwarded that is not one of them ([todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120), fixed at the `07d7f65` pin);
     public-web sends none
     ([chase-sets/chase-sets#10644 [public-presence] Waitlist signups through public-web share one rate-limit bucket because no client address reaches the API](https://github.com/chase-sets/chase-sets/issues/10644)).
     A signup answers 303 to public-web's `/welcome`, which reads the role, variant and games from
@@ -1538,11 +1538,12 @@ postage, storage locations, cart, item and Add to List. What changed:
 
 ## Corten gaps
 
-Open at the `a12c78b` pin, each with its workaround in the pilot:
+Open at the `07d7f65` pin, each with its workaround in the pilot:
 
-1. [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120): `platform::client::address` reads `X-Forwarded-For` and `X-Real-IP` itself, only behind a trusted proxy; with none it sends nothing.
-2. [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140): Create listing and a seller's listing's photo writes read their bodies with multer (`uploads::read`), keeping each file in memory.
-3. [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143): the photo input is outside every patched part; its message is a separate live region (`PhotoErrorPart`).
+1. [todd-skelton/corten#140 A form cannot post a file: Form reads only URL-encoded bodies, so a multipart form is a 415 and nothing reads its files](https://github.com/todd-skelton/corten/issues/140): Create listing and a seller's listing's photo writes read their bodies with multer (`uploads::read`), keeping each file in memory.
+2. [todd-skelton/corten#143 A patch drops the files chosen in a file input it replaces, so a refused upload cannot mark its input invalid](https://github.com/todd-skelton/corten/issues/143): the photo input is outside every patched part; its message is a separate live region (`PhotoErrorPart`).
+
+Closed since the `a12c78b` pin, at `07d7f65`: [todd-skelton/corten#120 A handler cannot read the client's address, so an app that calls an API for a visitor cannot pass it on for rate limiting](https://github.com/todd-skelton/corten/issues/120), its workaround (`platform::client`) removed for `ClientIp`.
 
 Closed since the `2338bcb` pin, at `a12c78b`: [todd-skelton/corten#142 html! if let cannot take a struct pattern: the pattern's braces are read as the body](https://github.com/todd-skelton/corten/issues/142), its workaround (`Catalog::chosen()`) removed.
 

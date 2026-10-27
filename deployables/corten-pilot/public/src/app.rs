@@ -29,9 +29,6 @@ pub struct Config {
     pub indexing: bool,
     /// The Discord invite the home page links (`CHASE_SETS_DISCORD_INVITE_URL`), when set.
     pub discord: Option<String>,
-    /// Whether a proxy in front sets the forwarded headers (`CHASE_SETS_TRUST_FORWARDED_HEADERS`):
-    /// only then is the visitor's address sent with a signup.
-    pub trust_forwarded: bool,
     /// The home page's reads, kept for the next visitor.
     pub home: crate::home::Kept,
 }
@@ -46,7 +43,6 @@ impl Config {
             marketplace: origin("CHASE_SETS_MARKETPLACE_ORIGIN", "https://marketplace.chasesets.com"),
             indexing: indexing(var("CHASE_SETS_PUBLIC_INDEXING").as_deref()),
             discord: var("CHASE_SETS_DISCORD_INVITE_URL"),
-            trust_forwarded: platform::client::trusted_from_env(),
             home: crate::home::Kept::default(),
         }
     }

@@ -5,7 +5,6 @@
 //! screens, its shell and its API calls.
 pub mod api;
 pub mod chart;
-pub mod client;
 pub mod jobs;
 pub mod money;
 pub mod nav;

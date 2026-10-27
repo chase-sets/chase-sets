@@ -619,6 +619,7 @@ pub(crate) async fn join(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
+    client: Option<corten::ClientIp>,
     corten::Form(form): corten::Form<Form>,
 ) -> HtmlResult {
     let t: HomeMsg = req.t();
@@ -654,7 +655,9 @@ pub(crate) async fn join(
             utm_term: optional(&form.utm_term),
         },
     };
-    let client = platform::client::address(&headers, config.trust_forwarded);
+    // The visitor's address, which the API's signup limiter keys on: the connection's, or behind
+    // the proxies the deploy lists (`PROXIES`) the nearest one they forwarded.
+    let client = client.map(|corten::ClientIp(ip)| ip.to_string());
     let caller = config.platform.caller(&headers, config.proto(), None);
     match caller.join(&signup, client.as_deref()).await {
         Ok(id) => {

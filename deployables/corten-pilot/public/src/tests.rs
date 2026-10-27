@@ -114,11 +114,6 @@ struct Site {
 
 impl Site {
     async fn new(indexing: bool, origin: &str) -> Self {
-        Site::with(indexing, origin, false).await
-    }
-
-    /// A site whose deployment trusts its proxy's forwarded headers, or not.
-    async fn with(indexing: bool, origin: &str, trust_forwarded: bool) -> Self {
         let calls = Calls::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -130,22 +125,28 @@ impl Site {
             marketplace: "https://marketplace.chasesets.com".into(),
             indexing,
             discord: None,
-            trust_forwarded,
             home: Default::default(),
         };
         Site { router: app(config).router(), calls }
     }
 
-    async fn post(&self, path: &str, form: &str, forwarded: Option<&str>) -> (StatusCode, HeaderMap, String) {
+    /// A form post; `from` is the connection's address and the `X-Forwarded-For` it sends (a
+    /// `oneshot` request has no address of its own).
+    async fn post(&self, path: &str, form: &str, from: Option<(&str, &str)>) -> (StatusCode, HeaderMap, String) {
         let mut req = Request::post(path)
             .header(header::HOST, "localhost:7797")
             .header(header::ORIGIN, "http://localhost:7797")
             .header("sec-fetch-site", "same-origin")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
-        if let Some(forwarded) = forwarded {
+        if let Some((_, forwarded)) = from {
             req = req.header("x-forwarded-for", forwarded);
         }
-        let res = self.router.clone().oneshot(req.body(Body::from(form.to_owned())).unwrap()).await.unwrap();
+        let mut req = req.body(Body::from(form.to_owned())).unwrap();
+        if let Some((peer, _)) = from {
+            let peer: std::net::SocketAddr = format!("{peer}:50000").parse().unwrap();
+            req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+        }
+        let res = self.router.clone().oneshot(req).await.unwrap();
         let (status, headers) = (res.status(), res.headers().clone());
         let body = res.into_body().collect().await.unwrap().to_bytes();
         (status, headers, String::from_utf8(body.to_vec()).unwrap())
@@ -393,7 +394,7 @@ async fn an_old_fee_calculator_share_link_moves_to_the_compare_page() {
 async fn joining_sends_the_signup_and_goes_to_the_welcome_page() {
     let site = Site::new(true, "https://chasesets.com").await;
     let form = "panel=hero&email=ada%40example.com&role=buy&games=pokemon&games=pokemon&website=&page_path=%2F%3Fref%3Dwls_9&referrer=https%3A%2F%2Fexample.com%2F&utm_source=&utm_medium=&utm_campaign=x&utm_content=&utm_term=&referred_by_signup_id=wls_9";
-    let (status, headers, page) = site.post("/?ref=wls_9", form, Some("198.51.100.1, 203.0.113.7, 10.0.0.2")).await;
+    let (status, headers, page) = site.post("/?ref=wls_9", form, None).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{page}");
     assert_eq!(
         headers[header::LOCATION],
@@ -410,12 +411,11 @@ async fn joining_sends_the_signup_and_goes_to_the_welcome_page() {
         assert_eq!(signup["source"]["referrer"], "https://example.com/");
         assert_eq!(signup["source"]["utmCampaign"], "x");
         assert_eq!(signup["source"]["utmSource"], serde_json::Value::Null);
-        assert_eq!(*client, None, "no address unless the deployment trusts its proxy");
+        assert_eq!(*client, None, "no address when the connection's is not known");
     }
 
-    let site = Site::with(true, "https://chasesets.com", true).await;
     let form = "panel=final&email=grace%40example.com&role=both&interests=bulk-listing&page_path=%2F";
-    let (status, headers, _) = site.post("/", form, Some("198.51.100.1, 203.0.113.7, 10.0.0.2")).await;
+    let (status, headers, _) = site.post("/", form, Some(("203.0.113.7", "198.51.100.1"))).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(
         headers[header::LOCATION],
@@ -425,7 +425,11 @@ async fn joining_sends_the_signup_and_goes_to_the_welcome_page() {
     let (signup, client) = signups.iter().find(|(s, _)| s["email"] == "grace@example.com").unwrap();
     assert_eq!(signup["interests"], json!(["bulk-listing"]));
     assert_eq!(signup["marketingConsent"], false);
-    assert_eq!(client.as_deref(), Some("203.0.113.7"), "the nearest public hop, so each visitor has their own limit");
+    assert_eq!(
+        client.as_deref(),
+        Some("203.0.113.7"),
+        "the connection's address, not what the browser wrote: no proxy is listed (PROXIES), so the header is not read"
+    );
 }
 
 #[tokio::test]
