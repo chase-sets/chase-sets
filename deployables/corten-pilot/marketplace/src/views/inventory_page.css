@@ -78,7 +78,7 @@
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
   background: var(--color-primary);
-  color: var(--color-primary-contrast);
+  color: var(--color-primary-foreground);
   font: inherit;
   font-weight: 600;
   text-decoration: none;

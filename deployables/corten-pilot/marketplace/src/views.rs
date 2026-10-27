@@ -25,6 +25,7 @@ mod account_page;
 mod address_page;
 mod cart_item;
 mod decision_card;
+mod desk_page;
 mod inventory_item_page;
 mod inventory_page;
 mod item_detail;
@@ -52,6 +53,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
+pub use desk_page::DeskPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
@@ -121,6 +123,9 @@ pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handle
 
 /// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
 pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
+
+/// The Seller Desk home (`/account/desk`).
+pub const DESK: &[Component] = &[DeskPage];
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];

@@ -105,7 +105,7 @@
   font-weight: 600;
 }
 .tag { font-weight: 400; }
-.badge[data-tone="accent"] { background: var(--color-primary); color: var(--color-primary-contrast); }
+.badge[data-tone="accent"] { background: var(--color-primary); color: var(--color-primary-foreground); }
 .badge[data-tone="warning"] { background: var(--color-warning-soft); }
 .lines { display: grid; gap: var(--space-2); margin: 0; min-width: 0; }
 .lines > div { display: grid; gap: var(--space-1); grid-template-columns: minmax(6rem, auto) minmax(0, 1fr); }
@@ -147,7 +147,7 @@
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
   background: var(--color-primary);
-  color: var(--color-primary-contrast);
+  color: var(--color-primary-foreground);
   font-weight: 600;
   text-decoration: none;
   text-align: center;

@@ -6325,6 +6325,37 @@ fn seller_listing(id: &str) -> Value {
     listing
 }
 
+/// The Seller Desk's queue as the API sorts it: a channel connection's open attention, an offer
+/// awaiting a response, repricing held at the floor and a draft listing; Shipments unavailable.
+fn attention_queue() -> Value {
+    let item = |id: &str, source: &str, severity: &str, code: &str, params: Value, href: &str| {
+        json!({
+            "id": id, "source": source, "entity": "x", "severity": severity,
+            "summary": { "code": code, "params": params },
+            "deepLink": { "surface": "x", "href": href }, "dueAt": null, "observedAt": "2026-10-24T04:11:35.387Z",
+        })
+    };
+    json!({
+        "items": [
+            item("channel-action:conn_1", "channel-action", "critical", "channel-action-open",
+                json!({ "reasonCount": 1, "topReason": "drift", "affectedListingCount": 1, "hasMore": 0, "manualReason": "recovery", "connectionId": "conn_1" }),
+                "/account/channels/conn_1"),
+            item("offer-response:off_1", "offer-response", "warning", "offer-awaiting-response",
+                json!({ "reference": "Pikachu" }), "/account/desk/offers"),
+            item("pricing-repricing:pol_1", "pricing-repricing", "warning", "repricing-floor-binding",
+                json!({ "count": 2341 }), "/account/desk/repricing"),
+            item("listing-action:lst_draft", "listing-action", "info", "listing-needs-action",
+                json!({ "reference": "Charizard", "action": "draft" }), "/account/desk/listings/lst_draft"),
+        ],
+        "rollup": { "total": 4, "bySeverity": { "critical": 1, "warning": 2, "info": 1 }, "bySource": {} },
+        "sources": [
+            { "id": "fulfillment-ship-by", "status": "unavailable", "itemCount": 0, "reason": "source returned a non-conforming item" },
+            { "id": "channel-action", "status": "available", "itemCount": 1 },
+        ],
+        "degraded": true,
+    })
+}
+
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
@@ -6396,6 +6427,8 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
         .into_response(),
         ("GET", "/sales/order-capacity") if session == "lookout" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         ("GET", "/sales/order-capacity") => Json(json!({ "open_order_count": 3 })).into_response(),
+        ("GET", "/seller-attention-queue") if session == "lookout" => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        ("GET", "/seller-attention-queue") => Json(attention_queue()).into_response(),
         ("POST", "/listing-availability/disable") if sent["reasonCategory"] == "bogus" => refusal(
             StatusCode::BAD_REQUEST,
             "listing_availability_reason_invalid",
@@ -8006,4 +8039,81 @@ async fn a_sale_from_the_item_page_says_what_it_did_there() {
     let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/sale", "seller", &body, true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(!html.contains("<html") && text(&html).contains("Offline sales require a positive whole-number quantity."), "{html}");
+}
+
+const DESK: &str = "/account/desk";
+
+#[tokio::test]
+async fn the_desk_shows_the_queue_in_its_own_words_and_the_counts_it_could_read() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(DESK, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for shown in [
+        "Seller Desk",
+        "4 to handle",
+        "Health reasons needing attention: 1. First: Inventory differences. Affected listings: 1. Inbound clamp recovery needs review for connection conn_1.",
+        "Open manual sync",
+        "Offer on Pikachu is awaiting your response",
+        "2,341 listings have been held at their price floor past your alert threshold",
+        "Listing Charizard needs attention (draft)",
+        "Some signals are temporarily unavailable",
+        "Shipments: temporarily unavailable",
+    ] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(!page.contains("non-conforming"), "the API's reason is internal (chase-sets/chase-sets#8766): {page}");
+    assert!(
+        html.contains(r#"href="/account/listings/lst_draft""#),
+        "the draft opens on the pilot (chase-sets/chase-sets#10676): {html}"
+    );
+    assert!(html.contains(r#"href="http://localhost:7753/account/channels/conn_1""#), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/desk/offers""#), "{html}");
+    let critical = html.find("Health reasons").unwrap();
+    assert!(
+        critical < html.find("Pikachu").unwrap() && html.find("Pikachu").unwrap() < html.find("Charizard needs").unwrap(),
+        "the API's order"
+    );
+    // The counts: two active listings, three open orders; payout and wallet are not wired.
+    let kpis: Vec<_> =
+        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+    assert_eq!(kpis, ["2", "3", "Unavailable", "Unavailable"], "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let listings: Vec<_> = calls.iter().filter(|c| c.path.starts_with("/api/marketplace/account/listings")).collect();
+    assert_eq!(listings.len(), 1);
+    assert_eq!(listings[0].path, "/api/marketplace/account/listings?limit=1&offset=0", "only the counts");
+    assert!(!calls.iter().any(|c| c.path.contains("offer-matches")), "marketplace's unused offers read is not made");
+    let (status, _, body) = pilot.send(get_json(DESK)).await;
+    assert_eq!(status, StatusCode::OK);
+    let data: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["data"]["queue"]["rollup"]["total"], 4, "{body}");
+    assert_eq!(data["data"]["kpis"]["activeListings"], 2, "{body}");
+}
+
+#[tokio::test]
+async fn a_desk_whose_reads_fail_says_so_and_never_blanks() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(DESK, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for source in
+        ["Shipments", "Blocked payouts", "Import resolution", "Channel action", "Offers", "Repricing", "Listings", "Disputes"]
+    {
+        assert!(page.contains(&format!("{source}: temporarily unavailable")), "{source}: {page}");
+    }
+    assert!(page.contains("0 to handle") && page.contains("Nothing needs you"), "{page}");
+    assert!(html.contains(r#"href="/account/listings/new""#) && html.contains(r#"href="/account/inventory""#), "{html}");
+    let kpis: Vec<_> =
+        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+    assert_eq!(kpis, ["2", "Unavailable", "Unavailable", "Unavailable"], "a failed count is its tile only: {html}");
+}
+
+#[tokio::test]
+async fn the_desk_is_for_anyone_signed_in() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(DESK, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fdesk"));
+    let (status, _, _) = pilot.send(get(DESK, Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK);
 }

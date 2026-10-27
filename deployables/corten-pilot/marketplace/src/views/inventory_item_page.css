@@ -73,7 +73,7 @@
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
   background: var(--color-primary);
-  color: var(--color-primary-contrast);
+  color: var(--color-primary-foreground);
   font: inherit;
   font-weight: 600;
   text-decoration: none;
@@ -84,7 +84,7 @@
 .secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border-strong); }
 .small { font-size: 0.875rem; }
 /* The ledger filter that is shown. */
-.secondary[aria-current="page"] { background: var(--color-primary); color: var(--color-primary-contrast); border-color: var(--color-primary); }
+.secondary[aria-current="page"] { background: var(--color-primary); color: var(--color-primary-foreground); border-color: var(--color-primary); }
 /* The ledger: a line down the side, a dot per movement, an issue's dot in the danger color. */
 .timeline { display: grid; gap: var(--space-3); margin: 0; padding: 0 0 0 var(--space-5); list-style: none; border-inline-start: 2px solid var(--color-border); }
 .step { position: relative; display: grid; gap: var(--space-1); justify-items: start; min-width: 0; }

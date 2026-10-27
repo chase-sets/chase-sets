@@ -62,6 +62,9 @@
 //   (marketplace.features.listings.ui.listingListPage.* as list.*, marketplace.routes.accountListings.* as
 //   route.*, the listing API's refusals marketplace.features.listings.api.route.error.* as error.*, the seller
 //   desk's degraded words, and the language labels).
+// - marketplace/locales/desk.en.json: the Seller Desk home's English catalog (marketplace.features.sellerDesk.*,
+//   and the channel words its summaries use: channels.manualSync.attention.* as manual.*,
+//   channels.attention.reason.* as channel_reason.*, and the order counts).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -523,6 +526,18 @@ const outputs = [
         ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/desk.en.json",
+    json({
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [["marketplace.features.sellerDesk.", ""]])),
+      ...(await catalog("channels.ts", "channelsEnglishTranslations", [
+        ["channels.manualSync.attention.", "manual"],
+        ["channels.attention.reason.", "channel_reason"],
+        ["channels.attention.ordersCount", "orders_count"],
+        ["channels.attention.ordersOverflow", "orders_overflow"],
+      ])),
     }),
   ],
   [

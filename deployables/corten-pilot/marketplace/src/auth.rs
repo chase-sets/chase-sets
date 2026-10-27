@@ -108,6 +108,22 @@ impl Identify<Shared> for Seller {
     }
 }
 
+/// A seller on the Seller Desk home: anyone signed in, as marketplace's loader requires (the API
+/// checks the queue's permissions and answers 403 without them; the page then shows the queue as
+/// unavailable). Anyone not signed in is sent to marketplace's sign-in, back to the Desk.
+#[derive(Clone, Debug, Hash)]
+pub struct DeskSeller(pub Viewer);
+
+impl Identify<Shared> for DeskSeller {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) => Ok(DeskSeller(viewer)),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A buyer with an account cart. The guest cart is not ported: a visitor without an account, or a
 /// guest checkout's session, is sent to marketplace's own cart, which reads it.
 #[derive(Clone, Debug, Hash)]

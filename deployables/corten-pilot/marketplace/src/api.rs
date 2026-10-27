@@ -3803,3 +3803,80 @@ impl SubmittedOfferCalls for Caller<'_> {
         Ok((answer.items, receipt))
     }
 }
+
+/// The Seller Desk's attention queue (`SellerAttentionQueue`): the items in the order the API
+/// sorts them, the counts by severity, and each source's health.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AttentionQueue {
+    pub items: Vec<AttentionItem>,
+    pub rollup: AttentionRollup,
+    pub sources: Vec<AttentionSource>,
+    pub degraded: bool,
+}
+
+/// An item of the queue (`SellerAttentionItem`): a semantic `code` and its `params`, which the
+/// page puts in its own words, and where to fix it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionItem {
+    pub id: String,
+    pub source: String,
+    pub severity: String,
+    pub summary: AttentionSummary,
+    pub deep_link: AttentionLink,
+    #[serde(default)]
+    pub due_at: Option<String>,
+    pub observed_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AttentionSummary {
+    pub code: String,
+    #[serde(default)]
+    pub params: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AttentionLink {
+    pub surface: String,
+    pub href: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AttentionRollup {
+    pub total: u64,
+    pub by_severity: Severities,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Severities {
+    pub critical: u64,
+    pub warning: u64,
+    pub info: u64,
+}
+
+/// A source's health: `available`, or `unavailable` with the API's internal reason.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionSource {
+    pub id: String,
+    pub status: String,
+    #[serde(default)]
+    pub item_count: u64,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// The Seller Desk home's own read.
+pub trait DeskCalls {
+    async fn seller_attention_queue(&self) -> Result<AttentionQueue, ApiError>;
+}
+
+impl DeskCalls for Caller<'_> {
+    async fn seller_attention_queue(&self) -> Result<AttentionQueue, ApiError> {
+        self.read(&format!("{ACCOUNT}/seller-attention-queue"), MARKETPLACE).await
+    }
+}

@@ -107,6 +107,7 @@ pub mod url {
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
+    pub use desk::Desk;
     pub use home::Home;
     pub use inventory::{
         Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem,
@@ -549,6 +550,16 @@ pub mod url {
         }
     }
 
+    /// The Seller Desk home (marketplace's `account-desk`): the attention queue and the KPI band.
+    /// Its handler takes a `DeskSeller` (anyone signed in).
+    #[corten::routes(state = crate::app::Shared, area = Desk, caller = crate::auth::DeskSeller)]
+    pub mod desk {
+        /// The Desk home. `drawer` and `entity` are the queue's links to a drawer marketplace has
+        /// not built; the page ignores them, as marketplace's does.
+        #[route("/account/desk", get = crate::desk::page)]
+        pub struct Desk;
+    }
+
     /// The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`):
     /// the list, drawn again live, and a match's page with its writes (see `offer_matches`). Every
     /// handler takes an `OfferReviewer`.
@@ -799,6 +810,7 @@ pub fn app(config: Config) -> App {
                 .components(views::SELLER_LISTING)
                 .deadline(crate::seller_listing::DEADLINE)
         })
+        .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))
         .area(|area| {

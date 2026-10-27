@@ -15,7 +15,7 @@
 .card-title { margin: 0; font: 600 1.125rem/1.4 var(--font-display); overflow-wrap: anywhere; }
 .section-title { margin: 0; font: 600 1.75rem/1.2 var(--font-display); }
 .muted { margin: 0; color: var(--color-text-secondary); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
-.faint { margin: 0; color: var(--color-text-tertiary, var(--color-text-secondary)); font-size: 0.75rem; }
+.faint { margin: 0; color: var(--color-text-muted); font-size: 0.75rem; }
 .strong { margin: 0; color: var(--color-text); font-weight: 600; overflow-wrap: anywhere; }
 .stack { display: grid; gap: var(--space-2); min-width: 0; }
 .inline { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; margin: 0; padding: 0; list-style: none; }
