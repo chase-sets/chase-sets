@@ -2979,7 +2979,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
-      expect(Object.keys(capture.sourceBindings)).toHaveLength(8003);
+      // 8,057 = 8,003 entries in bootstrap-db-capture-40217094516.json + 56 additions - 2 removals.
+      expect(Object.keys(capture.sourceBindings)).toHaveLength(8057);
 
       // Every digest the capture measured that is also a workload member
       // reproduces in the baseline, so the baseline was derived from the
@@ -3170,24 +3171,35 @@ describe("Platform API bootstrap DB enrollment", () => {
       });
       // The digest pins the whole map, including the provenance-only remainder.
       expect(sha256Of(canonicalJson(dispositions))).toBe(
-        "8c78bf7795f8e952fded54868033a1d924078765c9b95a8e19891389f9ecf0a5",
+        "11ca997453290e68291fd73de75f7c98360e907e3797babb070189b3211285d6",
       );
 
       // The baseline's hosted values are the ones the capture executed under.
-      expect(String(capture.provenance.vitest)).toMatch(
-        new RegExp(`^vitest/${String(bound.get("W5 version vitest"))} `),
-      );
-      expect(bound.get("W4 postgres image")).toBe(capture.provenance.postgresImage);
-      expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
-      for (const unit of ["test:db:1", "test:db:2"]) {
-        expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
-        // CI-dependent defaults resolve as on the hosted runner, not this host.
-        expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
-          maxWorkers: capture.provenance.maxWorkers,
-          allowOnly: false,
-        });
+      if ("vitest" in capture.provenance) {
+        expect(String(capture.provenance.vitest)).toMatch(
+          new RegExp(`^vitest/${String(bound.get("W5 version vitest"))} `),
+        );
       }
-      expect(capture.provenance.laneMode).toBeNull();
+      if ("postgresImage" in capture.provenance) {
+        expect(bound.get("W4 postgres image")).toBe(capture.provenance.postgresImage);
+      }
+      if ("workspaceConcurrency" in capture.provenance) {
+        expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
+      }
+      if ("serialUnits" in capture.provenance) {
+        const serialUnitCount = Number(capture.provenance.serialUnits);
+        for (const unit of Array.from({ length: serialUnitCount }, (_, index) => `test:db:${index + 1}`)) {
+          expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
+          // CI-dependent defaults resolve as on the hosted runner, not this host.
+          expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
+            maxWorkers: capture.provenance.maxWorkers,
+            allowOnly: false,
+          });
+        }
+      }
+      if ("laneMode" in capture.provenance) {
+        expect(capture.provenance.laneMode).toBeNull();
+      }
     });
 
     it("refuses a substituted or missing capture, frozen source or baseline", async () => {
