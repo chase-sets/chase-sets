@@ -9,12 +9,15 @@ import {
   type CatalogMergeCandidateReviewSnapshot,
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
+import { requireCatalogPromotionProfileVersion } from "../source-observation-promotion-execution";
 import { catalogMergeCandidateStreamId } from "../source-observation-stream-identity";
 import {
   applyCatalogMergeCandidatePromotion,
   catalogMergeCandidateTargetId,
   loadCandidateApplication,
   requirePinnedProfileEligible,
+  resolveRoleAwarePromotionProfile,
+  unappliedOutcome,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
 
@@ -86,6 +89,109 @@ describe("pinned application profile eligibility", () => {
     expect(catalogMergeCandidateTargetId("cand_a")).toBe(catalogMergeCandidateTargetId("cand_a"));
     expect(catalogMergeCandidateTargetId("cand_a")).toMatch(/^cat_candidate_[a-f0-9]{64}$/);
     expect(catalogMergeCandidateTargetId("cand_a")).not.toBe(catalogMergeCandidateTargetId("cand_b"));
+  });
+});
+
+describe("reference-only provider role eligibility", () => {
+  const normalized = {
+    kind: "magic-card-print",
+    externalCatalogItemReferences: [{ providerKey: "scryfall", externalKey: "card:scryfall-1" }],
+  } as never;
+  const snapshot = {
+    proposedExternalCatalogItemReferences: [{ providerKey: "scryfall", externalKey: "card:scryfall-1" }],
+  } as never;
+  const referenceOnly = (providerKey: string, profileKey: string) =>
+    ({
+      providerKey,
+      profileKey,
+      profileVersion: "2026.06.19",
+      ingestionUnitIdentity: {
+        unitKey: `${providerKey}:mtg:single-card:reference-data`,
+        providerKey,
+        productDomain: "mtg",
+        productForm: "single-card",
+        ingestionPurpose: "reference-data",
+      },
+      lifecycle: "active",
+      active: true,
+      profile: {
+        status: "active",
+        capabilities: ["source-observation-import", "external-reference-extraction"],
+        normalizedObservationMapping: { kind: "magic-card-print" },
+      },
+    }) as unknown as CatalogProviderIntegrationProfileVersionRecord;
+  const itemProfile = (providerKey: string) =>
+    ({
+      ...referenceOnly(providerKey, "mtg-card-print-reference-data"),
+      profile: {
+        status: "active",
+        capabilities: ["source-observation-import", "catalog-item-promotion"],
+        normalizedObservationMapping: { kind: "magic-card-print" },
+      },
+    }) as unknown as CatalogProviderIntegrationProfileVersionRecord;
+
+  it("reproduces reference-only lookup refusal, then selects one reviewed Scryfall Item profile", async () => {
+    const reader = {
+      listProfileVersions: vi.fn(async (providerKey?: string | null) =>
+        providerKey === "mtgjson"
+          ? [referenceOnly("mtgjson", "mtg-card-reference-data")]
+          : providerKey === "scryfall"
+            ? [itemProfile("scryfall")]
+            : [],
+      ),
+      getActiveProfileVersion: vi.fn(),
+    };
+    await expect(requireCatalogPromotionProfileVersion(reader, "mtgjson", normalized)).rejects.toThrow(
+      "does not support Catalog Item promotion",
+    );
+    await expect(
+      resolveRoleAwarePromotionProfile(
+        reader,
+        {
+          providerKey: "mtgjson",
+          externalKey: "card:mtgjson-1",
+          normalized,
+        } as never,
+        normalized,
+        snapshot,
+      ),
+    ).resolves.toMatchObject({
+      providerKey: "scryfall",
+      externalKey: "card:scryfall-1",
+      version: { providerKey: "scryfall" },
+    });
+  });
+
+  it("fails closed when a reference-only member has no reviewed Item reference", async () => {
+    const reader = {
+      listProfileVersions: vi.fn(async () => [referenceOnly("mtgjson", "mtg-card-reference-data")]),
+      getActiveProfileVersion: vi.fn(),
+    };
+    await expect(
+      resolveRoleAwarePromotionProfile(
+        reader,
+        { providerKey: "mtgjson", externalKey: "card:mtgjson-1", normalized } as never,
+        normalized,
+        { proposedExternalCatalogItemReferences: [] } as never,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps reference-only outcomes visibly non-item", async () => {
+    expect(
+      unappliedOutcome(
+        "cand_reference_only",
+        "skipped-not-eligible",
+        "reference-only-member: no Item role",
+        undefined,
+        "reference-only",
+      ),
+    ).toMatchObject({
+      status: "skipped-not-eligible",
+      disposition: "reference-only",
+      appliedCatalogItemId: null,
+      appliedMode: null,
+    });
   });
 });
 
