@@ -98,9 +98,11 @@ describe("inline seed lease loss (unit, real port and seed substeps)", () => {
     const seed = startSeed(state, plane.controlPlane, 150, plane.trace);
     const rejected = expect(seed.result).rejects.toEqual(substepTimeout("projection-sync:alpha", 150));
 
+    // Settled state is asserted before awaiting, so a retry loop that ignores the abort fails here.
     await vi.advanceTimersByTimeAsync(151);
-    await rejected;
+    expect(seed.settled()).toBe(true);
     expect(plane.acquireLease).toHaveBeenCalledTimes(1);
+    await rejected;
 
     // The lease becomes free later; the rejected seed must not take it.
     now = 350;
@@ -122,6 +124,7 @@ describe("inline seed lease loss (unit, real port and seed substeps)", () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(seed.settled()).toBe(false);
     await vi.advanceTimersByTimeAsync(60);
+    expect(seed.settled()).toBe(true);
     await rejected;
 
     expect(plane.trace).toEqual(["acquire#1", "acquired#1:9", "release:9", "rejected"]);
@@ -140,6 +143,7 @@ describe("inline seed lease loss (unit, real port and seed substeps)", () => {
     expect(plane.acquireLease.mock.calls.length).toBeGreaterThan(31);
 
     await vi.advanceTimersByTimeAsync(584_001);
+    expect(seed.settled()).toBe(true);
     await rejected;
     expect(plane.releaseLease).not.toHaveBeenCalled();
     expect(state.writes).toEqual([]);

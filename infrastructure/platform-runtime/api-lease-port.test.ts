@@ -37,17 +37,20 @@ describe("seed projection group lease port", () => {
     const port = createProjectionGroupLeasePort(controlPlane, "platform-api");
     const abort = new AbortController();
     const work = vi.fn(async () => undefined);
-    const result = port.runWithLease(group, abort.signal, work);
+    let settled = false;
+    const result = port.runWithLease(group, abort.signal, work).finally(() => {
+      settled = true;
+    });
     const rejected = expect(result).rejects.toThrow(/cancelled/);
 
     await vi.advanceTimersByTimeAsync(10);
     abort.abort();
-    await rejected;
-    expect(acquireLease).toHaveBeenCalledTimes(1);
-
+    // Settled state is asserted before awaiting, so a retry loop that ignores the abort fails here.
     await vi.advanceTimersByTimeAsync(1_000);
+    expect(settled).toBe(true);
     expect(acquireLease).toHaveBeenCalledTimes(1);
     expect(work).not.toHaveBeenCalled();
+    await rejected;
   });
 
   it("retries a contended lease until the caller signal aborts instead of using a fixed 15-second outcome", async () => {
@@ -66,7 +69,9 @@ describe("seed projection group lease port", () => {
     expect(acquireLease.mock.calls.length).toBeGreaterThan(31);
 
     abort.abort();
-    await rejected;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(settled).toBe(true);
     expect(work).not.toHaveBeenCalled();
+    await rejected;
   });
 });
