@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { chromium, type BrowserContext, type Page, type Request, type Route, type Worker } from "@playwright/test";
@@ -38,7 +38,39 @@ export type PairingDrillRefusalCode =
   | "connector-drill-canary-unaccounted"
   | "connector-drill-page-source-mismatch"
   | "connector-drill-seam-ignored"
-  | "connector-drill-post-revoke";
+  | "connector-drill-post-revoke"
+  | "connector-drill-input-incomplete"
+  | "connector-drill-production-origin-refused"
+  | "connector-drill-deploy-binding-refused"
+  | "connector-drill-preflight-mount-refused"
+  | "connector-drill-preflight-client-refused"
+  | "connector-drill-persona-refused"
+  | "connector-drill-sign-in-unavailable"
+  | "connector-drill-profile-cleanup-refused";
+
+export type PairingDrillPreflightRow = Readonly<{
+  name: "deploy" | "mount" | "client";
+  host: string;
+  path: string;
+  status: number | string;
+  contentType?: string;
+  bodyCode?: string;
+  locationHost?: string;
+  errorDescription?: string;
+  unregisteredStatus?: number;
+}>;
+
+export type PairingDrillPreflight = Readonly<{
+  deployRun: string;
+  deployCommit: string;
+  rows: readonly PairingDrillPreflightRow[];
+  binding?: Readonly<{
+    state: "completed";
+    skipped: boolean;
+    superseded: boolean;
+    requiredMerges: readonly number[];
+  }>;
+}>;
 
 export type DrillRequestRow = Readonly<{ origin: string; source: "worker" | "page"; count: number }>;
 export type ForwardRecord = Readonly<{
@@ -77,6 +109,7 @@ export type PairingDrillSeams = Readonly<{
   pageRoute?: (route: Route, request: Request) => Promise<void>;
   classify?: (request: Request) => "worker" | "page";
   routeFilter?: (url: URL, request: Request) => boolean;
+  resolveOrigin?: (url: URL) => string;
   forward?: (
     request: ForwardRequest,
     handles: ForwardHandles,
@@ -104,6 +137,16 @@ export type PairingDrillInput = Readonly<{
   seams?: PairingDrillSeams;
   /** Trace-active mutant: starts real tracing before the probe. */
   traceActive?: boolean;
+  /** Deployed mode is the only mode allowed to claim staging evidence. */
+  mode?: "loopback" | "deployed";
+  deployRun?: string;
+  deployCommit?: string;
+  personaAlias?: string;
+  preflight?: PairingDrillPreflight;
+  /** Smoke only observes the page route and never signs in or creates a connection. */
+  smoke?: boolean;
+  /** Test-only resolver; evidence from it is explicitly fake, never staging authority. */
+  resolveOrigin?: (url: URL) => string;
 }>;
 export type PairingDrillReceipt = Readonly<{
   fixture: "present" | "none";
@@ -112,7 +155,7 @@ export type PairingDrillReceipt = Readonly<{
   pairingIdSuffix: string;
   pageOpenedPath: string;
   pageStatus: number | null;
-  pairedState: "paired-idle";
+  pairedState: "paired-idle" | "smoke";
   requests: readonly DrillRequestRow[];
   trace: "none";
   reservation: "present" | "none";
@@ -120,6 +163,14 @@ export type PairingDrillReceipt = Readonly<{
   reservationClaimCount: number | null;
   invalidCredentialClaimCount: number | null;
   lifecycle: readonly string[];
+  mode?: "loopback" | "deployed";
+  origin?: "staging" | "fake";
+  deployRun?: string;
+  deployCommit?: string;
+  personaAlias?: string;
+  preflight?: PairingDrillPreflight;
+  profilePath?: string;
+  profileDeleted?: boolean;
 }>;
 export type PairingDrillEvidence = Readonly<{
   forwardCount: number;
@@ -165,19 +216,62 @@ export function digestConnectorDist(dist: string) {
   return hash.digest("hex");
 }
 
-function acceptedPlatformOrigin(value: string) {
+export function acceptedPlatformOrigin(value: string, mode: "loopback" | "deployed" = "loopback") {
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
     return false;
   }
-  const generated: string[] = [
-    linkIntentOrigins["marketplace-web"].staging,
-    linkIntentOrigins["marketplace-web"].production,
-  ];
+  const generated: string[] =
+    mode === "deployed"
+      ? [linkIntentOrigins["marketplace-web"].staging]
+      : [linkIntentOrigins["marketplace-web"].staging, linkIntentOrigins["marketplace-web"].production];
   // A value equal to its own origin carries no userinfo, path, query or fragment.
   return parsed.origin === value && (loopbackOrigin.test(value) || generated.includes(value));
+}
+
+function preflightRefusal(input: PairingDrillInput, deployed: boolean) {
+  if (!deployed) return null;
+  if (
+    input.smoke !== true &&
+    (!input.deployRun || !input.deployCommit || !input.clientId || !input.artifactDigest || !input.personaAlias)
+  )
+    return "connector-drill-input-incomplete" as const;
+  if (input.platformOrigin === linkIntentOrigins["marketplace-web"].production)
+    return "connector-drill-production-origin-refused" as const;
+  if (!acceptedPlatformOrigin(input.platformOrigin, "deployed"))
+    return "connector-drill-platform-origin-refused" as const;
+  const preflight = input.preflight;
+  if (!preflight || preflight.deployRun !== input.deployRun || preflight.deployCommit !== input.deployCommit)
+    return "connector-drill-deploy-binding-refused" as const;
+  if (
+    preflight.binding &&
+    (preflight.binding.state !== "completed" ||
+      preflight.binding.skipped ||
+      preflight.binding.superseded ||
+      ![10110, 9985, 10639, 10640].every((number) => preflight.binding!.requiredMerges.includes(number)))
+  )
+    return "connector-drill-deploy-binding-refused" as const;
+  if (input.smoke) return null;
+  const mount = preflight.rows.find((row) => row.name === "mount");
+  if (
+    !mount ||
+    mount.status !== 400 ||
+    mount.contentType?.split(";", 1)[0].toLowerCase() !== "application/json" ||
+    mount.bodyCode !== "invalid-request"
+  )
+    return "connector-drill-preflight-mount-refused" as const;
+  const client = preflight.rows.find((row) => row.name === "client");
+  if (
+    !client ||
+    client.status !== 302 ||
+    client.locationHost !== new URL(TCGPLAYER_CONNECTOR_REDIRECT_URI).host ||
+    client.errorDescription !== "authorization_refused" ||
+    client.unregisteredStatus !== 400
+  )
+    return "connector-drill-preflight-client-refused" as const;
+  return null;
 }
 
 function distFile(dist: string, file: string) {
@@ -327,17 +421,35 @@ export async function runPairingDrill(
     });
   };
   const { platformOrigin, fixture, seams } = input;
+  const deployed = input.mode === "deployed";
   const observe = fixture?.observe;
-  if (!acceptedPlatformOrigin(platformOrigin)) fail("connector-drill-platform-origin-refused");
+  const preflightCode = preflightRefusal(input, deployed);
+  if (preflightCode) fail(preflightCode);
+  if (!acceptedPlatformOrigin(platformOrigin, deployed ? "deployed" : "loopback"))
+    fail(
+      deployed && platformOrigin === linkIntentOrigins["marketplace-web"].production
+        ? "connector-drill-production-origin-refused"
+        : "connector-drill-platform-origin-refused",
+    );
+  if (deployed && !input.smoke && !input.signIn) fail("connector-drill-sign-in-unavailable");
   if (Object.keys(process.env).some((key) => providerEnvironmentPattern.test(key)))
     fail("connector-drill-provider-environment-refused");
-  if (!distGrantsOrigin(input.dist, platformOrigin)) fail("connector-drill-dist-origin-refused");
-  if (!distCarriesClient(input.dist, input.clientId)) fail("connector-drill-dist-client-refused");
-  if (digestConnectorDist(input.dist) !== input.artifactDigest) fail("connector-drill-artifact-digest-refused");
+  if (!input.smoke) {
+    if (!distGrantsOrigin(input.dist, platformOrigin)) fail("connector-drill-dist-origin-refused");
+    if (!distCarriesClient(input.dist, input.clientId)) fail("connector-drill-dist-client-refused");
+    if (digestConnectorDist(input.dist) !== input.artifactDigest) fail("connector-drill-artifact-digest-refused");
+  }
 
-  const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "connector-drill-")), {
+  const profilePath = mkdtempSync(join(tmpdir(), "connector-drill-"));
+  const minimalEnv = Object.fromEntries(
+    ["PATH", "Path", "SystemRoot", "WINDIR", "TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA", "HOME"]
+      .filter((key) => process.env[key] !== undefined)
+      .map((key) => [key, process.env[key]!]),
+  );
+  const context = await chromium.launchPersistentContext(profilePath, {
     channel: "chromium",
     headless: false,
+    env: minimalEnv,
     args: [
       `--disable-extensions-except=${input.dist}`,
       `--load-extension=${input.dist}`,
@@ -359,10 +471,12 @@ export async function runPairingDrill(
       rows.set(key, { origin: url.origin, source, count: (rows.get(key)?.count ?? 0) + 1 });
       if (url.origin === callback.origin && url.pathname === callback.pathname)
         await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>callback</title>" });
+      else if (source === "page" && url.origin === platformOrigin && (seams?.resolveOrigin || input.resolveOrigin))
+        await route.continue({ url: seams?.resolveOrigin?.(url) ?? input.resolveOrigin!(url) });
       else if (source === "page") await (seams?.pageRoute ? seams.pageRoute(route, request) : route.continue());
       else if (url.origin === platformOrigin) {
         const forwardRequest = {
-          url: url.href,
+          url: seams?.resolveOrigin?.(url) ?? input.resolveOrigin?.(url) ?? url.href,
           method: request.method(),
           headers: request.headers(),
           body: request.postDataBuffer(),
@@ -379,6 +493,37 @@ export async function runPairingDrill(
       fail("connector-drill-trace-active");
     }
     await context.tracing.stop();
+
+    if (input.smoke) {
+      const page = context.pages()[0] ?? (await context.newPage());
+      const pageResponse = await page.goto(`${platformOrigin}/account/channels`).catch(() => null);
+      await page.bringToFront();
+      const smokeReceipt: PairingDrillReceipt = {
+        fixture: "none",
+        artifactDigest: input.artifactDigest,
+        clientIdSuffix: input.clientId.slice(-4),
+        pairingIdSuffix: "",
+        pageOpenedPath: new URL(page.url()).pathname || "/account/channels",
+        pageStatus: pageResponse?.status() ?? null,
+        pairedState: "smoke",
+        requests: requests(),
+        trace: "none",
+        reservation: "none",
+        claimCount: null,
+        reservationClaimCount: null,
+        invalidCredentialClaimCount: null,
+        lifecycle: [],
+        mode: "deployed",
+        origin: input.resolveOrigin || seams?.resolveOrigin ? "fake" : "staging",
+        deployRun: input.deployRun,
+        deployCommit: input.deployCommit,
+        personaAlias: input.personaAlias,
+        preflight: input.preflight,
+        profilePath,
+        profileDeleted: true,
+      };
+      return { receipt: smokeReceipt, forwards: [...forwards] };
+    }
 
     const worker = await connectorWorker(context);
     if (!worker || !(await waitFor(async () => (await actionTitle(worker)) === "unpaired")))
@@ -424,7 +569,7 @@ export async function runPairingDrill(
     }
 
     const page = context.pages()[0] ?? (await context.newPage());
-    await page.goto(`${platformOrigin}/account/channels`).catch(() => null);
+    const pageResponse = await page.goto(`${platformOrigin}/account/channels`).catch(() => null);
     await page.bringToFront();
     await connector.evaluate((key) => {
       const lifecycle: string[] = [];
@@ -552,10 +697,23 @@ export async function runPairingDrill(
         reservationClaimCount: settledObservation?.reservationClaimCount ?? null,
         invalidCredentialClaimCount: settledObservation?.invalidCredentialClaimCount ?? null,
         lifecycle,
+        mode: deployed ? "deployed" : "loopback",
+        origin: deployed && (input.resolveOrigin || seams?.resolveOrigin) ? "fake" : deployed ? "staging" : undefined,
+        deployRun: input.deployRun,
+        deployCommit: input.deployCommit,
+        personaAlias: input.personaAlias,
+        preflight: input.preflight,
+        profilePath,
+        profileDeleted: true,
       },
       forwards: [...forwards],
     };
   } finally {
     await context.close();
+    try {
+      rmSync(profilePath, { recursive: true, force: false });
+    } catch {
+      fail("connector-drill-profile-cleanup-refused");
+    }
   }
 }

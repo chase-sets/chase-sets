@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
 import { syntheticClaim } from "../__tests__/harness/claim";
+import type { PairingDrillSeams } from "./pairing-drill";
 
 export const synthetic = {
   cookieName: "synthetic_connector_session",
@@ -13,6 +14,29 @@ export const synthetic = {
 };
 export const closedErrors = ["authorization_refused", "pairing_code_missing", "pairing_code_ambiguous"] as const;
 export type SyntheticClaimResponse = "reservation" | "invalid-credential" | "empty";
+
+/**
+ * Maps only the exact deployed staging origin to a loopback fake. The driver keeps
+ * the staging URL in its request rows, while this resolver makes the authority
+ * boundary explicit: receipts using it are marked `origin: "fake"`.
+ */
+export function deployedOriginFakeSeam(
+  stagingOrigin: string,
+  fakeOrigin: string,
+): Pick<PairingDrillSeams, "resolveOrigin"> {
+  const staging = new URL(stagingOrigin);
+  const fake = new URL(fakeOrigin);
+  return {
+    resolveOrigin(url) {
+      if (url.origin !== staging.origin) throw new Error("connector-drill-fake-origin-refused");
+      const mapped = new URL(url.href);
+      mapped.protocol = fake.protocol;
+      mapped.hostname = fake.hostname;
+      mapped.port = fake.port;
+      return mapped.href;
+    },
+  };
+}
 
 const connectorPath = "/channel-connector/oauth/connections/connection_synthetic";
 
