@@ -64,6 +64,7 @@ describe("Pricing Health goal parameter controls", () => {
     const regions = Array.from(picker.querySelectorAll('[role="region"]'));
     expect(regions).toHaveLength(disclosures.length);
     expect(new Set(regions.map((region) => region.getAttribute("aria-label"))).size).toBe(regions.length);
+    expect(regions.every((region) => !region.getAttribute("aria-label")?.includes("fixed-percentile@"))).toBe(true);
     expect(disclosures.every((trigger) => trigger.getAttribute("aria-expanded") === "true")).toBe(true);
   });
 });

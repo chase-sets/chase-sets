@@ -71,7 +71,10 @@ export function GoalPicker({
                   <Text size="sm">{goalExplanation({ ...goal, parameters: current })}</Text>
                   <ProgressiveDisclosure
                     title={copy("goals.advanced")}
-                    panelLabel={`${goalLabel({ ...goal, parameters: current })} (${goal.goalId}@${goal.goalVersion})`}
+                    panelLabel={copy("goals.confirm.goal", {
+                      goal: goalLabel({ ...goal, parameters: current }),
+                      version: goal.goalVersion,
+                    })}
                   >
                     <Stack gap={2}>
                       {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
