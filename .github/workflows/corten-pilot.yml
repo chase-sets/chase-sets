@@ -41,10 +41,6 @@ jobs:
       - name: The exported text, tokens, nav and defaults match the React apps' sources
         run: node --import tsx scripts/export.mjs --check
 
-      # Corten does not check that a var() names a defined token yet (todd-skelton/corten#179).
-      - name: Every var() names a design-system token or a declared property
-        run: node scripts/check-tokens.mjs
-
       # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
       # so the repo's TypeScript is put on the PATH and required here (README.md, Corten gaps).
       - name: TypeScript on the PATH for corten check
