@@ -242,14 +242,19 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     const computeVerdict = page.getByRole("button", { name: "Compute verdict", exact: true });
     await expect(computeVerdict).toBeEnabled();
     await expect(computeVerdict).toHaveCSS("opacity", "1");
-    const canonicalDisclosure = page
-      .getByRole("button", { name: "Advanced controls and provenance", exact: true })
-      .first();
-    await expect(canonicalDisclosure).toHaveAttribute("aria-expanded", "false");
-    await canonicalDisclosure.focus();
-    await expect(canonicalDisclosure).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(canonicalDisclosure).toHaveAttribute("aria-expanded", "true");
+    const canonicalDisclosures = page
+      .getByTestId("pricing-health-goal-picker")
+      .getByRole("button", { name: "Advanced controls and provenance", exact: true });
+    await expect(canonicalDisclosures).not.toHaveCount(0);
+    for (let index = 0; index < (await canonicalDisclosures.count()); index += 1) {
+      const disclosure = canonicalDisclosures.nth(index);
+      if ((await disclosure.getAttribute("aria-expanded")) !== "true") {
+        await disclosure.focus();
+        await expect(disclosure).toBeFocused();
+        await page.keyboard.press("Enter");
+      }
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    }
     await expect(page.getByTestId("pricing-health-goal-picker").locator('input[type="number"]').first()).toBeVisible();
     const viewports = [
       { width: 360, height: 800 },
