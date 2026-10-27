@@ -462,6 +462,24 @@ describe("admission webhook root cause", () => {
     );
   });
 
+  it("classifies the bounded staging Chromium diagnostic", () => {
+    expect(
+      classifyDeploymentRootCause({
+        phase: "staging-deploy",
+        diagnostics: [
+          {
+            schemaVersion: "playwright-chromium-install/v1",
+            site: "deploy-staging",
+            attempt: 2,
+            reason: "timeout",
+            cache: "/runner/_temp/playwright-chromium",
+            status: "failure",
+          },
+        ],
+      }),
+    ).toMatchObject({ rootCauseCode: "staging-browser-install", affectedComponent: "staging-browser-install" });
+  });
+
   it.each([
     ["a refused retry", [transient(1)]],
     ["a failed retry", [transient(1), transient(2)]],
