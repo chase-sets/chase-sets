@@ -943,7 +943,11 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     const url = new URL(request.url());
     if (url.origin !== platformOrigin) return;
     const headers = response.headers();
-    if (!request.serviceWorker() && request.isNavigationRequest()) {
+    // Chromium does not consistently mark the initial document response for a
+    // tab opened by `chrome.tabs.create` as a navigation request. Resource
+    // type is the stable document boundary for both the original page and
+    // extension-opened tabs.
+    if (!request.serviceWorker() && request.resourceType() === "document") {
       pages.push({
         method: request.method(),
         host: url.host,
@@ -990,10 +994,16 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       else if (source === "worker" && url.origin !== canaryOrigin) isolation.workerEscapes++;
       await route.abort();
     });
-    context.on("response", (response) => {
-      // An unreadable response leaves its row absent, which the leg that needs it refuses.
-      observe(response).catch(() => undefined);
-    });
+    const observePage = (page: Page) => {
+      page.on("response", (response) => {
+        // Extension-created tabs are not always surfaced through the context
+        // response stream. Attach at the page boundary so their document
+        // status is retained before the page-status check runs.
+        observe(response).catch(() => undefined);
+      });
+    };
+    for (const page of context.pages()) observePage(page);
+    context.on("page", observePage);
     if (input.traceActive) await context.tracing.start(traceOptions);
     try {
       await context.tracing.start(traceOptions);

@@ -198,8 +198,9 @@ const milestones = (rows: Awaited<ReturnType<typeof stagingCommand>>["rows"]) =>
     .map((row) => `${row.step}:${row.status}`)
     .join(",");
 
-test("connector-pairing-drill-deployed composed staging command against the fake seam", async () => {
+test("connector-pairing-drill-deployed composed staging command against the fake seam (popup-document observer mutant)", async () => {
   // Bounded waits: pairing, two paused claims, unpair and cleanup each stop within their 10 s legs.
+  // Mutant: the planted page stylesheet is aborted; the popup document must still be recorded as a page status.
   test.setTimeout(180_000);
   const outcome = await stagingCommand("pairing", { pageSubresource: plantedAsset });
   expect(outcome.error).toBeUndefined();
