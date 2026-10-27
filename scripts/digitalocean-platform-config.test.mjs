@@ -289,6 +289,8 @@ async function executeAdvisoryPostWindow({
   active = false,
   activeCompleted = false,
   paginated = false,
+  duplicateIds = false,
+  shortNonfinalPage = false,
   completedOverlap = false,
   mutator = false,
 } = {}) {
@@ -397,11 +399,12 @@ async function executeAdvisoryPostWindow({
       if (rerun && Number.isFinite(requestedAt) && requestedAt > Date.now() - 3 * 24 * 60 * 60 * 1000) {
         return send({ total_count: 0, workflow_runs: [] });
       }
-      if (paginated) {
+      if (paginated || duplicateIds || shortNonfinalPage) {
         if (workflow[1] !== "platform-production.yml") return send({ total_count: 0, workflow_runs: [] });
         const page = Number(new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("page") ?? "1");
         const total = 201;
-        const runs = Array.from({ length: page === 3 ? 1 : page <= 2 ? 100 : 0 }, (_, index) => ({
+        const pageLength = page === 3 ? 1 : page <= 2 ? (shortNonfinalPage && page === 1 ? 1 : 100) : 0;
+        const runs = Array.from({ length: pageLength }, (_, index) => ({
           id: 5000 + (page - 1) * 100 + index,
           path: `.github/workflows/${workflow[1]}`,
           run_attempt: 1,
@@ -410,6 +413,7 @@ async function executeAdvisoryPostWindow({
           updated_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
           run_started_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
         }));
+        if (duplicateIds && page === 2 && runs[0]) runs[0].id = 5000;
         if (page === 3) {
           runs[0].id = 5200;
           runs[0].updated_at = new Date().toISOString();
@@ -665,7 +669,12 @@ function executeAdvisorySummary({
   }
 }
 
-function executeAdvisoryNotify({ result = "failure", postWindowError = "synthetic post-window error" } = {}) {
+function executeAdvisoryNotify({
+  result = "failure",
+  postWindowOutputs,
+  advisoryPreflightOutputs,
+  postWindowError = "synthetic post-window error",
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), "advisory-notify-"));
   const trace = join(root, "trace");
   const run = extractWorkflowRun("Create, update, or resolve advisory evidence incident");
@@ -681,23 +690,45 @@ function executeAdvisoryNotify({ result = "failure", postWindowError = "syntheti
   const notifyStep = workflow.jobs["notify-staging-advisory-evidence"].steps.find(
     (step) => step.name === "Create, update, or resolve advisory evidence incident",
   );
-  const needs = {
-    "staging-advisory-evidence": {
-      result,
+  const steps = {
+    advisory_preflight: {
+      outcome: "success",
       outputs: {
-        scenario_seed_error: "none captured",
-        advisory_preflight_error: "none captured",
-        post_window_error: postWindowError,
+        error: "synthetic advisory preflight error",
+        observed_release_commit: "c".repeat(40),
+        observed_platform_image: "admission-image",
+        observed_platform_image_digest: `sha256:${"d".repeat(64)}`,
+        ...advisoryPreflightOutputs,
+      },
+    },
+    post_window: {
+      outcome: result === "success" ? "success" : "failure",
+      outputs: postWindowOutputs ?? {
+        error: postWindowError,
         freshness_status: result === "success" ? "fresh" : "unknown",
         freshness_reason: result === "success" ? "complete" : "synthetic failure",
         observed_release_commit: "",
         observed_platform_image: "",
         observed_platform_image_digest: "",
-        post_window_publication_at: "2026-10-27T01:00:00.000Z",
+        publication_at: "2026-10-27T01:00:00.000Z",
       },
     },
+    summarize: { outcome: "success", outputs: { scenario_seed_error: "none captured" } },
   };
+  const job = workflow.jobs["staging-advisory-evidence"];
   const inputs = { release_commit: "a".repeat(40) };
+  const outputs = Object.fromEntries(
+    Object.entries(job.outputs ?? {}).map(([name, value]) => [
+      name,
+      resolveAdvisoryEnvValue(value, { inputs, steps, token: "synthetic-token" }),
+    ]),
+  );
+  const needs = {
+    "staging-advisory-evidence": {
+      result,
+      outputs,
+    },
+  };
   const declaredEnv = notifyStep.env ?? {};
   const resolvedEnv = Object.fromEntries(
     Object.entries(declaredEnv).map(([name, value]) => [
@@ -720,6 +751,7 @@ function executeAdvisoryNotify({ result = "failure", postWindowError = "syntheti
       ...resultProcess,
       output: `${resultProcess.stdout}${resultProcess.stderr}`,
       trace: existsSync(trace) ? readFileSync(trace, "utf8") : "",
+      jobOutputs: outputs,
     };
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -5733,6 +5765,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(paginated.status).not.toBe(0);
     expect(paginated.outputs.freshness_status).toBe("stale");
     expect(paginated.outputs.freshness_reason).toContain("run 5200");
+
+    const duplicateIds = await executeAdvisoryPostWindow({ duplicateIds: true });
+    expect(duplicateIds.status).not.toBe(0);
+    expect(duplicateIds.outputs.freshness_status).toBe("unknown");
+
+    const shortNonfinalPage = await executeAdvisoryPostWindow({ shortNonfinalPage: true });
+    expect(shortNonfinalPage.status).not.toBe(0);
+    expect(shortNonfinalPage.outputs.freshness_status).toBe("unknown");
   });
 
   it("executes each post-window guard against the declared YAML environment", async () => {
@@ -5821,9 +5861,31 @@ describe("DigitalOcean platform configuration", () => {
     const success = executeAdvisoryNotify({ result: "success" });
     expect(success.status, success.output).toBe(0);
     expect(success.trace).toContain("issue close");
-    const failure = executeAdvisoryNotify({ result: "failure" });
-    expect(failure.status, failure.output).toBe(0);
-    expect(failure.trace).toContain("synthetic post-window error");
+    const absent = executeAdvisoryNotify({
+      result: "failure",
+      postWindowOutputs: {},
+      advisoryPreflightOutputs: {
+        error: "synthetic advisory preflight error",
+        observed_release_commit: "c".repeat(40),
+        observed_platform_image: "admission-image",
+        observed_platform_image_digest: `sha256:${"d".repeat(64)}`,
+      },
+    });
+    expect(absent.status, absent.output).toBe(0);
+    expect(absent.jobOutputs.observed_release_commit).toBe("");
+    expect(absent.jobOutputs.observed_platform_image).toBe("");
+    expect(absent.jobOutputs.observed_platform_image_digest).toBe("");
+    expect(absent.trace).toContain("Observed identity: unknown / unknown@unknown");
+
+    const postWindowError = executeAdvisoryNotify({
+      result: "failure",
+      postWindowError: "synthetic post-window error",
+      advisoryPreflightOutputs: { error: "different preflight error" },
+    });
+    expect(postWindowError.status, postWindowError.output).toBe(0);
+    expect(postWindowError.jobOutputs.post_window_error).toBe("synthetic post-window error");
+    expect(postWindowError.trace).toContain("Post-window evaluator: synthetic post-window error");
+    expect(postWindowError.trace).not.toContain("Post-window evaluator: different preflight error");
   });
 
   it("refuses advisory legacy or unavailable markers before seed admission", () => {
