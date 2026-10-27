@@ -207,47 +207,16 @@ function extractAdvisoryEvaluator() {
     .join("\n");
 }
 
-function executeAdvisoryEvaluator(mode, overrides = {}, fixture = null) {
-  const root = mkdtempSync(join(tmpdir(), "advisory-evaluator-"));
-  const script = join(root, "advisory-window.mjs");
-  const output = join(root, "output");
-  let evaluator = extractAdvisoryEvaluator();
-  if (fixture) {
-    const apiStart = evaluator.indexOf("const api = async (path) => {");
-    const apiEnd = evaluator.indexOf("const jobsFor", apiStart);
-    const api = `const api = async (path) => {\n  const fixture = ${JSON.stringify(fixture)};\n  const workflowMatch = path.match(/^actions\\/workflows\\/([^/]+)\\/runs/);\n  if (workflowMatch) { const runs = fixture.runs?.[workflowMatch[1]] ?? []; return { total_count: fixture.totals?.[workflowMatch[1]] ?? runs.length, workflow_runs: runs }; }\n  const jobsMatch = path.match(/^actions\\/runs\\/(\\d+)\\/attempts\\/\\d+\\/jobs/);\n  if (jobsMatch) { const jobs = fixture.jobs?.[jobsMatch[1]] ?? []; return { total_count: jobs.length, jobs }; }\n  return { workflow_runs: [], total_count: 0 };\n};\n`;
-    evaluator = evaluator.slice(0, apiStart) + api + evaluator.slice(apiEnd);
-  }
-  writeFileSync(script, evaluator);
-  try {
-    const result = spawnSync(process.execPath, [script, mode], {
-      cwd: resolve("."),
-      env: {
-        ...process.env,
-        GITHUB_WORKSPACE: resolve("."),
-        GITHUB_API_URL: "https://api.github.com",
-        GITHUB_REPOSITORY: "synthetic/chase-sets",
-        GITHUB_RUN_ID: "999",
-        GITHUB_RUN_ATTEMPT: "1",
-        GITHUB_OUTPUT: output,
-        GH_TOKEN: "synthetic-token",
-        PLATFORM_IMAGE: "registry.digitalocean.com/chase-sets/chase-sets-platform:" + "a".repeat(40),
-        PLATFORM_IMAGE_DIGEST: "sha256:" + "b".repeat(64),
-        ...overrides,
-      },
-      encoding: "utf8",
-    });
-    return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "" };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
 async function executeAdvisoryWait({
   token = true,
   dispatcherDoneAfter = 0,
   memberActive = false,
-  anchorMinutesAgo = 0,
+  anchorMinutesAgo = 36.8,
+  anchor = true,
+  invalidAnchor = false,
+  helmHook = false,
+  identityMismatch = false,
+  oversizedCensus = false,
   source = null,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "advisory-wait-"));
@@ -259,14 +228,13 @@ async function executeAdvisoryWait({
       '(await execFileAsync("helm", ["get", "values", "chase-sets-platform", "--namespace", "chase-sets-platform", "--output", "json"])).stdout',
       "process.env.HELM_STUB_JSON",
     )
+    .replace("import { execFile }", "import { execFile, spawn }")
     .replace(
-      'const helmCensus = await readHelmOperationCensus({ release: "chase-sets-platform", namespace: "chase-sets-platform" });',
-      "const helmCensus = { activeOperations: [] };",
+      "readHelmOperationCensus({ release:",
+      "readHelmOperationCensus({ kubectlPath: process.execPath, spawn: (command, args, options) => spawn(command, [process.env.KUBECTL_STUB, ...args], options), release:",
     );
   writeFileSync(script, workflowSource);
-  const commandSuffix = process.platform === "win32" ? ".cmd" : "";
-  const helm = join(root, `helm${commandSuffix}`);
-  const kubectl = join(root, `kubectl${commandSuffix}`);
+  const kubectl = join(root, "kubectl.mjs");
   const image = JSON.stringify({
     global: {
       image: {
@@ -278,15 +246,16 @@ async function executeAdvisoryWait({
       },
     },
   });
-  const writeStub = (path, body) => {
-    writeFileSync(
-      path,
-      process.platform === "win32" ? `@echo off\necho ${body}\n` : `#!/bin/sh\nprintf '%s\\n' '${body}'\n`,
-    );
-    if (process.platform !== "win32") chmodSync(path, 0o755);
-  };
-  writeStub(helm, image);
-  writeStub(kubectl, JSON.stringify({ items: [] }));
+  const hookItems = helmHook
+    ? [
+        {
+          kind: "Job",
+          metadata: { name: "hook", annotations: { "helm.sh/hook": "pre-upgrade" } },
+          status: { active: 1 },
+        },
+      ]
+    : [];
+  writeFileSync(kubectl, `process.stdout.write(${JSON.stringify(JSON.stringify({ items: hookItems }))});`);
   let jobReads = 0;
   const activeRun = (
     id,
@@ -310,6 +279,7 @@ async function executeAdvisoryWait({
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(body));
     };
+    if (request.headers.authorization !== "Bearer synthetic-token") return send({ message: "Bad credentials" }, 401);
     const runs = route.match(/^actions\/runs\?status=([^&]+)/u);
     if (runs) {
       if (runs[1] !== "in_progress") return send({ total_count: 0, workflow_runs: [] });
@@ -365,8 +335,17 @@ async function executeAdvisoryWait({
       return send({ total_count: 0, jobs: [] });
     }
     if (route.startsWith("actions/workflows/") && route.includes("/runs?")) {
-      if (!memberActive) return send({ total_count: 0, workflow_runs: [] });
       const created = new URL(`http://127.0.0.1${route}`).searchParams.get("created") ?? "";
+      if (!created) return send({ total_count: 101, workflow_runs: [] });
+      if (oversizedCensus) {
+        return send({
+          total_count: 101,
+          workflow_runs: Array.from({ length: 101 }, (_, index) =>
+            activeRun(3000 + index, "platform-staging-evidence-window.yml", "Synthetic member", "completed"),
+          ),
+        });
+      }
+      if (!memberActive) return send({ total_count: 0, workflow_runs: [] });
       const createdAt = Date.now() - 60 * 60_000;
       const requestedAt = Date.parse(created.replace(/^>=/u, ""));
       if (Number.isFinite(requestedAt) && requestedAt > createdAt) return send({ total_count: 0, workflow_runs: [] });
@@ -387,27 +366,62 @@ async function executeAdvisoryWait({
   });
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const apiUrl = `http://127.0.0.1:${server.address().port}`;
-  const anchor = new Date(Date.now() - anchorMinutesAgo * 60_000).toISOString();
+  const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+  const preflightIndex = job.steps.findIndex((step) => step.id === "advisory_preflight");
+  const inputs = {
+    release_commit: "a".repeat(40),
+    platform_image: "registry.digitalocean.com/chase-sets/chase-sets-platform:" + "a".repeat(40),
+    platform_image_digest: "sha256:" + "b".repeat(64),
+  };
+  const declared = Object.fromEntries(
+    Object.entries({ ...job.env, ...job.steps[preflightIndex].env }).map(([key, value]) => [
+      key,
+      String(value).replace(/\$\{\{\s*([^}]+?)\s*\}\}/gu, (_, expression) => {
+        if (expression === "github.token") return "synthetic-token";
+        if (expression.startsWith("inputs.")) return inputs[expression.slice(7)];
+        if (expression.startsWith("secrets.")) return "synthetic-secret";
+        throw new Error(`Unsupported advisory env expression: ${expression}`);
+      }),
+    ]),
+  );
   const env = {
     PATH: `${root}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
     ...(process.platform === "win32" ? { Path: `${root};${process.env.Path ?? process.env.PATH ?? ""}` } : {}),
     ...(process.platform === "win32" ? { PATHEXT: process.env.PATHEXT } : {}),
     ...(process.platform === "win32" ? { SystemRoot: process.env.SystemRoot } : {}),
     GITHUB_WORKSPACE: resolve("."),
-    GITHUB_API_URL: apiUrl,
     GITHUB_REPOSITORY: "synthetic/chase-sets",
     GITHUB_RUN_ID: "999",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_WORKFLOW: "Platform Staging Advisory Evidence",
     GITHUB_OUTPUT: output,
-    GH_TOKEN: "synthetic-token",
-    PLATFORM_IMAGE: "registry.digitalocean.com/chase-sets/chase-sets-platform:" + "a".repeat(40),
-    PLATFORM_IMAGE_DIGEST: "sha256:" + "b".repeat(64),
+    ...declared,
+    GITHUB_API_URL: apiUrl,
     ADVISORY_WAIT_POLL_MS: "1",
-    ADVISORY_JOB_STARTED_AT: anchor,
     HELM_STUB_JSON: image,
-    ...(token ? { GITHUB_TOKEN: "synthetic-token" } : {}),
+    KUBECTL_STUB: kubectl,
+    ...(identityMismatch ? { PLATFORM_IMAGE_DIGEST: "sha256:" + "c".repeat(64) } : {}),
   };
+  const envFile = join(root, "github-env");
+  writeFileSync(envFile, "");
+  const syntheticStartedAt = new Date(Date.now() - anchorMinutesAgo * 60_000).toISOString();
+  for (const step of job.steps.slice(0, preflightIndex)) {
+    const writers = (step.run ?? "").split("\n").filter((line) => line.includes('>> "$GITHUB_ENV"'));
+    for (const line of writers) {
+      const result = spawnSync(operatorBash, ["-c", `date() { printf '%s' "$SYNTHETIC_STARTED_AT"; }\n${line}`], {
+        env: { ...env, GITHUB_ENV: envFile, SYNTHETIC_STARTED_AT: syntheticStartedAt },
+        encoding: "utf8",
+      });
+      if (result.status !== 0) throw new Error(`Advisory GITHUB_ENV writer failed: ${result.stderr}`);
+    }
+  }
+  for (const line of readFileSync(envFile, "utf8").trim().split("\n").filter(Boolean)) {
+    const separator = line.indexOf("=");
+    env[line.slice(0, separator)] = line.slice(separator + 1);
+  }
+  if (!token) delete env.GITHUB_TOKEN;
+  if (!anchor) delete env.ADVISORY_JOB_STARTED_AT;
+  if (invalidAnchor) env.ADVISORY_JOB_STARTED_AT = "invalid";
   try {
     const result = await new Promise((resolveChild, rejectChild) => {
       const child = spawn(process.execPath, [script, "wait-admit"], { cwd: resolve("."), env });
@@ -418,14 +432,31 @@ async function executeAdvisoryWait({
       child.on("error", rejectChild);
       child.on("close", (status) => resolveChild({ status, stdout, stderr }));
     });
-    return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "", jobReads };
+    const evidence = existsSync(output) ? readFileSync(output, "utf8") : "";
+    const outputs = Object.fromEntries(
+      evidence
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const separator = line.indexOf("=");
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        }),
+    );
+    return { ...result, evidence, outputs, jobReads };
   } finally {
     server.close();
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-function executeAdvisoryAwait({ mode = "complete", cancelled = false, source = null } = {}) {
+function executeAdvisoryAwait({
+  mode = "complete",
+  cancelled = false,
+  releaseExit = 0,
+  deadlineSeconds = null,
+  source = null,
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), "advisory-await-"));
   const output = join(root, "output");
   const trace = join(root, "trace");
@@ -438,15 +469,19 @@ function executeAdvisoryAwait({ mode = "complete", cancelled = false, source = n
     .split("\n")
     .map((line) => line.replace(/^\s{10}/u, ""))
     .join("\n");
+  const executableScript =
+    deadlineSeconds === null
+      ? script
+      : script.replace("deadline=$(( $(date +%s) + 540 ))", `deadline=$(( $(date +%s) + ${deadlineSeconds} ))`);
   writeFileSync(
     kubectl,
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$TRACE"\nif [ "$1" = get ] && [ "$2" = job ]; then\n  if [ "$MODE" = deleted ]; then exit 0; fi\n  printf '%s\\n' '{"status":{"succeeded":1}}'\n  exit 0\nfi\nif [ "$1" = get ] && [ "$2" = pods ]; then exit 0; fi\nif [ "$1" = get ] && [ "$2" = scaledobject ]; then\n  if [ "$MODE" = owned ]; then printf '%s\\n' 'scenario-seed:chase-sets-platform-scenario-seed-123-1'; fi\n  exit 0\nfi\nif [ "$1" = delete ]; then exit 0; fi\nexit 1\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$TRACE"\nif [ "$1" = get ] && [ "$2" = job ]; then\n  case "$MODE" in deleted|owned-deleted) exit 0;; active) printf '%s\\n' '{"status":{}}';; *) printf '%s\\n' '{"status":{"succeeded":1}}';; esac\n  exit 0\nfi\nif [ "$1" = get ] && [ "$2" = pods ]; then\n  if [ "$MODE" = active ]; then printf '%s\\n' 'pod/scenario-seed'; fi\n  exit 0\nfi\nif [ "$1" = get ] && [ "$2" = scaledobject ]; then\n  case "$MODE" in owned|owned-deleted|active) printf '%s\\n' 'scenario-seed:chase-sets-platform-scenario-seed-123-1';; helm-hook) printf '%s\\n' 'helm-hook:pod-x';; esac\n  exit 0\nfi\nif [ "$1" = delete ]; then exit 0; fi\nexit 1\n`,
   );
-  writeFileSync(node, `#!/bin/sh\nprintf 'node %s\\n' "$*" >> "$TRACE"\nexit 0\n`);
+  writeFileSync(node, `#!/bin/sh\nprintf 'node %s\\n' "$*" >> "$TRACE"\nexit "$RELEASE_EXIT"\n`);
   chmodSync(kubectl, 0o755);
   chmodSync(node, 0o755);
   try {
-    const result = spawnSync(operatorBash, ["-c", script], {
+    const result = spawnSync(operatorBash, ["-c", executableScript], {
       cwd: resolve("."),
       env: {
         PATH: `${root}:${process.env.PATH ?? ""}`,
@@ -458,6 +493,7 @@ function executeAdvisoryAwait({ mode = "complete", cancelled = false, source = n
         CHASE_SETS_HELM_RELEASE: "chase-sets-platform",
         CHASE_SETS_KUBERNETES_NAMESPACE: "chase-sets-platform",
         ADVISORY_CANCELLED: cancelled ? "true" : "false",
+        RELEASE_EXIT: String(releaseExit),
       },
       encoding: "utf8",
     });
@@ -466,6 +502,40 @@ function executeAdvisoryAwait({ mode = "complete", cancelled = false, source = n
       trace: existsSync(trace) ? readFileSync(trace, "utf8") : "",
       evidence: existsSync(output) ? readFileSync(output, "utf8") : "",
     };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function advisoryCondition(expression, steps) {
+  return String(expression)
+    .split(/\s*&&\s*/u)
+    .every((clause) => {
+      if (clause === "always()") return true;
+      const match = clause.match(/^steps\.([\w-]+)\.(outcome|outputs\.[\w-]+)\s*(==|!=)\s*'([^']*)'$/u);
+      if (!match) throw new Error(`Unsupported advisory condition: ${clause}`);
+      const [, id, field, operator, expected] = match;
+      const actual = field === "outcome" ? steps[id]?.outcome : steps[id]?.outputs?.[field.slice(8)];
+      return operator === "==" ? actual === expected : actual !== expected;
+    });
+}
+
+function executeAdvisoryMarker(protocol = "legacy", exit = 0) {
+  const root = mkdtempSync(join(tmpdir(), "advisory-marker-"));
+  const output = join(root, "output");
+  const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+  const run = job.steps.find((step) => step.id === "advisory_preflight").run;
+  const marker = run.slice(run.indexOf('protocol="'), run.indexOf("export ADVISORY_WAIT_POLL_MS"));
+  try {
+    const result = spawnSync(
+      operatorBash,
+      ["-c", `set -euo pipefail\nnode() { printf '%s' "$PROTOCOL"; return "$NODE_EXIT"; }\n${marker}`],
+      {
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: output, PROTOCOL: protocol, NODE_EXIT: String(exit) },
+        encoding: "utf8",
+      },
+    );
+    return { ...result, evidence: existsSync(output) ? readFileSync(output, "utf8") : "" };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -4776,34 +4846,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("environment: staging");
     expect(advisoryEvidenceJob).not.toContain("group: platform-deploy-staging");
     expect(advisoryEvidenceJob).not.toContain("cancel-in-progress: false");
-    expect(advisoryEvidenceJob).toContain("advisory preflight refused: owner-fenced-seed-yield/v1 marker is absent");
-    expect(advisoryEvidenceJob).toContain("owner-fenced-seed-yield/v1");
-    expect(advisoryEvidenceJob).toContain("readHelmOperationCensus");
-    expect(advisoryEvidenceJob).toContain("readGitHubProductionWriterCensus");
-    expect(advisoryEvidenceJob).toContain("platform-staging-rollback-drill.yml");
-    expect(advisoryEvidenceJob).toContain("freshness_status");
-    expect(advisoryEvidenceJob).toContain("GITHUB_TOKEN: ${{ github.token }}");
     expect(advisoryEvidenceJob).not.toContain("github.run_started_at");
     expect(advisoryEvidenceJob).not.toContain("post-window evaluator");
     expect(advisoryEvidenceJob).not.toContain('mode === "test-output"');
     expect(advisoryEvidenceJob).not.toContain('mode === "test-census"');
     expect(advisoryEvidenceJob).not.toContain('mode === "post-window"');
-    expect(advisoryEvidenceJob).toContain("if: steps.advisory_preflight.outcome == 'success'");
-    expect(advisoryEvidenceJob).toContain("scenario-seed-release");
-    expect(advisoryEvidenceJob).toContain("--reclaim true");
-    expect(advisoryEvidenceJob).not.toContain("autoscaling\\.keda\\.sh/paused-replicas-");
-    expect(advisoryEvidenceJob).toContain("freshness:{status:$freshnessStatus");
-    expect(advisoryEvidenceJob).toContain("advisory-preflight");
-
-    const oldGroupMutant = advisoryEvidenceJob.replace(
-      "environment: staging",
-      "environment: staging\n    concurrency:\n      group: platform-deploy-staging\n      cancel-in-progress: false",
-    );
-    expect(() => expect(oldGroupMutant).not.toContain("group: platform-deploy-staging")).toThrow();
-    const missingMarkerMutant = advisoryEvidenceJob.replaceAll("owner-fenced-seed-yield/v1", "legacy-seed-yield/v0");
-    expect(() => expect(missingMarkerMutant).toContain("owner-fenced-seed-yield/v1")).toThrow();
-    const unconditionalCleanupMutant = advisoryEvidenceJob.replaceAll("--reclaim true", "--reclaim false");
-    expect(() => expect(unconditionalCleanupMutant).toContain("--reclaim true")).toThrow();
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("group: platform-staging-advisory-evidence");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("cancel-in-progress: false");
     expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
@@ -4814,7 +4861,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain("Fail scenario-seed advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail marketplace E2E advisory signal");
     expect(advisoryEvidenceJob).toContain("Fail interim advisory freshness signal");
-    expect(advisoryEvidenceJob).toContain("post-window advisory qualification is owned by Slice B");
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
@@ -5071,8 +5117,19 @@ describe("DigitalOcean platform configuration", () => {
     const admitted = await executeAdvisoryWait({ dispatcherDoneAfter: 1 });
     expect(admitted.status, admitted.stderr).toBe(0);
     expect(admitted.evidence).toContain("admission_outcome=admitted");
+    expect(admitted.outputs.admission_outcome).toBe("admitted");
+    expect(admitted.outputs.freshness_status).toBe("unknown");
     expect(admitted.evidence).toContain("freshness_status=unknown");
     expect(admitted.evidence).not.toContain("freshness_status=fresh");
+    expect(admitted.evidence).toContain("freshness_reason=post-window advisory qualification is owned by Slice B");
+
+    for (const options of [{ anchor: false }, { invalidAnchor: true }]) {
+      const missingAnchor = await executeAdvisoryWait(options);
+      expect(missingAnchor.status, missingAnchor.stderr).not.toBe(0);
+      expect(missingAnchor.evidence).toContain("freshness_status=unknown");
+      expect(missingAnchor.evidence).toContain("job-start anchor missing");
+      expect(missingAnchor.jobReads).toBe(0);
+    }
 
     const overlap = await executeAdvisoryWait({ memberActive: true });
     expect(overlap.status, overlap.stderr).not.toBe(0);
@@ -5081,11 +5138,114 @@ describe("DigitalOcean platform configuration", () => {
     // M1 post-admission overlap refusal and M3 created-bound mutants must not admit.
     expect(overlap.evidence).toContain("staging member platform-preview-wildcard-tls.yml run 2001");
 
+    const identity = await executeAdvisoryWait({ identityMismatch: true });
+    expect(identity.status, identity.stderr).not.toBe(0);
+    expect(identity.evidence).toContain("admission_outcome=refused");
+    expect(identity.evidence).toContain("freshness_status=stale");
+    expect(identity.evidence).toContain(`observed_release_commit=${"a".repeat(40)}`);
+    expect(identity.evidence).toContain(`observed_platform_image_digest=sha256:${"b".repeat(64)}`);
+
+    const hook = await executeAdvisoryWait({ helmHook: true });
+    expect(hook.status, hook.stderr).not.toBe(0);
+    expect(hook.evidence).toContain("admission_outcome=refused");
+    expect(hook.evidence).toContain("freshness_status=stale");
+    expect(hook.evidence).toContain("active Helm hook Job/hook");
+
+    const oversized = await executeAdvisoryWait({ oversizedCensus: true });
+    expect(oversized.status, oversized.stderr).not.toBe(0);
+    expect(oversized.outputs.freshness_status).toBe("unknown");
+    expect(oversized.outputs.admission_outcome).toBe("unknown");
+
     const timeout = await executeAdvisoryWait({ dispatcherDoneAfter: Number.POSITIVE_INFINITY, anchorMinutesAgo: 46 });
     expect(timeout.status, timeout.stderr).not.toBe(0);
     expect(timeout.evidence).toContain("freshness_status=stale");
     expect(timeout.evidence).toContain("staging member wait timed out");
     // M7 wait-gate removal would admit instead of reaching this stale refusal.
+  });
+
+  it("refuses advisory legacy or unavailable markers before seed admission", () => {
+    const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+    const seed = job.steps.find((step) => step.id === "scenario_seed");
+    for (const [protocol, exit] of [
+      ["legacy", 0],
+      ["", 1],
+    ]) {
+      const result = executeAdvisoryMarker(protocol, exit);
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.evidence).toContain("freshness_status=stale");
+      expect(result.evidence).toContain("admission_outcome=refused");
+      expect(advisoryCondition(seed.if, { advisory_preflight: { outcome: "failure" } })).toBe(false);
+    }
+    expect(executeAdvisoryMarker("owner-fenced-seed-yield/v1").status).toBe(0);
+  });
+
+  it("keeps every advisory deadline inside the complete 90-minute job budget", () => {
+    const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+    const preflightIndex = job.steps.findIndex((step) => step.id === "advisory_preflight");
+    const preflight = job.steps[preflightIndex];
+    const cap = Number(
+      extractAdvisoryEvaluator().match(
+        /const deadline = (?:startedAt|\(startedAt \?\? Date.now\(\)\)) \+ (\d+) \* 60 \* 1000/u,
+      )?.[1],
+    );
+    const postWaitReadMinutes = 4;
+    const cleanupBoundSeconds = 45;
+    expect(cap).toBeLessThanOrEqual(45);
+    expect(cap).toBeGreaterThan(0);
+    expect(preflight["timeout-minutes"]).toBeGreaterThan(cap + postWaitReadMinutes);
+    const later = job.steps.slice(preflightIndex + 1);
+    for (const step of later) expect(step["timeout-minutes"], step.name).toBeGreaterThan(0);
+    expect(cap + later.reduce((total, step) => total + step["timeout-minutes"], 0)).toBeLessThanOrEqual(
+      job["timeout-minutes"],
+    );
+    expect(job["timeout-minutes"]).toBe(90);
+    const awaitStep = later.find((step) => step.id === "await_scenario_seed");
+    const deadline = Number(awaitStep.run.match(/deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \)\)/u)?.[1]);
+    expect(deadline).toBeLessThan(60 * awaitStep["timeout-minutes"] - cleanupBoundSeconds);
+    const seed = later.find((step) => step.id === "scenario_seed");
+    const seedMinutes = Number(seed.run.match(/--timeout (\d+)m/u)?.[1]);
+    expect(seedMinutes).toBeLessThan(seed["timeout-minutes"]);
+    expect(seedMinutes * 60 - 60 + cleanupBoundSeconds).toBeLessThan(deadline);
+    expect(Number(preflight.run.match(/export ADVISORY_WAIT_POLL_MS=(\d+)/u)?.[1])).toBe(30_000);
+  });
+
+  it("evaluates advisory Playwright gates and the interim non-fresh signal", () => {
+    const job = parse(platformStagingAdvisoryEvidenceWorkflow).jobs["staging-advisory-evidence"];
+    const gates = job.steps.filter((step) =>
+      [
+        "Resolve Playwright Chromium version",
+        "Cache Playwright Chromium for staging critical flows",
+        "Install Playwright Chromium for staging critical flows",
+        "Staging marketplace critical flows",
+      ].includes(step.name),
+    );
+    expect(gates).toHaveLength(4);
+    for (const [preflight, seed, cleanup, expected] of [
+      ["failure", "skipped", "skipped", false],
+      ["success", "failure", "success", false],
+      ["success", "success", "failure", false],
+      ["success", "success", "success", true],
+    ]) {
+      const steps = {
+        advisory_preflight: { outcome: preflight },
+        scenario_seed: { outcome: seed },
+        await_scenario_seed: { outcome: cleanup },
+      };
+      for (const gate of gates) expect(advisoryCondition(gate.if, steps), gate.name).toBe(expected);
+    }
+    const signal = job.steps.find((step) => step.name === "Fail interim advisory freshness signal");
+    for (const [status, expected] of [
+      ["unknown", true],
+      ["stale", true],
+      ["fresh", false],
+    ]) {
+      const steps = {
+        advisory_preflight: { outcome: "success", outputs: { freshness_status: status } },
+        scenario_seed: { outcome: "success" },
+        marketplace_e2e: { outcome: "success" },
+      };
+      expect(advisoryCondition(signal.if, steps)).toBe(expected);
+    }
   });
 
   it("executes Await cleanup modes and preserves cancellation, owner and deleted-job refusals", () => {
@@ -5099,10 +5259,26 @@ describe("DigitalOcean platform configuration", () => {
     expect(owned.trace).toContain("node ./scripts/platform-kubernetes-deployment.mjs scenario-seed-release");
     expect(owned.trace).toContain("delete rolebinding,role,serviceaccount");
 
+    const hookOwner = executeAdvisoryAwait({ mode: "helm-hook" });
+    expect(hookOwner.status, hookOwner.stderr).toBe(0);
+    expect(hookOwner.trace).not.toContain("node ");
+    expect(hookOwner.trace).toContain("delete rolebinding,role,serviceaccount");
+
     const deleted = executeAdvisoryAwait({ mode: "deleted" });
     expect(deleted.status).not.toBe(0);
     expect(`${deleted.stdout}${deleted.stderr}`).toContain("scenario-seed Job was deleted");
     expect(deleted.trace).toContain("delete rolebinding,role,serviceaccount");
+    expect(deleted.evidence).toContain("stale_consumed=true");
+
+    for (const options of [{ mode: "owned-deleted" }, { mode: "owned", releaseExit: 1 }]) {
+      const result = executeAdvisoryAwait(options);
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.stderr).toContain("::error::");
+      expect(result.evidence).toContain("stale_consumed=true");
+      expect(result.trace).toContain("scenario-seed-release");
+      expect(result.trace).toContain("--reclaim true");
+      expect(result.trace).toContain("delete rolebinding,role,serviceaccount");
+    }
 
     const cancelled = executeAdvisoryAwait({ cancelled: true });
     expect(cancelled.status, cancelled.stderr).toBe(0);
@@ -5110,6 +5286,21 @@ describe("DigitalOcean platform configuration", () => {
     // M5 cancelled-check removal would omit the guaranteed deletion.
     expect(cancelled.trace).toContain("--cascade=foreground");
     expect(owned.trace).toContain("scenario-seed-release");
+  });
+
+  it("executes Await cleanup after deleting a still-active advisory seed Job", () => {
+    const result = executeAdvisoryAwait({ mode: "active", deadlineSeconds: 0 });
+    expect(result.status, result.stderr).not.toBe(0);
+    expect(result.stderr).toContain("::error::scenario-seed Job still active");
+    expect(result.evidence).toContain("stale_consumed=true");
+    expect(result.trace).toContain("delete job");
+    expect(result.trace).toContain("--cascade=foreground --wait=true");
+    expect(result.trace).toContain("scenario-seed-release");
+    expect(result.trace).toContain("delete rolebinding,role,serviceaccount");
+    expect(result.trace.indexOf("delete job")).toBeLessThan(result.trace.indexOf("get scaledobject"));
+    expect(result.trace.indexOf("scenario-seed-release")).toBeLessThan(
+      result.trace.indexOf("delete rolebinding,role,serviceaccount"),
+    );
   });
 
   it("carries the scenario seed bootstrap error into the advisory step summary and incident comment", () => {

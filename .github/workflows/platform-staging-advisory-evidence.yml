@@ -156,13 +156,14 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           export KUBECONFIG="$kubeconfig"
           cd ../../..
-          protocol="$(node infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs --protocol-version)"
+          protocol="$(node infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs --protocol-version 2>/dev/null || true)"
           if [ "$protocol" != "owner-fenced-seed-yield/v1" ]; then
             echo "advisory preflight refused: owner-fenced-seed-yield/v1 marker is absent" >&2
             {
               echo "freshness_status=stale"
               echo "freshness_reason=owner-fenced-seed-yield/v1 marker is absent"
               echo "error=owner-fenced-seed-yield/v1 marker is absent"
+              echo "admission_outcome=refused"
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
@@ -235,7 +236,7 @@ jobs:
             const completed = parseTime(job.completed_at);
             return started !== null && started < to && (completed === null || completed > from);
           };
-          const censusMembers = async ({ from, to, refuseActive }) => {
+          const censusMembers = async ({ from, to }) => {
             const lowerBound = from - 90 * 60 * 1000;
             for (const workflow of members) {
               const runs = await queryRuns(workflow, lowerBound);
@@ -262,7 +263,8 @@ jobs:
           };
           const currentAdmission = () => {
             const startedAt = parseTime(process.env.ADVISORY_JOB_STARTED_AT);
-            const deadline = (startedAt ?? Date.now()) + 45 * 60 * 1000;
+            if (startedAt === null) throw new Error("advisory preflight authority unknown: job-start anchor missing");
+            const deadline = startedAt + 37 * 60 * 1000;
             return { deadline, pollMs: Number(process.env.ADVISORY_WAIT_POLL_MS ?? 30000) };
           };
           const waitForAdmission = async () => {
@@ -315,7 +317,7 @@ jobs:
             if (helmCensus.activeOperations.length > 0) {
               refusal("stale", `advisory preflight refused: active Helm hook ${helmCensus.activeOperations.map(({ kind, name }) => `${kind}/${name}`).join(", ")}`, observed);
             }
-            const memberOverlap = await censusMembers({ from: parseTime(admission.admissionAt), to: parseTime(admission.admissionAt), refuseActive: true });
+            const memberOverlap = await censusMembers({ from: parseTime(admission.admissionAt), to: parseTime(admission.admissionAt) });
             if (memberOverlap) refusal("stale", `advisory preflight refused: ${memberOverlap}`, observed);
             output("admission_at", admission.admissionAt);
             output("admission_outcome", "admitted");
@@ -385,7 +387,7 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --quiesce-workers true \
             --managed-postgres-ca-sha256 "$managed_postgres_ca_sha256" \
-            --timeout 60m \
+            --timeout 9m \
             --out artifacts/staging-advisory-evidence/scenario-seed.json
 
       - name: Await staging scenario-seed Job termination
@@ -421,8 +423,12 @@ jobs:
               break
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::scenario-seed Job still active; staging serialization group must not be released" >&2
-              exit 1
+              echo "::error::scenario-seed Job still active; deleting it before owner-fenced cleanup" >&2
+              kubectl delete job "$job" -n "$ns" --cascade=foreground --wait=true --ignore-not-found=true
+              echo "cleanup_outcome=stale" >> "$GITHUB_OUTPUT"
+              echo "stale_consumed=true" >> "$GITHUB_OUTPUT"
+              missing_job=true
+              break
             fi
             sleep 10
           done
@@ -466,6 +472,7 @@ jobs:
       - name: Cache Playwright Chromium for staging critical flows
         id: staging-playwright-chromium-cache
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success' && steps.await_scenario_seed.outcome == 'success'
+        timeout-minutes: 1
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: /home/runner/.cache/ms-playwright
@@ -524,6 +531,7 @@ jobs:
       - name: Summarize staging advisory evidence
         id: summarize
         if: always()
+        timeout-minutes: 3
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
@@ -597,6 +605,7 @@ jobs:
 
       - name: Upload staging advisory evidence
         if: always()
+        timeout-minutes: 1
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}
@@ -606,6 +615,7 @@ jobs:
 
       - name: Fail interim advisory freshness signal
         if: always() && steps.advisory_preflight.outputs.freshness_status != 'fresh'
+        timeout-minutes: 1
         env:
           FRESHNESS_STATUS: ${{ steps.advisory_preflight.outputs.freshness_status || 'unknown' }}
           FRESHNESS_REASON: ${{ steps.advisory_preflight.outputs.freshness_reason || 'advisory preflight did not complete' }}
@@ -615,6 +625,7 @@ jobs:
 
       - name: Fail scenario-seed advisory signal
         if: always() && steps.scenario_seed.outcome != 'success'
+        timeout-minutes: 1
         env:
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
         run: |
@@ -623,6 +634,7 @@ jobs:
 
       - name: Fail marketplace E2E advisory signal
         if: always() && steps.marketplace_e2e.outcome != 'success'
+        timeout-minutes: 1
         env:
           MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
         run: |
