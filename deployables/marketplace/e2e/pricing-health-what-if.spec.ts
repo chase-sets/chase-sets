@@ -124,6 +124,7 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
     await expect(page.getByText("Synthetic Product Line A", { exact: true })).toBeVisible();
     await expect(page.getByText("Synthetic Product Line B", { exact: true })).toBeVisible();
     await expect(page.getByText("No product line", { exact: true })).toBeVisible();
+    const evidenceRoute = `/account/desk/pricing-health?policyId=${encodeURIComponent(created.policyId)}`;
     await expect(
       page
         .getByTestId("pricing-health-what-if-ref_synthetic_what_if_a")
@@ -134,21 +135,36 @@ test("Pricing Health renders preview-only horizon and hurdle panels without muta
     expect(
       await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-health-what-if-360" });
+    await captureResponsiveEvidence({
+      page,
+      testInfo,
+      claimId: "pricing-health-what-if-360",
+      routePath: evidenceRoute,
+    });
     await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health what-if panels 360x800" });
     await page.setViewportSize({ width: 390, height: 844 });
     await traverseSampleTables(page, testInfo);
     expect(
       await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-health-what-if-390" });
+    await captureResponsiveEvidence({
+      page,
+      testInfo,
+      claimId: "pricing-health-what-if-390",
+      routePath: evidenceRoute,
+    });
     await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health what-if panels 390x844" });
     await page.setViewportSize({ width: 820, height: 1180 });
     await traverseSampleTables(page, testInfo);
     expect(
       await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-health-what-if-tablet" });
+    await captureResponsiveEvidence({
+      page,
+      testInfo,
+      claimId: "pricing-health-what-if-tablet",
+      routePath: evidenceRoute,
+    });
     await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health what-if panels 820x1180" });
     const after = await page.request.get(url);
     const afterBody = await after.json();

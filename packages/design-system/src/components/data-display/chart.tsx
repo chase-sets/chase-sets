@@ -586,11 +586,12 @@ export function NumericSeriesChart({
   const hasAnyData = finiteSeries.some((entry) => entry.points.length > 0);
   const resolvedInsufficientDescription =
     insufficientDescription ?? `At least ${minimumSamples} data points are required to show a reliable trend.`;
+  const titleNode = title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null;
 
   if (error) {
     return (
       <div {...nativeProps} role="alert">
-        {title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null}
+        {titleNode}
         <EmptyState icon="chart" title={errorTitle} description={error} />
       </div>
     );
@@ -598,7 +599,7 @@ export function NumericSeriesChart({
   if (!hasAnyData || maxSamples < minimumSamples) {
     return (
       <div {...nativeProps}>
-        {title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null}
+        {titleNode}
         <EmptyState
           icon="chart"
           title={hasAnyData ? insufficientTitle : emptyTitle}
@@ -656,7 +657,7 @@ export function NumericSeriesChart({
 
   return (
     <div {...nativeProps}>
-      {title ? <div className="mb-3 text-sm font-semibold text-foreground">{title}</div> : null}
+      {titleNode}
       <motion.svg
         {...(drawMotion ?? {})}
         viewBox={`0 0 ${viewWidth} ${height}`}
