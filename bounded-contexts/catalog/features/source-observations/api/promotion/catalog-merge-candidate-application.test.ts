@@ -609,8 +609,11 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
 
     const { error, touched } = await apply(arranged);
 
-    expect(error).toMatchObject({ code: "promotion-plan-blocked:promotion-facts-missing" });
-    expect(touched).toEqual([]);
+    // Optional reference-only facts are omitted; planning continues until the
+    // first unwired database dependency. A fallback mutant would instead
+    // carry MTGJSON rarity into the Item plan and fail the DB discriminant.
+    expect(error).toMatchObject({ message: "unexpected-database" });
+    expect(touched).toEqual(["database"]);
   });
 
   it("AC3: a reviewer's correction is reviewed authority, not reference facts", async () => {
@@ -802,6 +805,33 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     });
     expect(await eventCount()).toBe(events);
     expect(await itemCreations()).toBe(1);
+  });
+
+  it("AC3: an optional rarity carried only by MTGJSON is omitted from the Item", async () => {
+    const { candidateId } = await candidateFrom([
+      magicObservation("mtgjson-card"),
+      magicObservation("scryfall-card-print", { scryfallRarity: null }),
+    ]);
+
+    const result = await apply(candidateId);
+    expect(result.status).toBe("promoted");
+
+    const target = catalogMergeCandidateTargetId(candidateId);
+    const itemHistory = await readCompleteStream(store, { streamId: `catalog.item-${target}` });
+    const item = itemHistory
+      .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
+      .reduce(evolveCatalogItem, initialCatalogItemState);
+    const mapping = await loadCatalogItemPromotionProfile(
+      {
+        db: pool,
+        eventStore: store,
+        checkpointStore: createPostgresProjectionStore({ db: pool }),
+      } as CatalogRuntimeDeps,
+      registeredMagicProfile("scryfall-card-print").profile,
+    );
+    expect(item.fieldValues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldId: mapping.fieldIds.rarity })]),
+    );
   });
 
   it("AC2: an MTGJSON-only candidate with a Scryfall reference is reference-only with zero Item, Reference Record or candidate writes", async () => {

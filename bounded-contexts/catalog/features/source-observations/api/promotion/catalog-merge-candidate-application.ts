@@ -385,32 +385,37 @@ const promotionFacts = [
 ] as const;
 
 /**
- * Before planning, each mapped fact the approved candidate writes must be one an
- * item author's own retained revision carries (or a reviewer's correction), and
- * the required name must be carried at all, so a reference-only member's facts
- * never author the Item. An approved fact that is absent is left to the
- * planner's own `missing-title` and `missing-field-value` diagnostics.
+ * Keep only reviewed facts that an item-producing member (or an explicit
+ * reviewer correction) authored. Required facts fail closed; optional facts
+ * that exist only on reference members are omitted so they remain unset on the
+ * Item rather than becoming reference-to-profile fallbacks.
  */
-function requireAuthoredFacts(snapshot: CatalogMergeCandidateReviewSnapshot, authors: readonly ItemAuthor[]): void {
+function snapshotWithAuthoredFacts(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  authors: readonly ItemAuthor[],
+): CatalogMergeCandidateReviewSnapshot {
+  const facts = { ...snapshot.proposedCatalogItemFacts };
+  let fieldProvenance = [...snapshot.fieldProvenance];
   for (const fact of promotionFacts) {
-    const carried = authors.flatMap((author) => {
-      const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
-      return extracted ? [extracted.value] : [];
-    });
     const approved = approvedFact(snapshot.proposedCatalogItemFacts, fact.factKey);
-    const authored =
-      approved === null
-        ? !fact.required || carried.length > 0
-        : carried.some((value) => mergeCandidateFieldValuesEqual(value, approved)) ||
-          snapshot.fieldProvenance.some(
-            (entry) =>
-              entry.fieldPath === fact.fieldPath &&
-              entry.confidence === "manual" &&
-              mergeCandidateFieldValuesEqual(entry.value, approved),
-          );
-    if (!authored)
+    const carried = authors.some((author) => {
+      const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
+      return extracted !== null && (approved === null || mergeCandidateFieldValuesEqual(extracted.value, approved));
+    });
+    const manuallyCorrected = snapshot.fieldProvenance.some(
+      (entry) =>
+        entry.fieldPath === fact.fieldPath &&
+        entry.confidence === "manual" &&
+        mergeCandidateFieldValuesEqual(entry.value, approved),
+    );
+    if (carried || manuallyCorrected || (approved === null && !fact.required)) continue;
+    if (fact.required) {
       throw blocked("promotion-facts-missing", `no item-producing member carries the approved ${fact.factKey}`);
+    }
+    delete facts[fact.factKey];
+    fieldProvenance = fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath);
   }
+  return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
 }
 
 function approvedFact(facts: JsonObject, factKey: string): JsonValue | null {
@@ -427,7 +432,7 @@ async function prepareApplicationPlan(
   approvalVersion: number,
 ): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
   const { deps } = ports;
-  requireAuthoredFacts(snapshot, authors);
+  const effectiveSnapshot = snapshotWithAuthoredFacts(snapshot, authors);
   const resolved: ResolvedMember[] = [];
   for (const author of authors)
     resolved.push({ ...author, mapping: await loadCatalogItemPromotionProfile(deps, author.version.profile) });
@@ -480,7 +485,7 @@ async function prepareApplicationPlan(
   const pinned = uniqueProfiles(resolved.map((member) => member.version));
   const session = await acquireCandidateTarget(ports, {
     candidateId: unit.candidateId,
-    snapshot,
+    snapshot: effectiveSnapshot,
     boundTargetId: null,
     reuseCandidates: [...reuseCandidates],
     blueprintId: primary.mapping.blueprintId,
@@ -516,7 +521,7 @@ async function prepareApplicationPlan(
       candidateId: unit.candidateId,
       status: "promoted",
       snapshot: {
-        ...snapshot,
+        ...effectiveSnapshot,
         promotionIntent:
           mode === "create"
             ? "create-catalog-item"
