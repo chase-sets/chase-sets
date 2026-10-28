@@ -1190,11 +1190,14 @@ pub struct WalletCredit {
     pub applied_amount: String,
 }
 
-/// The buyer's wallet balance (`GET /api/settlement/wallet`).
-#[derive(Clone, Debug, Default, Deserialize)]
+/// The account's wallet balance (`GET /api/settlement/wallet`): what checkout applies to the
+/// payable total, and the money page's balances.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Wallet {
     pub available_balance_amount: String,
     pub currency_code: String,
+    #[serde(default)]
+    pub pending_balance_amount: String,
 }
 
 /// A saved shipping address (`GET /account/sell-list/ship-from-addresses`, the address book).
@@ -5367,3 +5370,220 @@ pub fn repricing_dry_run_events(id: &str) -> String {
 
 /// The bounded context the repricing routes read and write, for a request built by hand.
 pub const PRICING_CONTEXT: &str = PRICING;
+
+const SETTLEMENT: &str = "settlement";
+const PAYOUTS: &str = "/api/settlement/payouts";
+
+/// A movement of the wallet (`SettlementLedgerEntryRow`), the fields the money page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct WalletEntry {
+    pub ledger_entry_id: String,
+    /// `sale`, `fee`, `payout`, `payout-reversal`, `rebate`, `adjustment`, ...
+    pub kind: String,
+    pub amount: String,
+    pub currency_code: String,
+    /// `available` or `pending`.
+    pub funds_status: String,
+    pub description: Option<String>,
+    pub posted_at: String,
+    pub adjustment_display_reference: Option<String>,
+}
+
+/// A payout (`SettlementPayoutRow`), the fields the money page shows and its rules read.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Payout {
+    pub payout_id: String,
+    pub display_reference: String,
+    /// `requested`, `in-transit`, `completed` or `failed`.
+    pub status: String,
+    pub requested_amount: String,
+    pub fee_amount: String,
+    pub net_amount: String,
+    pub currency_code: String,
+    pub requested_at: String,
+    pub updated_at: String,
+    pub sent_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub failed_at: Option<String>,
+    pub failure_reason: Option<String>,
+    pub provider_failure_code: Option<String>,
+    pub provider_payout_reference: Option<String>,
+}
+
+/// Whether the account can be paid out (`SettlementPayoutReadinessRow`), the fields the page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutReadiness {
+    /// `ready` once payout setup is complete.
+    pub status: String,
+    pub missing_requirements: Vec<String>,
+    pub provider_reference: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// The payout amounts the policy in effect offers (`GET /payouts/quick-amounts`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct QuickAmounts {
+    pub minimum_amount: String,
+    pub maximum_amount: String,
+    pub full_available_amount: String,
+}
+
+/// What a payout of an amount would be (`SettlementPayoutPreview`): its fees, what reaches the
+/// seller, the balance after it, and whether it can be requested and why not.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutPreview {
+    pub requested_amount: String,
+    pub net_amount: String,
+    pub estimated_wallet_balance_after: String,
+    pub fee_lines: Vec<FeeLine>,
+    pub can_request: bool,
+    pub unavailable_reason_details: Vec<ReasonDetail>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct FeeLine {
+    pub label: String,
+    pub amount: String,
+}
+
+/// A reason a payout cannot be requested, in Settlement's words (`MoneyStatusDetail`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReasonDetail {
+    pub code: String,
+    pub message: String,
+}
+
+/// A wallet adjustment as the account sees it (`SettlementWalletAdjustmentAccountDetailRow`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct WalletAdjustment {
+    /// `requested`, `approved`, `rejected`, `posted` or `reversed`.
+    pub status: String,
+    pub display_reference: String,
+    /// `credit` or `debit`.
+    pub direction: String,
+    pub amount: String,
+    pub currency_code: String,
+    pub reason_code: String,
+    pub requested_at: String,
+    pub available_balance_after: Option<String>,
+}
+
+/// The amount a payout preview is for: one of the policy's quick amounts, which Settlement
+/// resolves (`amountSelection`), or one the seller typed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PayoutAmount {
+    Selection(&'static str),
+    Typed(String),
+}
+
+#[derive(Deserialize)]
+struct RequestedPayout {
+    id: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ReconciliationRun {
+    progress: ReconciliationProgress,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ReconciliationProgress {
+    message: Option<String>,
+}
+
+/// The money page's calls (Settlement's, as marketplace's `account-desk-money` route makes them).
+pub trait MoneyCalls {
+    async fn balances(&self) -> Result<Wallet, ApiError>;
+    /// The wallet's movements, the API's first page, as marketplace's loader reads them.
+    async fn wallet_entries(&self) -> Result<Vec<WalletEntry>, ApiError>;
+    /// The account's payouts, the API's first page, as marketplace's loader reads them.
+    async fn payouts(&self) -> Result<Vec<Payout>, ApiError>;
+    async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError>;
+    async fn payout_quick_amounts(&self) -> Result<QuickAmounts, ApiError>;
+    /// The adjustment by its display reference; `None` when the account has none by it.
+    async fn wallet_adjustment(&self, reference: &str) -> Result<Option<WalletAdjustment>, ApiError>;
+    /// A payout's preview. It writes nothing.
+    async fn preview_payout(&self, amount: &PayoutAmount) -> Result<PayoutPreview, ApiError>;
+    /// Request a payout: its id and the receipt the next read waits for. `attempt` is the
+    /// `Idempotency-Key`, so a request sent again after a lost answer is the same payout.
+    async fn request_payout(
+        &self,
+        attempt: &str,
+        amount: &str,
+        note: Option<&str>,
+    ) -> Result<(String, Option<Receipt>), ApiError>;
+    /// Ask Settlement to check the account's payouts with the provider: what it says it did.
+    async fn run_payout_reconciliation(&self) -> Result<Option<String>, ApiError>;
+}
+
+impl MoneyCalls for Caller<'_> {
+    async fn balances(&self) -> Result<Wallet, ApiError> {
+        self.read("/api/settlement/wallet", SETTLEMENT).await
+    }
+
+    async fn wallet_entries(&self) -> Result<Vec<WalletEntry>, ApiError> {
+        let body: Items<WalletEntry> = self.read("/api/settlement/wallet/entries", SETTLEMENT).await?;
+        Ok(body.items)
+    }
+
+    async fn payouts(&self) -> Result<Vec<Payout>, ApiError> {
+        let body: Items<Payout> = self.read(PAYOUTS, SETTLEMENT).await?;
+        Ok(body.items)
+    }
+
+    async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError> {
+        self.read("/api/settlement/payout-readiness", SETTLEMENT).await
+    }
+
+    async fn payout_quick_amounts(&self) -> Result<QuickAmounts, ApiError> {
+        self.read(&format!("{PAYOUTS}/quick-amounts"), SETTLEMENT).await
+    }
+
+    async fn wallet_adjustment(&self, reference: &str) -> Result<Option<WalletAdjustment>, ApiError> {
+        match self.read(&format!("/api/settlement/wallet/adjustments/{}", segment(reference)), SETTLEMENT).await {
+            Ok(adjustment) => Ok(Some(adjustment)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn preview_payout(&self, amount: &PayoutAmount) -> Result<PayoutPreview, ApiError> {
+        let body = match amount {
+            PayoutAmount::Selection(selection) => serde_json::json!({ "amountSelection": selection }),
+            PayoutAmount::Typed(amount) => serde_json::json!({ "amount": amount }),
+        };
+        let req = self.request(Method::POST, &format!("{PAYOUTS}/preview"), SETTLEMENT).json(&body);
+        let (preview, _) = self.write(req).await?;
+        Ok(preview)
+    }
+
+    async fn request_payout(
+        &self,
+        attempt: &str,
+        amount: &str,
+        note: Option<&str>,
+    ) -> Result<(String, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({ "amount": amount, "destinationReference": null, "note": note });
+        let req = self.request(Method::POST, PAYOUTS, SETTLEMENT).header("idempotency-key", attempt).json(&body);
+        let (requested, receipt): (RequestedPayout, _) = self.write(req).await?;
+        Ok((requested.id, receipt))
+    }
+
+    async fn run_payout_reconciliation(&self) -> Result<Option<String>, ApiError> {
+        let req = self
+            .request(Method::POST, &format!("{PAYOUTS}/reconciliation/run"), SETTLEMENT)
+            .json(&serde_json::json!({ "limit": 100 }));
+        let (run, _): (ReconciliationRun, _) = self.write(req).await?;
+        Ok(run.progress.message.filter(|m| !m.trim().is_empty()))
+    }
+}

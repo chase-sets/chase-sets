@@ -102,6 +102,10 @@
 // - marketplace/locales/desk.en.json: the Seller Desk home's English catalog (marketplace.features.sellerDesk.*,
 //   and the channel words its summaries use: channels.manualSync.attention.* as manual.*,
 //   channels.attention.reason.* as channel_reason.*, and the order counts).
+// - marketplace/locales/money.en.json: the Seller Desk money page's English catalog
+//   (settlement.features.moneyDashboard.ui.* as page.*, the payout words it shares as payout.*, a wallet
+//   adjustment's account-facing status, direction and reason as adjustment_status.*, adjustment_direction.*
+//   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
 // - marketplace/locales/repricing.en.json: the Seller Desk repricing page's English catalog
 //   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
 //   editor.* and activity.*, the route's words as route.*, and the two links' labels).
@@ -311,6 +315,7 @@ const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
 const { defaultPostagePolicy } = await import(pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href);
+const { moneyStatusLabels } = await import(pathToFileURL(path.join(repo, "contracts/http/money-status.ts")).href);
 const outputs = [
   [
     "admin/locales/en.json",
@@ -748,6 +753,23 @@ const outputs = [
         ["channels.attention.ordersCount", "orders_count"],
         ["channels.attention.ordersOverflow", "orders_overflow"],
       ])),
+    }),
+  ],
+  [
+    "marketplace/locales/money.en.json",
+    json({
+      ...(await catalog("settlement.ts", "settlementEnglishTranslations", [
+        ["settlement.features.moneyDashboard.ui.", "page"],
+        ["settlement.features.payouts.ui.netPayout", "payout.net_payout"],
+        ["settlement.features.payouts.ui.requestedAmount", "payout.requested_amount"],
+        ["settlement.features.payouts.ui.payoutFeeTerms", "payout.fee_terms"],
+        ["settlement.features.payouts.ui.payoutFee", "payout.fee"],
+        ["settlement.features.payouts.ui.sellerFeesAndDeductions", "payout.seller_fees"],
+        ["settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.", "adjustment_status"],
+        ["settlement.features.wallets.ui.walletAdjustmentAccountCopy.direction.", "adjustment_direction"],
+        ["settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.", "reason"],
+      ])),
+      ...Object.fromEntries(Object.entries(moneyStatusLabels).map(([code, text]) => [`status.${code.replaceAll("-", "_")}`, text])),
     }),
   ],
   [

@@ -73,8 +73,13 @@ pub const ACCOUNTS_MANAGE: &str = "accounts.manage";
 /// The account's orders, as marketplace's order loaders and actions require.
 pub const ORDERS_VIEW: &str = "orders.view";
 pub const ORDERS_MANAGE: &str = "orders.manage";
-/// The wallet, which checkout applies to the payable total (marketplace's checkout loader).
+/// The wallet, which checkout applies to the payable total (marketplace's checkout loader), and the
+/// Seller Desk's money page.
 pub const PAYOUTS_VIEW: &str = "payouts.view";
+/// On the money page: Request a payout, Manage payout account, and Retry and Check status.
+pub const PAYOUTS_REQUEST: &str = "payouts.request";
+pub const PAYOUTS_SETUP: &str = "payouts.setup";
+pub const PAYOUTS_RECONCILE: &str = "payouts.reconcile";
 /// A sale's pages need it too (marketplace's `account-sale` and `account-sales` loaders).
 pub const LISTINGS_VIEW: &str = "listings.view";
 /// Creating a listing (marketplace's `account-listings-new` action).
@@ -145,6 +150,7 @@ pub mod url {
     };
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
+    pub use money::Money;
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
@@ -729,6 +735,20 @@ pub mod url {
         pub struct Desk;
     }
 
+    /// The Seller Desk's money page (Settlement's `account-desk-money`): the wallet, the payouts and
+    /// Request a payout, and its writes (see `money`). Every handler takes a `PayoutViewer`.
+    #[corten::routes(state = crate::app::Shared, area = Money, caller = crate::auth::PayoutViewer)]
+    pub mod money {
+        /// The page, with a wallet adjustment's breakdown when the address names one; every write
+        /// posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/money", get = crate::money::page, post = crate::money::write)]
+        pub struct Money {
+            #[route(query)]
+            pub place: crate::money::Place,
+        }
+    }
+
     /// The Seller Desk's repricing page (marketplace's `account-desk-repricing`): the policies, the
     /// halt, the dry runs and the preset editor, its writes, and a dry run's status relayed live
     /// (see `repricing`). Every handler takes a `PricingManager`.
@@ -1075,6 +1095,7 @@ pub fn app(config: Config) -> App {
                 .deadline(crate::seller_listing::DEADLINE)
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
+        .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))

@@ -1,7 +1,7 @@
 // Uses the item page's buy forms in a browser, against the real platform API: as the auth seed's
 // collector with JavaScript and without it, and as a guest without it. It adds a listing and a
 // product to the buy cart, buys the best match (the pilot's cart, after the write), is refused a
-// quantity the lowest listing does not have, buys a listing now (marketplace's checkout session),
+// quantity the lowest listing does not have, buys a listing now (the pilot's checkout session),
 // and as a guest adds to a guest cart (marketplace's cart reads it) and goes to guest checkout.
 // The forms are on a product the collector's cart does not hold; the lines it adds are removed
 // at the end, so the cart is left as it was found. At 390 px the forms do not scroll sideways
@@ -53,8 +53,10 @@ async function shows(page, text, { reload = false } = {}) {
   for (let i = 0; i < 30; i += 1) {
     if ((await page.locator("body").innerText()).includes(text)) return true;
     await page.waitForTimeout(500);
-    // Without JavaScript, a page still catching up says to refresh it.
-    if (reload && i % 4 === 3) await page.reload();
+    // Without JavaScript, a page still catching up says to refresh it. A page that reads itself
+    // again (the checkout's two-second re-read) may already be navigating, so a reload it aborts
+    // is not a failure.
+    if (reload && i % 4 === 3) await page.reload().catch((e) => { if (!/ERR_ABORTED|detached/.test(String(e))) throw e; });
   }
   console.log(`     (${page.url()}: ${(await page.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 400)})`);
   return false;
@@ -119,15 +121,16 @@ try {
     await ctx.close();
   }
 
-  // The collector without JavaScript: Buy this listing starts a checkout session on marketplace.
+  // The collector without JavaScript: Buy this listing starts a checkout session, the pilot's
+  // checkout (ported in bed5ccc448) read after the write.
   {
     const { ctx, page } = await context({ javaScriptEnabled: false, signedIn: true });
     await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
     await listingForm(page).getByRole("button", { name: "Buy this listing" }).click();
     await page.waitForURL(/\/checkout\/buy\/session\//);
     const at = new URL(page.url());
-    check(at.origin === web && at.searchParams.has("afterWrite"), `Buy this listing: marketplace's checkout session, with the write's receipt (${at.pathname})`);
-    check(await shows(page, read.subtitle, { reload: true }), "marketplace's checkout shows the item (refreshed, as it asks without JavaScript)");
+    check(at.origin === new URL(base).origin && at.searchParams.has("afterWrite"), `Buy this listing: the pilot's checkout session, with the write's receipt (${at.origin}${at.pathname})`);
+    check(await shows(page, read.subtitle, { reload: true }), "the checkout shows the item (once it has caught up, by itself or refreshed)");
 
     // Make an offer: a good price goes to
     // marketplace's offer checkout with the product and the offer (nothing is written).

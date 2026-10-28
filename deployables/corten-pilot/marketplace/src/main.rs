@@ -25,6 +25,7 @@ mod items;
 mod listing;
 mod listing_new;
 mod locations;
+mod money;
 mod notifications;
 mod offer_matches;
 mod orders;

@@ -404,6 +404,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "price_reader" => actor(&["pricing.view"]),
             // A buyer at checkout who may see the wallet and saved addresses and save a card.
             "payer" => actor(&["accounts.view", "payouts.view", "orders.manage"]),
+            // The Seller Desk's money page: `banker` may request, reconcile and set up payouts,
+            // `payout_reader` may only see them.
+            "banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
+            "payout_reader" => actor(&["payouts.view"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -426,6 +430,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = consents_api(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = money_api(session, &method, &uri, &body) {
         return answer;
     }
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
@@ -9987,6 +9994,251 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
     let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={NO_RECORD}&consent_id=cns_terms"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the lookup says nothing was recorded");
     assert!(html.contains("No change was recorded"), "{html}");
+}
+
+const MONEY: &str = "/account/desk/money";
+
+/// Settlement's reads and writes for the money page's sessions (`banker`, `payout_reader`). The wallet
+/// holds $26.83 with $106.96 pending; payout setup is ready. Three payouts: one failed, one in transit
+/// since Monday the 26th with no provider reference, one paid. The wallet's activity: a sale and the
+/// adjustment `WADJ-1`, which is the only one the account has. A preview of 1.00 is refused below the
+/// minimum; Request a payout of 13.00 is refused for the policy's hold, and any other is `pyo_new`,
+/// at position 42.
+fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    if !matches!(session, "banker" | "payout_reader") {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let payout = |id: &str, status: &str, sent_at: Option<&str>, reason: Option<&str>| {
+        json!({ "payout_id": id, "account_id": "acc_seller", "display_reference": format!("PYO-{id}"), "status": status,
+                "amount": "10.00", "requested_amount": "10.00", "fee_amount": "0.27", "net_amount": "9.73", "currency_code": "usd",
+                "requested_at": "2026-10-23T15:00:00.000Z", "updated_at": "2026-10-26T12:00:00.000Z", "sent_at": sent_at,
+                "completed_at": if status == "completed" { Some("2026-10-24T15:00:00.000Z") } else { None },
+                "failed_at": reason.map(|_| "2026-10-23T15:10:00.000Z"), "failure_reason": reason,
+                "provider_failure_code": null, "provider_payout_reference": if status == "completed" { Some("po_1") } else { None } })
+    };
+    Some(match (method.as_str(), uri.path()) {
+        ("GET", "/api/settlement/wallet") => Json(json!({
+            "account_id": "acc_seller", "currency_code": "usd", "available_balance_amount": "26.83", "pending_balance_amount": "106.96",
+        }))
+        .into_response(),
+        ("GET", "/api/settlement/wallet/entries") => Json(json!({ "items": [
+            { "ledger_entry_id": "led_sale", "kind": "sale", "direction": "credit", "amount": "56.83", "currency_code": "usd",
+              "funds_status": "available", "description": "Sale of Charizard", "posted_at": "2026-10-20T15:00:00.000Z",
+              "adjustment_display_reference": null },
+            { "ledger_entry_id": "led_adj", "kind": "adjustment", "direction": "credit", "amount": "30.00", "currency_code": "usd",
+              "funds_status": "pending", "description": null, "posted_at": "2026-10-21T15:00:00.000Z",
+              "adjustment_display_reference": "WADJ-1" },
+        ], "total": 2, "count": 2 }))
+        .into_response(),
+        ("GET", "/api/settlement/payouts") => Json(json!({ "items": [
+            payout("pyo_failed", "failed", None, Some("Bank account temporarily unavailable")),
+            payout("pyo_moving", "in-transit", Some("2026-10-26T12:00:00.000Z"), None),
+            payout("pyo_paid", "completed", Some("2026-10-23T16:00:00.000Z"), None),
+        ], "total": 3, "count": 3 }))
+        .into_response(),
+        ("GET", "/api/settlement/payout-readiness") => Json(json!({
+            "account_id": "acc_seller", "status": "ready", "missing_requirements": [], "provider_reference": "acct_1",
+            "updated_at": "2026-10-01T00:00:00.000Z",
+        }))
+        .into_response(),
+        ("GET", "/api/settlement/payouts/quick-amounts") => Json(json!({
+            "currency_code": "usd", "minimum_amount": "5.00", "maximum_amount": "10000.00", "full_available_amount": "26.83",
+        }))
+        .into_response(),
+        ("GET", "/api/settlement/wallet/adjustments/WADJ-1") => Json(json!({
+            "status": "posted", "display_reference": "WADJ-1", "direction": "credit", "amount": "30.00", "currency_code": "usd",
+            "reason_code": "goodwill-cash-credit", "requested_at": "2026-10-21T15:00:00.000Z", "posted_at": "2026-10-21T15:05:00.000Z",
+            "available_balance_before": "0.00", "available_balance_after": "30.00", "reversed_at": null,
+            "reversal_of_display_reference": null, "reversed_by_display_reference": null,
+        }))
+        .into_response(),
+        ("GET", path) if path.starts_with("/api/settlement/wallet/adjustments/") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Wallet adjustment not found.")
+        }
+        ("POST", "/api/settlement/payouts/preview") => {
+            let amount = match (sent["amountSelection"].as_str(), sent["amount"].as_str()) {
+                (Some("minimum"), _) => "5.00".to_owned(),
+                (Some(_), _) => "26.83".to_owned(),
+                (None, Some("1.00")) => {
+                    return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Enter an amount above the minimum payout."));
+                }
+                (None, Some(amount)) => amount.to_owned(),
+                (None, None) => return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Payout amount is required.")),
+            };
+            Json(json!({
+                "account_id": "acc_seller", "requested_amount": amount, "fee_amount": "0.27", "net_amount": "net",
+                "fee_lines": [{ "code": "payout-fee", "label": "Payout fee", "amount": "0.27" }], "currency_code": "usd",
+                "available_balance_amount": "26.83", "estimated_wallet_balance_after": "21.83", "can_request": amount != "26.83",
+                "unavailable_reasons": [], "unavailable_reason_details": if amount == "26.83" {
+                    json!([{ "code": "payout-release-hold-active", "message": "Recent sales are held until delivery and risk checks clear." }])
+                } else { json!([]) },
+            }))
+            .into_response()
+        }
+        ("POST", "/api/settlement/payouts") if sent["amount"] == "13.00" => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Recent sales are held until delivery and risk checks clear.")
+        }
+        ("POST", "/api/settlement/payouts") => {
+            committed(StatusCode::CREATED, "settlement", "42", json!({ "id": "pyo_new", "version": 1, "status": "requested" }))
+        }
+        ("POST", "/api/settlement/payouts/reconciliation/run") => {
+            Json(json!({ "progress": { "message": "Checked 1 payout with the provider." } })).into_response()
+        }
+        _ => return None,
+    })
+}
+
+/// The money page's calls to Settlement's writes: path and body.
+fn money_writes(pilot: &Pilot) -> Vec<(String, Value, Option<String>)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with("/api/settlement/") && c.method == Method::POST)
+        .map(|c| {
+            let key = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned());
+            (c.path.clone(), serde_json::from_str(&c.body).unwrap_or_default(), key)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(MONEY, Some("banker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Money at a glance") && html.contains("$26.83") && html.contains("$106.96 pending"), "{html}");
+    // In transit since Monday the 26th: three weekdays on (chase-sets/chase-sets#10712).
+    assert!(html.contains("$9.73") && html.contains("Estimated by Oct 29, 2026"), "the next payout: {html}");
+    assert!(html.contains("2 payouts need attention"), "the failed one and the one with no provider reference: {html}");
+    assert!(
+        html.contains(r#"data-blocked-payout="pyo_failed""#) && html.contains("Bank account temporarily unavailable"),
+        "{html}"
+    );
+    assert!(html.contains(r#"data-blocked-payout="pyo_moving""#) && html.contains("Awaiting payout confirmation"), "{html}");
+    assert!(html.contains(r#"value="retry""#) && html.contains(r#"value="run-reconciliation""#), "each one's next step: {html}");
+    assert!(!html.contains(r#"data-blocked-payout="pyo_paid""#), "{html}");
+    assert!(
+        html.contains(r#"commandfor="payout-breakdown-pyo_paid""#) && html.contains(r#"<dialog id="payout-breakdown-pyo_paid""#),
+        "{html}"
+    );
+    assert!(html.contains("Sale of Charizard") && html.contains("Wallet adjustment"), "the activity: {html}");
+    assert!(html.contains("drawer=wallet-adjustment&amp;entity=WADJ-1"), "the adjustment's breakdown: {html}");
+    assert!(html.contains("Minimum · $5.00") && html.contains("Full available · $26.83"), "the policy's amounts: {html}");
+    assert!(html.contains("Manage payout account") && !html.contains("Finish payout setup"), "setup is done: {html}");
+    assert!(!html.contains(r#"id="adjustment-dialog""#), "no adjustment open: {html}");
+
+    let mut req = get(MONEY, Some("banker"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["next_payout"]["estimated_arrival_at"], "2026-10-29T12:00:00.000Z", "{body}");
+    assert_eq!(body["data"]["can_request"], true, "{body}");
+
+    let (status, _, html) = pilot.send(get(MONEY, Some("payout_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains(r#"value="retry""#) && !html.contains("Manage payout account"), "a reader's page: {html}");
+    let preview = html.find("Preview payout</button>").map(|i| &html[i.saturating_sub(80)..i]).unwrap_or_default();
+    assert!(preview.contains("disabled"), "a reader may not request: {preview}");
+
+    let (status, _, _) = pilot.send(get(MONEY, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "without payouts.view");
+    let (status, headers, _) = pilot.send(get(MONEY, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Fdesk%2Fmoney"),
+        "{headers:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_wallet_adjustment_the_address_names_opens_its_breakdown() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{MONEY}?drawer=wallet-adjustment&entity=WADJ-1"), Some("banker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<dialog id="adjustment-dialog""#) && html.contains(" open"), "drawn open: {html}");
+    assert!(html.contains("Wallet adjustment WADJ-1") && html.contains("Goodwill credit"), "{html}");
+    assert!(html.contains("Resulting available balance") && html.contains("$30.00"), "{html}");
+    let (status, _, html) = pilot.send(get(&format!("{MONEY}?drawer=wallet-adjustment&entity=WADJ-9"), Some("banker"))).await;
+    assert_eq!(status, StatusCode::OK, "one the account has not is the page without it");
+    assert!(!html.contains("Wallet adjustment WADJ-9"), "{html}");
+}
+
+#[tokio::test]
+async fn a_payout_is_previewed_then_confirmed_with_its_attempt() {
+    let pilot = Pilot::new().await;
+    // Typed as the page writes money: read as $1,299.50.
+    let (status, _, html) =
+        pilot.send(post(MONEY, "banker", "intent=preview-payout&amount=%241%2C299.50&note=Rent", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Confirm payout") && html.contains("$1,299.50") && html.contains("$21.83 available after"), "{html}");
+    assert!(html.contains(r#"name="note" value="Rent""#), "the note goes with it: {html}");
+    let (status, _, html) = pilot.send(post(MONEY, "banker", "intent=preview-payout&quickAmount=minimum&amount=", false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"name="amount" value="5.00""#), "Settlement's resolved amount is what Confirm sends: {html}");
+    let (_, _, html) = pilot.send(post(MONEY, "banker", "intent=preview-payout&quickAmount=available&amount=", false)).await;
+    assert!(html.contains("Recent sales are held until delivery and risk checks clear."), "why it cannot be: {html}");
+    let confirm = html.find("Confirm payout</button>").map(|i| &html[i.saturating_sub(60)..i]).unwrap_or_default();
+    assert!(confirm.contains("disabled"), "{confirm}");
+    let previews: Vec<Value> = money_writes(&pilot).into_iter().map(|(_, body, _)| body).collect();
+    assert_eq!(
+        previews,
+        [json!({ "amount": "1299.50" }), json!({ "amountSelection": "minimum" }), json!({ "amountSelection": "available" })]
+    );
+
+    let (status, _, html) = pilot.send(post(MONEY, "banker", "intent=preview-payout&amount=1.00", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter an amount above the minimum payout."), "Settlement's words: {html}");
+    assert!(html.contains(r#"name="amount" value="1.00""#), "the amount stays: {html}");
+
+    let (status, _, html) = pilot.send(post(MONEY, "banker", "intent=edit-payout&amount=5.00&note=Rent", false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"name="amount" value="5.00""#) && html.contains(r#"value="Rent""#), "{html}");
+
+    let body = format!("intent=confirm-payout&amount=5.00&note=Rent&attempt={ATTEMPT}");
+    let (status, headers, _) = pilot.send(post(MONEY, "banker", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("http://localhost:7753/account/desk/payouts/pyo_new?requested=1&afterWrite="),
+        "marketplace's payout: {to}"
+    );
+    let (path, sent, key) = money_writes(&pilot).pop().unwrap();
+    assert_eq!(path, "/api/settlement/payouts");
+    assert_eq!(sent, json!({ "amount": "5.00", "destinationReference": null, "note": "Rent" }));
+    assert_eq!(key.as_deref(), Some(ATTEMPT), "the form's attempt is the Idempotency-Key");
+
+    let (status, _, html) =
+        pilot.send(post(MONEY, "banker", &format!("intent=confirm-payout&amount=13.00&attempt={ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("We could not complete that action") && html.contains("Recent sales are held"), "{html}");
+    let (status, _, _) = pilot.send(post(MONEY, "banker", "intent=confirm-payout&amount=5.00&attempt=nope", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "no attempt, nothing sent");
+    assert_eq!(money_writes(&pilot).iter().filter(|(p, ..)| p == "/api/settlement/payouts").count(), 2);
+}
+
+#[tokio::test]
+async fn a_status_check_says_what_settlement_did_and_each_write_needs_its_permission() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post(MONEY, "banker", "intent=run-reconciliation", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Payout status check queued") && html.contains("Checked 1 payout with the provider."), "{html}");
+    assert_eq!(money_writes(&pilot)[0].1, json!({ "limit": 100 }));
+
+    let (status, _, html) = pilot.send(post(MONEY, "payout_reader", "intent=retry", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(html.contains("You do not have permission to retry or reconcile payouts."), "{html}");
+    let (status, _, html) = pilot.send(post(MONEY, "payout_reader", "intent=preview-payout&amount=5", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(html.contains("You do not have permission to request payouts."), "{html}");
+    assert_eq!(money_writes(&pilot).len(), 1, "nothing sent for either");
+
+    let (status, headers, _) = pilot.send(post(MONEY, "banker", "intent=forget", false)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, MONEY),
+        "marketplace's unknown intent"
+    );
 }
 
 const REVIEWS: &str = "/account/reviews";

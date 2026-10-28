@@ -36,6 +36,7 @@ mod listing_new_page;
 mod listing_page;
 mod location_card;
 mod market_nav;
+mod money_page;
 mod notification_page;
 mod offer_matches_page;
 mod order_page;
@@ -73,6 +74,7 @@ pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingPart
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
+pub use money_page::MoneyPage;
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
 pub use order_page::{OrderList, OrderPage};
@@ -170,6 +172,10 @@ pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_p
 
 /// The Seller Desk home (`/account/desk`).
 pub const DESK: &[Component] = &[DeskPage];
+
+/// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
+/// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modal`).
+pub const MONEY: &[Component] = &[MoneyPage];
 
 /// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
 /// editor's choice as it changes.
