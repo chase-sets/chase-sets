@@ -349,6 +349,7 @@ export default function MarketplaceInventoryRoute() {
   return (
     <InventoryMutationProvider
       authority={data.recoveryAuthority}
+      navigationPending={navigation.state !== "idle"}
       key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
     >
       <InventoryItemListPage

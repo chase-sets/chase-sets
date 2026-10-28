@@ -2,7 +2,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { createMemoryRouter, redirect, RouterProvider, useActionData, type ActionFunction } from "react-router";
+import {
+  createMemoryRouter,
+  redirect,
+  RouterProvider,
+  useActionData,
+  useNavigation,
+  type ActionFunction,
+} from "react-router";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
@@ -550,8 +557,12 @@ function renderCreateItemForm(
 ) {
   function CreatePage() {
     const result = useActionData() as { error?: string } | undefined;
+    const navigation = useNavigation();
     return (
-      <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
+      <InventoryMutationProvider
+        authority={{ accountId: "acc_1", actorUserId: "usr_1" }}
+        navigationPending={navigation.state !== "idle"}
+      >
         <InventoryItemListPage
           data={{ items: [] }}
           locations={[]}
@@ -772,6 +783,13 @@ describe("inventory create-item graded submission", () => {
     fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "1" } });
     await user.click(createButton());
     await screen.findByText("Storage location not found.");
+    await waitFor(() => expect(screen.queryByText("Submitting Inventory change.")).toBeNull());
+    expect(
+      screen.getByText(
+        "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discard recovery metadata" })).toBeTruthy();
     expect(router.state.navigation.state).toBe("idle");
     expect(router.state.location.pathname).toBe("/");
     expect(action).toHaveBeenCalledTimes(1);
