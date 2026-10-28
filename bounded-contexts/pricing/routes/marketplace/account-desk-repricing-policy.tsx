@@ -227,6 +227,7 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
           policyId={policyId}
           initialTier={new URLSearchParams(location.search).get("edit") === "1" ? "advanced" : undefined}
           initialBody={{
+            authoringIntent: data.policy.authoringIntent,
             name: data.policy.name ?? "",
             scope: data.policy.scope,
             rules: data.policy.rules,
