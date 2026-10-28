@@ -92,6 +92,7 @@ import {
 } from "../../listing-evidence-policy/domain/policy";
 import { evaluateEvidenceCoverage } from "../domain/evidence-coverage";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
+import { parseAcquisitionCostSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 import {
   decideSellerListingAvailability,
   evolveSellerListingAvailability,
@@ -262,6 +263,7 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
@@ -285,6 +287,7 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
@@ -1346,8 +1349,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       shipFromAddress: AddressSnapshot;
       totalQuantity: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
     }>,
   ) {
+    const cost = parseAcquisitionCostSnapshot(params.acquisitionCostAmount, params.acquisitionCostCurrencyCode);
+    const address = parseShipFromAddressSnapshot(params.shipFromAddress);
+    assert(address, "Ship-from address is required.");
     await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
@@ -1370,7 +1377,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.accountId,
         params.storageLocationName,
         params.shipFromCode,
-        JSON.stringify(params.shipFromAddress),
+        JSON.stringify(address),
       ],
     );
     await deps.db.query(
@@ -1384,9 +1391,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id,
          total_quantity,
          acquisition_cost_amount,
+         acquisition_cost_currency_code,
          last_stream_version,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
          account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -1396,6 +1404,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id = EXCLUDED.storage_location_id,
          total_quantity = EXCLUDED.total_quantity,
          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+         acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
          updated_at = EXCLUDED.updated_at`,
       [
         params.inventoryItemId,
@@ -1406,7 +1415,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.gradedCard ? JSON.stringify(params.gradedCard) : null,
         params.storageLocationId,
         params.totalQuantity,
-        params.acquisitionCostAmount,
+        cost.acquisitionCostAmount,
+        cost.acquisitionCostCurrencyCode,
       ],
     );
   }
