@@ -625,11 +625,13 @@ pub fn HomeNav(t: HomeMsg) -> impl Render {
     }
 }
 
-/// The shell's footer: the policies and Contact. The policy documents are this app's pages; the
-/// rest are public-web's.
+/// The shell's footer: the policies, the help center and Contact. The policy documents, the help
+/// center, the fees and the press sheet are this app's pages; the rest are public-web's.
 #[component(css = HomePage)]
 pub fn HomeFooter<'a>(t: HomeMsg, web: &'a str) -> impl Render {
-    let href = |path: &str| if crate::policy::serves(path) { path.to_owned() } else { format!("{web}{path}") };
+    let href = |path: &str| {
+        if crate::policy::serves(path) || crate::help::serves(path) { path.to_owned() } else { format!("{web}{path}") }
+    };
     let links = [
         ("/help", t.nav_help()),
         ("/terms", t.nav_terms()),

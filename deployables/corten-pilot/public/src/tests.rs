@@ -79,13 +79,7 @@ static COHORTS: Mutex<Vec<(serde_json::Value, Option<String>)>> = Mutex::new(Vec
 /// any other signup's reads fail.
 fn presence(path: &str, headers: &HeaderMap, body: &[u8]) -> Response {
     match path {
-        "/api/public-presence/policy-values" => Json(json!({ "values": {
-            "checkout-processing-fee.card.bps": { "type": "bps", "value": 325 },
-            "checkout-processing-fee.card.fixed": { "type": "money", "value": "0.30" },
-            "checkout-processing-fee.bank-account.bps": { "type": "bps", "value": 0 },
-            "checkout-processing-fee.bank-account.fixed": { "type": "money", "value": "0.00" },
-        } }))
-        .into_response(),
+        "/api/public-presence/policy-values" => Json(policy_values()).into_response(),
         "/api/public-presence/promo-bar-messages" => Json(json!({ "items": [
             { "id": "a", "title": "Earn 5% toward shipping on all orders.", "description": "Shipping credit stays visible.", "href": "/order-protection", "link_label": "Order protection", "tone": "success" },
             { "id": "b", "title": "", "tone": "info" },
@@ -123,6 +117,49 @@ fn presence(path: &str, headers: &HeaderMap, body: &[u8]) -> Response {
         }
         _ => (StatusCode::NOT_FOUND, Json(json!({ "error": { "code": "not_found", "message": "Not found." } }))).into_response(),
     }
+}
+
+/// The policy values envelope: every whitelisted value but the high-value clearance threshold, and
+/// the standard sales fee dropping to 7.5% on November 15 (within the 30-day callout).
+fn policy_values() -> serde_json::Value {
+    let plain =
+        |kind: &str, value: serde_json::Value| json!({ "type": kind, "value": value, "effectiveFrom": null, "upcoming": [] });
+    let usd = |amount: &str| json!({ "type": "money", "value": amount, "currency": "USD", "effectiveFrom": "2026-01-01T00:00:00.000Z", "upcoming": [] });
+    let mut values = serde_json::Map::new();
+    values.insert(
+        "marketplace-sales-fee.standard.bps".into(),
+        json!({ "type": "bps", "value": 800, "effectiveFrom": null, "upcoming": [{ "value": 750, "effectiveFrom": "2026-11-15T00:00:00.000Z" }] }),
+    );
+    for (key, value) in [
+        ("marketplace-sales-fee.standard.fixed", usd("0.30")),
+        ("marketplace-sales-fee.standard.cap", usd("50.00")),
+        ("marketplace-sales-fee.shipping-allowance.bps", plain("bps", json!(500))),
+        ("checkout-processing-fee.card.bps", plain("bps", json!(325))),
+        ("checkout-processing-fee.card.fixed", usd("0.30")),
+        ("checkout-processing-fee.bank-account.bps", plain("bps", json!(0))),
+        ("checkout-processing-fee.bank-account.fixed", usd("0.00")),
+        ("checkout-processing-fee.platform-credit.bps", plain("bps", json!(0))),
+        ("checkout-processing-fee.platform-credit.fixed", usd("0.00")),
+        ("settlement.clearance.base.days", plain("days", json!(3))),
+        ("settlement.clearance.extended.days", plain("days", json!(14))),
+        ("settlement.payout.minimum", usd("1.00")),
+        ("settlement.payout.maximum", usd("25000.00")),
+        ("settlement.payout-fee.bps", plain("bps", json!(25))),
+        ("settlement.payout-fee.fixed", usd("0.25")),
+        ("settlement.payout-fee.monthly", usd("2.00")),
+        ("support-deadlines.product-not-received.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.product-not-received.support-review.hours", plain("hours", json!(72))),
+        ("support-deadlines.item-problem.post-delivery-open.days", plain("days", json!(30))),
+        ("support-deadlines.product-not-as-described.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.product-damaged.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.wrong-product-received.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.missing-products.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.return-request.seller-response.hours", plain("hours", json!(48))),
+        ("support-deadlines.buyer-cancel-request.seller-response.hours", plain("hours", json!(24))),
+    ] {
+        values.insert(key.into(), value);
+    }
+    json!({ "values": values, "resolvedAt": "2026-10-28T12:00:00.000Z", "propagationSeconds": 60, "changeCalloutDays": 30 })
 }
 
 struct Site {
@@ -508,7 +545,8 @@ async fn a_policy_page_draws_its_document_and_says_counsel_review_is_pending() {
     // The shell: the promo bar, and the footer's policies here and its other links on public-web.
     assert_eq!(page.matches("data-promo=").count(), 2, "{page}");
     assert!(page.contains(r#"<li><a href="/privacy">"#), "{page}");
-    assert!(page.contains(r#"<li><a href="http://localhost:7754/help">"#), "{page}");
+    assert!(page.contains(r#"<li><a href="/help">"#), "{page}");
+    assert!(page.contains(r#"<li><a href="http://localhost:7754/contact">"#), "{page}");
 
     // Another document: the corpus's words, and out of search while counsel reviews it.
     let (status, _, page) = site.get("/seller-agreement", None).await;
@@ -563,6 +601,12 @@ async fn the_sitemap_lists_the_home_page_and_the_public_policy_pages_first() {
         assert!(sitemap.contains(&format!("<loc>{loc}</loc>")), "{loc}: {sitemap}");
     }
     assert!(!sitemap.contains("/seller-agreement"), "a document out of search is not in the sitemap: {sitemap}");
+    for loc in
+        ["https://chasesets.com/help", "https://chasesets.com/help/selling", "https://chasesets.com/help/selling/getting-paid"]
+    {
+        assert!(sitemap.contains(&format!("<loc>{loc}</loc>")), "{loc}: {sitemap}");
+    }
+    assert!(!sitemap.contains("/faq<"), "a moved address is not listed: {sitemap}");
     let (_, _, home) = site.get("/", None).await;
     assert!(home.contains(r#"href="/founders""#), "the home page's founders links are here now: {home}");
 }
@@ -671,4 +715,130 @@ async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_wi
     assert!(page.contains("That didn&#39;t save."), "{page}");
     let (status, _, _) = site.post("/welcome?signup=nope", "field=all", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn the_help_hub_lists_each_audiences_categories_and_any_cache_may_keep_it() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/help", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(cache(&headers).contains("s-maxage"), "{headers:?}");
+    assert!(page.contains("<title>Help Center | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/help""#), "{page}");
+    assert!(page.contains(r#"<meta property="og:url" content="https://chasesets.com/help""#), "{page}");
+    assert!(page.contains(">How can we help?</h1>"), "{page}");
+    assert!(page.contains(">For buyers</h2>") && page.contains(">For sellers</h2>"), "{page}");
+    assert!(!page.contains(">For developers</h2>"), "no developer article yet: {page}");
+    assert!(page.contains(r#"href="/help/selling""#) && page.contains("Browse Selling"), "{page}");
+    // No value is cited on the hub, so the values are not read.
+    assert!(site.calls.lock().unwrap().iter().all(|(path, _)| !path.ends_with("/policy-values")));
+}
+
+#[tokio::test]
+async fn a_help_category_lists_its_articles_and_an_unknown_one_is_not_found() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, _, page) = site.get("/help/selling", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains("<title>Selling | Chase Sets Help</title>"), "{page}");
+    assert!(page.contains(r#"<li aria-current="page">Selling</li>"#), "{page}");
+    assert!(page.contains(">Getting paid</h2>") && page.contains(r#"href="/help/selling/getting-paid""#), "{page}");
+    assert!(!page.contains(">Order protection</h2>"), "a buying article: {page}");
+    for path in ["/help/nope", "/help/developers", "/help/buying/getting-paid", "/help/selling/nope"] {
+        let (status, _, _) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn an_article_cites_the_live_values_and_marks_one_it_cannot_show_so_only_the_browser_keeps_it() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/help/selling/getting-paid", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains("<title>Getting paid | Chase Sets Help</title>"), "{page}");
+    assert!(page.contains("a standard window of 3 days after delivery and an extended window of 14 days"), "{page}");
+    // The threshold is missing from the answer: marked, and no shared cache keeps the page.
+    assert!(
+        page.contains(
+            r#"data-policy-value-state="unavailable" data-policy-value-key="settlement.clearance.high-value-threshold""#
+        ),
+        "{page}"
+    );
+    assert!(page.contains("Temporarily unavailable"), "{page}");
+    assert!(
+        page.contains(
+            r#"data-policy-values-state="degraded" data-policy-value-keys="settlement.clearance.high-value-threshold""#
+        ),
+        "{page}"
+    );
+    assert!(cache(&headers).starts_with("public") && !cache(&headers).contains("s-maxage"), "{headers:?}");
+    // The trail, the contents beside the body, and the related articles.
+    assert!(page.contains(r#"<li><a href="/help/selling">Selling</a></li>"#), "{page}");
+    assert!(page.contains(">On this page</h2>") && page.contains(r##"href="#the-clearance-window""##), "{page}");
+    assert!(page.contains(">Related articles</h2>"), "{page}");
+    // Links to this app's pages stay here.
+    assert!(page.contains(r#"href="/help/selling/shipping-requirements""#) && page.contains(r#"href="/sales-fees""#), "{page}");
+    // No change is on the way for its values.
+    assert!(!page.contains("Changing on"), "{page}");
+}
+
+#[tokio::test]
+async fn the_fees_page_shows_the_schedule_and_its_coming_change_and_any_cache_may_keep_it() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/sales-fees", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(cache(&headers).contains("s-maxage"), "every value shown: {headers:?}");
+    assert!(page.contains("<title>Marketplace sales, payout, and checkout fees | Chase Sets</title>"), "{page}");
+    assert!(page.contains("the same standard schedule: 8% of the item price plus $0.30, capped at $50.00 per item."), "{page}");
+    assert!(page.contains("Changing on November 15, 2026"), "{page}");
+    assert!(!page.contains("data-policy-value-state"), "{page}");
+    // Not under /help: no trail, and public-web shows no related articles here.
+    assert!(!page.contains(r#"aria-current="page""#) && !page.contains(">Related articles</h2>"), "{page}");
+    assert!(!page.contains(r#"property="og:url""#), "{page}");
+
+    let (status, _, page) = site.get("/press", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains("<title>Creator and press fact sheet | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<meta property="og:url" content="https://chasesets.com/press""#), "{page}");
+    assert!(page.contains(r#"href="/founders""#), "{page}");
+}
+
+#[tokio::test]
+async fn an_articles_account_links_go_to_marketplace_and_public_pages_not_here_go_to_public_web() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (_, _, page) = site.get("/help/selling/inventory-csv-import", None).await;
+    assert!(page.contains(r#"href="https://marketplace.chasesets.com/account/inventory/imports""#), "{page}");
+    assert!(page.contains(r#"href="https://marketplace.chasesets.com/account/listings""#), "{page}");
+    assert!(page.contains(r#"href="/help/selling/seller-migration-tcgplayer-ebay""#), "{page}");
+    let (_, _, page) = site.get("/help/selling/prohibited-and-restricted-items", None).await;
+    assert!(page.contains(&format!(r#"href="{}/contact""#, crate::app::public_web())), "{page}");
+}
+
+#[tokio::test]
+async fn public_webs_old_help_addresses_move_for_good() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    for (from, to) in [
+        ("/faq", "/help/getting-started/frequently-asked-questions"),
+        ("/order-protection", "/help/buying/order-protection"),
+        ("/refunds-and-returns", "/help/buying/refunds-and-returns"),
+        ("/buyer-protection", "/order-protection"),
+        ("/seller-fees", "/sales-fees"),
+    ] {
+        let (status, headers, _) = site.get(from, None).await;
+        assert_eq!(status, StatusCode::MOVED_PERMANENTLY, "{from}");
+        assert_eq!(headers[header::LOCATION], to, "{from}");
+    }
+    // The footer's help links are this app's.
+    let (_, _, home) = site.get("/", None).await;
+    // The help center's stylesheet is linked from its three addresses only.
+    let sheet = |page: &str| page.split('"').find(|part| part.contains("sections/") && part.ends_with(".css")).map(str::to_owned);
+    assert_eq!(sheet(&home), None, "{home}");
+    let (_, _, hub) = site.get("/help", None).await;
+    let shared = sheet(&hub).expect("the hub links the help sheet");
+    for path in ["/sales-fees", "/press", "/help/selling/getting-paid"] {
+        let (_, _, page) = site.get(path, None).await;
+        assert_eq!(sheet(&page).as_deref(), Some(shared.as_str()), "{path}");
+    }
+    for href in ["/help", "/sales-fees", "/press", "/order-protection", "/refunds-and-returns"] {
+        assert!(home.contains(&format!(r#"href="{href}""#)), "{href}: {home}");
+    }
 }

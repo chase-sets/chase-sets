@@ -163,6 +163,8 @@ const CONTEXT: &str = "public-presence";
 /// The calls the home page makes.
 pub trait Presence {
     async fn policy_values(&self) -> Result<PolicyValues, ApiError>;
+    /// The same answer as it is, for a page that checks every field (the help center's).
+    async fn policy_document(&self) -> Result<Value, ApiError>;
     /// The messages, with a title or not (the page shows only titled ones).
     async fn promos(&self) -> Result<Vec<Promo>, ApiError>;
     /// The rounded, threshold-gated headcount, or none while it is hidden.
@@ -184,6 +186,10 @@ fn for_client(req: platform::api::RequestBuilder, client: Option<&str>) -> platf
 
 impl Presence for Caller<'_> {
     async fn policy_values(&self) -> Result<PolicyValues, ApiError> {
+        self.read("/api/public-presence/policy-values", CONTEXT).await
+    }
+
+    async fn policy_document(&self) -> Result<Value, ApiError> {
         self.read("/api/public-presence/policy-values", CONTEXT).await
     }
 

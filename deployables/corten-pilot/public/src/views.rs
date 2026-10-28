@@ -9,24 +9,30 @@ use crate::text::MarketMsg;
 #[derive(Id)]
 pub struct MainContentId;
 
+mod help_page;
 mod home_page;
 mod market_page;
 mod policy_page;
 mod welcome_page;
 
+pub use help_page::{HelpArticlePage, HelpCategoryPage, HelpHub};
 pub use home_page::HomePage;
 pub use market_page::{MarketPage, Screen};
 pub use policy_page::PolicyPage;
 pub use welcome_page::{WaveStatus, WelcomePage};
 
 /// Every page's components: the design system's tokens, the error page's, the home page's and the
-/// policy and welcome pages'. The home page is outside every area (it is `/`) and it is the page most
+/// policy, welcome and help pages'. The home page is outside every area (it is `/`) and it is the page most
 /// visitors open first, so its stylesheet is in `components.css`; the policy pages are seven
 /// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
 /// stylesheet is small (README decision 79). The welcome page is where Join lands, so most of
 /// the home page's visitors who act open it next.
 pub const COMPONENTS: &[Component] =
     &[theme::TOKENS, NotFound, HomeLayout, HomePage, home_page::handlers::COMPONENT, PolicyPage, WelcomePage];
+
+/// The help center's components (`/help`, `/sales-fees` and `/press`), in a stylesheet those
+/// pages share.
+pub const HELP: &[Component] = &[HelpHub];
 
 /// The market pages' components (`/market`): the page and its chart.
 pub const MARKET: &[Component] = &[MarketPage, TimeSeries];

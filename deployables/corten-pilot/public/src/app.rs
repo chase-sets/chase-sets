@@ -8,6 +8,8 @@
 //! | `POST /` | join the waitlist (reads the visitor's address, so it is private), then the welcome page |
 //! | `GET /welcome`, `POST /welcome` | a signup's welcome page and its wave-placement answers (private, `noindex`) |
 //! | `GET /terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms`, `/authenticity-terms` | a policy document (`Public`) |
+//! | `GET /help`, `/help/{category}`, `/help/{category}/{slug}`, `/sales-fees`, `/press` | the help center and its articles (`Public`) |
+//! | `GET /faq`, `/order-protection`, `/refunds-and-returns` and public-web's two older addresses | moved for good to their articles |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
 //! | `GET /sitemap.xml` | the market pages, when the site may be indexed |
@@ -120,11 +122,60 @@ pub mod url {
             pub arrival: crate::welcome::Arrival,
         }
 
+        /// public-web's old addresses for three articles, moved for good.
+        #[route("/faq", get = crate::help::faq)]
+        pub struct Faq;
+
+        #[route("/order-protection", get = crate::help::order_protection)]
+        pub struct OrderProtection;
+
+        #[route("/refunds-and-returns", get = crate::help::refunds)]
+        pub struct RefundsAndReturns;
+
+        /// public-web's two older addresses, before those (its routes.ts).
+        #[route("/buyer-protection", get = crate::help::older_protection)]
+        pub struct OlderProtection;
+
+        #[route("/seller-fees", get = crate::help::older_fees)]
+        pub struct OlderFees;
+
         #[route("/robots.txt", get = crate::market::robots)]
         pub struct Robots;
 
         #[route("/sitemap.xml", get = crate::market::sitemap)]
         pub struct Sitemap;
+    }
+
+    /// The help center (`crate::help`), an area so its stylesheet is linked from its pages only.
+    #[corten::routes(state = crate::app::Shared, area = Help)]
+    pub mod help {
+        #[route("/help", get = crate::help::hub)]
+        pub struct Help;
+
+        #[route("/help/{category}", get = crate::help::category)]
+        pub struct HelpCategory<'a> {
+            pub category: &'a str,
+        }
+
+        #[route("/help/{category}/{slug}", get = crate::help::article)]
+        pub struct HelpArticle<'a> {
+            pub category: &'a str,
+            pub slug: &'a str,
+        }
+    }
+
+    /// Two articles public-web serves at their own addresses, each an area listing the help
+    /// center's components, so the three share one stylesheet no other page links.
+    #[corten::routes(state = crate::app::Shared, area = SalesFees)]
+    pub mod sales_fees {
+        #[route("/sales-fees", get = crate::help::sales_fees)]
+        pub struct SalesFees;
+    }
+
+    #[corten::routes(state = crate::app::Shared, area = Press)]
+    pub mod press {
+        #[route("/press", get = crate::help::press)]
+        pub struct Press;
     }
 
     /// The market pages, public.
@@ -149,6 +200,9 @@ pub fn app(config: Config) -> App {
     App::new(url::files::router(shared.clone()))
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
+        .area(|area| url::help::area(area, shared.clone()).components(views::HELP))
+        .area(|area| url::sales_fees::area(area, shared.clone()).components(views::HELP))
+        .area(|area| url::press::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::market::area(area, shared).components(views::MARKET))
         .error_page(views::error_page, ())
 }

@@ -135,6 +135,11 @@
 //   publicPolicyRegistry): each document's metadata, whether it is published (see policies()), and
 //   each section's title, counsel badge, text (split at the links to sibling pages) and claim
 //   disclosures.
+// - public/help.json: the help center's articles as public-web compiles them (features/help/domain's
+//   generated helpArticles: each article's place, title, description, review date, headings, blocks and
+//   the policy values it cites) and the public policy value whitelist's types and value contracts, which
+//   a live value is checked against before it is shown.
+// - public/locales/help.en.json: the help center's English catalog (publicPresence.help.*).
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -327,6 +332,37 @@ const homeAssets = [
   "chase-sets-og-one-piece-card-game.png",
   "chase-sets-og-founders.png",
 ];
+
+/** The help center's articles and the whitelist their live values are checked against. */
+async function help() {
+  const { helpArticles } = await import(
+    pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/help/domain/generated/articles.ts")).href
+  );
+  const { publicPolicyValueWhitelist } = await import(
+    pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/help/domain/public-policy-value-whitelist.mjs")).href
+  );
+  return {
+    articles: helpArticles.map((a) => ({
+      slug: a.slug,
+      locale: a.locale,
+      title: a.title,
+      description: a.description,
+      audience: a.audience,
+      category: a.category,
+      reviewed_at: a.reviewedAt,
+      href: a.href,
+      headings: a.headings,
+      blocks: a.blocks,
+      policy_value_keys: a.policyValueKeys,
+    })),
+    values: publicPolicyValueWhitelist.map((p) => ({
+      key: p.key,
+      type: p.type,
+      ...(p.currency ? { currency: p.currency } : {}),
+      contract: p.valueContract,
+    })),
+  };
+}
 
 /**
  * The policy corpus as policy-artifact-page.tsx draws it. Two of its rules are in that UI module,
@@ -968,6 +1004,11 @@ const outputs = [
     ),
   ],
   ["public/policies.json", json(await policies())],
+  ["public/help.json", json(await help())],
+  [
+    "public/locales/help.en.json",
+    json(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.help.", ""]])),
+  ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];

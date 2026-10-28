@@ -3,6 +3,7 @@
 //! serves, read from the platform API with no session. See README.md.
 mod api;
 mod app;
+mod help;
 mod home;
 mod kept;
 mod market;

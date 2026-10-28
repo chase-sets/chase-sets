@@ -18,6 +18,9 @@
     "highlight": "Marketing highlight",
     "highlights": "Marketing highlights"
   },
+  "help": {
+    "change": "The published policy values on this page will update automatically on this date."
+  },
   "welcome": {
     "save": "Save answers"
   },
