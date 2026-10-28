@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import { createStaticHandler } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -174,6 +175,103 @@ describe("marketplace search route", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it.each(["/search?q=charizard", "/"])("primary search failure is not empty success: %s", async (path) => {
+    const secret = "synthetic-upstream-secret-10610";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/categories")) {
+        return Response.json({
+          items: [{ ...searchData().categories[0], display_order: 1 }],
+          total: 1,
+          count: 1,
+        });
+      }
+      if (url.searchParams.get("sort") === "newest") return Response.json(searchDataWithResults().data);
+      return Response.json({ message: secret }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createStaticHandler([{ id: "search", path: "*", loader }]).query(
+      new Request(`http://localhost${path}`),
+    );
+    if (result instanceof Response) throw new Error("Expected retained search route data");
+    expect(result.statusCode).toBe(502);
+    expect(result.errors).toBeNull();
+    expect(JSON.stringify(result.loaderData)).not.toContain(secret);
+    mockUseLoaderData.mockReturnValue(result.loaderData.search);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(path.split("?")[1]), vi.fn()]);
+    mockUseLocation.mockReturnValue({ pathname: path.split("?")[0], search: path.includes("?") ? "?q=charizard" : "" });
+    render(<SearchRoute />);
+    expect(screen.getByRole("searchbox")).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minimum price" })).toBeTruthy();
+    expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy();
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.queryByText("No items found")).toBeNull();
+    expect(document.body.textContent).not.toContain(secret);
+    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path))).toBeNull();
+    if (path === "/") {
+      expect(screen.getByRole("link", { name: /Pikachu/ })).toBeTruthy();
+      expect(screen.getAllByText("Cards").length).toBeGreaterThan(0);
+    }
+  });
+
+  it("search success empty and secondary-failure matrix", async () => {
+    const responses = new Map<string, unknown>([
+      ["empty", { items: [], facets: [], total: 0, count: 0, nextCursor: null }],
+      ["populated", searchDataWithResults().data],
+    ]);
+    let mode = "empty";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+        if (url.searchParams.get("sort") === "newest")
+          return Response.json({ message: "new arrivals unavailable" }, { status: 500 });
+        return Response.json(responses.get(mode));
+      }),
+    );
+    const load = () =>
+      loader({ request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never);
+    const empty = await load();
+    expect(empty).toMatchObject({ searchFailed: false, data: { total: 0, items: [] } });
+    mode = "populated";
+    const populated = await load();
+    expect(populated).toMatchObject({ searchFailed: false, data: { total: 1, items: [{ slug: "pikachu" }] } });
+    expect(populated).toMatchObject({ homeMerchandising: null });
+  });
+
+  it("search failure to successful navigation", async () => {
+    let failed = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+        if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
+        return Response.json(searchDataWithResults().data);
+      }),
+    );
+    const request = { request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never;
+    const errorResult = await loader(request);
+    const errorPayload = "searchFailed" in errorResult ? errorResult : errorResult.data;
+    expect(errorPayload).toMatchObject({ searchFailed: true, data: null });
+    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), errorPayload);
+    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
+    failed = false;
+    const successResult = await loader(request);
+    const successPayload = "searchFailed" in successResult ? successResult : successResult.data;
+    expect(successPayload).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
+    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), successPayload);
+    expect(
+      readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard")),
+    ).toMatchObject({
+      searchFailed: false,
+      data: { items: [{ slug: "pikachu" }] },
+    });
   });
 
   it("falls back to an empty search state when loader data is unavailable", () => {
