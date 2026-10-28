@@ -2,7 +2,7 @@
 // it, against the real platform API, and compares it with admin-web's own scopes page (the same
 // session: cookies are the host's, not the port's): the same scopes on the first page, in the same
 // order, with the same promotion and sync. Then the domain, status and language filters, a
-// scope's View (admin-web's page), and a phone's width. It only reads.
+// scope's View (the pilot's scope page, scripts/smoke-scope.mjs), and a phone's width. It only reads.
 // Usage: node scripts/smoke-scopes.mjs [pilot-url] [admin-web-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
 
@@ -99,8 +99,8 @@ const rows = (page) =>
 
   const view = page.locator("table").last().locator("tbody tr").first().getByRole("link", { name: "View" });
   const href = await view.getAttribute("href");
-  check(href?.startsWith(`${adminWeb}/catalog/scopes/`) ?? false, `View opens admin-web's scope page (${href})`);
-  const answer = await page.request.get(href ?? "");
+  check(href?.startsWith("/catalog/scopes/") ?? false, `View opens the pilot's scope page (${href})`);
+  const answer = await page.request.get(`${base}${href}`);
   check(answer.ok(), `which answers (${answer.status()})`);
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();

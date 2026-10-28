@@ -26,6 +26,7 @@ mod item_list;
 mod item_page;
 mod list_page;
 mod scope_list;
+mod scope_page;
 mod status_pill;
 
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
@@ -44,6 +45,7 @@ pub use item_page::{
 };
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
 pub use scope_list::{ScopeRowView, scope_list};
+pub use scope_page::{ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
@@ -54,6 +56,7 @@ pub const COMPONENTS: &[Component] = &[
     Dialog,
     BulkRows,
     ScopeRowView,
+    ScopePage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,

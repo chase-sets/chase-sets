@@ -22,6 +22,7 @@
 //! | `POST /catalog/dimensions/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
 //! | `GET /catalog/jobs/{id}/live` | the job's status, again on each change until it is done (`<corten-live>`) |
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the scopes list (`scopes`) |
+//! | `GET /catalog/scopes/{id}` and its writes | a scope's page (`scope`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -41,6 +42,7 @@ pub mod attention;
 pub mod form;
 pub mod item;
 pub mod items;
+pub mod scope;
 pub mod scopes;
 pub mod views;
 
@@ -315,6 +317,7 @@ impl Done {
 pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = url::area(area, shared.clone());
     let area = scopes::url::area(area, shared.clone());
+    let area = scope::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
@@ -980,9 +983,13 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
             .to_vec(),
         // No bulk changes.
-        Kind::ProductContents | Kind::ReferenceRecords | Kind::ScopeRecords | Kind::AttentionQueue | Kind::AliasReview => {
-            Vec::new()
-        }
+        Kind::ProductContents
+        | Kind::ReferenceRecords
+        | Kind::ScopeRecords
+        | Kind::AttentionQueue
+        | Kind::AliasReview
+        | Kind::ProviderScopeMappings
+        | Kind::SourceObservations => Vec::new(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
 }

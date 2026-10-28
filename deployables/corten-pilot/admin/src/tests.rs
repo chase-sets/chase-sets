@@ -101,6 +101,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/catalog/scope-records" {
         return scope_records(uri.query().unwrap_or_default());
     }
+    if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
+        return answer;
+    }
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/attention-queue") {
         return attention_queue(method, rest, cookie, &headers, &body);
     }
@@ -518,6 +521,84 @@ fn scope_records(query: &str) -> Response {
         scope("scp_base", "Base Set", None, &[], "draft", "2020-01-01T00:00:00.000Z"),
     ];
     Json(json!({ "items": items, "total": 51, "count": 2 })).into_response()
+}
+
+/// A scope's page's reads and writes. `scp_paf` has two editions (its Japanese alias pending), a
+/// draft coverage with a provider available and one mapped, and a job of each kind; `scp_one` has
+/// one edition and nothing to review; `scp_down`'s coverage and jobs cannot be read; `scp_gone`
+/// is not there. A write whose reason (or provider) is `refuse` is refused.
+fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Response> {
+    let scope = |id: &str, editions: &[&str], status: &str| {
+        json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
+                "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": "Paldean Fates",
+                "officialSetCode": "PAF", "languageEditions": editions, "lifecycleStatus": status,
+                "updatedAt": "2999-01-01T00:00:00.000Z" })
+    };
+    let job = |id: &str, kind: &str, status: &str, result: Value, error: Value| {
+        json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
+                "result": result, "errorMessage": error })
+    };
+    let rest = path.strip_prefix(CATALOG)?;
+    let answer = match (method.clone(), rest) {
+        (Method::GET, "/scope-records/scp_paf") => Json(scope("scp_paf", &["en", "ja"], "draft")).into_response(),
+        (Method::GET, "/scope-records/scp_one") => Json(scope("scp_one", &["en"], "active")).into_response(),
+        (Method::GET, "/scope-records/scp_down") => Json(scope("scp_down", &["en"], "active")).into_response(),
+        (Method::GET, "/scope-records/scp_gone") => refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found."),
+        (Method::GET, "/provider-scope-mappings/coverage/scp_down") | (Method::GET, "/source-observations/bulk-jobs/active")
+            if query.contains("scp_down") || rest.ends_with("scp_down") =>
+        {
+            refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Unavailable.")
+        }
+        (Method::GET, "/provider-scope-mappings/coverage/scp_paf") => Json(json!({
+            "lifecycleStatus": "draft",
+            "providers": [
+                { "providerKey": "tcgplayer", "state": "available", "mapping": { "mappingId": "map_1", "confidence": "high" } },
+                { "providerKey": "pokemontcgio", "state": "mapped", "mapping": { "mappingId": "map_2", "confidence": "exact" },
+                  "syncedObservations": 12, "promotedObservations": 3 },
+                { "providerKey": "cardmarket", "state": "not-offered" },
+            ],
+        }))
+        .into_response(),
+        (Method::GET, path) if path.starts_with("/provider-scope-mappings/coverage/") => {
+            Json(json!({ "lifecycleStatus": "active", "providers": [] })).into_response()
+        }
+        (Method::GET, "/source-observations/bulk-jobs/active")
+            if query.contains("scp_paf") && query.contains("status=completed") =>
+        {
+            let done = json!({ "promoted": 2, "deferred": 0, "skippedNotEligible": 1, "failed": 0,
+                               "outcomes": [{ "status": "promoted", "catalogItemId": "itm_1" }, { "status": "promoted", "catalogItemId": "itm_1" }] });
+            let cursor = if query.contains("cursor=c2") { Value::Null } else { json!("c2") };
+            Json(json!({ "items": [job("job_done", "merge-candidate-promote", "completed", done, Value::Null)], "cursor": cursor }))
+                .into_response()
+        }
+        (Method::GET, "/source-observations/bulk-jobs/active") if query.contains("scp_paf") => Json(json!({
+            "items": [job("job_run", "merge-candidate-defer", "running", Value::Null, Value::Null)]
+        }))
+        .into_response(),
+        (Method::GET, "/source-observations/merge-candidate-bulk-jobs/failed") if query.contains("scp_paf") => Json(json!({
+            "items": [job("job_fail", "merge-candidate-promote", "failed", Value::Null, json!("The candidate moved."))]
+        }))
+        .into_response(),
+        (Method::GET, "/source-observations/bulk-jobs/active" | "/source-observations/merge-candidate-bulk-jobs/failed") => {
+            Json(json!({ "items": [] })).into_response()
+        }
+        (Method::GET, "/alias-review") => Json(json!({ "candidates": [{
+            "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
+            "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
+            "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
+            "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
+        }] }))
+        .into_response(),
+        (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") if body.contains("refuse") => {
+            refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "The mapping moved meanwhile.")
+        }
+        (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") => {
+            written(StatusCode::OK, "map_1")
+        }
+        (Method::POST, "/reference-records/scp_paf/publish") => written(StatusCode::OK, "scp_paf"),
+        _ => return None,
+    };
+    Some(answer)
 }
 
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
@@ -1474,10 +1555,7 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         html.contains("No editions yet") && html.contains(">Unpublished</span>") && html.contains(">Stale sync</span>"),
         "{html}"
     );
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf">View</a>"#),
-        "the scope's page is admin-web's: {html}"
-    );
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf">View</a>"#), "the scope's page is the pilot's: {html}");
     assert!(
         html.contains(r#"href="/catalog/scopes?search=pal&amp;status=active&amp;product_domain=pokemon" rel="prev""#),
         "the pager keeps the filters: {html}"
@@ -1869,4 +1947,179 @@ async fn the_queue_is_drawn_again_on_a_change_and_stays_when_the_api_refuses_the
     let events = pilot.events("/platform/operations-attention/live", "ops-refused", 2).await;
     let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
     assert_eq!(kinds, ["end"], "the page's queue stays, and the element stops: {events:?}");
+}
+
+#[tokio::test]
+async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_catalog_api() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls: Vec<String> = pilot.catalog_calls().into_iter().map(|c| c.path).collect();
+    for path in [
+        "/api/catalog/scope-records/scp_paf",
+        "/api/catalog/provider-scope-mappings/coverage/scp_paf",
+        "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf",
+        "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf&status=completed",
+        "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scp_paf",
+        "/api/catalog/alias-review?targetKind=reference-record&targetId=ref_scp_paf",
+    ] {
+        assert!(calls.iter().any(|c| c == path), "{path} in {calls:?}");
+    }
+    assert!(html.contains("Paldean Fates") && html.contains(r#"href="/catalog/scopes""#), "{html}");
+    // The journey: a pending Japanese alias is a conflict.
+    assert!(html.contains(r#"data-status="current""#), "{html}");
+    // The coverage: Confirm canonical record (a draft), Accept all available (map_1 only), each row.
+    assert!(html.contains(r#"action="/catalog/scopes/scp_paf/publish""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="mapping_ids" value="map_1"><input type="hidden" name="all" value="1">"#),
+        "{html}"
+    );
+    assert!(html.contains("tcgplayer") && html.contains("pokemontcgio") && html.contains("cardmarket"), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="intent" value="revoke">"#), "the mapped row can be revoked: {html}");
+    // The jobs: running, failed with its reason, completed with its Catalog Item once, and the next page.
+    assert!(html.contains(r#"data-candidate-review-job-id="job_run""#) && html.contains("The candidate moved."), "{html}");
+    assert_eq!(html.matches(r#"data-promoted-catalog-item-id="itm_1""#).count(), 1, "{html}");
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf?jobs=c2" rel="next""#), "{html}");
+    // The editions: English canonical, Japanese open with its candidate and its commands.
+    assert!(html.contains(r#"data-link="pending-review""#) && html.contains("Confidence is below high."), "{html}");
+    assert!(html.contains(r#"data-language-edition-command="alias.defer""#), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf""#), "the workspace is admin-web's: {html}");
+    assert!(
+        pilot.stylesheet(&html, "sections/catalog").await.is_some_and(|css| css.contains(".scope-page__stages")),
+        "the page's stylesheet is the area's"
+    );
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobs=c2", Some("staff"))).await;
+    assert!(pilot.catalog_calls().iter().any(|c| c.path.ends_with("&status=completed&cursor=c2")));
+    assert!(
+        html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains(r#"rel="next""#),
+        "first page, no next: {html}"
+    );
+}
+
+#[tokio::test]
+async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its_sections_banner() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_one", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "one edition has nothing to review");
+    assert!(!html.contains("scope-editions"), "{html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "as admin-web's loader degrades them: {html}");
+    assert!(html.matches(r#"role="status""#).count() >= 3, "the journey's and both banners: {html}");
+    assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
+
+    let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get("/catalog/scopes/scp_paf", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed");
+}
+
+#[tokio::test]
+async fn a_scopes_coverage_writes_send_the_commands_and_redirect_with_the_toast() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=accept&mapping_ids=map_1&all=1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?after_write=") && to.ends_with("&done=available_accepted&count=1"), "{to}");
+    pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=revoke&mapping_ids=map_2&reason=Wrong+set", true)).await;
+    pilot
+        .send(post(
+            "/catalog/scopes/scp_paf/coverage/propose",
+            "provider_key=tcgplayer&unit_key=sv&set_id=sv4pt5&set_name=&confidence=high&accept=1",
+            true,
+        ))
+        .await;
+    pilot.send(post("/catalog/scopes/scp_paf/publish", "", true)).await;
+    let writes = pilot.catalog_writes();
+    let sent: Vec<(String, Value)> =
+        writes.iter().map(|w| (w.path.clone(), serde_json::from_str(&w.body).unwrap_or(Value::Null))).collect();
+    assert_eq!(
+        sent,
+        [
+            ("/api/catalog/provider-scope-mappings/commands".to_owned(), json!({ "intent": "accept", "mappingIds": ["map_1"] })),
+            (
+                "/api/catalog/provider-scope-mappings/commands".to_owned(),
+                json!({ "intent": "revoke", "mappingIds": ["map_2"], "reason": "Wrong set" })
+            ),
+            (
+                "/api/catalog/provider-scope-mappings/propose".to_owned(),
+                json!({ "scopeRecordId": "scp_paf", "providerKey": "tcgplayer", "unitKey": "sv",
+                        "coordinates": { "setId": "sv4pt5", "setName": null }, "confidence": "high", "autoAccept": true })
+            ),
+            ("/api/catalog/reference-records/scp_paf/publish".to_owned(), Value::Null),
+        ]
+    );
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("1 mappings accepted."), "the toast says how many: {html}");
+}
+
+#[tokio::test]
+async fn a_scope_write_without_its_reason_or_refused_is_the_page_again_with_the_message() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=reject&mapping_ids=map_1&reason=+", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"role="alert""#) && html.contains("Paldean Fates"), "{html}");
+    assert!(pilot.catalog_writes().is_empty(), "nothing sent");
+
+    let (status, _, html) =
+        pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=reject&mapping_ids=map_1&reason=refuse", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The mapping moved meanwhile."), "the API's refusal: {html}");
+
+    let (status, _, html) =
+        pilot.send(post("/catalog/scopes/scp_paf/coverage/propose", "provider_key=tcgplayer&unit_key=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"value="tcgplayer""#) && html.contains("Enter the provider, the unit"), "the dialog, open: {html}");
+    let (status, _, html) = pilot
+        .send(post("/catalog/scopes/scp_paf/coverage/propose", "provider_key=refuse&unit_key=u&set_name=Paldean", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The mapping moved meanwhile.") && html.contains(r#"value="refuse""#), "{html}");
+
+    let (status, _, _) = pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=forget&mapping_ids=map_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an intent the form does not offer");
+}
+
+#[tokio::test]
+async fn an_editions_alias_commands_post_the_alias_review_and_defer_writes_nothing() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.defer&alias_hashes=ah_ja", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert_eq!(to, "/catalog/scopes/scp_paf?done=alias_deferred");
+    assert!(pilot.catalog_writes().is_empty(), "chase-sets/chase-sets#10702: defer has no command");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("stays pending"), "{html}");
+
+    pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.accept&alias_hashes=ah_ja", true)).await;
+    pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.reject&alias_hashes=ah_ja&reason=Not+this+set", true)).await;
+    let (status, _, _) =
+        pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.revoke&alias_hashes=ah_ja", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a revoke needs its reason");
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_ja" }),
+            json!({ "intent": "reject", "aliasHashes": "ah_ja", "reason": "Not this set" }),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_catalog_viewer_sees_a_scope_without_its_commands_and_cannot_write() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("catalog-viewer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("/catalog/scopes/scp_paf/coverage") && !html.contains("/publish"), "{html}");
+    assert!(html.contains(r#"data-language-edition-command="alias.accept""#), "{html}");
+    assert!(html.contains(r#"<button type="submit" class="#) && html.contains(" disabled>"), "off, as admin-web's: {html}");
+    let (status, _, _) = pilot.send(post_as("catalog-viewer", "/catalog/scopes/scp_paf/publish", "", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    assert!(pilot.catalog_writes().is_empty());
 }

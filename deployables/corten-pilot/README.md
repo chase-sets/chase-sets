@@ -15,7 +15,8 @@ pilot owns only the screens:
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` | admin-web | the list, the policy sheet, create, revise, preview, activate, retire and clone |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts |
-| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the attention queue above the list (its counts, every item, an item's sheet, dismiss, defer and restore, and an alias candidate's accept and reject), the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the all-scopes alias review, and a scope's page, which View opens in admin-web) |
+| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the attention queue above the list (its counts, every item, an item's sheet, dismiss, defer and restore, and an alias candidate's accept and reject), the list, its search, status, product domain and language filters, promotion and sync, and the pager; View opens the scope's page (not ported: the all-scopes alias review) |
+| `admin/` | Catalog > a scope's page, `/catalog/scopes/{id}` | admin-web | the journey and its five stages, the coverage matrix (accept, reject and revoke a mapping, Accept all available, Propose mapping, Confirm canonical record), the candidate review jobs (active, failed, and completed by page), and each language edition's link state with its alias candidates' commands; each supplementary read that fails is its section's banner (not ported: the import-to-promotion workspace, which the section links to on admin-web) |
 | `admin/` | Platform > Attention Queue, `/platform/operations-attention` | admin-web | the queue as the Platform Operations API composes it: the four counts, the sources it could not read, each item's severity, words, source, wait and deadline, and Open to the admin-web page that resolves it; the queue drawn again on each change to its realtime topic (`<corten-live>`), which the API refuses for now |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
@@ -82,6 +83,21 @@ an unknown amount and are not a comparison. Measured once, 7 loads each.
 | JavaScript transferred | 3,624,607 B | 7,590 B | 7,590 B |
 | HTML / CSS transferred | 437,787 / 186,198 B | 2,730 / 4,325 B | 2,730 / 4,325 B |
 | Requests | 251 | 10 | 9 |
+
+A scope's page (`/catalog/scopes/ref_seed_set_lorcana_d23_collection`, two mapped providers, no jobs)
+at the `dfaaa90` pin, as the sandbox's platform admin: the pilot is a release build, admin-web its
+dev server (`react-router dev`), desktop only, since its mobile load did not finish within 120 s.
+As with the cart, the dev numbers overstate React's bytes and time by an unknown amount and are not
+a comparison. Measured once, 7 loads each.
+
+| Scope page | admin-web (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 5,227 ms | 195 ms | 1,665 ms |
+| Largest contentful paint | 3,344 ms | 288 ms | 1,364 ms |
+| Server time (document) | 3,096 ms | 97 ms | 106 ms |
+| JavaScript transferred | 7,718,168 B | 10,627 B | 10,627 B |
+| HTML / CSS transferred | 847,248 / 186,139 B | 3,278 / 7,070 B | 3,278 / 7,070 B |
+| Requests | 251 | 12 | 12 |
 
 The pilot measured interactive sooner on mobile than on desktop. That was not profiled, and one
 run of 7 loads does not show whether it repeats.
@@ -802,6 +818,7 @@ node scripts/smoke-item.mjs            # a catalog item's page: a draft through 
 node scripts/smoke-attention.mjs       # the attention queue beside admin-web's: same items, a sheet, dismiss, defer and restore, no JavaScript, 390 px (parks one item and restores it)
 node scripts/smoke-operations-attention.mjs  # the Operations Attention queue beside admin-web's: the counts, the same rows in order, each Open answering on admin-web, the stream, no JavaScript, 390 px (only reads)
 node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..] [admin-web]): same rows, the filters, View, no JavaScript, 390 px (only reads)
+node scripts/smoke-scope.mjs           # a scope's page ([..] [admin-web] [state] [scope]): its sections, the coverage beside admin-web's, a revoke's fold, Propose mapping and its refusal, no JavaScript, 390 px (writes nothing)
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
@@ -981,6 +998,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
 | `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
 | `admin/src/catalog/scopes.rs`, `views/scope_list.rs`, `views/scope_row_view.css` | the scopes list: its route and query, the promotion and sync of each row, and its table |
+| `admin/src/catalog/scope.rs`, `views/scope_page.*` | a scope's page: its reads, the journey and editions it derives (chase-sets/chase-sets#10703), its writes, and its sections |
 | `admin/src/catalog/attention.rs`, `views/attention_panel.*` | the Catalog attention queue on the scopes list: an item's sheet, the park and restore routes, the alias commands, and the queue's messages by key |
 | `admin/src/views/live_status.*` | a stream's status, for the catalog items list and the attention queue: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`), each in its screen's words; in `components.css`, since two areas render it |
 | `admin/src/operations/` | the Operations Attention area: its routes and the Open links (`mod.rs`), the queue's read (`api.rs`), and its page, whose stylesheet is `sections/platform/operations-attention.css` |
@@ -2102,6 +2120,29 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([`sessions.rs`](marketplace/src/sessions.rs),
     [`sessions_page.rs`](marketplace/src/views/sessions_page.rs)).
 
+66. **A scope's page is the pilot's, and derives what the Catalog API does not answer yet.** The
+    scope is the page's one required read; its coverage, its candidate review jobs and (with more
+    than one language edition) the alias review of its Reference Record are read beside it, and a
+    failed one is a banner in its own section, as admin-web's loader degrades them. Each edition's
+    link state and the journey's condition and stages are derived in admin-web's web layer, so the
+    pilot repeats them in `scope.rs` until the Catalog API returns them
+    ([chase-sets/chase-sets#10703 [catalog] Return a scope's language-edition link states and journey from the Catalog API instead of deriving them in admin-web](https://github.com/chase-sets/chase-sets/issues/10703));
+    promotion and sync are the scopes list's. The import-to-promotion workspace is composed in
+    admin-web's server
+    ([chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507)),
+    so its section links to admin-web's page. Every write is a plain form: a reject or revoke's
+    reason folds open under its button (`<details>`), Propose mapping is a dialog drawn open with
+    what was typed when it comes back, and a refusal is the page again (422) with the API's message.
+    An alias candidate's toast says what was done; admin-web says "Command queued" for every one,
+    and its Defer writes nothing
+    ([chase-sets/chase-sets#10702 [catalog] Scope Detail's alias Accept, Reject, Revoke and Defer each say "Command queued", and Defer writes nothing](https://github.com/chase-sets/chase-sets/issues/10702)),
+    so the pilot's Defer sends nothing and says the candidate stays pending. Confirm canonical record
+    publishes the Reference Record by the scope's id, as admin-web does; every sandbox scope's two ids
+    are the same. The sandbox has no scope with more than one edition, so the editions section is
+    tested only against the stand-in API, and no coverage write was made on the sandbox
+    ([`scope.rs`](admin/src/catalog/scope.rs),
+    [`scope_page.rs`](admin/src/catalog/views/scope_page.rs)).
+
 ## Corten gaps
 
 Open at the `dfaaa90` pin, found by the security page's port (decision 64): [todd-skelton/corten#244 corten-ui has no copy-to-clipboard control, so each app ships its own script for Copy](https://github.com/todd-skelton/corten/issues/244), worked around by two identical scripts (`views/packing.js` and `views/security.js`). Also learned, not filed: `#[derive(Id)]` names are unique across the app, so a second `ProfileFormId` on another page fails to link (`cargo check` passes; `corten check` catches it), and the page's stylesheet check refused an undeclared `--color-primary-contrast` before the page ever loaded.
@@ -2195,6 +2236,8 @@ Found in Chase Sets by the search port:
 39. [chase-sets/chase-sets#10698 [auth] Session switch-account and revoke answer 500 for every refusal, so marketplace's Switch Account always fails for a one-account user](https://github.com/chase-sets/chase-sets/issues/10698), reproduced on the sandbox: a switch to the current account, to an unavailable one or with none, and a revoke of a revoked session each answered 500; marketplace's Switch Account POST answered 500. The pilot reads the session again after such a write and offers only other accounts (decision 65).
 40. [chase-sets/chase-sets#10699 [auth] Marketplace's sessions page ignores its status filter, search and pages, always showing the first 50](https://github.com/chase-sets/chase-sets/issues/10699), reproduced on the local marketplace: three different filter addresses drew the same 14 links. The pilot's filter and pages reach Auth (decision 65).
 41. [chase-sets/chase-sets#10700 [auth] Marketplace's session page links its Sessions breadcrumb to admin's /access/sessions, a page not found](https://github.com/chase-sets/chase-sets/issues/10700), reproduced on the local marketplace. The pilot links back to its own list.
+42. [chase-sets/chase-sets#10702 [catalog] Scope Detail's alias Accept, Reject, Revoke and Defer each say "Command queued", and Defer writes nothing](https://github.com/chase-sets/chase-sets/issues/10702), found by reading admin-web's scope page for its port. The pilot's toasts say what each command did, and its Defer sends nothing (decision 66).
+43. [chase-sets/chase-sets#10703 [catalog] Return a scope's language-edition link states and journey from the Catalog API instead of deriving them in admin-web](https://github.com/chase-sets/chase-sets/issues/10703), found the same way. The pilot derives them in `scope.rs` until the API returns them (decision 66).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

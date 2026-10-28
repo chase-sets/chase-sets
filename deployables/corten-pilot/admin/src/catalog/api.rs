@@ -35,11 +35,14 @@ pub struct Dimension {
 }
 
 /// `CatalogScopeRecordDetail` (features/scope-registry/ui/contracts.ts), the fields the scopes list
-/// shows.
+/// and a scope's page show.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct ScopeRecord {
     pub scope_record_id: String,
+    /// The Reference Record the scope is (its language editions' aliases target it).
+    #[serde(default)]
+    pub reference_record_id: String,
     pub product_domain: String,
     pub scope_kind: String,
     pub name: String,
@@ -49,6 +52,125 @@ pub struct ScopeRecord {
     pub language_editions: Vec<String>,
     pub lifecycle_status: String,
     pub updated_at: String,
+}
+
+/// A scope's provider coverage (`ScopeCoverageMatrix`, features/provider-scope-mapping): each
+/// provider's state for the scope and the mapping it was computed from.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Coverage {
+    pub lifecycle_status: String,
+    pub providers: Vec<CoverageRow>,
+}
+
+/// `ScopeCoverageProviderRow`: `state` is `not-offered`, `available`, `mapped`, `synced` or
+/// `settled`.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageRow {
+    pub provider_key: String,
+    pub state: String,
+    #[serde(default)]
+    pub mapping: Option<CoverageMapping>,
+    #[serde(default)]
+    pub synced_observations: u64,
+    #[serde(default)]
+    pub promoted_observations: u64,
+}
+
+/// The mapping a coverage row's state comes from (`ProviderScopeMappingCandidateSummary`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageMapping {
+    pub mapping_id: String,
+    pub confidence: String,
+}
+
+/// The alias review read model (`CatalogAliasReviewReadModel`), the candidates only.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasReview {
+    pub candidates: Vec<AliasCandidate>,
+}
+
+/// `CatalogAliasReviewCandidateSummary`, the fields a scope's page shows.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasCandidate {
+    pub alias_hash: String,
+    pub target_kind: String,
+    #[serde(default)]
+    pub target_id: Option<String>,
+    pub native_printed_name: String,
+    pub proposed_alias: String,
+    pub alias_language_code: String,
+    pub confidence: String,
+    pub review_status: String,
+    pub auto_accept: AutoAccept,
+    /// `alias.accept`, `alias.reject`, `alias.defer`, `alias.revoke`.
+    #[serde(default)]
+    pub available_actions: Vec<String>,
+}
+
+/// Why a pending candidate did not auto-accept (`CatalogAliasReviewAutoAcceptEligibility`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoAccept {
+    #[serde(default)]
+    pub reasons: Vec<String>,
+}
+
+/// A page of a scope's candidate review jobs (`CatalogMergeCandidateBulkJobPage`): `cursor` is
+/// the next (older) page's, none on the last.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewJobs {
+    pub items: Vec<ReviewJob>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+/// `CatalogMergeCandidateBulkJob`: a promote or defer job over a scope's candidates.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewJob {
+    pub job_id: String,
+    /// `merge-candidate-promote` or `merge-candidate-defer`.
+    pub kind: String,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    pub progress: ReviewProgress,
+    #[serde(default)]
+    pub result: Option<ReviewResult>,
+    #[serde(default)]
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewProgress {
+    pub completed: u64,
+    pub total: u64,
+}
+
+/// `CatalogMergeCandidateBulkJobResult`: the terminal counts, and each candidate's outcome.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewResult {
+    pub promoted: u64,
+    pub deferred: u64,
+    pub skipped_not_eligible: u64,
+    pub failed: u64,
+    #[serde(default)]
+    pub outcomes: Vec<ReviewOutcome>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewOutcome {
+    pub status: String,
+    #[serde(default)]
+    pub catalog_item_id: Option<String>,
 }
 
 /// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): every
@@ -616,6 +738,8 @@ pub enum Kind {
     ScopeRecords,
     AttentionQueue,
     AliasReview,
+    ProviderScopeMappings,
+    SourceObservations,
 }
 
 impl Kind {
@@ -629,6 +753,8 @@ impl Kind {
             Kind::ScopeRecords => "scope-records",
             Kind::AttentionQueue => "attention-queue",
             Kind::AliasReview => "alias-review",
+            Kind::ProviderScopeMappings => "provider-scope-mappings",
+            Kind::SourceObservations => "source-observations",
         }
     }
 }

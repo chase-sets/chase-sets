@@ -54,5 +54,21 @@
   },
   "item": {
     "contents_unavailable": "Product Contents could not be loaded. Refresh in a moment."
+  },
+  "scope": {
+    "refused": "The Catalog API refused the change.",
+    "propose_needs": "Enter the provider, the unit, and a set id or set name.",
+    "alias_accepted": "The alias was accepted.",
+    "alias_rejected": "The alias was rejected.",
+    "alias_revoked": "The alias was revoked.",
+    "alias_deferred": "The candidate stays pending for a later review.",
+    "workspace_title": "Import to promotion",
+    "workspace_elsewhere": "This workspace is not in the pilot yet. It opens on admin-web.",
+    "workspace_open": "Open the workspace on admin-web",
+    "stages": "Journey stages",
+    "stage_complete": "Complete",
+    "stage_current": "Current",
+    "stage_upcoming": "Upcoming",
+    "stage_blocked": "Blocked"
   }
 }

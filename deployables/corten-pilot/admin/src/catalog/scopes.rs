@@ -6,8 +6,8 @@
 //! |---|---|
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list, with the attention queue above it ([`attention`](super::attention)) |
 //!
-//! Not ported yet: the all-scopes alias review that admin-web shows above the list, and the
-//! scope's own page (each row's View opens admin-web's).
+//! Each row's View opens the scope's page ([`scope`](super::scope)). Not ported yet: the
+//! all-scopes alias review that admin-web shows above the list.
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -157,7 +157,7 @@ const STALE_SYNC: Duration = Duration::days(14);
 /// Workaround for chase-sets/chase-sets#10507: admin-web derives a scope's promotion readiness and
 /// sync freshness in its web layer (`scope-landing-read-model.ts`), so the pilot repeats the rule.
 /// Remove it once the Catalog API returns them.
-fn row(scope: ScopeRecord, now: OffsetDateTime) -> ScopeRow {
+pub(crate) fn row(scope: ScopeRecord, now: OffsetDateTime) -> ScopeRow {
     let promotion = match scope.lifecycle_status.as_str() {
         "active" => Promotion::Live,
         "deprecated" => Promotion::Deprecated,
@@ -274,6 +274,7 @@ mod tests {
     fn scope(id: &str, status: &str, updated_at: &str, editions: &[&str]) -> ScopeRecord {
         ScopeRecord {
             scope_record_id: id.into(),
+            reference_record_id: id.into(),
             product_domain: "pokemon".into(),
             scope_kind: "expansion".into(),
             name: id.into(),

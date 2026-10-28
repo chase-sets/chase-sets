@@ -11,7 +11,6 @@ use crate::{
         url,
     },
     text::{Cat, Pilot},
-    views::admin_web,
 };
 
 /// The lifecycle statuses the list filters by, shown as their values (as admin-web's are).
@@ -123,7 +122,7 @@ fn ListError<'a>(t: Cat, message: &'a str) -> impl Render {
     }
 }
 
-/// A scope's row. Its View opens admin-web's scope page, which the pilot does not serve yet.
+/// A scope's row; its View opens the scope's page.
 #[component(css)]
 pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
     let s = &row.scope;
@@ -140,9 +139,7 @@ pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
         Sync::Fresh => (t.scopes_sync_fresh(), Tone::Success),
         Sync::Stale => (t.scopes_sync_stale(), Tone::Warning),
     };
-    let view = admin_web(&format!("/catalog/scopes/{}", crate::api::segment(&s.scope_record_id)))
-        .map(|u| u.to_string())
-        .unwrap_or_default();
+    let view = crate::catalog::scope::url::ScopePage::of(&s.scope_record_id).href();
     html! {
         <tr>
             <td>
