@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@chase-sets/design-system";
 import { PolicyEditorDrawer } from "../../features/repricing-policies/ui/policy-editor-drawer";
 import type { PolicyEditorBody } from "../../features/repricing-policies/ui/presets";
-import { recognizeAuthoringIntent } from "../../features/repricing-policies/domain/authoring-intent";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   redirect,
@@ -226,16 +225,7 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
       {editorOpen && data.policy.scope && data.policy.maxChangesPerDay !== null ? (
         <PolicyEditorDrawer
           policyId={policyId}
-          initialTier={
-            new URLSearchParams(location.search).get("edit") === "1" &&
-            !recognizeAuthoringIntent({
-              ...data.policy,
-              scope: data.policy.scope,
-              maxChangesPerDay: data.policy.maxChangesPerDay,
-            })
-              ? "advanced"
-              : undefined
-          }
+          initialTier={new URLSearchParams(location.search).get("edit") === "1" ? "advanced" : undefined}
           initialBody={{
             authoringIntent: data.policy.authoringIntent,
             name: data.policy.name ?? "",

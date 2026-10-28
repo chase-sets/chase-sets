@@ -221,6 +221,7 @@ describe("policy editor prerequisites and gates", () => {
         <PolicyEditorDrawer
           api={api}
           policyId="rpp_8340"
+          initialTier="advanced"
           initialBody={{
             ...reopened,
             name: reopened.name!,

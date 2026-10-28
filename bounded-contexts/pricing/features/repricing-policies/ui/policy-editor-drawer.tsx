@@ -94,7 +94,11 @@ export function PolicyEditorDrawer({
   const [scope, setScope] = useState<RepricingPolicyScope>(initialBody?.scope ?? { kind: "all-listings" });
   const [body, setBody] = useState<PolicyEditorBody | null>(initialBody ?? null);
   const [tier, setTier] = useState<"preset" | "goal" | "structured" | "advanced">(
-    initialBody ? (initialTier ?? openRepricingPreset(initialBody).tier) : "preset",
+    initialBody
+      ? initialIntent
+        ? openRepricingPreset(initialBody).tier
+        : (initialTier ?? openRepricingPreset(initialBody).tier)
+      : "preset",
   );
   const [errors, setErrors] = useState<readonly string[]>([]);
   const [previewing, setPreviewing] = useState(false);

@@ -282,10 +282,6 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
         await page.keyboard.press("Tab");
         await expect(editor.getByRole("combobox", { name: "Policy scope", exact: true })).toBeFocused();
         await captureAccessibilityEvidence({ page, testInfo, surface: `pricing-goal-simple-reopen-${width}` });
-        await testInfo.attach(`pricing-goal-simple-reopen-${width}`, {
-          body: await page.screenshot(),
-          contentType: "image/png",
-        });
       }
       await page.getByRole("button", { name: "Preview policy", exact: true }).click();
       await expect(page.getByTestId("repricing-dry-run-result")).toBeVisible();
