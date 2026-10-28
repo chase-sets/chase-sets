@@ -537,6 +537,10 @@ jobs:
           key: "e2e-playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-chromium.outputs.version }}"
 
       - name: Install Playwright Chromium
+        timeout-minutes: 7
+        env:
+          GITHUB_JOB_ID: ${{ job.check_run_id }}
+          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Run marketplace e2e suites

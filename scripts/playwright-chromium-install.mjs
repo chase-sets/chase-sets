@@ -1,11 +1,12 @@
-import { existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation } from "./lib/process.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
 import { TIMING_RECORD_PREFIX } from "./provider-browser-install-timing.mjs";
 
-export const PLAYWRIGHT_INSTALL_COMMAND = ["exec", "playwright", "install", "chromium"];
+export const PLAYWRIGHT_INSTALL_COMMAND = ["exec", "playwright", "install", "--with-deps", "chromium"];
 export const PLAYWRIGHT_INSTALL_SITE = "playwright-chromium";
 export const PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS = 180;
 export const PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS = 390;
@@ -42,28 +43,52 @@ function cacheEntries(root, { lstat = lstatSync, readdir = readdirSync } = {}) {
 
 export function inspectCache(
   cachePath,
-  { exists = existsSync, lstat = lstatSync, readdir = readdirSync, ownerUid = process.getuid?.() } = {},
+  {
+    exists = existsSync,
+    lstat = lstatSync,
+    readdir = readdirSync,
+    access = accessSync,
+    ownerUid = process.getuid?.(),
+  } = {},
 ) {
-  if (!exists(cachePath)) return { state: "cold", complete: false, owned: true, manifestCount: 0 };
+  if (!exists(cachePath)) return { state: "cold", complete: false, owned: true };
   let entries;
   try {
     entries = cacheEntries(cachePath, { lstat, readdir });
   } catch {
-    return { state: "mismatched", complete: false, owned: false, manifestCount: 0 };
+    return { state: "mismatched", complete: false, owned: false };
   }
   const owned = entries.every(({ stat }) => {
     if (stat.isSymbolicLink?.()) return false;
     return ownerUid === undefined || stat.uid === undefined || stat.uid === ownerUid;
   });
-  const manifestCount = entries.filter(
-    ({ path: entryPath, stat }) => !stat.isDirectory() && /(?:^|[\\/])(?:package|pnpm-lock)\.json$/.test(entryPath),
+  const readable = entries.every(({ path: entryPath, stat }) => {
+    try {
+      access(entryPath, stat.isDirectory() ? constants.R_OK | constants.X_OK : constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const topLevelDirectories = entries.filter(
+    ({ path: entryPath, stat }) => stat.isDirectory() && path.dirname(entryPath) === cachePath,
+  );
+  const markerCount = entries.filter(
+    ({ path: entryPath, stat }) => !stat.isDirectory() && path.basename(entryPath) === "INSTALLATION_COMPLETE",
   ).length;
+  const markedDirectories = topLevelDirectories.every(({ path: directory }) =>
+    entries.some(
+      ({ path: entryPath, stat }) => !stat.isDirectory() && entryPath === path.join(directory, "INSTALLATION_COMPLETE"),
+    ),
+  );
   const payload = entries.some(
     ({ path: entryPath, stat }) => !stat.isDirectory() && /(?:^|[\\/])chrome(?:\.exe)?$/.test(entryPath),
   );
-  if (!owned) return { state: "mismatched", complete: false, owned, manifestCount };
-  if (!payload) return { state: "incomplete", complete: false, owned, manifestCount };
-  return { state: "complete", complete: true, owned, manifestCount };
+  if (!owned || !readable) return { state: "mismatched", complete: false, owned, markerCount };
+  if (!payload || topLevelDirectories.length === 0 || !markedDirectories) {
+    return { state: "incomplete", complete: false, owned, markerCount };
+  }
+  return { state: "complete", complete: true, owned, markerCount };
 }
 
 export function removeCache(cachePath, { remove = rmSync, exists = existsSync } = {}) {
@@ -87,6 +112,10 @@ function diagnostic(site, attempt, reason, cache) {
   return `Playwright Chromium install failed ${JSON.stringify({ site, attempt, reason, cache })}`;
 }
 
+function retryDiagnostic(site, attempt, installerAttempt, reason, cache) {
+  return `Playwright Chromium install retry ${JSON.stringify({ site, attempt, installerAttempt, reason, cache })}`;
+}
+
 function refusal({ site, attempt, reason, cache, write }) {
   const line = diagnostic(site, attempt, reason, cache);
   write(line);
@@ -101,6 +130,7 @@ export async function installPlaywrightChromium({
   buildInvocationImpl = buildPackageManagerInvocation,
   now,
   cancelSignal,
+  delayImpl = delay,
   write = (line) => console.log(line),
 } = {}) {
   const rawSite = env.PLAYWRIGHT_INSTALL_SITE;
@@ -176,6 +206,7 @@ export async function installPlaywrightChromium({
       if (timingLines.length > 0) write(timingLines.at(-1));
       return { ...lastResult, reason: "success", cache: cacheAfter.state };
     }
+    const authorityRefusal = !lastResult;
     let reason = lastResult?.record?.terminalOutcome ?? "authority-refusal";
     if (lastResult?.status === 0) reason = "incomplete-cache";
     try {
@@ -184,18 +215,37 @@ export async function installPlaywrightChromium({
       reason = "cleanup-refusal";
     }
     lastResult = { ...(lastResult ?? { status: 1 }), status: 1, reason, cache: cacheAfter.state };
-    if (reason === "cleanup-refusal") {
+    const terminal = authorityRefusal || ["cleanup-refusal", "cleanup-failure", "cancelled"].includes(reason);
+    if (terminal) {
       if (timingLines.length > 0) write(timingLines.at(-1));
       return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
     }
     if (installerAttempt === 2 || cancelSignal?.aborted) {
       if (timingLines.length > 0) write(timingLines.at(-1));
-      return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
+      return refusal({
+        site,
+        attempt,
+        reason: clockMs() - envelopeStarted >= PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000 ? "timeout" : reason,
+        cache: cacheAfter.state,
+        write,
+      });
+    }
+    write(retryDiagnostic(site, attempt, installerAttempt, reason, cacheAfter.state));
+    await delayImpl(5_000);
+    if (cancelSignal?.aborted || clockMs() - envelopeStarted >= PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000) {
+      if (timingLines.length > 0) write(timingLines.at(-1));
+      return refusal({
+        site,
+        attempt,
+        reason: cancelSignal?.aborted ? "cancelled" : "timeout",
+        cache: cacheAfter.state,
+        write,
+      });
     }
   }
   const reason = lastResult?.reason ?? (cancelSignal?.aborted ? "cancelled" : "timeout");
   if (lastTimingLine) write(lastTimingLine);
-  return refusal({ site, attempt, reason, cache: initialCache.state, write });
+  return refusal({ site, attempt, reason, cache: lastCache.state, write });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
