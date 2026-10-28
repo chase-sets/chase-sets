@@ -186,6 +186,21 @@ describe("producer dispatch-loss reconciliation", () => {
     ]);
   });
 
+  it("does not emit policy authority unknown before the completion tick", async () => {
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => new Date("2026-07-21T10:05:00Z"),
+      requestJson: async (endpoint) =>
+        endpoint.includes("platform-pr.yml")
+          ? { total_count: 1, workflow_runs: [producer()] }
+          : { total_count: 0, workflow_runs: [] },
+      readHistoricalPolicyContent: async () => {
+        throw new Error("producer_policy_landing_evidence_unavailable");
+      },
+    });
+    expect(result).toEqual({ attempts: [], errors: [] });
+  });
+
   it("does not read image eligibility for an advisory joined before the tick", async () => {
     let eligibilityReads = 0;
     const result = await inventoryMergeQualificationProducerAttempts({
@@ -668,6 +683,7 @@ describe("producer dispatch-loss reconciliation", () => {
       out,
     ]);
     expect(code).toBe(1);
+    expect(readFileSync(out, "utf8")).toContain("state=unknown");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -711,6 +727,44 @@ describe("producer dispatch-loss reconciliation", () => {
     ]);
     expect(code).toBe(0);
     expect(JSON.parse(readFileSync(outPath, "utf8"))).toMatchObject({ terminalState: "conflict" });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps the policy authority error as the CLI's authoritative unknown", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "qualification-cli-"));
+    const producerPath = path.join(dir, "producer.json");
+    const candidatePath = path.join(dir, "candidate.json");
+    const policyPath = path.join(dir, "policy.json");
+    const outPath = path.join(dir, "out");
+    writeFileSync(producerPath, JSON.stringify(producer()));
+    writeFileSync(candidatePath, JSON.stringify(candidate));
+    writeFileSync(policyPath, JSON.stringify({
+      schemaVersion: "merge-qualification-policy/v1",
+      enabled: true,
+      owner: "todd.skelton@chasesets.com",
+      ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+      enabledAt: "2026-07-20T00:00:00Z",
+      expiresAt: "2026-08-10T00:00:00Z",
+    }));
+    const result = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      policyAuthorityError: "producer_policy_landing_evidence_unavailable",
+      now,
+    });
+    expect(result).toMatchObject({ state: "unknown", reason: "producer_policy_landing_evidence_unavailable" });
+    const code = await main([
+      "producer-reconcile",
+      "--producer", producerPath,
+      "--candidate", candidatePath,
+      "--policy", policyPath,
+      "--policy-authority-error", "producer_policy_landing_evidence_unavailable",
+      "--github-output", outPath,
+      "--now", now.toISOString(),
+    ]);
+    expect(code).toBe(1);
+    expect(readFileSync(outPath, "utf8")).toContain("state=unknown");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -859,6 +913,43 @@ describe("producer dispatch-loss reconciliation", () => {
         }),
     });
     expect(foreign.errors).toEqual(["terminal_payload_binding_invalid"]);
+  });
+
+  it("refuses producer terminal total drift after a complete first page", async () => {
+    const loss = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      now,
+    }).event;
+    const writer = {
+      id: 9000,
+      repository: { full_name: "chase-sets/chase-sets" },
+      head_repository: { full_name: "chase-sets/chase-sets" },
+      head_branch: "main",
+      path: ".github/workflows/platform-merge-qualification-observer.yml",
+      event: "schedule",
+    };
+    const artifact = (id) => ({
+      id,
+      name: "merge-qualification-producer-terminal-4000-1",
+      expired: false,
+      workflow_run: { id: 9000 },
+    });
+    const result = await readMergeQualificationProducerTerminalRecords({
+      repository: "chase-sets/chase-sets",
+      producer: producer(),
+      defaultBranch: "main",
+      requestJson: async (endpoint) => {
+        if (!endpoint.includes("/artifacts?")) return writer;
+        const page = Number(new URL(endpoint, "https://api.invalid").searchParams.get("page"));
+        return page === 1
+          ? { total_count: 101, artifacts: Array.from({ length: 100 }, (_, index) => artifact(index + 1)) }
+          : { total_count: 102, artifacts: [artifact(101), artifact(102)] };
+      },
+      downloadArtifact: async () => JSON.stringify(loss),
+    });
+    expect(result.errors).toEqual(["terminal_inventory_incomplete"]);
   });
 
   it("deduplicates byte-identical terminal replay and enforces closed fields", async () => {
