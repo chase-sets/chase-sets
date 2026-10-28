@@ -125,8 +125,9 @@
 //   managed offer states marketplace.marketFollowing.seller.* as managed.*).
 // - public/locales/market.en.json: public-web's market page's English catalog (pricing.features.publicMarketPages.ui.marketPriceHistoryPage.*
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
-// - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
-//   .nav.*, .footer.*, .faq.*, .routes.home.*, the brand and the footer's four agreement names).
+// - public/locales/home.en.json: public-web's home and welcome pages' English catalog (publicPresence.home.*,
+//   .waitlist.*, .nav.*, .footer.*, .faq.*, .routes.home.*, .welcome.*, .routes.welcome.* as route_welcome.*,
+//   the brand and the footer's four agreement names).
 // - public/locales/policy.en.json: the policy pages' English catalog (publicPresence.info.policies.* as
 //   policies.*, .info.terms.* as terms.*, each document's eyebrow as eyebrow.*, and each policy route's
 //   meta title and description as meta.*).
@@ -934,6 +935,8 @@ const outputs = [
         ["publicPresence.footer.", "footer"],
         ["publicPresence.faq.", "faq"],
         ["publicPresence.routes.home.", "route"],
+        ["publicPresence.welcome.", "welcome"],
+        ["publicPresence.routes.welcome.", "route_welcome"],
         ["publicPresence.brand", "brand"],
         ["publicPresence.info.sellerAgreement.eyebrow", "info.seller_agreement"],
         ["publicPresence.info.paymentsTerms.eyebrow", "info.payments_terms"],

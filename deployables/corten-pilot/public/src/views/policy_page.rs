@@ -93,7 +93,7 @@ pub fn PolicyPage<'a>(t: PolicyMsg, doc: Doc, policy: &'a Policy) -> impl Render
                     class={Print}
                     type="button"
                     hidden
-                    on:connect={handlers::printable(target)}
+                    on:connect={handlers::reveal(target)}
                     on:click={handlers::print(event)}
                 >
                     {words.print}

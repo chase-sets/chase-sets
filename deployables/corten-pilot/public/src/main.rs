@@ -10,6 +10,7 @@ mod policy;
 mod presence;
 mod text;
 mod views;
+mod welcome;
 
 #[cfg(test)]
 mod tests;

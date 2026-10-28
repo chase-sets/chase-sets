@@ -69,9 +69,14 @@ async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body:
 /// What the stand-in's waitlist received: each signup's body and the address it was sent for.
 static SIGNUPS: Mutex<Vec<(serde_json::Value, Option<String>)>> = Mutex::new(Vec::new());
 
+/// What the stand-in's cohort-quality saves received: each body and the address it was sent for.
+static COHORTS: Mutex<Vec<(serde_json::Value, Option<String>)>> = Mutex::new(Vec::new());
+
 /// Public Presence: live fee terms (card 3.25% + $0.30, bank 0%), two titled promo messages and an
 /// untitled one, a counter of 1200, and a waitlist that refuses `refused@`, limits `limited@`
-/// and fails `down@`.
+/// and fails `down@`; `wls_01`'s referral summary (12th of 40, one of three referrals) and
+/// cohort-quality saves, and `wls_goal`'s summary (the goal reached, the place not caught up);
+/// any other signup's reads fail.
 fn presence(path: &str, headers: &HeaderMap, body: &[u8]) -> Response {
     match path {
         "/api/public-presence/policy-values" => Json(json!({ "values": {
@@ -88,6 +93,19 @@ fn presence(path: &str, headers: &HeaderMap, body: &[u8]) -> Response {
         ] }))
         .into_response(),
         "/api/public-presence/waitlist/count" => Json(json!({ "displayCount": 1200 })).into_response(),
+        "/api/public-presence/waitlist/wls_01/referral-summary" => Json(json!({
+            "referralCount": 1, "referralGoal": 3, "queuePosition": 12, "totalSignups": 40, "positionsAdvanced": 2,
+        }))
+        .into_response(),
+        "/api/public-presence/waitlist/wls_goal/referral-summary" => {
+            Json(json!({ "referralCount": 4, "referralGoal": 3, "queuePosition": null, "totalSignups": 40, "positionsAdvanced": 0 }))
+                .into_response()
+        }
+        "/api/public-presence/waitlist/wls_01/cohort-quality" => {
+            let client = headers.get("x-forwarded-for").map(|v| v.to_str().unwrap().to_owned());
+            COHORTS.lock().unwrap().push((serde_json::from_slice(body).unwrap(), client));
+            Json(json!({ "id": "wls_01", "version": 2, "status": "saved" })).into_response()
+        }
         "/api/public-presence/waitlist" => {
             let signup: serde_json::Value = serde_json::from_slice(body).unwrap();
             let client = headers.get("x-forwarded-for").map(|v| v.to_str().unwrap().to_owned());
@@ -398,7 +416,7 @@ async fn joining_sends_the_signup_and_goes_to_the_welcome_page() {
     assert_eq!(status, StatusCode::SEE_OTHER, "{page}");
     assert_eq!(
         headers[header::LOCATION],
-        "http://localhost:7754/welcome?signup=wls_01&fresh=1&role=buy&variant=seller_first_v2&game=pokemon&attributed=1"
+        "/welcome?signup=wls_01&fresh=1&role=buy&variant=seller_first_v2&game=pokemon&attributed=1"
     );
     {
         let signups = SIGNUPS.lock().unwrap();
@@ -417,10 +435,7 @@ async fn joining_sends_the_signup_and_goes_to_the_welcome_page() {
     let form = "panel=final&email=grace%40example.com&role=both&interests=bulk-listing&page_path=%2F";
     let (status, headers, _) = site.post("/", form, Some(("203.0.113.7", "198.51.100.1"))).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(
-        headers[header::LOCATION],
-        "http://localhost:7754/welcome?signup=wls_01&fresh=1&role=both&variant=seller_first_v1"
-    );
+    assert_eq!(headers[header::LOCATION], "/welcome?signup=wls_01&fresh=1&role=both&variant=seller_first_v1");
     let signups = SIGNUPS.lock().unwrap();
     let (signup, client) = signups.iter().find(|(s, _)| s["email"] == "grace@example.com").unwrap();
     assert_eq!(signup["interests"], json!(["bulk-listing"]));
@@ -550,4 +565,110 @@ async fn the_sitemap_lists_the_home_page_and_the_public_policy_pages_first() {
     assert!(!sitemap.contains("/seller-agreement"), "a document out of search is not in the sitemap: {sitemap}");
     let (_, _, home) = site.get("/", None).await;
     assert!(home.contains(r#"href="/founders""#), "the home page's founders links are here now: {home}");
+}
+
+#[tokio::test]
+async fn the_welcome_page_says_where_the_signup_stands_and_asks_a_seller_the_wave_questions() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site
+        .get("/welcome?signup=wls_01&fresh=1&role=sell&variant=seller_first_v2&game=pokemon&game=zzz&attributed=1", None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(!cache(&headers).starts_with("public"), "about one signup: {headers:?}");
+    assert!(page.contains("<title>You&#39;re on the list | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<meta name="robots" content="noindex, nofollow""#), "{page}");
+    assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/welcome""#), "{page}");
+    assert!(page.contains(">You are on the list</h1>"), "{page}");
+    // The summary is read with the page: the place, the advance and the progress.
+    assert!(page.contains("You&#39;re #12 of 40 in the beta invite line."), "{page}");
+    assert!(page.contains("Up 2 in line thanks to your referrals."), "{page}");
+    assert!(page.contains(r#"max="3" value="1""#) && page.contains("1 of 3"), "{page}");
+    assert!(page.contains("Invite 3 sellers or buyers"), "{page}");
+    // The referral link on the site's origin, with Copy only for a script, and the share links.
+    assert!(
+        page.contains(r#"value="https://chasesets.com/?ref=wls_01&amp;utm_source=referral&amp;utm_medium=waitlist_share""#),
+        "{page}"
+    );
+    assert!(page.contains(r#"type="button" hidden data-value="https://chasesets.com/?ref=wls_01"#), "{page}");
+    assert!(page.contains(r#"href="https://twitter.com/intent/tweet?text=Chase%20Sets%20founders"#), "{page}");
+    // A seller is asked: the signup's games checked (an unknown one left out), Save without a script.
+    assert!(page.contains(r#"<input type="checkbox" name="games" value="pokemon" checked>"#), "{page}");
+    assert!(page.contains(r#"<input type="checkbox" name="games" value="yu-gi-oh">"#), "{page}");
+    assert!(
+        page.contains(r#"action="/welcome?signup=wls_01&amp;fresh=1&amp;role=sell&amp;variant=seller_first_v2&amp;game=pokemon&amp;game=zzz&amp;attributed=1" data-patch"#),
+        "{page}"
+    );
+    assert!(page.contains(r#"data-attributed="1""#) && page.contains(r#"data-variant="seller_first_v2""#), "{page}");
+    assert!(page.contains(r#"href="/founders""#), "{page}");
+
+    // A buyer is not asked; nor is a bookmark without its role.
+    let (_, _, page) = site.get("/welcome?signup=wls_01&role=buy", None).await;
+    assert!(!page.contains(r#"name="games""#), "{page}");
+    let (_, _, page) = site.get("/welcome?signup=wls_01", None).await;
+    assert!(!page.contains(r#"name="games""#), "{page}");
+    // The goal reached; a place not caught up says it is updating; a failed read is the same.
+    let (_, _, page) = site.get("/welcome?signup=wls_goal", None).await;
+    assert!(page.contains("Referral goal reached.") && page.contains(r#"max="3" value="3""#), "{page}");
+    assert!(page.contains("Your place in line is updating."), "{page}");
+    let (status, _, page) = site.get("/welcome?signup=wls_gone", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Your place in line is updating.") && page.contains("0 of 3"), "{page}");
+    // No signup, or one that is not a signup's id, is not found.
+    for path in ["/welcome", "/welcome?signup=", "/welcome?signup=wls_A!", "/welcome?signup=abc"] {
+        let (status, _, _) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_without_one() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let path = "/welcome?signup=wls_01&role=sell";
+    // With a script: the field the form names, a cleared size sent as cleared, and the status in place.
+    let req = Request::post(path)
+        .header(header::HOST, "localhost:7797")
+        .header(header::ORIGIN, "http://localhost:7797")
+        .header("sec-fetch-site", "same-origin")
+        .header("corten", "action")
+        .header("x-forwarded-for", "203.0.113.9")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("field=inventory_size&games=pokemon&inventory_size=&store_url=https%3A%2F%2Fshop.example"))
+        .unwrap();
+    let mut req = req;
+    req.extensions_mut().insert(corten::axum::extract::ConnectInfo("203.0.113.9:50000".parse::<std::net::SocketAddr>().unwrap()));
+    let res = site.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(body.contains(">Saved</p>") && body.contains(r#"role="status""#), "{body}");
+    let (sent, client) = COHORTS.lock().unwrap().pop().unwrap();
+    assert_eq!(sent, json!({ "inventorySize": null }), "only the field that changed");
+    assert_eq!(client.as_deref(), Some("203.0.113.9"), "the visitor's address, which the limiter keys on");
+
+    // Without one: Save sends the answered fields, and the page says so.
+    let (status, headers, _) = site
+        .post(
+            path,
+            "field=all&games=pokemon&games=yu-gi-oh&inventory_size=100_to_500&store_url=",
+            Some(("203.0.113.9", "203.0.113.9")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/welcome?signup=wls_01&role=sell&saved=1");
+    let (sent, _) = COHORTS.lock().unwrap().pop().unwrap();
+    assert_eq!(
+        sent,
+        json!({ "games": ["pokemon", "yu-gi-oh"], "inventorySize": "100_to_500" }),
+        "an empty store link is not cleared"
+    );
+    let (_, _, page) = site.get("/welcome?signup=wls_01&role=sell&saved=1", None).await;
+    assert!(page.contains(">Saved</p>"), "{page}");
+
+    // A save that fails says so; a signup that is not one is not found.
+    let (status, headers, _) = site.post("/welcome?signup=wls_other&role=sell", "field=all&games=pokemon", None).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&saved=0"));
+    let (_, _, page) = site.get("/welcome?signup=wls_other&role=sell&saved=0", None).await;
+    assert!(page.contains("That didn&#39;t save."), "{page}");
+    let (status, _, _) = site.post("/welcome?signup=nope", "field=all", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

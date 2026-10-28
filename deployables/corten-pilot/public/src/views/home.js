@@ -324,13 +324,76 @@ export function promo(event, bar) {
   }
 }
 
-/** A policy page's Print: it prints the page, so its button shows only once this script runs. @param {HTMLButtonElement} button */
-export function printable(button) {
-  button.hidden = false;
+/** A control only this script can work (a policy page's Print, the welcome page's Copy): shown when it runs. @param {HTMLElement} control */
+export function reveal(control) {
+  control.hidden = false;
 }
 
 /** @param {Event} event */
 export function print(event) {
   event.preventDefault();
   window.print();
+}
+
+/**
+ * The welcome page joined: the bridge, the signup's success and, for a referred signup, its
+ * attribution (public-web's page sends both each time it mounts).
+ * @param {HTMLElement} root
+ */
+export function welcome(root) {
+  bridge();
+  const variant = root.dataset.variant ?? "seller_first_v1";
+  track("waitlist_signup_succeeded", { section: "welcome", variant });
+  if (root.dataset.attributed === "1") track("waitlist_signup_attributed", { section: "welcome", variant });
+}
+
+/** The referral link's field: selected when focused. @param {HTMLInputElement} input */
+export function selected(input) {
+  input.select();
+}
+
+/**
+ * Copy: the button's `data-value`, said on the button for a moment.
+ * @param {HTMLButtonElement} button
+ * @param {string} copied
+ */
+export async function copy(button, copied) {
+  try {
+    await navigator.clipboard.writeText(button.dataset.value ?? "");
+  } catch {
+    return;
+  }
+  track("referral_link_copied", { section: "welcome" });
+  const before = button.textContent;
+  button.textContent = copied;
+  setTimeout(() => {
+    button.textContent = before;
+  }, 2000);
+}
+
+/** A share link: its event, and for Discord the message copied to paste there. @param {HTMLAnchorElement} link */
+export function shared(link) {
+  const variant = link.closest("[data-variant]")?.getAttribute("data-variant") ?? "seller_first_v1";
+  track("referral_share_clicked", { section: "welcome", target: link.dataset.share, variant });
+  const message = link.dataset.value;
+  if (message) navigator.clipboard?.writeText(message).catch(() => undefined);
+}
+
+/**
+ * A wave-placement field changed: save that field alone, with the button that names it, and say
+ * Saving... until the answer replaces the status.
+ * @param {Event} event
+ */
+export function wave(event) {
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement) || !field.form) return;
+  const name = field.name === "games" ? "games" : field.name;
+  const button = field.form.querySelector(`button[data-wave-field="${name}"]`);
+  if (!(button instanceof HTMLButtonElement)) return;
+  const status = field.form.querySelector("[data-saving]");
+  if (status instanceof HTMLElement) {
+    status.textContent = status.dataset.saving ?? "";
+    status.classList.remove("welcome-page__failed");
+  }
+  field.form.requestSubmit(button);
 }

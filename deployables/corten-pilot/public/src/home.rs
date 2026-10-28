@@ -13,7 +13,7 @@
 //! the browser after it renders, are read here and drawn with the page, so nothing moves in.
 //!
 //! Join sends the form's fields to the API as public-web's action does, with the visitor's address
-//! (see [`platform::client`]), and sends a signup to public-web's `/welcome`; a refusal draws the
+//! (see [`platform::client`]), and sends a signup to the welcome page; a refusal draws the
 //! page again with the API's message over both forms.
 use std::time::Duration;
 
@@ -622,7 +622,7 @@ fn optional(text: &str) -> Option<&str> {
     Some(text.trim()).filter(|t| !t.is_empty())
 }
 
-/// Join the waitlist: the signup goes to public-web's welcome page with its receipt (`/welcome`
+/// Join the waitlist: the signup goes to the welcome page (`/welcome`
 /// reads the role, the variant and the games from the address, not the API); a refusal or a
 /// failed call draws the page again with what was sent and the API's message.
 pub(crate) async fn join(
@@ -672,20 +672,22 @@ pub(crate) async fn join(
     let caller = config.platform.caller(&headers, config.proto(), None);
     match caller.join(&signup, client.as_deref()).await {
         Ok(id) => {
-            let mut to = format!("{}/welcome?signup={}&fresh=1&role={}", public_web(), form_encode(&id), form_encode(role_text));
-            to.push_str(&format!("&variant={}", role.unwrap_or_default().variant().as_str()));
-            let mut seen: Vec<&str> = Vec::new();
+            let mut games: Vec<String> = Vec::new();
             for game in &form.games {
-                if !seen.contains(&game.as_str()) {
-                    seen.push(game);
-                    to.push_str(&format!("&game={}", form_encode(game)));
+                if !games.contains(game) {
+                    games.push(game.clone());
                 }
             }
-            if optional(&form.referred_by_signup_id).is_some() {
-                to.push_str("&attributed=1");
-            }
-            let to: Uri = to.parse().map_err(corten::Error::new)?;
-            req.redirect(&to)
+            let arrival = crate::welcome::Arrival {
+                signup: Some(id),
+                fresh: Some("1".into()),
+                role: Some(role_text.to_owned()),
+                variant: Some(role.unwrap_or_default().variant().as_str().into()),
+                game: games,
+                attributed: optional(&form.referred_by_signup_id).map(|_| "1".into()),
+                saved: None,
+            };
+            req.redirect(&crate::app::url::files::Welcome { arrival })
         }
         Err(error) => {
             let status = match error.status() {

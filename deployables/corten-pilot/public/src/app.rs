@@ -5,7 +5,8 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /` | the home page, the waitlist's landing (`Public`) |
-//! | `POST /` | join the waitlist (reads the visitor's address, so it is private) |
+//! | `POST /` | join the waitlist (reads the visitor's address, so it is private), then the welcome page |
+//! | `GET /welcome`, `POST /welcome` | a signup's welcome page and its wave-placement answers (private, `noindex`) |
 //! | `GET /terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms`, `/authenticity-terms` | a policy document (`Public`) |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
@@ -68,7 +69,8 @@ pub fn indexing(value: Option<&str>) -> bool {
 pub type Shared = Arc<Config>;
 
 /// public-web's origin (`PUBLIC_WEB_ORIGIN`), for its pages this app does not serve: the home
-/// page's links to the compare pages, the founders' terms, the FAQ, the policies and `/welcome`.
+/// page's links to the compare pages and the FAQ, and the footer's help center, fees, press and
+/// contact.
 pub fn public_web() -> &'static str {
     static ORIGIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         std::env::var("PUBLIC_WEB_ORIGIN").unwrap_or_else(|_| "http://localhost:7754".into()).trim_end_matches('/').into()
@@ -109,6 +111,14 @@ pub mod url {
 
         #[route("/authenticity-terms", get = crate::policy::authenticity_terms)]
         pub struct AuthenticityTerms;
+
+        /// Where Join lands: the signup's welcome page, and its wave-placement answers.
+        #[derive(Clone, Debug, Default)]
+        #[route("/welcome", get = crate::welcome::page, post = crate::welcome::save)]
+        pub struct Welcome {
+            #[route(query)]
+            pub arrival: crate::welcome::Arrival,
+        }
 
         #[route("/robots.txt", get = crate::market::robots)]
         pub struct Robots;

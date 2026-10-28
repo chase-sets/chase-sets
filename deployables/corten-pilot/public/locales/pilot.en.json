@@ -18,6 +18,9 @@
     "highlight": "Marketing highlight",
     "highlights": "Marketing highlights"
   },
+  "welcome": {
+    "save": "Save answers"
+  },
   "promo": {
     "label": "Marketplace announcements",
     "previous": "Previous announcement",
