@@ -2,7 +2,7 @@
 // The home page's behavior, what public-web's React adds to the page: the hero's role picks the
 // buyer's or seller's hero and the first priority, and both forms keep the same choices; the
 // promo bar turns; the sticky calls to action follow the hero's form; the forms carry the
-// referrer; and the waitlist's analytics events go to window listeners, dataLayer and, through
+// referrer; a policy page's Print shows and prints; and the waitlist's analytics events go to window listeners, dataLayer and, through
 // the bridge public-web's root installs (allowlisted fields, sendBeacon), the API. Everything
 // here is extra: the page reads and both forms post without it.
 
@@ -322,4 +322,15 @@ export function promo(event, bar) {
     button.setAttribute("aria-pressed", String(paused));
     button.setAttribute("aria-label", (paused ? button.getAttribute("data-resume") : button.getAttribute("data-pause")) ?? "");
   }
+}
+
+/** A policy page's Print: it prints the page, so its button shows only once this script runs. @param {HTMLButtonElement} button */
+export function printable(button) {
+  button.hidden = false;
+}
+
+/** @param {Event} event */
+export function print(event) {
+  event.preventDefault();
+  window.print();
 }

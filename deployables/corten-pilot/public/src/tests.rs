@@ -451,3 +451,103 @@ async fn a_refused_signup_draws_the_page_again_with_the_apis_message() {
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{page}");
     assert!(page.contains("We could not request early access. Please check the form and try again."), "{page}");
 }
+
+#[tokio::test]
+async fn a_policy_page_draws_its_document_and_says_counsel_review_is_pending() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/terms", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    // The promo bar was read: a cache in front keeps it as long as the home page.
+    assert_eq!(cache(&headers), "public, max-age=60, s-maxage=240, stale-while-revalidate=60");
+    assert!(page.contains("<title>Terms | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/terms""#), "{page}");
+    // The terms stay indexable while counsel reviews them; their posture is in the metadata.
+    assert!(!page.contains("noindex"), "{page}");
+    assert!(page.contains(r#"<meta name="chase-sets:policy-key" content="terms-of-service""#), "{page}");
+    assert!(page.contains(r#"<meta name="chase-sets:policy-publication-status" content="counsel-review-required""#), "{page}");
+    assert!(!page.contains("chase-sets:policy-effective-at"), "{page}");
+    assert!(page.contains(r#"data-policy-publication-status="counsel-review-required" data-policy-effective-at="""#), "{page}");
+    assert_eq!(page.matches("<h1").count(), 1, "{page}");
+    assert!(page.contains(">Terms of service</h1>"), "{page}");
+    // The terms' own words; Print waits for the script.
+    assert!(page.contains("Counsel review required before these terms take effect"), "{page}");
+    assert!(page.contains(r#"role="alert""#), "{page}");
+    assert!(page.contains(r#"type="button" hidden"#) && page.contains(">Print terms</button>"), "{page}");
+    assert!(
+        page.contains("/scripts/home.js") && !page.contains("policy_page"),
+        "Print's handlers are in the shell's script: {page}"
+    );
+    assert!(
+        page.contains("Version v1") && page.contains("Effective date pending counsel approval") && page.contains("Locale en"),
+        "{page}"
+    );
+    // The contents link each section, whose heading carries the id; a pending section has its badge.
+    assert!(page.contains(r##"<a href="#wallet-nature-custody-interest">Wallet nature, custody, and interest</a>"##), "{page}");
+    assert!(page.contains(r#"aria-labelledby="wallet-nature-custody-interest""#), "{page}");
+    assert!(page.contains(r#"id="wallet-nature-custody-interest">Wallet nature, custody, and interest</h2>"#), "{page}");
+    assert_eq!(page.matches("Counsel-approved language required").count(), 22, "every section of the draft");
+    // A mention of a sibling document links to its page here; an unresolved claim says what the
+    // registry says.
+    assert!(page.contains(r#"<a href="/seller-agreement">chasesets.com/seller-agreement</a>"#), "{page}");
+    assert!(page.contains("Whether Wallet balances are treated as a bank deposit"), "{page}");
+    // The shell: the promo bar, and the footer's policies here and its other links on public-web.
+    assert_eq!(page.matches("data-promo=").count(), 2, "{page}");
+    assert!(page.contains(r#"<li><a href="/privacy">"#), "{page}");
+    assert!(page.contains(r#"<li><a href="http://localhost:7754/help">"#), "{page}");
+
+    // Another document: the corpus's words, and out of search while counsel reviews it.
+    let (status, _, page) = site.get("/seller-agreement", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains(r#"<meta name="robots" content="noindex, nofollow""#), "{page}");
+    assert!(page.contains("Counsel review required before this document takes effect"), "{page}");
+    assert!(page.contains(">Print document</button>") && page.contains("Seller agreement"), "{page}");
+
+    // The founders' terms are shared: indexable, with the founders' social card.
+    let (_, _, page) = site.get("/founders", None).await;
+    assert!(!page.contains("noindex"), "{page}");
+    assert!(page.contains(r#"<meta property="og:url" content="https://chasesets.com/founders""#), "{page}");
+    assert!(
+        page.contains(r#"<meta property="og:image" content="https://chasesets.com/assets/"#)
+            && page.contains("chase-sets-og-founders"),
+        "{page}"
+    );
+    assert!(page.contains(">Founders offer terms</h1>"), "{page}");
+
+    for path in ["/privacy", "/payments-terms", "/agent-terms", "/authenticity-terms"] {
+        let (status, _, page) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {page}");
+        assert_eq!(page.matches("<h1").count(), 1, "{path}");
+    }
+    // Nothing about the visitor reached the API.
+    assert!(
+        site.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(path, h)| path.starts_with("/api/public-presence/") && h.get(header::COOKIE).is_none())
+    );
+}
+
+#[tokio::test]
+async fn a_policy_page_on_a_site_that_is_not_indexed_says_so() {
+    let site = Site::new(false, "https://chasesets.com").await;
+    let (_, _, page) = site.get("/terms", None).await;
+    assert!(page.contains(r#"<meta name="robots" content="noindex,nofollow""#), "{page}");
+}
+
+#[tokio::test]
+async fn the_sitemap_lists_the_home_page_and_the_public_policy_pages_first() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (_, _, sitemap) = site.get("/sitemap.xml", None).await;
+    for loc in [
+        "https://chasesets.com/",
+        "https://chasesets.com/terms",
+        "https://chasesets.com/privacy",
+        "https://chasesets.com/founders",
+    ] {
+        assert!(sitemap.contains(&format!("<loc>{loc}</loc>")), "{loc}: {sitemap}");
+    }
+    assert!(!sitemap.contains("/seller-agreement"), "a document out of search is not in the sitemap: {sitemap}");
+    let (_, _, home) = site.get("/", None).await;
+    assert!(home.contains(r#"href="/founders""#), "the home page's founders links are here now: {home}");
+}

@@ -127,17 +127,23 @@ pub(crate) async fn robots(State(config): State<Shared>) -> Public<seo::File> {
     }
 }
 
-/// The sitemap of the pages this app serves: the market pages Pricing says are worth indexing,
-/// each with when it last traded, when the site may be indexed, and none otherwise. A failed read
+/// The sitemap of the pages this app serves, when the site may be indexed, and none otherwise:
+/// the ones public-web lists among its stable pages (the home page, the terms, the privacy notice
+/// and the founders' terms; its other policy documents stay out of search while counsel reviews
+/// them), then the market pages Pricing says are worth indexing, each with when it last traded. A failed read
 /// is a 502, which no cache keeps, rather than a sitemap without them.
 pub(crate) async fn sitemap(State(config): State<Shared>) -> Result<Public<seo::File>, corten::Error> {
     if !config.indexing {
         return Ok(seo::sitemap([]));
     }
     let indexed = config.api().indexed().await.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
-    let urls: Vec<(String, Option<&str>)> = indexed
+    let stable = [url::files::Home.href(), url::files::Terms.href(), url::files::Privacy.href(), url::Founders.href()];
+    let urls: Vec<(String, Option<&str>)> = stable
         .iter()
-        .map(|entry| (format!("{}{}", config.origin, url::MarketPage { slug: &entry.slug }.href()), entry.updated_at.as_deref()))
+        .map(|path| (format!("{}{path}", config.origin), None))
+        .chain(indexed.iter().map(|entry| {
+            (format!("{}{}", config.origin, url::MarketPage { slug: &entry.slug }.href()), entry.updated_at.as_deref())
+        }))
         .collect();
     Ok(seo::sitemap(urls.iter().map(|(loc, lastmod)| seo::SitemapUrl { loc, lastmod: *lastmod })))
 }

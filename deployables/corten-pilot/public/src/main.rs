@@ -6,6 +6,7 @@ mod app;
 mod home;
 mod kept;
 mod market;
+mod policy;
 mod presence;
 mod text;
 mod views;

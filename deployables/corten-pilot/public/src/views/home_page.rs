@@ -473,7 +473,7 @@ fn Founders<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
             <div>
                 <a
                     class={(Button, Secondary)}
-                    href={screen.web("/founders")}
+                    href={crate::app::url::Founders.href()}
                     data-cta="founders_offer"
                     data-target="founders_terms"
                 >
@@ -512,7 +512,7 @@ fn FinalCta<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
                         }
                         <a
                             class={(Button, ButtonLarge, Secondary)}
-                            href={screen.web("/founders")}
+                            href={crate::app::url::Founders.href()}
                             data-cta="final_cta"
                             data-target="founders_terms"
                         >
@@ -625,9 +625,11 @@ pub fn HomeNav(t: HomeMsg) -> impl Render {
     }
 }
 
-/// The shell's footer: the policies and Contact, on public-web.
+/// The shell's footer: the policies and Contact. The policy documents are this app's pages; the
+/// rest are public-web's.
 #[component(css = HomePage)]
 pub fn HomeFooter<'a>(t: HomeMsg, web: &'a str) -> impl Render {
+    let href = |path: &str| if crate::policy::serves(path) { path.to_owned() } else { format!("{web}{path}") };
     let links = [
         ("/help", t.nav_help()),
         ("/terms", t.nav_terms()),
@@ -648,7 +650,7 @@ pub fn HomeFooter<'a>(t: HomeMsg, web: &'a str) -> impl Render {
             <p class={FooterTitle}>{t.footer_title()}</p>
             <ul class={FooterLinks}>
                 for (path, label) in links {
-                    <li><a href={format!("{web}{path}")}>{label}</a></li>
+                    <li><a href={href(path)}>{label}</a></li>
                 }
             </ul>
             <p class={Note}>{t.footer_description()}</p>

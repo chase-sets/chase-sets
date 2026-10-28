@@ -127,6 +127,13 @@
 //   and .routes.marketPriceHistory.*), with public-web's error and not-found words (publicPresence.appRoot.*).
 // - public/locales/home.en.json: public-web's home page's English catalog (publicPresence.home.*, .waitlist.*,
 //   .nav.*, .footer.*, .faq.*, .routes.home.*, the brand and the footer's four agreement names).
+// - public/locales/policy.en.json: the policy pages' English catalog (publicPresence.info.policies.* as
+//   policies.*, .info.terms.* as terms.*, each document's eyebrow as eyebrow.*, and each policy route's
+//   meta title and description as meta.*).
+// - public/policies.json: the policy corpus as its pages draw it (features/policies/domain's
+//   publicPolicyRegistry): each document's metadata, whether it is published (see policies()), and
+//   each section's title, counsel badge, text (split at the links to sibling pages) and claim
+//   disclosures.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -317,7 +324,59 @@ const homeAssets = [
   "chase-sets-og-yu-gi-oh.png",
   "chase-sets-og-disney-lorcana.png",
   "chase-sets-og-one-piece-card-game.png",
+  "chase-sets-og-founders.png",
 ];
+
+/**
+ * The policy corpus as policy-artifact-page.tsx draws it. Two of its rules are in that UI module,
+ * which imports pictures Node cannot load, so they are repeated here: a document is published
+ * only when it is ready and carries a valid effective date (resolvePolicyArtifactPublicationPosture),
+ * and a section's text links its mentions of the sibling pages (linkPolicyReferences).
+ */
+async function policies() {
+  const domain = (file) =>
+    import(pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/policies/domain", file)).href);
+  const { publicPolicyRegistry } = await domain("policy-registry.ts");
+  const { evaluatePublicPolicyPublicationReadiness, isPublicPolicyEffectiveAt } = await domain("policy-artifact.ts");
+  const { resolveUnresolvedPublicDisclosureText } = await domain("canonical-claims.ts");
+  const references =
+    /(?<![\w./@-])chasesets\.com\/(seller-agreement|payments-terms|agent-terms|authenticity-terms|privacy|founders)(?![\w/-]|\.\w)/g;
+  const parts = (text) => {
+    const out = [];
+    let offset = 0;
+    for (const match of text.matchAll(references)) {
+      out.push({ text: text.slice(offset, match.index) });
+      out.push({ text: match[0], href: `/${match[1]}` });
+      offset = match.index + match[0].length;
+    }
+    out.push({ text: text.slice(offset) });
+    return out.filter((part) => part.text.length > 0);
+  };
+  return publicPolicyRegistry.map(({ artifact, requiredSubjectIds }) => {
+    const { metadata } = artifact;
+    const published =
+      evaluatePublicPolicyPublicationReadiness(artifact, requiredSubjectIds).ready &&
+      isPublicPolicyEffectiveAt(metadata.effectiveAt);
+    return {
+      key: metadata.policyKey,
+      href: metadata.href,
+      version: metadata.version,
+      locale: metadata.locale,
+      title: artifact.title,
+      description: artifact.description,
+      effective_at: published ? metadata.effectiveAt : null,
+      sections: artifact.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        counsel_required: section.reviewStatus === "counsel-required",
+        text: section.draftText.trim().length > 0 ? parts(section.draftText) : [],
+        disclosures: (section.claimDisclosures ?? []).map((disclosure) =>
+          resolveUnresolvedPublicDisclosureText(disclosure.claimId),
+        ),
+      })),
+    };
+  });
+}
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const { catalogScopeProductDomains } = await import(
@@ -883,6 +942,29 @@ const outputs = [
       ]),
     ),
   ],
+  [
+    "public/locales/policy.en.json",
+    json(
+      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.info.policies.", "policies"],
+        ["publicPresence.info.terms.", "terms"],
+        ["publicPresence.info.privacy.eyebrow", "eyebrow.privacy"],
+        ["publicPresence.info.founders.eyebrow", "eyebrow.founders"],
+        ["publicPresence.info.sellerAgreement.eyebrow", "eyebrow.seller_agreement"],
+        ["publicPresence.info.paymentsTerms.eyebrow", "eyebrow.payments_terms"],
+        ["publicPresence.info.agentTerms.eyebrow", "eyebrow.agent_terms"],
+        ["publicPresence.info.authenticityTerms.eyebrow", "eyebrow.authenticity_terms"],
+        ["publicPresence.routes.terms.meta.", "meta.terms"],
+        ["publicPresence.routes.privacy.meta.", "meta.privacy"],
+        ["publicPresence.routes.founders.meta.", "meta.founders"],
+        ["publicPresence.routes.sellerAgreement.meta.", "meta.seller_agreement"],
+        ["publicPresence.routes.paymentsTerms.meta.", "meta.payments_terms"],
+        ["publicPresence.routes.agentTerms.meta.", "meta.agent_terms"],
+        ["publicPresence.routes.authenticityTerms.meta.", "meta.authenticity_terms"],
+      ]),
+    ),
+  ],
+  ["public/policies.json", json(await policies())],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];

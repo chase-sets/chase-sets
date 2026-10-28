@@ -6,6 +6,7 @@
 //! |---|---|
 //! | `GET /` | the home page, the waitlist's landing (`Public`) |
 //! | `POST /` | join the waitlist (reads the visitor's address, so it is private) |
+//! | `GET /terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms`, `/authenticity-terms` | a policy document (`Public`) |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
 //! | `GET /sitemap.xml` | the market pages, when the site may be indexed |
@@ -77,7 +78,7 @@ pub fn public_web() -> &'static str {
 
 /// Every URL the app serves.
 pub mod url {
-    pub use files::Sitemap;
+    pub use files::{Founders, Sitemap};
     pub use market::MarketPage;
 
     /// The home page and the crawler files, outside every area.
@@ -86,6 +87,28 @@ pub mod url {
         /// The home page; a signup posts to it with the address's query.
         #[route("/", get = crate::home::page, post = crate::home::join)]
         pub struct Home;
+
+        /// The policy documents (`crate::policy`).
+        #[route("/terms", get = crate::policy::terms)]
+        pub struct Terms;
+
+        #[route("/privacy", get = crate::policy::privacy)]
+        pub struct Privacy;
+
+        #[route("/founders", get = crate::policy::founders)]
+        pub struct Founders;
+
+        #[route("/seller-agreement", get = crate::policy::seller_agreement)]
+        pub struct SellerAgreement;
+
+        #[route("/payments-terms", get = crate::policy::payments_terms)]
+        pub struct PaymentsTerms;
+
+        #[route("/agent-terms", get = crate::policy::agent_terms)]
+        pub struct AgentTerms;
+
+        #[route("/authenticity-terms", get = crate::policy::authenticity_terms)]
+        pub struct AuthenticityTerms;
 
         #[route("/robots.txt", get = crate::market::robots)]
         pub struct Robots;

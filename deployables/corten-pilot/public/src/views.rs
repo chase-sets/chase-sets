@@ -11,14 +11,18 @@ pub struct MainContentId;
 
 mod home_page;
 mod market_page;
+mod policy_page;
 
 pub use home_page::HomePage;
 pub use market_page::{MarketPage, Screen};
+pub use policy_page::PolicyPage;
 
-/// Every page's components: the design system's tokens, the error page's and the home page's.
-/// The home page is outside every area (it is `/`) and it is the page most visitors open first,
-/// so its stylesheet is in `components.css`.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, NotFound, HomeLayout, HomePage, home_page::handlers::COMPONENT];
+/// Every page's components: the design system's tokens, the error page's, the home page's and the
+/// policy pages'. The home page is outside every area (it is `/`) and it is the page most
+/// visitors open first, so its stylesheet is in `components.css`; the policy pages are seven
+/// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
+/// stylesheet is small (README decision 79).
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, NotFound, HomeLayout, HomePage, home_page::handlers::COMPONENT, PolicyPage];
 
 /// The market pages' components (`/market`): the page and its chart.
 pub const MARKET: &[Component] = &[MarketPage, TimeSeries];

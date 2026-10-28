@@ -466,9 +466,7 @@ async fn read(config: &Shared) -> Reads {
         };
         kept.terms.or_read(read).await
     };
-    let promos = kept.promos.or_read(async {
-        tokio::time::timeout(READ_WAIT, api.promos()).await.map_err(|_| "timed out".to_owned())?.map_err(|e| e.to_string())
-    });
+    let promos = promos(config);
     let count = kept.count.or_read(async {
         tokio::time::timeout(READ_WAIT, api.waitlist_count())
             .await
@@ -481,15 +479,28 @@ async fn read(config: &Shared) -> Reads {
         tracing::warn!("live checkout processing terms are unavailable; the home page uses the compiled launch terms: {error}");
         COMPILED
     });
-    let promos = promos.unwrap_or_else(|error| {
-        tracing::warn!("the promo bar's read failed: {error}");
-        Vec::new()
-    });
+    let promos = promos.unwrap_or_default();
     let count = count.unwrap_or_else(|error| {
         tracing::warn!("the waitlist counter's read failed: {error}");
         None
     });
-    Reads { terms, live, promos: promos.into_iter().filter(|p| !p.title.is_empty()).collect(), count }
+    Reads { terms, live, promos, count }
+}
+
+/// The promo bar's titled messages, kept for the next visitor and given up after two seconds: the
+/// shell around the home page and the policy pages. A failure is logged and is none.
+pub async fn promos(config: &Shared) -> Result<Vec<Promo>, ()> {
+    let api = config.api();
+    let read = config.home.promos.or_read(async {
+        tokio::time::timeout(READ_WAIT, api.promos()).await.map_err(|_| "timed out".to_owned())?.map_err(|e| e.to_string())
+    });
+    match read.await {
+        Ok(promos) => Ok(promos.into_iter().filter(|p| !p.title.is_empty()).collect()),
+        Err(error) => {
+            tracing::warn!("the promo bar's read failed: {error}");
+            Err(())
+        }
+    }
 }
 
 /// A fee-calculator share link made while the calculator was on `/`: `price` and exactly this
