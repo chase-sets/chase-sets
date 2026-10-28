@@ -61,7 +61,7 @@ describeDb("issue-9503-c51a frozen commit input", () => {
         catalog_item_id, product_id, selected_options, storage_location_id, total_quantity,
         validation_errors, created_at, updated_at)
        VALUES ('imr_c51a_1', 'imb_c51a', 1, 'accepted', '{"totalQuantity":"2"}'::jsonb,
-        'c51a-row-fingerprint', 'add', 2, 'cat_c51a', 'prod_c51a', '[]'::jsonb, 'loc_c51a', 2,
+        'c51a-row-fingerprint', 'add', 2, 'cat_c51a', 'cat_c51a::', '[]'::jsonb, 'loc_c51a', 2,
         '[]'::jsonb, now(), now())`,
     );
   });
@@ -174,6 +174,25 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     const inventory = createInventoryServices(pools.inventory);
     const firstAttempt = withInventoryMutationAttempt(context, randomUUID());
     const secondAttempt = withInventoryMutationAttempt(context, randomUUID());
+    expect(
+      (
+        await pools.inventory.query(
+          `SELECT item_id, account_id, catalog_catalog_item_id, product_id, selected_options, storage_location_id, total_quantity
+           FROM inventory_items
+           WHERE account_id = $1`,
+          [accountId],
+        )
+      ).rows,
+    ).toEqual([]);
+    expect(
+      (
+        await pools.inventory.query(
+          `SELECT count(*)::integer AS count
+           FROM inventory_item_adjustment_idempotency
+           WHERE idempotency_key = 'inventory-import-row:imr_c51a_1:adjustment'`,
+        )
+      ).rows,
+    ).toEqual([{ count: 0 }]);
     const projectionRuntime = {
       subscriptionRunners: resolveModuleSubscriptions([
         {
@@ -190,21 +209,84 @@ describeDb("issue-9503-c51a frozen commit input", () => {
       { accountId, batchId: "imb_c51a" },
       secondAttempt,
     );
+    expect(first.jobId).not.toBe(second.jobId);
+    expect(first.payload.commit?.inputId).not.toBe(second.payload.commit?.inputId);
+    const frozenInputs = await pools.inventory.query<{
+      input_id: string;
+      accepted_rows: Array<{
+        row_id: string;
+        status: string;
+        quantity_mode: string;
+        quantity_delta: number;
+        catalog_item_id: string;
+        product_id: string;
+        selected_options: unknown;
+        storage_location_id: string;
+      }>;
+    }>(
+      `SELECT input_id, accepted_rows
+       FROM inventory_import_commit_inputs
+       WHERE input_id = ANY($1::text[])
+       ORDER BY input_id`,
+      [[first.payload.commit?.inputId, second.payload.commit?.inputId]],
+    );
+    expect(frozenInputs.rows).toHaveLength(2);
+    for (const input of frozenInputs.rows) {
+      expect(input.accepted_rows).toHaveLength(1);
+      expect(input.accepted_rows[0]).toMatchObject({
+        row_id: "imr_c51a_1",
+        status: "accepted",
+        quantity_mode: "add",
+        quantity_delta: 2,
+        catalog_item_id: "cat_c51a",
+        product_id: "cat_c51a::",
+        selected_options: [],
+        storage_location_id: "loc_c51a",
+      });
+    }
 
     expect(
       await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-1", claimTtlMs: 30_000 }),
     ).toBe(1);
     await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
-    expect(
-      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
-    ).toBe(1);
-    await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
-
-    const stock = await pools.inventory.query(
-      `SELECT total_quantity FROM inventory_items WHERE item_id = 'inv_c51a_1' AND account_id = $1`,
+    const preReplayItem = await pools.inventory.query(
+      `SELECT item_id, account_id, catalog_catalog_item_id, product_id, selected_options, storage_location_id, total_quantity
+       FROM inventory_items
+       WHERE account_id = $1
+       ORDER BY item_id`,
       [accountId],
     );
-    expect(stock.rows).toEqual([{ total_quantity: 2 }]);
+    expect(preReplayItem.rows).toEqual([
+      {
+        item_id: "inv_c51a_1",
+        account_id: "acc_c51a",
+        catalog_catalog_item_id: "cat_c51a",
+        product_id: "cat_c51a::",
+        selected_options: [],
+        storage_location_id: "loc_c51a",
+        total_quantity: 2,
+      },
+    ]);
+    const preReplaySource = await pools.inventory.query(
+      `SELECT row_id, status, committed_inventory_item_id, committed_at
+       FROM inventory_import_batch_rows
+       WHERE row_id = 'imr_c51a_1'`,
+    );
+    expect(preReplaySource.rows).toHaveLength(1);
+    expect(preReplaySource.rows[0]).toMatchObject({
+      row_id: "imr_c51a_1",
+      status: "committed",
+      committed_inventory_item_id: "inv_c51a_1",
+    });
+    expect(preReplaySource.rows[0]?.committed_at).not.toBeNull();
+    const preReplayJobs = await pools.inventory.query(
+      `SELECT status
+       FROM inventory_import_batch_jobs
+       WHERE job_id = ANY($1::text[])
+       ORDER BY status, job_id`,
+      [[first.jobId, second.jobId]],
+    );
+    expect(preReplayJobs.rows).toEqual([{ status: "completed" }, { status: "queued" }]);
     expect(
       (
         await pools.inventory.query(
@@ -214,6 +296,24 @@ describeDb("issue-9503-c51a frozen commit input", () => {
         )
       ).rows,
     ).toEqual([{ count: 0 }]);
+    expect(
+      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
+    ).toBe(1);
+    await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
+
+    const finalStock = await pools.inventory.query(
+      `SELECT total_quantity FROM inventory_items WHERE item_id = 'inv_c51a_1' AND account_id = $1`,
+      [accountId],
+    );
+    const finalAdjustmentCount = (
+      await pools.inventory.query(
+        `SELECT count(*)::integer AS count
+           FROM inventory_item_adjustment_idempotency
+           WHERE idempotency_key = 'inventory-import-row:imr_c51a_1:adjustment'`,
+      )
+    ).rows;
+    expect(finalStock.rows).toEqual([{ total_quantity: 2 }]);
+    expect(finalAdjustmentCount).toEqual([{ count: 0 }]);
     expect((await inventory.importBatches.getImportBatchJob(first.jobId))?.status).toBe("completed");
     expect((await inventory.importBatches.getImportBatchJob(second.jobId))?.status).toBe("completed");
   });
@@ -300,7 +400,7 @@ describeDb("issue-9503-c51a frozen commit input", () => {
         catalog_item_id, product_id, selected_options, storage_location_id, total_quantity,
         validation_errors, created_at, updated_at)
        VALUES ('imr_c51a_2', 'imb_c51a', 2, 'accepted', '{"totalQuantity":"3"}'::jsonb,
-        'c51a-row-fingerprint-2', 'add', 3, 'cat_c51a', 'prod_c51a', '[]'::jsonb, 'loc_c51a', 3,
+        'c51a-row-fingerprint-2', 'add', 3, 'cat_c51a', 'cat_c51a::', '[]'::jsonb, 'loc_c51a', 3,
         '[]'::jsonb, now(), now())`,
     );
     const inventory = createInventoryServices(pools.inventory);
