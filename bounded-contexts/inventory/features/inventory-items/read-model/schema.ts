@@ -1,4 +1,4 @@
-import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 
 export const inventoryItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -167,14 +167,15 @@ $migration$`,
     description: "Retire quantity-bearing offline-sale audit writes and reconcile retained ledger detail atomically.",
     statements: [],
     dataStep: async (db) => {
+      const migrationDb: BcSchemaMigrationClient = db;
       const deadline = Date.now() + 60_000;
       async function query<Row = Record<string, unknown>>(sql: string) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
           throw new Error("60-second deadline exceeded");
         }
-        await db.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
-        const result = await db.query<Row>(sql);
+        await migrationDb.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
+        const result = await migrationDb.query<Row>(sql);
         if (Date.now() >= deadline) {
           throw new Error("60-second deadline exceeded");
         }
