@@ -238,6 +238,7 @@ describe("Playwright Chromium installer primitive", () => {
     const resultPromise = installPlaywrightChromium({
       env: envFor(cache),
       runInstallerImpl,
+      delayImpl: vi.fn(async () => {}),
       write: (line) => lines.push(line),
     });
     await expect(resultPromise).resolves.toMatchObject({ status: 1, reason: "incomplete-cache" });
@@ -397,6 +398,7 @@ describe("Playwright Chromium installer primitive", () => {
     const result = await installPlaywrightChromium({
       env: envFor(cache),
       runInstallerImpl: async () => ({ status: 1, record: { terminalOutcome: "timeout" } }),
+      delayImpl: vi.fn(async () => {}),
       write: () => {},
     });
     expect(result).toMatchObject({ status: 1, reason: "timeout" });
@@ -433,7 +435,12 @@ describe("Playwright Chromium installer primitive", () => {
   it("does not allow the installer to treat a directory-only cache as authority", async () => {
     const cache = makeCache();
     const runInstallerImpl = vi.fn(async () => ({ status: 0, record: { terminalOutcome: "success" } }));
-    const result = await installPlaywrightChromium({ env: envFor(cache), runInstallerImpl, write: () => {} });
+    const result = await installPlaywrightChromium({
+      env: envFor(cache),
+      runInstallerImpl,
+      delayImpl: vi.fn(async () => {}),
+      write: () => {},
+    });
     expect(runInstallerImpl).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ status: 1, reason: "incomplete-cache" });
   });
