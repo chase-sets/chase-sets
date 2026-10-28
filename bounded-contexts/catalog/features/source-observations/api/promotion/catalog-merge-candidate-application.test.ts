@@ -533,6 +533,39 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
     expect(allowed).toEqual([]);
   });
 
+  it("AC2: an MTGJSON set-reference-only candidate is skipped as reference-only with zero writes", async () => {
+    const arranged = arrange([magicObservation("mtgjson-set")]);
+
+    const { result, error, touched, allowed } = await apply(arranged);
+
+    expect(error).toBeNull();
+    expect(result).toStrictEqual({
+      candidateId: arranged.candidateId,
+      status: "skipped-not-eligible",
+      disposition: "reference-only",
+      catalogItemId: null,
+      reason: expect.stringMatching(/^Catalog Merge Candidate has no item-producing member/),
+      appliedCatalogItemId: null,
+      appliedMode: null,
+      approvalVersion: null,
+      planFingerprint: null,
+    });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it("keeps an unregistered non-promotable member blocked", async () => {
+    const arranged = arrange([magicObservation("mtgjson-set")], (snapshot) => snapshot);
+    const versions = registeredMagicProfiles().filter((version) => version.profileKey !== "mtg-set-reference-data");
+
+    const { result, error, touched, allowed } = await apply(arranged, versions);
+
+    expect(result).toBeNull();
+    expect(error).toMatchObject({ code: "promotion-plan-blocked:no-promotable-member" });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
   it("AC3: an active Scryfall card-print profile never qualifies a Scryfall member reviewed under the image-evidence unit", async () => {
     const arranged = arrange([magicObservation("mtgjson-card"), magicObservation("scryfall-image-evidence")]);
     expect(arranged.snapshot.membership.map((member) => member.sourceProfileKey)).toEqual([

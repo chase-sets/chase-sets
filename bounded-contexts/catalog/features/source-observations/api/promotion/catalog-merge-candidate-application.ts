@@ -79,7 +79,10 @@ import {
   type PromotionTargetKey,
 } from "./promotion-target-identity";
 import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-promotion-command-planner";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import {
+  resolveCatalogProviderDuplicatePrevention,
+  type CatalogProviderDuplicatePreventionResult,
+} from "./provider-duplicate-prevention-resolver";
 import { promotionCurrentItem } from "./source-observation-target-exclusion";
 
 /**
@@ -88,10 +91,7 @@ import { promotionCurrentItem } from "./source-observation-target-exclusion";
  * fail-closed plan block; empty review-only evidence must not turn a sole
  * item-producing member into a duplicate.
  */
-export function shouldBlockDuplicatePrevention(result: {
-  status: "blocked" | "review-only" | "matched" | "none";
-  candidateCatalogItemIds?: readonly string[];
-}): boolean {
+export function shouldBlockDuplicatePrevention(result: CatalogProviderDuplicatePreventionResult): boolean {
   return (
     result.status === "blocked" ||
     (result.status === "review-only" && (result.candidateCatalogItemIds?.length ?? 0) > 0)
@@ -320,7 +320,10 @@ async function resolveItemAuthors(
   let referenceOnly = false;
   for (const revision of await resolveApprovedMemberRevisions(ports.deps.eventStore, snapshot)) {
     const normalized = promotableNormalized(revision);
-    if (!normalized) continue;
+    if (!normalized) {
+      if (await isReferenceOnlyMember(ports.profileVersions, revision)) referenceOnly = true;
+      continue;
+    }
     const version = await resolveMemberPromotionProfile(ports.profileVersions, revision, normalized);
     if (!version) {
       referenceOnly = true;
@@ -332,6 +335,20 @@ async function resolveItemAuthors(
   if (authors.length === 0 && !referenceOnly)
     throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
   return authors;
+}
+
+async function isReferenceOnlyMember(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  revision: SourceObservationState,
+): Promise<boolean> {
+  const versions = await profileVersions.listProfileVersions(revision.providerKey);
+  const reviewed = versions.filter(
+    (version) =>
+      sameKey(version.providerKey, revision.providerKey) &&
+      sameKey(version.profileKey, revision.sourceProfileKey) &&
+      version.profileVersion === revision.sourceProfileVersion,
+  );
+  return reviewed.length === 1 && !reviewed[0]!.profile.capabilities.includes("catalog-item-promotion");
 }
 
 /**

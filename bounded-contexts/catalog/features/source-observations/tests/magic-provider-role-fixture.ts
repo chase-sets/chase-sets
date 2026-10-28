@@ -1,5 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import mtgjsonCardFixture from "../api/__fixtures__/mtgjson-card-reference/normal.json";
+import mtgjsonSetFixture from "../api/__fixtures__/mtgjson-set-reference/normal.json";
 import scryfallCardFixture from "../api/__fixtures__/scryfall-card-print/normal.json";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { unitKeyForCatalogProviderProfileVersion } from "../api/governance/catalog-integration-impact-analysis";
@@ -68,10 +69,15 @@ export type MagicCard = Readonly<{
 }>;
 
 /** One Source Observation recorded through the unit's registered executable mapper. */
-export function magicObservation(unit: MagicCardUnit, card: MagicCard = {}): CatalogProviderSourceObservationInput {
+export function magicObservation(unit: MagicUnit, card: MagicCard = {}): CatalogProviderSourceObservationInput {
   const mapped = normalizeCatalogProviderSourceObservation({
     contract: requireSourceObservationMappingContract(registeredMagicProfile(unit)),
-    payload: unit === "mtgjson-card" ? mtgjsonPayload(card) : scryfallPayload(card),
+    payload:
+      unit === "mtgjson-card"
+        ? mtgjsonPayload(card)
+        : unit === "mtgjson-set"
+          ? mtgjsonSetFixture
+          : scryfallPayload(card),
     observedAt,
   });
   if (mapped.diagnostics.length > 0 || !mapped.observation)

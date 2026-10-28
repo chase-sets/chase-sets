@@ -1625,16 +1625,6 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         await drainWorker(services.sourceObservations);
         const completed = await requireJob(services.sourceObservations, job.jobId);
         const outcome = completed.result?.outcomes[0];
-        console.info(
-          JSON.stringify({
-            candidateId: outcome?.candidateId ?? null,
-            status: outcome?.status ?? null,
-            reason: outcome?.reason ?? null,
-            diagnosticCode: outcome?.diagnosticCode ?? null,
-            appliedCatalogItemId: outcome?.appliedCatalogItemId ?? null,
-            appliedMode: outcome?.appliedMode ?? null,
-          }),
-        );
         expect(completed.result).toMatchObject({ requested: 1, promoted: 1, skippedNotEligible: 0, failed: 0 });
         expect(completed.result?.outcomes[0]).toMatchObject({
           candidateId,
@@ -1710,18 +1700,6 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       await drainWorker(services.sourceObservations);
       const completed = await requireJob(services.sourceObservations, job.jobId);
       expect(completed.status).toBe("completed");
-      console.info(
-        JSON.stringify(
-          (completed.result?.outcomes ?? []).map((outcome) => ({
-            candidateId: outcome.candidateId,
-            status: outcome.status,
-            reason: outcome.reason ?? null,
-            diagnosticCode: outcome.diagnosticCode ?? null,
-            appliedCatalogItemId: outcome.appliedCatalogItemId ?? null,
-            appliedMode: outcome.appliedMode ?? null,
-          })),
-        ),
-      );
       expect(completed.result).toMatchObject({
         requested: expected.length,
         promoted: 1,
