@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, render } from "@testing-library/react";
 import { Button, HiddenInput, TextInput } from "@chase-sets/design-system";
 import { AccountMutationBoundary, AccountMutationForm } from "./controller";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import * as routerApi from "react-router";
 import {
   renderAccountManagementPage,
@@ -489,9 +489,10 @@ describe("issue-7125 boundary lock", () => {
   const actor = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test" };
   const refusal = "Another account change is in progress. Wait for it to finish before trying again.";
   const reauth = "Sign in again to check this action's result.";
-  function Rows() {
+  function Rows({ phase = "initial" }: { phase?: string }) {
     return (
       <>
+        <span data-testid="route-phase">{phase}</span>
         {["A", "B"].map((name) => (
           <AccountMutationForm key={name} method="post">
             <HiddenInput name="intent" value="default" />
@@ -545,6 +546,91 @@ describe("issue-7125 boundary lock", () => {
     expect(transport.posts()).toHaveLength(2);
     expect(button("A").matches(":disabled")).toBe(false);
     expect(button("A").getAttribute("aria-busy")).toBeNull();
+  });
+  it("releases the boundary lock only after the revalidated route commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads } = renderHeldAccountManagementRoute(
+      "/account/shipping-addresses",
+      { phase: "before" },
+      ({ phase }) => <Rows phase={phase} />,
+    );
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+    await waitFor(() => expect(loads).toHaveLength(1));
+    expect(button("A").getAttribute("aria-busy")).toBe("true");
+    expect(button("B").getAttribute("aria-busy")).toBeNull();
+
+    const states: { phase: string; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    const observer = new MutationObserver(() => {
+      const phase = screen.getByTestId("route-phase").textContent ?? "";
+      const state = { phase, busy: button("A").getAttribute("aria-busy") };
+      states.push(state);
+      if (phase === "before" && state.busy === null) staleUnlocked = true;
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    loads[0]({ phase: "after" });
+    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    observer.disconnect();
+    expect(screen.getByTestId("route-phase").textContent).toBe("after");
+    expect(staleUnlocked).toBe(false);
+    expect(states.some(({ phase, busy }) => phase === "before" && busy === null)).toBe(false);
+  });
+  it("keeps the boundary lock through a batched revalidation commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    let loads = 0;
+    function BatchedRows() {
+      const { phase } = useLoaderData() as { phase: string };
+      return <Rows phase={phase} />;
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          id: "page",
+          path: "/account/shipping-addresses",
+          loader: () => {
+            loads += 1;
+            return { phase: "after" };
+          },
+          element: (
+            <AccountMutationBoundary actor={actor}>
+              <BatchedRows />
+            </AccountMutationBoundary>
+          ),
+        },
+      ],
+      {
+        initialEntries: ["/account/shipping-addresses"],
+        hydrationData: { loaderData: { page: { phase: "before" } } },
+      },
+    );
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+
+    const states: { phase: string; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    const observer = new MutationObserver(() => {
+      const phase = screen.getByTestId("route-phase").textContent ?? "";
+      const state = { phase, busy: button("A").getAttribute("aria-busy") };
+      states.push(state);
+      if (phase === "before" && state.busy === null) staleUnlocked = true;
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    await waitFor(() => expect(loads).toBe(1));
+    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    observer.disconnect();
+
+    expect(screen.getByTestId("route-phase").textContent).toBe("after");
+    expect(staleUnlocked).toBe(false);
+    expect(states.some(({ phase, busy }) => phase === "before" && busy === null)).toBe(false);
+    expect(transport.posts()).toHaveLength(1);
   });
   it("superseded flight releases the boundary lock", async () => {
     const transport = stubHeldAccountManagementTransport();

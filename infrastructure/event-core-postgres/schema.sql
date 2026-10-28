@@ -4,6 +4,32 @@ CREATE TABLE IF NOT EXISTS event_store_streams (
   updated_at timestamptz NOT NULL
 );
 
+-- configuration-epoch-schema:start
+CREATE TABLE IF NOT EXISTS event_configuration_store_identity (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  store_id text NOT NULL,
+  incarnation text NOT NULL
+);
+
+-- These heads are canonical journal anchors, not projections or snapshots.
+CREATE TABLE IF NOT EXISTS event_configuration_journal_heads (
+  role text NOT NULL CHECK (role IN ('source', 'consumer')),
+  key text NOT NULL,
+  sequence bigint NOT NULL CHECK (sequence > 0),
+  digest text NOT NULL CHECK (length(digest) = 64),
+  PRIMARY KEY (role, key)
+);
+
+CREATE TABLE IF NOT EXISTS event_configuration_guard_history (
+  role text NOT NULL CHECK (role IN ('source', 'consumer')),
+  key text NOT NULL,
+  sequence bigint NOT NULL CHECK (sequence > 0),
+  record json NOT NULL,
+  digest text NOT NULL CHECK (length(digest) = 64),
+  PRIMARY KEY (role, key, sequence)
+);
+-- configuration-epoch-schema:end
+
 CREATE TABLE IF NOT EXISTS event_store_events (
   global_position bigserial PRIMARY KEY,
   event_id text NOT NULL UNIQUE,

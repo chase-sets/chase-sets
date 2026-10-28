@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
+- Runtime exports indexed: 363
 - Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -204,6 +204,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `bounded-contexts/auth/support/ui-support/auth-form-feedback.ts` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `No production consumer yet.` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx` |
+| `NumericSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Numeric Series Chart. | `bounded-contexts/pricing/features/pricing-health/ui/what-if-panels.tsx` |
 | `NumericValue` | `packages/design-system/src/primitives/typography.tsx` | Closed inline role carrier for prices and market data: IBM Plex Mono with tabular figures. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
 | `observeEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: observe Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
