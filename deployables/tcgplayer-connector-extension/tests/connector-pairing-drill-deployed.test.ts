@@ -517,6 +517,7 @@ describe("connector-pairing-drill-deployed composed command before Chromium", ()
       "--enable-unsafe-extension-debugging",
       `--host-resolver-rules=MAP ${new URL(staging).hostname}:443 127.0.0.1:${outcome.fake.resolver.port}, MAP * ~NOTFOUND`,
       `--ignore-certificate-errors-spki-list=${outcome.fake.resolver.certificateSpki}`,
+      "--remote-debugging-port=0",
     ]);
     expect(options.env).toEqual(drillBrowserEnvironment(process.env));
     // A failed launch still deletes the drill profile.
@@ -525,6 +526,7 @@ describe("connector-pairing-drill-deployed composed command before Chromium", ()
     expect(smoke.launches[0].options.args).toEqual([
       `--host-resolver-rules=MAP ${new URL(staging).hostname}:443 127.0.0.1:${smoke.fake.resolver.port}, MAP * ~NOTFOUND`,
       `--ignore-certificate-errors-spki-list=${smoke.fake.resolver.certificateSpki}`,
+      "--remote-debugging-port=0",
     ]);
     expect(smoke.rows).toEqual([]);
   });

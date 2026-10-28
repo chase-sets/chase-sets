@@ -5,7 +5,6 @@ import { join, relative } from "node:path";
 import {
   chromium,
   type BrowserContext,
-  type CDPSession,
   type Page,
   type Request,
   type Response as BrowserResponse,
@@ -879,6 +878,110 @@ type LegOutcome = Readonly<{
   heldValues: readonly string[];
 }>;
 
+type RawCdpEvent = Readonly<{
+  method: string;
+  params: unknown;
+  sessionId?: string;
+}>;
+
+type RawCdpTransport = Readonly<{
+  send(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<unknown>;
+  on(listener: (event: RawCdpEvent) => void): void;
+  off(listener: (event: RawCdpEvent) => void): void;
+  close(): Promise<void>;
+}>;
+
+const rawCdpRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Playwright's CDP wrapper drops flattened child session IDs before they can be
+ * addressed. This deliberately small adapter keeps the browser WebSocket's
+ * sessionId on both commands and events instead of casting around that API.
+ */
+async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport> {
+  const activePort = readFileSync(join(profilePath, "DevToolsActivePort"), "utf8").split(/\r?\n/, 1)[0]?.trim();
+  if (!activePort || !/^\d+$/.test(activePort)) throw new Error("browser-cdp-port-missing");
+  const versionResponse = await fetch(`http://127.0.0.1:${activePort}/json/version`);
+  if (!versionResponse.ok) throw new Error("browser-cdp-version-refused");
+  const version: unknown = await versionResponse.json();
+  if (!rawCdpRecord(version) || typeof version.webSocketDebuggerUrl !== "string")
+    throw new Error("browser-cdp-websocket-missing");
+  const socket = new WebSocket(version.webSocketDebuggerUrl);
+  const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  const listeners = new Set<(event: RawCdpEvent) => void>();
+  let sequence = 0;
+  let closed = false;
+  let rootSessionId: string | undefined;
+  const rejectPending = (message: string) => {
+    for (const call of pending.values()) call.reject(new Error(message));
+    pending.clear();
+  };
+  socket.addEventListener("message", (event) => {
+    if (typeof event.data !== "string") return;
+    let message: unknown;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (!rawCdpRecord(message)) return;
+    if (typeof message.id === "number") {
+      const call = pending.get(message.id);
+      if (!call) return;
+      pending.delete(message.id);
+      if (rawCdpRecord(message.error) && typeof message.error.message === "string")
+        call.reject(new Error(message.error.message));
+      else call.resolve(message.result);
+      return;
+    }
+    if (typeof message.method !== "string") return;
+    const params = "params" in message ? message.params : undefined;
+    const sourceSessionId = typeof message.sessionId === "string" ? message.sessionId : undefined;
+    const sessionId = sourceSessionId === rootSessionId ? undefined : sourceSessionId;
+    for (const listener of listeners) listener({ method: message.method, params, sessionId });
+  });
+  socket.addEventListener("close", () => {
+    closed = true;
+    rejectPending("browser-cdp-closed");
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener("error", () => reject(new Error("browser-cdp-websocket-refused")), { once: true });
+  });
+  const sendRaw = (method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
+    if (closed || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("browser-cdp-closed"));
+    const id = ++sequence;
+    return new Promise<unknown>((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params, ...(sessionId === undefined ? {} : { sessionId }) }));
+    });
+  };
+  const attached = await sendRaw("Target.attachToBrowserTarget");
+  if (!rawCdpRecord(attached) || typeof attached.sessionId !== "string") {
+    await socket.close();
+    throw new Error("browser-cdp-browser-target-refused");
+  }
+  rootSessionId = attached.sessionId;
+  return {
+    send(method, params = {}, sessionId) {
+      return sendRaw(method, params, sessionId ?? rootSessionId);
+    },
+    on(listener) {
+      listeners.add(listener);
+    },
+    off(listener) {
+      listeners.delete(listener);
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      rejectPending("browser-cdp-closed");
+      socket.close();
+    },
+  };
+}
+
 async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receipt: DeployedPairingDrillReceipt }> {
   const { platformOrigin } = input;
   const platformHost = new URL(platformOrigin).host;
@@ -1225,16 +1328,31 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       let popupDocument: DeployedPageRow | undefined;
       let popupTargetId: string | undefined;
       let popupTargetError: string | null = null;
-      const browserCdp = await context.browser()!.newBrowserCDPSession();
-      const sourcePageCdp = await context.newCDPSession(page);
-      const sourceTargetId = (await sourcePageCdp.send("Target.getTargetInfo")).targetInfo.targetId;
-      await sourcePageCdp.detach();
+      const rawBrowserCdp = await openRawCdpTransport(profilePath);
+      const sourceTargets = await rawBrowserCdp.send("Target.getTargets", {
+        filter: [{ type: "page" }],
+      });
+      const sourceTargetInfo =
+        rawCdpRecord(sourceTargets) && Array.isArray(sourceTargets.targetInfos)
+          ? sourceTargets.targetInfos.find(
+              (value: unknown) => rawCdpRecord(value) && value.type === "page" && value.url === page.url(),
+            )
+          : undefined;
+      if (!rawCdpRecord(sourceTargetInfo) || typeof sourceTargetInfo.targetId !== "string") {
+        await rawBrowserCdp.close();
+        fail("connector-drill-page-status");
+      }
+      const sourceTargetId = sourceTargetInfo.targetId;
+      const sourceBrowserContextId =
+        typeof sourceTargetInfo.browserContextId === "string" ? sourceTargetInfo.browserContextId : undefined;
       const popupTargets = new Map<
         string,
         {
+          browserContextId?: string;
           openerId?: string;
+          type: string;
+          url: string;
           page?: Page;
-          cdpSession?: CDPSession;
           sessionId: string;
           requests: Map<string, { method: string; url: string }>;
           document?: {
@@ -1247,31 +1365,23 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           };
         }
       >();
-      const observeAttachedTarget = ({
-        sessionId,
-        targetInfo,
-      }: {
-        sessionId: string;
-        targetInfo: { targetId: string; type: string; openerId?: string; url: string };
-      }) => {
-        if (targetInfo.type !== "page" && targetInfo.type !== "tab") return;
-        popupTargets.set(targetInfo.targetId, { openerId: targetInfo.openerId, sessionId, requests: new Map() });
-      };
-      const isRecordValue = (value: unknown): value is Record<string, unknown> =>
-        typeof value === "object" && value !== null;
-      const observeTargetRequest = (sessionId: string, value: unknown) => {
-        if (!isRecordValue(value) || value.type !== "Document" || typeof value.requestId !== "string") return;
-        const request = isRecordValue(value.request) ? value.request : undefined;
+      const targetBySession = new Map<string, typeof popupTargets extends Map<string, infer Value> ? Value : never>();
+      const observeTargetRequest = (
+        target: typeof popupTargets extends Map<string, infer Value> ? Value : never,
+        value: unknown,
+      ) => {
+        if (!rawCdpRecord(value) || value.type !== "Document" || typeof value.requestId !== "string") return;
+        const request = rawCdpRecord(value.request) ? value.request : undefined;
         if (typeof request?.method !== "string" || typeof request.url !== "string") return;
-        const target = [...popupTargets.values()].find((candidate) => candidate.sessionId === sessionId);
-        if (!target) return;
         target.requests.set(value.requestId, { method: request.method, url: request.url });
       };
-      const observeTargetResponse = (sessionId: string, value: unknown) => {
-        if (!isRecordValue(value) || value.type !== "Document" || typeof value.requestId !== "string") return;
-        const target = [...popupTargets.values()].find((candidate) => candidate.sessionId === sessionId);
-        const response = isRecordValue(value.response) ? value.response : undefined;
-        if (!target || !response) return;
+      const observeTargetResponse = (
+        target: typeof popupTargets extends Map<string, infer Value> ? Value : never,
+        value: unknown,
+      ) => {
+        if (!rawCdpRecord(value) || value.type !== "Document" || typeof value.requestId !== "string") return;
+        const response = rawCdpRecord(value.response) ? value.response : undefined;
+        if (!response) return;
         const request = target.requests.get(value.requestId);
         if (
           !request ||
@@ -1280,7 +1390,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           typeof response.mimeType !== "string"
         )
           return;
-        const headers = isRecordValue(response.headers) ? response.headers : undefined;
+        const headers = rawCdpRecord(response.headers) ? response.headers : undefined;
         const location = typeof headers?.location === "string" ? headers.location : undefined;
         target.document = {
           method: request.method,
@@ -1291,39 +1401,90 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           at: Date.now(),
         };
       };
-      browserCdp.on("Target.attachedToTarget", observeAttachedTarget);
-      await browserCdp.send("Target.setAutoAttach", {
+      const observeRawCdpEvent = (event: RawCdpEvent) => {
+        if (event.method === "Target.attachedToTarget" && event.sessionId === undefined && rawCdpRecord(event.params)) {
+          const sessionId = typeof event.params.sessionId === "string" ? event.params.sessionId : undefined;
+          const targetInfo = rawCdpRecord(event.params.targetInfo) ? event.params.targetInfo : undefined;
+          if (
+            sessionId &&
+            targetInfo &&
+            targetInfo.type === "page" &&
+            typeof targetInfo.targetId === "string" &&
+            typeof targetInfo.url === "string"
+          ) {
+            const target = {
+              browserContextId:
+                typeof targetInfo.browserContextId === "string" ? targetInfo.browserContextId : undefined,
+              openerId: typeof targetInfo.openerId === "string" ? targetInfo.openerId : undefined,
+              type: targetInfo.type,
+              url: targetInfo.url,
+              sessionId,
+              requests: new Map<string, { method: string; url: string }>(),
+            };
+            popupTargets.set(targetInfo.targetId, target);
+            targetBySession.set(sessionId, target);
+            void rawBrowserCdp
+              .send("Network.enable", {}, sessionId)
+              .then(() => rawBrowserCdp.send("Runtime.runIfWaitingForDebugger", {}, sessionId))
+              .catch((error: unknown) => {
+                popupTargetError = error instanceof Error ? error.message : "popup-target-network-refused";
+              });
+          }
+          return;
+        }
+        if (
+          event.method === "Target.targetInfoChanged" &&
+          event.sessionId === undefined &&
+          rawCdpRecord(event.params)
+        ) {
+          const targetInfo = rawCdpRecord(event.params.targetInfo) ? event.params.targetInfo : undefined;
+          if (targetInfo && typeof targetInfo.targetId === "string") {
+            const target = popupTargets.get(targetInfo.targetId);
+            if (target && typeof targetInfo.url === "string") target.url = targetInfo.url;
+          }
+          return;
+        }
+        if (!event.sessionId) return;
+        const target = targetBySession.get(event.sessionId);
+        if (!target) return;
+        if (event.method === "Network.requestWillBeSent") observeTargetRequest(target, event.params);
+        else if (event.method === "Network.responseReceived") observeTargetResponse(target, event.params);
+      };
+      rawBrowserCdp.on(observeRawCdpEvent);
+      await rawBrowserCdp.send("Target.setAutoAttach", {
         autoAttach: true,
         waitForDebuggerOnStart: true,
         flatten: true,
         filter: [{ type: "page" }],
       });
+      const bindPopupPage = () => {
+        if (popupPage !== undefined) return true;
+        const candidate = context
+          .pages()
+          .find(
+            (value) =>
+              value !== page &&
+              new URL(value.url()).origin === platformOrigin &&
+              new URL(value.url()).pathname === connectionPage,
+          );
+        if (!candidate) return false;
+        const targetEntry = [...popupTargets.entries()].find(
+          ([, target]) =>
+            target.url === candidate.url() &&
+            target.openerId === sourceTargetId &&
+            (sourceBrowserContextId === undefined || target.browserContextId === sourceBrowserContextId),
+        );
+        if (!targetEntry) {
+          popupTargetError = "popup-target-binding-refused";
+          return false;
+        }
+        popupTargetId = targetEntry[0];
+        popupPage = candidate;
+        targetEntry[1].page = candidate;
+        return true;
+      };
       const observePopupPage = (candidate: Page) => {
-        if (candidate === page || popupPage !== undefined) return;
-        void (async () => {
-          let session: CDPSession | undefined;
-          try {
-            session = await context.newCDPSession(candidate);
-            const targetId = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
-            const target = popupTargets.get(targetId);
-            if (!target || (target.openerId !== undefined && target.openerId !== sourceTargetId)) {
-              await session.detach();
-              popupTargetError = "popup-target-binding-refused";
-              return;
-            }
-            popupPage = candidate;
-            target.page = candidate;
-            target.cdpSession = session;
-            popupTargetId = targetId;
-            session.on("Network.requestWillBeSent", (event) => observeTargetRequest(target.sessionId, event));
-            session.on("Network.responseReceived", (event) => observeTargetResponse(target.sessionId, event));
-            await session.send("Network.enable");
-            await session.send("Runtime.runIfWaitingForDebugger");
-          } catch (error) {
-            await session?.detach().catch(() => undefined);
-            popupTargetError = error instanceof Error ? error.message : "popup-target-binding-refused";
-          }
-        })();
+        if (candidate !== page) bindPopupPage();
       };
       const observePopupResponse = (response: BrowserResponse) => {
         if (popupDocument !== undefined) return;
@@ -1375,9 +1536,13 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       await page.bringToFront();
       let reopened = false;
       try {
-        if (!(await triggerAction(context, page))) fail("connector-drill-page-status");
+        await rawBrowserCdp.send("Extensions.triggerAction", {
+          id: TCGPLAYER_CONNECTOR_EXTENSION_ID,
+          targetId: sourceTargetId,
+        });
         reopened = await waitFor(
-          () => bindPopupDocument() && popupDocument?.status === 200 && popupDocument.at >= reopenedAt,
+          () =>
+            bindPopupPage() && bindPopupDocument() && popupDocument?.status === 200 && popupDocument.at >= reopenedAt,
         );
       } finally {
         if (!reopened) {
@@ -1409,12 +1574,15 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         }
         context.off("page", observePopupPage);
         context.off("response", observePopupResponse);
-        browserCdp.off("Target.attachedToTarget", observeAttachedTarget);
-        await browserCdp
+        rawBrowserCdp.off(observeRawCdpEvent);
+        await rawBrowserCdp
           .send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true })
           .catch(() => undefined);
-        for (const target of popupTargets.values()) await target.cdpSession?.detach().catch(() => undefined);
-        await browserCdp.detach();
+        for (const target of popupTargets.values()) {
+          await rawBrowserCdp.send("Runtime.runIfWaitingForDebugger", {}, target.sessionId).catch(() => undefined);
+          await rawBrowserCdp.send("Target.detachFromTarget", { sessionId: target.sessionId }).catch(() => undefined);
+        }
+        await rawBrowserCdp.close();
       }
       if (!reopened) fail("connector-drill-page-status");
       const pairedRead = await step(page, "pairing-paired", "GET", pairingApi);
@@ -1502,7 +1670,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       channel: "chromium",
       headless: false,
       env: drillBrowserEnvironment(),
-      args: deployedBrowserArgs(platformOrigin, input.resolver, dist),
+      args: [...deployedBrowserArgs(platformOrigin, input.resolver, dist), "--remote-debugging-port=0"],
     });
     outcome = await (input.smoke ? smokeLeg(context) : pairingLeg(context));
   } catch (error) {
