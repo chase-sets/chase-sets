@@ -449,9 +449,7 @@ describe("producer dispatch-loss reconciliation", () => {
     const older = "2".repeat(40);
     const run = producer({ head_sha: "3".repeat(40) });
     const execFile = (_command, args) =>
-      args[0] === "log"
-        ? `${newest}\t2026-07-21T09:30:00Z\n${older}\t2026-07-21T08:30:00Z\n`
-        : "";
+      args[0] === "log" ? `${newest}\t2026-07-21T09:30:00Z\n${older}\t2026-07-21T08:30:00Z\n` : "";
     const base = { run, repository: "chase-sets/chase-sets", execFile, readPolicy: async () => '{"enabled":true}' };
     await expect(
       readHistoricalProducerPolicy({
@@ -547,7 +545,6 @@ describe("producer dispatch-loss reconciliation", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
-
 
   it("refuses a duplicate advisory identity and a non-completed producer", async () => {
     const duplicate = { display_title: "Merge Qualification producer 4000-1", id: 9001, run_attempt: 1 };
@@ -744,15 +741,23 @@ describe("producer dispatch-loss reconciliation", () => {
     const outPath = path.join(dir, "out.json");
     writeFileSync(producerPath, JSON.stringify(producer()));
     writeFileSync(candidatePath, JSON.stringify(candidate));
-    writeFileSync(policyPath, JSON.stringify({
-      schemaVersion: "merge-qualification-policy/v1",
-      enabled: true,
-      owner: "todd.skelton@chasesets.com",
-      ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
-      enabledAt: "2026-07-20T00:00:00Z",
-      expiresAt: "2026-08-10T00:00:00Z",
-    }));
-    const loss = reconcileMergeQualificationProducerAttempt({ producer: producer(), candidate, policy: { enabled: true }, now }).event;
+    writeFileSync(
+      policyPath,
+      JSON.stringify({
+        schemaVersion: "merge-qualification-policy/v1",
+        enabled: true,
+        owner: "todd.skelton@chasesets.com",
+        ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+        enabledAt: "2026-07-20T00:00:00Z",
+        expiresAt: "2026-08-10T00:00:00Z",
+      }),
+    );
+    const loss = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      now,
+    }).event;
     writeFileSync(terminalPath, JSON.stringify(loss));
     const code = await main([
       "producer-reconcile",
@@ -786,14 +791,17 @@ describe("producer dispatch-loss reconciliation", () => {
     const outPath = path.join(dir, "out");
     writeFileSync(producerPath, JSON.stringify(producer()));
     writeFileSync(candidatePath, JSON.stringify(candidate));
-    writeFileSync(policyPath, JSON.stringify({
-      schemaVersion: "merge-qualification-policy/v1",
-      enabled: true,
-      owner: "todd.skelton@chasesets.com",
-      ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
-      enabledAt: "2026-07-20T00:00:00Z",
-      expiresAt: "2026-08-10T00:00:00Z",
-    }));
+    writeFileSync(
+      policyPath,
+      JSON.stringify({
+        schemaVersion: "merge-qualification-policy/v1",
+        enabled: true,
+        owner: "todd.skelton@chasesets.com",
+        ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+        enabledAt: "2026-07-20T00:00:00Z",
+        expiresAt: "2026-08-10T00:00:00Z",
+      }),
+    );
     const result = reconcileMergeQualificationProducerAttempt({
       producer: producer(),
       candidate,
@@ -804,12 +812,18 @@ describe("producer dispatch-loss reconciliation", () => {
     expect(result).toMatchObject({ state: "unknown", reason: "producer_policy_landing_evidence_unavailable" });
     const code = await main([
       "producer-reconcile",
-      "--producer", producerPath,
-      "--candidate", candidatePath,
-      "--policy", policyPath,
-      "--policy-authority-error", "producer_policy_landing_evidence_unavailable",
-      "--github-output", outPath,
-      "--now", now.toISOString(),
+      "--producer",
+      producerPath,
+      "--candidate",
+      candidatePath,
+      "--policy",
+      policyPath,
+      "--policy-authority-error",
+      "producer_policy_landing_evidence_unavailable",
+      "--github-output",
+      outPath,
+      "--now",
+      now.toISOString(),
     ]);
     expect(code).toBe(1);
     expect(readFileSync(outPath, "utf8")).toContain("state=unknown");
@@ -1227,7 +1241,12 @@ describe("producer dispatch-loss reconciliation", () => {
       requestJson: async (endpoint) => {
         if (endpoint.includes("cleanup-complete")) return { total_count: 0, artifacts: [] };
         if (endpoint.includes("terminal-5000-1"))
-          return { total_count: 1, artifacts: [{ id: 2, name: "merge-qualification-terminal-5000-1", expired: false, workflow_run: { id: 9000 } }] };
+          return {
+            total_count: 1,
+            artifacts: [
+              { id: 2, name: "merge-qualification-terminal-5000-1", expired: false, workflow_run: { id: 9000 } },
+            ],
+          };
         return writer;
       },
       downloadArtifact: async ({ fileName }) => {
@@ -1242,7 +1261,17 @@ describe("producer dispatch-loss reconciliation", () => {
       defaultBranch: "main",
       requestJson: async (endpoint) =>
         endpoint.includes("cleanup-complete")
-          ? { total_count: 1, artifacts: [{ id: 3, name: "merge-qualification-cleanup-complete-5000-1", expired: false, workflow_run: { id: 9000 } }] }
+          ? {
+              total_count: 1,
+              artifacts: [
+                {
+                  id: 3,
+                  name: "merge-qualification-cleanup-complete-5000-1",
+                  expired: false,
+                  workflow_run: { id: 9000 },
+                },
+              ],
+            }
           : writer,
       downloadArtifact: async ({ fileName }) => {
         expect(fileName).toBe("cleanup-complete.json");
@@ -1332,8 +1361,18 @@ describe("producer dispatch-loss reconciliation", () => {
           ? {
               total_count: 2,
               artifacts: [
-                { id: 1, name: "merge-qualification-producer-terminal-4000-1", expired: false, workflow_run: { id: 9000 } },
-                { id: 2, name: "merge-qualification-producer-terminal-4000-1", expired: false, workflow_run: { id: 9000 } },
+                {
+                  id: 1,
+                  name: "merge-qualification-producer-terminal-4000-1",
+                  expired: false,
+                  workflow_run: { id: 9000 },
+                },
+                {
+                  id: 2,
+                  name: "merge-qualification-producer-terminal-4000-1",
+                  expired: false,
+                  workflow_run: { id: 9000 },
+                },
               ],
             }
           : writer,

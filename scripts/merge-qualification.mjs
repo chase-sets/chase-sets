@@ -1505,8 +1505,7 @@ export async function inventoryMergeQualificationProducerAttempts({
         parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
       )
         continue;
-      const eligibleAfterTick =
-        nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
+      const eligibleAfterTick = nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
       if (!eligibleAfterTick) continue;
       let historical;
       try {
