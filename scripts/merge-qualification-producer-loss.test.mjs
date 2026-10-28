@@ -450,7 +450,10 @@ describe("producer dispatch-loss reconciliation", () => {
     await expect(
       readHistoricalProducerPolicy({
         ...base,
-        readLandingEvidence: async () => [],
+        readLandingEvidence: async ({ revision }) =>
+          revision === newest
+            ? []
+            : [{ base: { ref: "main" }, merged_at: "2026-07-21T09:00:00Z", merge_commit_sha: revision }],
       }),
     ).rejects.toThrow("producer_policy_landing_evidence_unavailable");
     await expect(
