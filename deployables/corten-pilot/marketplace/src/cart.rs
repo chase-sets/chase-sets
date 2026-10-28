@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{
         ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
-        SellerOption, Snapshot, segment,
+        SellerOption, Snapshot,
     },
     app::{Config, Shared, read_failed, sign_in_at, url},
     auth::{Buyer, Viewer},
@@ -590,7 +590,7 @@ async fn write(
 /// Check out (marketplace's `/checkout/buy/readiness` action for a signed-in cart): move a guest
 /// cart the browser still carries into the account's (best effort, as marketplace does), read the
 /// cart's readiness again with the posted decision, start a checkout session from it, and send
-/// the buyer to marketplace's checkout with the write's receipt, the guest cart forgotten. A
+/// the buyer to the checkout page with the write's receipt, the guest cart forgotten. A
 /// session started again from the same readiness is the same session, so sending again is safe.
 /// A refusal is the cart again with the API's reason.
 pub(crate) async fn checkout(
@@ -616,11 +616,8 @@ pub(crate) async fn checkout(
         Ok(started) => started,
         Err(error) => return refused(&req, &viewer, &config, &headers, error).await,
     };
-    let after_write = receipt.map(|r| format!("?afterWrite={}", segment(&r.param()))).unwrap_or_default();
-    let Some(to) = views::marketplace(&format!("/checkout/buy/session/{}{after_write}", segment(&session.session_id))) else {
-        return Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR));
-    };
-    let mut res = req.redirect(&to)?;
+    let place = crate::checkout::Place::started(receipt.as_ref());
+    let mut res = req.redirect(&url::BuyCheckout { id: &session.session_id, place })?;
     if guest.is_some() {
         let forget = cookie::SetCookie::remove(ANONYMOUS_CART_COOKIE);
         let forget = if config.proto == "https" { forget } else { forget.insecure() };

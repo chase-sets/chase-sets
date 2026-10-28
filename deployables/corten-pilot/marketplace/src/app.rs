@@ -62,6 +62,8 @@ pub const ACCOUNTS_MANAGE: &str = "accounts.manage";
 /// The account's orders, as marketplace's order loaders and actions require.
 pub const ORDERS_VIEW: &str = "orders.view";
 pub const ORDERS_MANAGE: &str = "orders.manage";
+/// The wallet, which checkout applies to the payable total (marketplace's checkout loader).
+pub const PAYOUTS_VIEW: &str = "payouts.view";
 /// A sale's pages need it too (marketplace's `account-sale` and `account-sales` loaders).
 pub const LISTINGS_VIEW: &str = "listings.view";
 /// Creating a listing (marketplace's `account-listings-new` action).
@@ -110,6 +112,7 @@ pub mod url {
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
+    pub use checkout::BuyCheckout;
     pub use desk::Desk;
     pub use home::Home;
     pub use inventory::{
@@ -755,6 +758,25 @@ pub mod url {
         }
     }
 
+    /// The buy checkout page (marketplace's `checkout/buy/session/:sessionId`): the session, Update
+    /// totals and Pay now (see `checkout`). Every handler takes a `CheckoutBuyer`.
+    #[corten::routes(state = crate::app::Shared, area = BuyCheckoutArea, caller = crate::auth::CheckoutBuyer)]
+    pub mod checkout {
+        /// The area's prefix: only the start of its paths. No page is served at
+        /// `/checkout/buy/session` (marketplace answers its not-found page), so it names no handler
+        /// and nothing can link to it.
+        #[route("/checkout/buy/session")]
+        pub struct BuyCheckoutArea;
+
+        /// The page, after the write whose receipt its address carries; every write posts to it.
+        #[route("/checkout/buy/session/{id}", get = crate::checkout::page, post = crate::checkout::write)]
+        pub struct BuyCheckout<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::checkout::Place,
+        }
+    }
+
     /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
     /// account cart).
     #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
@@ -819,6 +841,7 @@ pub fn app(config: Config) -> App {
         .components(views::SEARCH)
         .area(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area(|area| url::cart::area(area, shared.clone()).components(views::CART))
+        .area(|area| url::checkout::area(area, shared.clone()).components(views::CHECKOUT))
         .area(|area| url::items::area(area, shared.clone()).components(views::ITEM))
         .area(|area| url::search::area(area, shared.clone()))
         .area(|area| url::categories::area(area, shared.clone()))

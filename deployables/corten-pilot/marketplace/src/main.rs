@@ -14,6 +14,7 @@ mod auth;
 mod buying;
 mod cart;
 mod cart_attempt;
+mod checkout;
 mod desk;
 mod form;
 mod inventory_item;

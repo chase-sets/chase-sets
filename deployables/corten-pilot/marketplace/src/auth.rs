@@ -160,6 +160,23 @@ impl Identify<Shared> for Buyer {
     }
 }
 
+/// A buyer on the buy checkout page: an account. A guest checkout's session is marketplace's page
+/// at the same address (the guest checkout is not ported); anyone not signed in signs in and comes
+/// back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct CheckoutBuyer(pub Viewer);
+
+impl Identify<Shared> for CheckoutBuyer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(CheckoutBuyer(viewer)),
+            Found::Account(_) => Err(sign_in(views::marketplace(parts.uri.path_and_query().map_or("/", |p| p.as_str())))),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// An account on its own pages (the notification center): `accounts.view`, as marketplace's
 /// loaders and actions require (the API checks again). Anyone not signed in is sent to
 /// marketplace's sign-in, back to the notification center.

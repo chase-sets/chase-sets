@@ -115,12 +115,12 @@ async function shown(page) {
   check((await page.getByRole("link", { name: "Keep shopping" }).getAttribute("href")) === `${web}/search`, "keep shopping is marketplace's search");
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
 
-  // Check out goes to marketplace (the policy's form-action allows its origin).
+  // Check out goes to the pilot's checkout for the session it started.
   if (sendCheckout && ready) {
     const blocked = [];
     page.on("console", (m) => /Content Security Policy|form-action/i.test(m.text()) && blocked.push(m.text()));
     let landed = null;
-    await page.route(`${web}/checkout/buy/session/**`, (route) => {
+    await page.route(`${base}/checkout/buy/session/**`, (route) => {
       landed = new URL(route.request().url());
       return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><h1>Checkout</h1>" });
     });
@@ -128,9 +128,9 @@ async function shown(page) {
     await page.getByRole("button", { name: "Check out" }).click();
     const answer = await posted;
     check(Boolean(answer) && [204, 303].includes(answer.status()), `the pilot starts the session (${answer?.status()})`);
-    await page.waitForURL((u) => u.origin === web, { timeout: 30_000 }).catch(() => null);
+    await page.waitForURL((u) => u.pathname.startsWith("/checkout/buy/session/"), { timeout: 30_000 }).catch(() => null);
     const session = landed?.pathname.match(/^\/checkout\/buy\/session\/(chk_[\w-]+)$/)?.[1];
-    check(Boolean(session), `and sends the browser to marketplace's checkout for it (${landed?.pathname})`);
+    check(Boolean(session), `and sends the browser to the pilot's checkout for it (${landed?.pathname})`);
     check(Boolean(landed?.searchParams.get("afterWrite")), "with the write's receipt");
     check(blocked.length === 0, `no form-action violation (${blocked.join(" | ")})`);
     if (session) {
@@ -138,7 +138,7 @@ async function shown(page) {
       const started = read.ok() ? await read.json() : null;
       check(started?.source_type === "cart" && started.lines.length === cart.items.length, `the API has the session, with the cart's lines (${started?.lines?.length})`);
     }
-    await page.unroute(`${web}/checkout/buy/session/**`);
+    await page.unroute(`${base}/checkout/buy/session/**`);
   } else if (sendCheckout) {
     console.log("skip the cart is not ready, so there is no Check out to send");
   }

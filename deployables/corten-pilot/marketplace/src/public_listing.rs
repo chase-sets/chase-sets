@@ -23,7 +23,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    api::{Caller, Checkout as _, Discovery as _, ListingReport, Marketplace as _, PublicListing, segment},
+    api::{Caller, Checkout as _, Discovery as _, ListingReport, Marketplace as _, PublicListing},
     app::{Shared, marketplace_origin, sign_in_at, url},
     auth::Session,
     buying::{guest_checkout, is_guest},
@@ -207,11 +207,8 @@ pub(crate) async fn buy(
     }
     match caller.buy_now(attempt, &source).await {
         Ok((started, receipt)) => {
-            let after = receipt.map(|r| format!("?afterWrite={}", segment(&r.param()))).unwrap_or_default();
-            match views::marketplace(&format!("/checkout/buy/session/{}{after}", segment(&started.session_id))) {
-                Some(to) => req.redirect(&to),
-                None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-            }
+            let place = crate::checkout::Place::started(receipt.as_ref());
+            req.redirect(&crate::app::url::BuyCheckout { id: &started.session_id, place })
         }
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req, &slug),

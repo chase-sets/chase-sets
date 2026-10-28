@@ -24,6 +24,7 @@ use crate::{
 mod account_page;
 mod address_page;
 mod cart_item;
+mod checkout_page;
 mod decision_card;
 mod desk_page;
 mod inventory_item_page;
@@ -53,6 +54,7 @@ pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
 };
+pub use checkout_page::{CheckoutPage, CheckoutRecovery};
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
@@ -96,6 +98,10 @@ pub const INVENTORY: &[Component] = &[
 
 /// The cart's components (`/account/cart`).
 pub const CART: &[Component] = &[CartItem];
+
+/// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
+/// needs its totals updated.
+pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT];
 
 /// The item page's components (`/items`): its stylesheet, the Sales tab's chart, and corten-ui's
 /// handler that makes Add to List's dialog modal when the server draws it open.

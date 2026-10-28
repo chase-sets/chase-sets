@@ -26,6 +26,9 @@
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
+// - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
+//   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
+//   route.*, checkout.routes.checkoutRecovery.* as recovery.*, and checkout.shared.policyLinks.* as policy.*).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
 //   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
 //   labels the details list uses, an item's display identity, and Collections' Add to List words,
@@ -370,6 +373,17 @@ const outputs = [
       // A line's language badge (`formatLanguageCodeLabel`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
+  ],
+  [
+    "marketplace/locales/checkout.en.json",
+    json(
+      await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.sessions.ui.checkoutPage.", "page"],
+        ["checkout.routes.checkoutSession.", "route"],
+        ["checkout.routes.checkoutRecovery.", "recovery"],
+        ["checkout.shared.policyLinks.", "policy"],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/item.en.json",

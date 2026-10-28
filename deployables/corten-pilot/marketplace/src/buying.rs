@@ -535,11 +535,8 @@ pub(crate) async fn buy(
     }
     match caller.buy_now(&input.attempt, &source).await {
         Ok((session, receipt)) => {
-            let after = receipt.map(|r| format!("?afterWrite={}", segment(&r.param()))).unwrap_or_default();
-            match views::marketplace(&format!("/checkout/buy/session/{}{after}", segment(&session.session_id))) {
-                Some(to) => req.redirect(&to),
-                None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-            }
+            let place = crate::checkout::Place::started(receipt.as_ref());
+            req.redirect(&crate::app::url::BuyCheckout { id: &session.session_id, place })
         }
         Err(error) => match (error.status(), error.code()) {
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),

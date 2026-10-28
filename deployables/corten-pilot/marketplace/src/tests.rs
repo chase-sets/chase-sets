@@ -394,6 +394,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // read them (and its halt is engaged).
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
             "price_reader" => actor(&["pricing.view"]),
+            // A buyer at checkout who may see the wallet and saved addresses and save a card.
+            "payer" => actor(&["accounts.view", "payouts.view", "orders.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -500,6 +502,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
     }
     if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &body) {
+        return answer;
+    }
+    if let Some(answer) = checkout_sessions(&method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
@@ -613,6 +618,111 @@ fn checkout(session: &str, method: &Method, path: &str, body: &str) -> Option<Re
             let headers = [("chase-sets-commit-position", "9".to_owned()), ("chase-sets-commit-receipt", receipt)];
             (StatusCode::CREATED, headers, Json(json!({ "session_id": "chk_1", "status": "started" }))).into_response()
         }
+        _ => return None,
+    })
+}
+
+/// A buy-now session for the Lugia at $620.00 (the sandbox's, probed), as `GET
+/// /account/checkout-sessions/{id}` answers it, its id `id`.
+fn checkout_session(id: &str) -> Value {
+    let mut session: Value = serde_json::from_str(CHECKOUT_SESSION).unwrap();
+    session["session_id"] = json!(id);
+    match id {
+        "chk_offer" => session["source_type"] = json!("offer-intent"),
+        "chk_paid" => session["payment_id"] = json!("pay_1"),
+        _ => {}
+    }
+    session
+}
+
+const CHECKOUT_SESSION: &str = r##"{"session_id":"chk_1","buyer_account_id":"acc_buyer","source_type":"buy-now","optimization_goal":"lowest-total","fulfillment_preview_revision":"lowest-total#lst_seed_lugia#620.00","fulfillment_preview_snapshot":{"totals":{"totalAmount":"620.00","packageCount":1,"salesTaxAmount":"0.00","shippingAmount":"0.00","itemSubtotalAmount":"620.00"},"revision":"lowest-total#lst_seed_lugia#620.00","sellerGroups":[{"lines":[{"lineKey":"lst_seed_lugia_neo_genesis_bgs_95","quantity":1,"itemTitle":"Lugia","listingId":"lst_seed_lugia_neo_genesis_bgs_95","productId":"cat_seed_lugia_neo_genesis::dim_seed_form:chc_seed_form_graded|dim_seed_condition:-|dim_seed_grading_company:chc_seed_grading_company_bgs|dim_seed_grade:chc_seed_grade_mint_95","priceState":"locked","catalogItemId":"cat_seed_lugia_neo_genesis","productSummary":"Form: graded | Grading Company: bgs | Grade: mint-9.5","inventoryItemId":"inv_seed_lugia_neo_genesis_bgs_95","sellerAccountId":"acc_seed_demo_account","materialChangeReasons":[],"estimatedLineTotalAmount":"620.00","estimatedUnitPriceAmount":"620.00"}],"totalAmount":"620.00","salesTaxAmount":"0.00","sellerAccountId":"acc_seed_demo_account","deliveryEstimate":{"basis":"1 package from Chicago, IL to destination; fulfillment cutoff 16:00 America/Chicago; 1 seller handling day after cutoff/weekend/holiday handoff plus 4-7 business transit days (domestic).","latestDate":"2026-11-09","earliestDate":"2026-11-04","handlingDays":1,"packageCount":1,"promiseOwner":"fulfillment","serviceLevel":"standard parcel, signature required, insurance required, carrier insured","promiseSource":"fulfillment-promise-policy","shipFromRegion":"Chicago, IL","cutoffTimeLocal":"16:00","packingStartDate":"2026-10-28","promiseConfidence":"estimated","carrierHandoffDate":"2026-10-29","maximumTransitDays":7,"minimumTransitDays":4},"sellerDisplayName":"Chase Sets","itemSubtotalAmount":"620.00","postageRequirements":{"parcelReasons":["too-thick-for-letter","declared-value-requires-parcel","product-type-requires-parcel"],"policyVersion":"default-postage-policy-v2","parcelRequired":true,"insuranceReasons":["declared-value-requires-insurance"],"signatureReasons":["declared-value-requires-signature"],"insuranceRequired":true,"signatureRequired":true,"insuredValueAmount":"620.00","shippingEvidenceTier":"carrier-insured"},"shippingChargeAmount":"0.00"}],"readyLineKeys":["lst_seed_lugia_neo_genesis_bgs_95"],"optimizationGoal":"lowest-total","unavailableLines":[],"unavailableLineKeys":[],"materialChangeReasons":[],"authenticityCheckOffer":{"category":"any","eligible":true,"quoted_at":"2026-10-27T23:59:03.566Z","fee_amount":"20.40","policy_version":"authenticity-check-fee-v1","threshold_amount":"100.00","quote_fingerprint":"authenticity-check-fee-v1|eligible|620.00|100.00|any|20.40","order_value_amount":"620.00"}},"cart_readiness_snapshot":null,"split_group_handoff":null,"shipping_option":"standard","shipping_address_id":null,"shipping_address":null,"authenticity_check_opt_in":null,"lines":[{"quantity":1,"itemTitle":"Lugia","listingId":"lst_seed_lugia_neo_genesis_bgs_95","productId":"cat_seed_lugia_neo_genesis::dim_seed_form:chc_seed_form_graded|dim_seed_condition:-|dim_seed_grading_company:chc_seed_grading_company_bgs|dim_seed_grade:chc_seed_grade_mint_95","cartLineId":null,"itemSubtitle":"Neo Genesis 9/111 Holo Rare","catalogItemId":"cat_seed_lugia_neo_genesis","productSummary":"Form: graded | Grading Company: bgs | Grade: mint-9.5","fulfillmentMode":"locked-listing","lockedListingId":"lst_seed_lugia_neo_genesis_bgs_95","selectedOptions":[{"optionId":"chc_seed_form_graded","dimensionId":"dim_seed_form"},{"optionId":"chc_seed_grade_mint_95","dimensionId":"dim_seed_grade"},{"optionId":"chc_seed_grading_company_bgs","dimensionId":"dim_seed_grading_company"}],"offerPriceAmount":null,"availabilityState":"available","sellerPreferenceId":null,"offerPriceCurrencyCode":null}],"order_ids":[],"order_write_commit_positions":[],"checkout_reservations":[],"payment_id":null,"submitted_offer_id":null,"cancelled_at":null,"handoff_expires_at":null,"created_at":"2026-10-27T23:59:03.611Z","updated_at":"2026-10-27T23:59:03.611Z"}"##;
+
+const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
+
+/// A buy checkout's reads and writes, as the stand-in answers them. `chk_gone` is not found,
+/// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
+/// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
+/// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
+/// starts `pay_1`, but `chk_stale`'s quote is stale. Payments quotes $620.00 as the sandbox
+/// does; the wallet holds $25.00.
+fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if path == "/api/settlement/wallet" {
+        return Some(Json(json!({ "available_balance_amount": "25.00", "currency_code": "USD" })).into_response());
+    }
+    if path == "/api/marketplace/account/sell-list/ship-from-addresses" && *method == Method::GET {
+        return Some(
+            Json(json!({ "items": [{
+            "shipping_address_id": "adr_home", "account_id": "acc_buyer", "label": "Home", "recipient_name": "Demo Collector",
+            "company": null, "line1": "42 Binder Lane", "line2": null, "city": "Evanston", "state": "IL", "postal_code": "60201",
+            "country": "US", "phone": null, "email": "collector@chasesets.test", "is_default": true,
+            "updated_at": "2026-10-27 06:26:37.701+00",
+        }] }))
+            .into_response(),
+        );
+    }
+    if path == "/api/marketplace/account/checkout-payment-affordances" {
+        return Some(Json(json!({ "items": [] })).into_response());
+    }
+    if path == "/api/marketplace/account/checkout/preview-status" {
+        let query: HashMap<String, String> = uri
+            .query()
+            .unwrap_or_default()
+            .split('&')
+            .filter_map(|p| p.split_once('='))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        let quote = |category: &str, fee: &str, total: &str| {
+            json!({
+                "payment_method_category": category, "marketplace_checkout_fee_amount": fee, "total_amount": total,
+                "quote_fingerprint": format!("fq_{category}"),
+            })
+        };
+        let quotes = [
+            quote("card", "18.83", "638.83"),
+            quote("bank-account", "3.12", "623.12"),
+            quote("platform-credit", "0.00", "620.00"),
+        ];
+        let asked = query.get("paymentMethodCategory").cloned().unwrap_or_default();
+        let chosen =
+            quotes.iter().find(|q| q["payment_method_category"] == asked.as_str()).cloned().unwrap_or_else(|| quotes[0].clone());
+        let credit = query.get("requestedBalanceCreditAmount").cloned().unwrap_or_default();
+        return Some(
+            Json(json!({
+                "marketplace_checkout_fee": chosen, "payment_method_quotes": quotes,
+                "wallet_credit": { "requested_amount": credit, "applied_amount": "0.00" },
+            }))
+            .into_response(),
+        );
+    }
+    let rest = path.strip_prefix(CHECKOUT_SESSIONS)?;
+    let (id, write) = rest.split_once('/').unwrap_or((rest, ""));
+    if *method == Method::GET && write.is_empty() {
+        return Some(match id {
+            "chk_gone" => refusal(StatusCode::NOT_FOUND, "not_found", "Checkout session not found."),
+            "chk_theirs" => refusal(StatusCode::FORBIDDEN, "forbidden", "This checkout belongs to another account."),
+            "chk_down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            "chk_slow" if waits_for(headers).is_some() => refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            ),
+            _ => Json(checkout_session(id)).into_response(),
+        });
+    }
+    if *method != Method::POST {
+        return None;
+    }
+    Some(match write {
+        "shipping-address" if body.contains(r#""postalCode":"00000""#) => {
+            refusal(StatusCode::UNPROCESSABLE_ENTITY, "shipping_address_unsupported", "We cannot deliver to this address.")
+        }
+        "shipping-option" => committed(StatusCode::OK, "checkout", "11", json!({})),
+        "shipping-address" => committed(StatusCode::OK, "checkout", "12", json!({})),
+        "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
+        "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
+        "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        "confirm" => committed(StatusCode::OK, "checkout", "15", json!({ "payment_id": "pay_1" })),
         _ => return None,
     })
 }
@@ -1854,12 +1964,12 @@ const CHECK_OUT: &str = "/account/cart/checkout";
 const DECLINED: &str = "offer=declined&line=cli_charizard&listing=lst_vault_charizard";
 
 #[tokio::test]
-async fn check_out_starts_a_session_and_sends_the_buyer_to_marketplace_with_its_receipt() {
+async fn check_out_starts_a_session_and_sends_the_buyer_to_its_checkout_with_its_receipt() {
     let pilot = Pilot::new().await;
     let (status, headers, body) = pilot.send(post(CHECK_OUT, "buyer", DECLINED, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/checkout/buy/session/chk_1?afterWrite="), "{to}");
+    assert!(to.starts_with("/checkout/buy/session/chk_1?afterWrite="), "{to}");
     let receipt: Value = serde_json::from_str(&query(to)["afterWrite"]).unwrap();
     assert_eq!(receipt["commitPosition"], "9", "the session's receipt: {receipt}");
     assert_eq!(receipt["sources"][0]["sourceContextName"], "checkout", "{receipt}");
@@ -1886,7 +1996,7 @@ async fn check_out_starts_a_session_and_sends_the_buyer_to_marketplace_with_its_
     // With the script: the runtime follows corten-location.
     let (status, headers, _) = pilot.send(post(CHECK_OUT, "buyer", DECLINED, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().starts_with("http://localhost:7753/checkout/buy/session/chk_1?"));
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?"));
 }
 
 #[tokio::test]
@@ -2850,7 +2960,7 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     let (status, headers, body) = pilot.send(post(ITEM_BUY, "buyer", &buy_body("", "2", VAULT, "lst_vault", ""), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/checkout/buy/session/chk_1?afterWrite="), "{to}");
+    assert!(to.starts_with("/checkout/buy/session/chk_1?afterWrite="), "{to}");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent["entryAttemptKey"], KEY, "the form's attempt is the entry key");
@@ -4282,10 +4392,7 @@ async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(post("/listings/psa-8/buy", "buyer", &format!("attempt={KEY}"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert!(
-        headers["location"].to_str().unwrap().starts_with("http://localhost:7753/checkout/buy/session/chk_1?afterWrite="),
-        "{headers:?}"
-    );
+    assert!(headers["location"].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?afterWrite="), "{headers:?}");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent["entryAttemptKey"], KEY);
@@ -8451,4 +8558,241 @@ async fn a_running_dry_run_is_relayed_until_it_finishes() {
     assert_eq!(kinds, ["patch", "patch", "end"], "{events:?}");
     assert!(events[0].2.contains(r#"data-repricing-run="running""#) && events[0].2.contains("Preview in progress"));
     assert!(events[1].2.contains(r#"data-repricing-run="completed""#));
+}
+
+const CHECKOUT_SCREEN: &str = "/checkout/buy/session/chk_1";
+
+/// The checkout form's fields as the page draws them for `chk_1` (the saved address, standard
+/// shipping, Payments' card quote and the wallet's balance), with `extra` after them; a later
+/// field of the same name wins.
+fn checkout_body(extra: &str) -> String {
+    let fields = [
+        ("fulfillmentPreviewRevision", "lowest-total#lst_seed_lugia#620.00"),
+        ("marketplaceCheckoutFeeQuoteFingerprint", "fq_card"),
+        ("requestedBalanceCreditAmount", "25.00"),
+        ("paymentMethodCategory", "card"),
+        ("reviewedShippingOption", "standard"),
+        (
+            "reviewedShippingAddressSignature",
+            r#"["Demo Collector","","42 Binder Lane","","Evanston","IL","60201","US","","collector@chasesets.test"]"#,
+        ),
+        ("acknowledgedMaterialChanges", ""),
+        ("shippingEmail", "collector@chasesets.test"),
+        ("shippingAddressId", "adr_home"),
+        ("shippingName", "Demo Collector"),
+        ("shippingCountry", "US"),
+        ("shippingLine1", "42 Binder Lane"),
+        ("shippingCity", "Evanston"),
+        ("shippingState", "IL"),
+        ("shippingPostalCode", "60201"),
+        ("shippingOption", "standard"),
+        ("authenticityCheckOptIn", "false"),
+        ("authenticityCheckOptInQuoteFingerprint", "authenticity-check-fee-v1|eligible|620.00|100.00|any|20.40"),
+        ("previewPaymentMethodCategory", "card"),
+    ];
+    let extra: Vec<(&str, &str)> = extra.split('&').filter_map(|p| p.split_once('=')).collect();
+    let encode = |v: &str| percent_encoding::utf8_percent_encode(v, percent_encoding::NON_ALPHANUMERIC).to_string();
+    fields
+        .into_iter()
+        .filter(|(name, _)| !extra.iter().any(|(n, _)| n == name))
+        .chain(extra.iter().copied())
+        .map(|(name, value)| format!("{name}={}", encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// The checkout writes the stand-in received, in order: the last path segment and the body.
+fn checkout_writes(pilot: &Pilot) -> Vec<(String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path.starts_with(CHECKOUT_SESSIONS))
+        .map(|c| (c.path.rsplit('/').next().unwrap().to_owned(), serde_json::from_str(&c.body).unwrap_or_default()))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_address() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Lugia Neo Genesis 9/111 Holo Rare"), "{page}");
+    assert!(page.contains("Subtotal $620.00 Shipping $0.00 Estimated tax $0.00 Checkout service fee $18.83"), "{page}");
+    assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
+    assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
+    assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
+    assert!(
+        html.contains(
+            r#"<form id="checkout-form" class="checkout-page__form" method="post" action="/checkout/buy/session/chk_1""#
+        ),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="marketplaceCheckoutFeeQuoteFingerprint" value="fq_card""#), "{html}");
+    assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "{html}");
+    // Pay now and Update totals in the form, and again in the bar a phone keeps on screen.
+    assert_eq!(html.matches(r#"name="intent" value="confirm-checkout""#).count(), 2, "{html}");
+    let quoted = |pilot: &Pilot| {
+        pilot
+            .stand
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.path.starts_with("/api/marketplace/account/checkout/preview-status"))
+            .map(|c| c.path.clone())
+            .collect::<Vec<_>>()
+    };
+    let asked = quoted(&pilot);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].ends_with("?amount=620.00&currencyCode=usd&requestedBalanceCreditAmount=25.00&paymentMethodCategory=card"),
+        "{asked:?}"
+    );
+
+    // The method the address names is the one quoted.
+    let (_, _, html) = pilot.send(get(&format!("{CHECKOUT_SCREEN}?paymentMethodCategory=bank-account"), Some("payer"))).await;
+    assert!(text(&html).contains("Checkout service fee $3.12"), "{html}");
+    assert!(html.contains(r#"name="marketplaceCheckoutFeeQuoteFingerprint" value="fq_bank-account""#), "{html}");
+
+    // A buyer who may not see payouts or addresses: neither is read, and the fee is quoted
+    // without the wallet.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(!calls.iter().any(|p| p == "/api/settlement/wallet" || p.ends_with("/ship-from-addresses")), "{calls:?}");
+    assert!(calls.iter().any(|p| p.contains("requestedBalanceCreditAmount=0.00")), "{calls:?}");
+}
+
+#[tokio::test]
+async fn update_totals_writes_the_review_then_reads_after_its_last_receipt() {
+    let pilot = Pilot::new().await;
+    let body =
+        checkout_body("intent=refresh-checkout-preview&shippingOption=expedited&previewPaymentMethodCategory=bank-account");
+    let (status, headers, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_1?afterWrite="), "{to}");
+    assert!(to.contains("%2214%22") || to.contains("14"), "the preview's receipt is the latest: {to}");
+    assert!(to.ends_with("&paymentMethodCategory=bank-account"), "the method on screen: {to}");
+    let writes = checkout_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(paths, ["shipping-option", "shipping-address", "authenticity-check-opt-in", "fulfillment-preview"]);
+    assert_eq!(writes[0].1, json!({ "shippingOption": "expedited" }));
+    let address = &writes[1].1["shippingAddress"];
+    assert_eq!((&address["shippingAddressId"], &address["postalCode"]), (&json!("adr_home"), &json!("60201")), "{address}");
+    assert_eq!(writes[2].1["selected"], json!(false));
+    assert_eq!(writes[3].1["shippingOption"], json!("expedited"));
+    // Retry wallet balance only reads the page again.
+    let (status, headers, _) =
+        pilot.send(post(CHECKOUT_SCREEN, "payer", "intent=retry-wallet-balance&paymentMethodCategory=card", false)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/checkout/buy/session/chk_1?paymentMethodCategory=card")
+    );
+    assert_eq!(checkout_writes(&pilot).len(), 4);
+}
+
+#[tokio::test]
+async fn an_address_the_api_cannot_deliver_to_opens_delivery_again_with_its_words() {
+    let pilot = Pilot::new().await;
+    let body = checkout_body("intent=refresh-checkout-preview&shippingAddressId=__manual&shippingPostalCode=00000");
+    let (status, _, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Use a supported US delivery address before continuing to payment."), "{html}");
+    assert!(html.contains(r#"data-step="delivery""#), "{html}");
+    let writes = checkout_writes(&pilot);
+    assert!(!writes.iter().any(|(p, _)| p == "fulfillment-preview"), "nothing after the refusal: {writes:?}");
+}
+
+#[tokio::test]
+async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) =
+        pilot.send(post(CHECKOUT_SCREEN, "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?afterWrite="), "{headers:?}");
+    let writes = checkout_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(
+        paths,
+        ["shipping-option", "authenticity-check-opt-in", "confirm"],
+        "nothing changed, so the address is not written again"
+    );
+    let sent = &writes[2].1;
+    assert_eq!(sent["paymentMethodCategory"], "card");
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fq_card");
+    assert_eq!(sent["requestedBalanceCreditAmount"], "25.00");
+    assert_eq!(sent["fulfillmentPreviewRevision"], "lowest-total#lst_seed_lugia#620.00");
+    assert_eq!(sent["savePaymentMethodForFuture"], false);
+    assert_eq!(sent["shippingAddress"]["postalCode"], "60201");
+    // A session whose payment started: the confirmation, and no Pay now.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_paid", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
+    assert!(html.contains("http://localhost:7753/account/payments/pay_1"), "the payment's page on marketplace: {html}");
+    assert!(!html.contains(r#"value="confirm-checkout""#), "{html}");
+}
+
+#[tokio::test]
+async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_stale() {
+    let pilot = Pilot::new().await;
+    // The buyer changed shipping since the review: the review is written again, not confirmed.
+    let body = checkout_body("intent=confirm-checkout&shippingOption=priority");
+    let (status, headers, _) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.contains("&review=updated") && !to.contains("quote=required"), "{to}");
+    assert!(!checkout_writes(&pilot).iter().any(|(p, _)| p == "confirm"));
+    let (_, _, html) = pilot.send(get(to, Some("payer"))).await;
+    assert!(text(&html).contains("Review updated"), "{html}");
+
+    // Payments' quote is stale: the page again, asking for the new total.
+    let (status, headers, _) =
+        pilot.send(post("/checkout/buy/session/chk_stale", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_stale?") && to.contains("&review=updated&quote=required"), "{to}");
+    let (_, _, html) = pilot.send(get(to, Some("payer"))).await;
+    assert!(text(&html).contains("Review the latest payable total"), "{html}");
+}
+
+#[tokio::test]
+async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
+    let pilot = Pilot::new().await;
+    for (id, status, words) in [
+        ("chk_gone", StatusCode::NOT_FOUND, "Checkout session not found."),
+        ("chk_theirs", StatusCode::FORBIDDEN, "Checkout belongs to another account"),
+        ("chk_down", StatusCode::BAD_GATEWAY, "Checkout unavailable"),
+    ] {
+        let (got, _, html) = pilot.send(get(&format!("/checkout/buy/session/{id}"), Some("payer"))).await;
+        assert_eq!(got, status, "{id}: {html}");
+        assert!(text(&html).contains(words), "{id}: {html}");
+    }
+    // A session read before its write caught up: preparing, and read again shortly.
+    let (status, _, html) =
+        pilot.send(get(&format!("/checkout/buy/session/chk_slow?afterWrite={}", receipt_at("43")), Some("payer"))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(text(&html).contains("Preparing checkout"), "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
+    // A purchase intent's checkout and a guest's are marketplace's; signed out goes to sign-in.
+    let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_offer", Some("payer"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/buy/session/chk_offer")
+    );
+    let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, Some("guest"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/buy/session/chk_1")
+    );
+    let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, None)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1")
+    );
 }

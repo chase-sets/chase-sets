@@ -5,7 +5,7 @@
 //   reported it already says so (the page keeps the visitor `anon_corten_pilot_smoke`, who
 //   reported the Lugia listing once, so the smoke adds no report: three reporters unlist a
 //   listing).
-// - As the collector: Buy this listing starts a checkout session and lands on marketplace's
+// - As the collector: Buy this listing starts a checkout session and lands on the pilot's
 //   checkout (writes a checkout session).
 // - At 1280 px the panel and the seller side by side; at 390 px one column, nothing scrolls
 //   sideways and every control is at least 40 px tall.
@@ -81,13 +81,13 @@ const facts = (page) =>
   await ctx.close();
 }
 
-// Buy as the collector: a checkout session, then marketplace's checkout.
+// Buy as the collector: a checkout session, then the pilot's checkout.
 {
   const { ctx, page, problems } = await context({ storageState: state });
   await page.goto(`${base}/listings/${LUGIA}`);
   await page.waitForFunction(() => window.__hydratedAt);
   const [checkout] = await Promise.all([
-    page.waitForRequest((r) => r.url().startsWith(`${market}/checkout/buy/session/`)),
+    page.waitForRequest((r) => r.url().startsWith(`${base}/checkout/buy/session/`)),
     page.getByRole("button", { name: "Buy this listing" }).click(),
   ]);
   check(/\/checkout\/buy\/session\/[^/?]+/.test(checkout.url()), `the collector's Buy starts a checkout: ${new URL(checkout.url()).pathname}`);

@@ -982,6 +982,397 @@ impl Checkout for Caller<'_> {
     }
 }
 
+/// A buy checkout session as the Checkout API reads it (`GET /account/checkout-sessions/{id}`,
+/// `CheckoutSessionRow` in bounded-contexts/checkout/client.ts), the fields the checkout page reads.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CheckoutSession {
+    pub session_id: String,
+    pub source_type: String,
+    #[serde(default)]
+    pub shipping_option: Option<String>,
+    #[serde(default)]
+    pub shipping_address_id: Option<String>,
+    #[serde(default)]
+    pub shipping_address: Option<SessionAddress>,
+    #[serde(default)]
+    pub authenticity_check_opt_in: Option<OptIn>,
+    #[serde(default)]
+    pub fulfillment_preview_revision: Option<String>,
+    #[serde(default)]
+    pub fulfillment_preview_snapshot: Option<FulfillmentPreview>,
+    #[serde(default)]
+    pub lines: Vec<SessionLine>,
+    #[serde(default)]
+    pub order_ids: Vec<String>,
+    #[serde(default)]
+    pub payment_id: Option<String>,
+    #[serde(default)]
+    pub submitted_offer_id: Option<String>,
+    #[serde(default)]
+    pub handoff_expires_at: Option<String>,
+    /// Where a support reference comes from (`buyCheckoutSupportReference`).
+    #[serde(default)]
+    pub split_group_handoff: Option<serde_json::Value>,
+    #[serde(default)]
+    pub cart_readiness_snapshot: Option<serde_json::Value>,
+}
+
+/// The address a session keeps (`CheckoutShippingAddressInput`), and the one a write sends.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAddress {
+    #[serde(default)]
+    pub shipping_address_id: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub company: Option<String>,
+    #[serde(default)]
+    pub line1: String,
+    #[serde(default)]
+    pub line2: Option<String>,
+    #[serde(default)]
+    pub city: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub postal_code: String,
+    #[serde(default)]
+    pub country: String,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
+/// The buyer's authenticity check choice, with the quote it was made against.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptIn {
+    #[serde(default)]
+    pub selected: bool,
+    #[serde(default)]
+    pub quote_fingerprint: Option<String>,
+}
+
+/// A session line (`CheckoutSessionRow["lines"]`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLine {
+    #[serde(default)]
+    pub quantity: u64,
+    #[serde(default)]
+    pub item_title: String,
+    #[serde(default)]
+    pub item_subtitle: Option<String>,
+    #[serde(default)]
+    pub product_id: String,
+    #[serde(default)]
+    pub product_summary: Option<String>,
+    #[serde(default)]
+    pub cart_line_id: Option<String>,
+    #[serde(default)]
+    pub listing_id: Option<String>,
+}
+
+/// The fulfillment preview the session recorded (`CheckoutFulfillmentPreview`): what each seller
+/// ships, the totals, and the authenticity check on offer.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentPreview {
+    #[serde(default)]
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub totals: PreviewTotals,
+    #[serde(default)]
+    pub seller_groups: Vec<SellerGroup>,
+    #[serde(default)]
+    pub ready_line_keys: Vec<String>,
+    #[serde(default)]
+    pub unavailable_line_keys: Vec<String>,
+    #[serde(default)]
+    pub unavailable_lines: Vec<PreviewLine>,
+    #[serde(default)]
+    pub material_change_reasons: Vec<String>,
+    #[serde(default)]
+    pub authenticity_check_offer: Option<AuthenticityOffer>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewTotals {
+    #[serde(default)]
+    pub total_amount: Option<String>,
+    #[serde(default)]
+    pub item_subtotal_amount: Option<String>,
+    #[serde(default)]
+    pub shipping_amount: Option<String>,
+    #[serde(default)]
+    pub sales_tax_amount: Option<String>,
+}
+
+/// One seller's part of the preview: its lines and its delivery estimate.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SellerGroup {
+    #[serde(default)]
+    pub lines: Vec<PreviewLine>,
+    #[serde(default)]
+    pub delivery_estimate: DeliveryEstimate,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewLine {
+    #[serde(default)]
+    pub line_key: String,
+    #[serde(default)]
+    pub listing_id: Option<String>,
+    #[serde(default)]
+    pub product_id: String,
+    #[serde(default)]
+    pub estimated_line_total_amount: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryEstimate {
+    #[serde(default)]
+    pub earliest_date: String,
+    #[serde(default)]
+    pub latest_date: String,
+    #[serde(default)]
+    pub package_count: u64,
+    #[serde(default)]
+    pub service_level: String,
+}
+
+/// The authenticity check the preview offers, at its quoted fee.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct AuthenticityOffer {
+    #[serde(default)]
+    pub eligible: bool,
+    #[serde(default)]
+    pub fee_amount: String,
+    #[serde(default)]
+    pub quote_fingerprint: String,
+}
+
+/// What Payments quotes for paying `amount` (`GET /account/checkout/preview-status`,
+/// `CheckoutPaymentPreviewStatus`): the fee for the chosen method, every method's quote, and the
+/// wallet credit applied. Payments quotes it from the policy in effect; marketplace's loader
+/// quotes the compiled default itself (chase-sets/chase-sets#10683).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PaymentPreview {
+    pub marketplace_checkout_fee: FeeQuote,
+    #[serde(default)]
+    pub payment_method_quotes: Vec<FeeQuote>,
+    #[serde(default)]
+    pub wallet_credit: WalletCredit,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct FeeQuote {
+    pub payment_method_category: String,
+    #[serde(default)]
+    pub marketplace_checkout_fee_amount: String,
+    #[serde(default)]
+    pub total_amount: String,
+    #[serde(default)]
+    pub quote_fingerprint: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct WalletCredit {
+    #[serde(default)]
+    pub requested_amount: String,
+    #[serde(default)]
+    pub applied_amount: String,
+}
+
+/// The buyer's wallet balance (`GET /api/settlement/wallet`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Wallet {
+    pub available_balance_amount: String,
+    pub currency_code: String,
+}
+
+/// A saved shipping address (`GET /account/sell-list/ship-from-addresses`, the address book).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SavedAddress {
+    pub shipping_address_id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub recipient_name: String,
+    #[serde(default)]
+    pub company: Option<String>,
+    #[serde(default)]
+    pub line1: String,
+    #[serde(default)]
+    pub line2: Option<String>,
+    #[serde(default)]
+    pub city: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub postal_code: String,
+    #[serde(default)]
+    pub country: String,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+/// A saved payment method checkout can use (`GET /account/checkout-payment-affordances`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SavedInstrument {
+    pub instrument_id: String,
+    #[serde(default)]
+    pub payment_method_category: String,
+    #[serde(default)]
+    pub display_label: String,
+    #[serde(default)]
+    pub confirmation_experience: String,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default)]
+    pub readiness: String,
+}
+
+/// What Pay now sends (`confirmCheckoutSession`'s body).
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmBody {
+    pub requested_balance_credit_amount: Option<String>,
+    pub payment_method_category: String,
+    pub marketplace_checkout_fee_quote_fingerprint: Option<String>,
+    pub saved_checkout_instrument_id: Option<String>,
+    pub save_payment_method_for_future: bool,
+    pub fulfillment_preview_revision: Option<String>,
+    pub acknowledged_material_changes: bool,
+    pub shipping_address: SessionAddress,
+}
+
+/// Pay now's answer: the payment started, or the offer a purchase intent became.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Confirmed {
+    #[serde(default)]
+    pub payment_id: Option<String>,
+    #[serde(default)]
+    pub offer_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Items<T> {
+    items: Vec<T>,
+}
+
+const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions";
+
+/// The buy checkout page's calls: the session and what the page reads with it, its review writes
+/// (shipping option, address, authenticity check, the fulfillment preview) and Pay now.
+pub trait CheckoutSessions {
+    async fn checkout_session(&self, id: &str) -> Result<CheckoutSession, ApiError>;
+    async fn wallet(&self) -> Result<Wallet, ApiError>;
+    async fn checkout_addresses(&self) -> Result<Vec<SavedAddress>, ApiError>;
+    async fn checkout_instruments(&self) -> Result<Vec<SavedInstrument>, ApiError>;
+    /// Payments' quote for paying `amount`, `credit` of it from the wallet, by `method`.
+    async fn payment_preview(&self, amount: &str, currency: &str, credit: &str, method: &str)
+    -> Result<PaymentPreview, ApiError>;
+    async fn select_shipping_option(&self, id: &str, option: &str) -> Result<Option<Receipt>, ApiError>;
+    async fn select_shipping_address(&self, id: &str, address: &SessionAddress) -> Result<Option<Receipt>, ApiError>;
+    async fn select_authenticity_check(&self, id: &str, selected: bool, quote: Option<&str>)
+    -> Result<Option<Receipt>, ApiError>;
+    async fn record_fulfillment_preview(
+        &self,
+        id: &str,
+        option: &str,
+        address: &SessionAddress,
+    ) -> Result<Option<Receipt>, ApiError>;
+    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError>;
+}
+
+/// One of the session's review writes, and its receipt.
+async fn session_write(caller: &Caller<'_>, id: &str, path: &str, body: serde_json::Value) -> Result<Option<Receipt>, ApiError> {
+    let req = caller.request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/{path}", segment(id)), CHECKOUT).json(&body);
+    let (_, receipt): (serde_json::Value, _) = caller.write(req).await?;
+    Ok(receipt)
+}
+
+impl CheckoutSessions for Caller<'_> {
+    async fn checkout_session(&self, id: &str) -> Result<CheckoutSession, ApiError> {
+        self.read(&format!("{CHECKOUT_SESSIONS}/{}", segment(id)), CHECKOUT).await
+    }
+
+    async fn wallet(&self) -> Result<Wallet, ApiError> {
+        self.read("/api/settlement/wallet", "settlement").await
+    }
+
+    async fn checkout_addresses(&self) -> Result<Vec<SavedAddress>, ApiError> {
+        let body: Items<SavedAddress> = self.read("/api/marketplace/account/sell-list/ship-from-addresses", CHECKOUT).await?;
+        Ok(body.items)
+    }
+
+    async fn checkout_instruments(&self) -> Result<Vec<SavedInstrument>, ApiError> {
+        let body: Items<SavedInstrument> = self.read("/api/marketplace/account/checkout-payment-affordances", CHECKOUT).await?;
+        Ok(body.items)
+    }
+
+    async fn payment_preview(
+        &self,
+        amount: &str,
+        currency: &str,
+        credit: &str,
+        method: &str,
+    ) -> Result<PaymentPreview, ApiError> {
+        let path = format!(
+            "/api/marketplace/account/checkout/preview-status?amount={}&currencyCode={}&requestedBalanceCreditAmount={}&paymentMethodCategory={}",
+            segment(amount),
+            segment(currency),
+            segment(credit),
+            segment(method)
+        );
+        self.read(&path, "payments").await
+    }
+
+    async fn select_shipping_option(&self, id: &str, option: &str) -> Result<Option<Receipt>, ApiError> {
+        session_write(self, id, "shipping-option", serde_json::json!({ "shippingOption": option })).await
+    }
+
+    async fn select_shipping_address(&self, id: &str, address: &SessionAddress) -> Result<Option<Receipt>, ApiError> {
+        session_write(self, id, "shipping-address", serde_json::json!({ "shippingAddress": address })).await
+    }
+
+    async fn select_authenticity_check(
+        &self,
+        id: &str,
+        selected: bool,
+        quote: Option<&str>,
+    ) -> Result<Option<Receipt>, ApiError> {
+        let body = serde_json::json!({ "selected": selected, "quoteFingerprint": quote });
+        session_write(self, id, "authenticity-check-opt-in", body).await
+    }
+
+    async fn record_fulfillment_preview(
+        &self,
+        id: &str,
+        option: &str,
+        address: &SessionAddress,
+    ) -> Result<Option<Receipt>, ApiError> {
+        let body = serde_json::json!({ "shippingOption": option, "shippingAddress": address });
+        session_write(self, id, "fulfillment-preview", body).await
+    }
+
+    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError> {
+        let req = self.request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/confirm", segment(id)), CHECKOUT).json(body);
+        self.write(req).await
+    }
+}
+
 const DISCOVERY: &str = "discovery";
 const PRICING: &str = "pricing";
 const ROLLUPS: &str = "/api/marketplace/market-rollups";
