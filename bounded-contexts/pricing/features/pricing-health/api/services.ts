@@ -5,6 +5,7 @@ import type { RepricingPolicyServices } from "../../repricing-policies/api/runti
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { RepricingPolicyState } from "../../repricing-policies/domain/domain";
+import { bindGoalAuthoringIntent } from "../../repricing-policies/domain/authoring-intent";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
 import { forecastLedgerPolicy } from "../../forecast-ledger/domain/policy";
@@ -13,7 +14,7 @@ import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
 import { discloseForecastGrade, type PricingHealthGrade } from "./grades";
 import { readCandidateComparison, readComparisonFacts, readPricingHealthRun } from "../read-model/queries";
-import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
+import { pricingGoalDefinitions, resolvePricingGoal } from "../../repricing-policies/domain/domain";
 import {
   buildCandidateBody,
   isOneRuleUnconditional,
@@ -475,7 +476,7 @@ export function createPricingHealthServices({
           command: {
             type: "ReviseRepricingPolicy",
             name: target.name,
-            ...expectedBody,
+            ...bindGoalAuthoringIntent(expectedBody, resolvePricingGoal),
             revisedAt: new Date().toISOString(),
           },
         })) as RepricingPolicyState;
