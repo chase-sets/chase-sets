@@ -757,7 +757,6 @@ const tcgplayerHost = /(^|\.)tcgplayer\.com$/i;
 const callbackHost = new URL(TCGPLAYER_CONNECTOR_REDIRECT_URI).host;
 const generateButton = 'form:has(input[name="intent"][value="connector-code"]) button[type="submit"]';
 const unpairButton = 'form:has(input[name="intent"][value="connector-unpair"]) button[type="submit"]';
-const claimPath = /^\/channel-connector\/oauth\/connections\/[^/]+\/claim$/;
 const pairingWindowMs = 600_000;
 /** Issues whose closing-PR merges the deployed commit must contain: client registration, the pinned callback route, this drill and staging sign-in. */
 export const deployedRequiredIssues = { pairing: [10110, 9985, 10639, 10640], smoke: [10639] } as const;
@@ -1499,6 +1498,97 @@ export async function openRawCdpTransport(profilePath: string): Promise<RawCdpTr
   };
 }
 
+/** Owns the deployed browser response subscription for the whole drill, not just the popup action. */
+export function installDeployedResponses(
+  context: BrowserContext,
+  input: Readonly<{
+    platformOrigin: string;
+    connectionId(): string | null;
+    phase(): DeployedClaimRow["phase"];
+    pages: DeployedPageRow[];
+    claims: DeployedClaimRow[];
+  }>,
+) {
+  let closed = false;
+  const pageListeners = new Map<Page, (response: BrowserResponse) => void>();
+  const redact = (path: string) => {
+    const id = input.connectionId();
+    return id ? path.replaceAll(id, "<connectionId>") : path;
+  };
+  const observe = async (response: BrowserResponse) => {
+    const request = response.request();
+    const url = new URL(request.url());
+    if (url.origin !== input.platformOrigin) return;
+    if (!request.serviceWorker() && request.resourceType() === "document") {
+      const headers = response.headers();
+      input.pages.push({
+        method: request.method(),
+        host: url.host,
+        path: redact(url.pathname),
+        status: response.status(),
+        contentType: mediaType(headers["content-type"]),
+        locationHost: headers.location ? new URL(headers.location, url).host : null,
+        at: Date.now(),
+      });
+      return;
+    }
+    const id = input.connectionId();
+    if (
+      !request.serviceWorker() ||
+      !id ||
+      request.method() !== "POST" ||
+      url.pathname !== `/channel-connector/oauth/connections/${id}/claim`
+    )
+      return;
+    const phase = input.phase();
+    const path = redact(url.pathname);
+    const body: unknown = await response.json().catch(() => undefined);
+    if (closed) return;
+    input.claims.push({
+      phase,
+      path,
+      status: response.status(),
+      reservation:
+        isRecord(body) && "reservation" in body ? (body.reservation === null ? null : "present") : "unreadable",
+      bodyCode: bodyCode(body),
+    });
+  };
+  const observeWorker = (response: BrowserResponse) => {
+    if (response.request().serviceWorker()) void observe(response).catch(() => undefined);
+  };
+  const observePage = (page: Page) => {
+    if (pageListeners.has(page)) return;
+    const listener = (response: BrowserResponse) => {
+      // Context owns worker responses; Page alone owns ordinary documents.
+      if (!response.request().serviceWorker()) void observe(response).catch(() => undefined);
+    };
+    pageListeners.set(page, listener);
+    page.on("response", listener);
+  };
+  context.on("response", observeWorker);
+  for (const page of context.pages()) observePage(page);
+  context.on("page", observePage);
+  return () => {
+    closed = true;
+    context.off("response", observeWorker);
+    context.off("page", observePage);
+    for (const [page, listener] of pageListeners) page.off("response", listener);
+    pageListeners.clear();
+  };
+}
+
+export function deployedPausedClaimsValid(claims: readonly DeployedClaimRow[], storedClaimPath: string) {
+  const pausedClaims = claims.filter((claim) => claim.phase === "paused");
+  return (
+    pausedClaims.length >= 2 &&
+    pausedClaims.every((claim) => claim.status === 200 && claim.reservation === null && claim.path === storedClaimPath)
+  );
+}
+
+export function deployedUnpairedClaimObserved(claims: readonly DeployedClaimRow[], claimsAtUnpair: number) {
+  return claims.slice(claimsAtUnpair).some((claim) => claim.phase === "unpaired" && claim.status === 401);
+}
+
 async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receipt: DeployedPairingDrillReceipt }> {
   const { platformOrigin } = input;
   const platformHost = new URL(platformOrigin).host;
@@ -1513,6 +1603,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   let profile: DeployedDrillProfile | null = null;
   let connectionId: string | null = null;
   let claimPhase: DeployedClaimRow["phase"] = "paused";
+  let removeResponses: (() => void) | undefined;
   const sorted = (rows: Map<string, DrillRequestRow>) =>
     [...rows.values()].sort((a, b) => `${a.origin}|${a.source}`.localeCompare(`${b.origin}|${b.source}`));
   const count = (rows: Map<string, DrillRequestRow>, origin: string, source: "worker" | "page") => {
@@ -1559,40 +1650,14 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       fail("connector-drill-tcgplayer-refused");
     return cookies;
   };
-  const observe = async (response: BrowserResponse) => {
-    const request = response.request();
-    const url = new URL(request.url());
-    if (url.origin !== platformOrigin) return;
-    const headers = response.headers();
-    // Chromium does not consistently mark the initial document response for a
-    // tab opened by `chrome.tabs.create` as a navigation request. Resource
-    // type is the stable document boundary for both the original page and
-    // extension-opened tabs.
-    if (!request.serviceWorker() && request.resourceType() === "document") {
-      pages.push({
-        method: request.method(),
-        host: url.host,
-        path: redact(url.pathname),
-        status: response.status(),
-        contentType: mediaType(headers["content-type"]),
-        locationHost: headers.location ? new URL(headers.location, url).host : null,
-        at: Date.now(),
-      });
-      return;
-    }
-    if (!request.serviceWorker() || !claimPath.test(url.pathname)) return;
-    const phase = claimPhase;
-    const body: unknown = await response.json().catch(() => undefined);
-    claims.push({
-      phase,
-      path: redact(url.pathname),
-      status: response.status(),
-      reservation:
-        isRecord(body) && "reservation" in body ? (body.reservation === null ? null : "present") : "unreadable",
-      bodyCode: bodyCode(body),
-    });
-  };
   const install = async (context: BrowserContext) => {
+    removeResponses = installDeployedResponses(context, {
+      platformOrigin,
+      connectionId: () => connectionId,
+      phase: () => claimPhase,
+      pages,
+      claims,
+    });
     const callback = new URL(TCGPLAYER_CONNECTOR_REDIRECT_URI);
     await context.route("**/*", async (route) => {
       const request = route.request();
@@ -1615,16 +1680,6 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       else if (source === "worker" && url.origin !== canaryOrigin) isolation.workerEscapes++;
       await route.abort();
     });
-    const observePage = (page: Page) => {
-      page.on("response", (response) => {
-        // Extension-created tabs are not always surfaced through the context
-        // response stream. Attach at the page boundary so their document
-        // status is retained before the page-status check runs.
-        observe(response).catch(() => undefined);
-      });
-    };
-    for (const page of context.pages()) observePage(page);
-    context.on("page", observePage);
     if (input.traceActive) await context.tracing.start(traceOptions);
     try {
       await context.tracing.start(traceOptions);
@@ -2062,15 +2117,8 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         await fire();
         await waitFor(() => claims.length > seen);
       }
-      const pausedClaims = claims.filter((claim) => claim.phase === "paused");
       const storedClaimPath = redact(`/channel-connector/oauth/connections/${id}/claim`);
-      if (
-        pausedClaims.length < 2 ||
-        pausedClaims.some(
-          (claim) => claim.status !== 200 || claim.reservation !== null || claim.path !== storedClaimPath,
-        )
-      )
-        fail("connector-drill-paused-claim-refused");
+      if (!deployedPausedClaimsValid(claims, storedClaimPath)) fail("connector-drill-paused-claim-refused");
       checkIsolation();
 
       // Unpair on the pairing panel before the next claim fires; that claim is refused and cleanup follows.
@@ -2092,7 +2140,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         !revoked ||
         cleanupAt < 0 ||
         cleanupAt > lifecycle.lastIndexOf("revoked") ||
-        !claims.slice(claimsAtUnpair).some((claim) => claim.phase === "unpaired" && claim.status === 401)
+        !deployedUnpairedClaimObserved(claims, claimsAtUnpair)
       )
         fail("connector-drill-lifecycle-refused");
       const titled = await waitFor(async () => (await actionTitle(connector)) === "revoked");
@@ -2143,6 +2191,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   } catch (error) {
     failure = error;
   }
+  removeResponses?.();
   try {
     await context?.close();
   } catch {

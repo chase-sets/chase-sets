@@ -360,6 +360,14 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   expect(receipt.cookies).toEqual([{ domain: new URL(staging).hostname, count: 1 }]);
   expect(readdirSync(outcome.outputDir)).toEqual(["receipt.json"]);
   expect(scanRetainedArtifacts(outcome.outputDir, [...outcome.forbidden, ...retainedSecretMarkers])).toBe(1);
+  console.log(`CONNECTOR_DRILL_BROWSER_PAUSED_CLAIMS ${JSON.stringify(paused)}`);
+  console.log(
+    `CONNECTOR_DRILL_BROWSER_POST_UNPAIR ${JSON.stringify(receipt.claims.filter((claim) => claim.phase === "unpaired"))}`,
+  );
+  console.log(
+    `CONNECTOR_DRILL_BROWSER_LIFECYCLE ${JSON.stringify({ lifecycle: receipt.lifecycle, display: receipt.display })}`,
+  );
+  console.log(`CONNECTOR_DRILL_FINAL_RECEIPT ${JSON.stringify(receipt)}`);
 });
 
 test("connector-pairing-drill-deployed composed staging smoke against the fake seam", async () => {
