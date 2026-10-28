@@ -24,7 +24,7 @@ type CandidateDiagnostic = Pick<
 >;
 type PricingHealthResponse = {
   target: { policyId: string } | null;
-  goals: readonly { goalId: string; goalVersion: number }[];
+  goals: readonly { goalId: string; goalVersion: number; parameters: Readonly<Record<string, number>> }[];
   comparison: readonly (CandidateDiagnostic & {
     targetPolicyId: string;
     listingCount: number | null;
@@ -134,13 +134,39 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     fixture = await seedSyntheticPricingHealthInputs(pool, { accountId: created.accountId, listingId });
     const before = await (await page.request.get(`${policiesApi}/${created.policyId}`)).json();
     await page.goto(`/account/desk/pricing-health?policyId=${created.policyId}`);
+    const disclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
+    await disclosure.focus();
+    await expect(disclosure).toBeFocused();
+    await page.keyboard.press("Enter");
+    const parameter = page.getByTestId("pricing-health-goal-picker").locator('input[type="number"]').first();
+    await expect(parameter).toBeVisible();
+    const bounds = await parameter.evaluate((node) => ({
+      value: Number((node as HTMLInputElement).value),
+      min: Number((node as HTMLInputElement).min),
+      max: Number((node as HTMLInputElement).max),
+    }));
+    const editedValue = bounds.value < bounds.max ? bounds.value + 1 : bounds.value - 1;
+    await parameter.fill(String(editedValue));
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("goals"))
+      .toMatch(new RegExp(`\\"${editedValue}\\"|:${editedValue}(?:[,}])`));
+    const editedGoals = JSON.parse(new URL(page.url()).searchParams.get("goals")!) as Array<{
+      goalId: string;
+      goalVersion: number;
+      parameters: Record<string, number>;
+    }>;
+    expect(editedGoals.some((goal) => Object.values(goal.parameters).includes(editedValue))).toBe(true);
     const compare = page.getByRole("button", { name: "Compare goals", exact: true });
     await expect(compare).toBeVisible();
     await compare.focus();
     await expect(compare).toBeFocused();
     await page.keyboard.press("Enter");
-    const read = async () =>
-      (await (await page.request.get(`${healthApi}?policyId=${created!.policyId}`)).json()) as PricingHealthResponse;
+    const read = async () => {
+      const goals = new URL(page.url()).searchParams.get("goals");
+      const query = new URLSearchParams({ policyId: created!.policyId });
+      if (goals) query.set("goals", goals);
+      return (await (await page.request.get(`${healthApi}?${query}`)).json()) as PricingHealthResponse;
+    };
     const first = await read();
     // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain + canonical navigation = 170 s < 180 s.
     const candidateDeadline = Date.now() + Math.min(75_000, Math.max(45_000, first.goals.length * 12_000));
@@ -178,6 +204,7 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     }
     completed = await read();
     expect(completed.comparison.length).toBeGreaterThan(0);
+    expect(completed.goals.some((goal) => Object.values(goal.parameters).includes(editedValue))).toBe(true);
     let movement = 0;
     for (const row of completed.comparison) {
       expect(row.targetPolicyId).toBe(created.policyId);
@@ -197,13 +224,38 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     expect(await (await page.request.get(`${policiesApi}/${created.policyId}`)).json()).toEqual(before);
     const implicitTarget = await (await page.request.get(healthApi)).json();
     expect(implicitTarget.target?.policyId, "The implicit target is not the created policy.").toBe(created.policyId);
+    const editedGoal = editedGoals.find((goal) => Object.values(goal.parameters).includes(editedValue));
+    expect(editedGoal).toBeDefined();
+    const editedCandidate = completed.comparison.find(
+      (row) => row.goalId === editedGoal!.goalId && row.goalVersion === editedGoal!.goalVersion,
+    );
+    expect(editedCandidate?.dryRunId).toBeTruthy();
+    const defaultReadback = (await (
+      await page.request.get(`${healthApi}?policyId=${encodeURIComponent(created.policyId)}`)
+    ).json()) as PricingHealthResponse;
+    expect(defaultReadback.comparison.some((row) => row.dryRunId === editedCandidate!.dryRunId)).toBe(false);
+    const defaultCompletedCount = defaultReadback.comparison.filter((row) => row.status === "completed").length;
     await page.goto("/account/desk/pricing-health");
-    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(completed.goals.length, {
+    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(defaultCompletedCount, {
       timeout: 15_000,
     });
     const computeVerdict = page.getByRole("button", { name: "Compute verdict", exact: true });
     await expect(computeVerdict).toBeEnabled();
     await expect(computeVerdict).toHaveCSS("opacity", "1");
+    const canonicalDisclosures = page
+      .getByTestId("pricing-health-goal-picker")
+      .getByRole("button", { name: "Advanced controls and provenance", exact: true });
+    await expect(canonicalDisclosures).not.toHaveCount(0);
+    for (let index = 0; index < (await canonicalDisclosures.count()); index += 1) {
+      const disclosure = canonicalDisclosures.nth(index);
+      if ((await disclosure.getAttribute("aria-expanded")) !== "true") {
+        await disclosure.focus();
+        await expect(disclosure).toBeFocused();
+        await page.keyboard.press("Enter");
+      }
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    }
+    await expect(page.getByTestId("pricing-health-goal-picker").locator('input[type="number"]').first()).toBeVisible();
     const viewports = [
       { width: 360, height: 800 },
       { width: 390, height: 844 },
@@ -242,10 +294,13 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     }
     await page.setViewportSize({ width: 360, height: 800 });
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-360" });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-parameters-360" });
     await page.setViewportSize({ width: 390, height: 844 });
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-390" });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-parameters-390" });
     await page.setViewportSize({ width: 820, height: 1180 });
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-tablet" });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-parameters-tablet" });
   } finally {
     try {
       if (!comparisonSucceeded) await attachDiagnostics();
