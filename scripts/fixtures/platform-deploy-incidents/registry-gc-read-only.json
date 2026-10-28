@@ -1,0 +1,15 @@
+{
+  "name": "registry garbage collection is active",
+  "input": {
+    "phase": "build-image",
+    "diagnostics": [
+      { "rootCauseCode": "registry-gc-read-only", "active": true, "status": "scanning for unreferenced blobs" }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "registry-gc-read-only",
+    "affectedComponent": "digitalocean-container-registry",
+    "phase": "registry-gc",
+    "blocking": true
+  }
+}

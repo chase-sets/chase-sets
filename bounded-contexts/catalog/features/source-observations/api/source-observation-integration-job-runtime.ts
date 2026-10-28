@@ -37,6 +37,7 @@ import type {
   SourceObservationIntegrationDurableJobRecord,
   IntegrationJobServices,
   SourceObservationIntegrationJobStore,
+  SourceObservationIntegrationJobActiveSnapshot,
   SourceObservationIntegrationWorkUnitStore,
 } from "./source-observation-runtime-contracts";
 import {
@@ -1025,14 +1026,28 @@ export function createSourceObservationIntegrationJobRuntime({
     listIntegrationJobEvents: async (jobId, afterSequence = 0) =>
       (await integrationJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
     waitForIntegrationJobEvents: (jobId, signal) => integrationJobStore.waitForEvents({ jobId, signal }),
-    listActiveIntegrationJobs: async ({ context }) => {
+    listActiveIntegrationJobSnapshot: async ({ context }): Promise<SourceObservationIntegrationJobActiveSnapshot> => {
       if (!context) {
-        return [];
+        return { items: [], completeness: "complete" };
       }
 
-      return (await integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }))
-        .filter((job) => jobMatchesContext(job, context))
-        .map(toSourceObservationIntegrationJob);
+      const snapshot = integrationJobStore.listActiveSnapshot
+        ? await integrationJobStore.listActiveSnapshot({
+            jobKinds: ["import", "reapply"],
+            eventContext: context,
+            limit: 50,
+          })
+        : {
+            items: await integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }),
+            completeness: "incomplete" as const,
+          };
+      return {
+        items: snapshot.items.filter((job) => jobMatchesContext(job, context)).map(toSourceObservationIntegrationJob),
+        completeness: snapshot.completeness,
+      };
+    },
+    listActiveIntegrationJobs: async ({ context }) => {
+      return (await services.listActiveIntegrationJobSnapshot?.({ context }))?.items ?? [];
     },
     listRecentIntegrationJobs: async ({ context, limit }) => {
       if (!context) {

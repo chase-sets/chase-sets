@@ -747,6 +747,9 @@ jobs:
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${tree_tag}"
           docker tag "$PLATFORM_IMAGE" "$image"
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --registry="$registry_name" \
+            --out="${RUNNER_TEMP}/merge-group-registry-gc-gate.json"
           push_output="${RUNNER_TEMP}/merge-qualification-image-push.txt"
           docker push "$image" | tee "$push_output"
           digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]\{64\}\).*$/\1/p' "$push_output" | tail -n 1)"
@@ -1510,6 +1513,8 @@ jobs:
 
       - name: Build and push platform image
         id: image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
@@ -1520,6 +1525,9 @@ jobs:
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --registry="$registry_name" \
+            --out="${RUNNER_TEMP}/preview-registry-gc-gate.json"
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \

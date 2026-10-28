@@ -1566,6 +1566,34 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.queryCount).toBe(0);
   });
 
+  it("uses one context-scoped active snapshot for the overview and endpoint seam", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: integrationJobRow({
+        jobId: "job_active_import",
+        action: "import",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+        eventContext: context,
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const snapshot = await services.listActiveIntegrationJobSnapshot?.({ context });
+
+    expect(snapshot).toMatchObject({ completeness: "complete" });
+    expect(snapshot?.items).toMatchObject([{ jobId: "job_active_import", status: "queued" }]);
+    expect(harness.activeLookupValues).toEqual([
+      ["import", "reapply"],
+      context.tenantId,
+      context.audit?.forAccountId,
+      context.audit?.performedByUserId,
+      51,
+    ]);
+  });
+
   it("lists recent terminal integration jobs for the current request context", async () => {
     const terminalJob = {
       ...integrationJobRow({

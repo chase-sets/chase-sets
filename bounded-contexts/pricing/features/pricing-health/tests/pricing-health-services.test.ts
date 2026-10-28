@@ -6,10 +6,11 @@ import type { RepricingEngineServices } from "../../repricing-engine/api/runtime
 import { initialRepricingPolicyState } from "../../repricing-policies/domain/domain";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../forecast-ledger/domain/policy";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
 import { createPricingHealthServices } from "../api/services";
 
 describe("Pricing Health current revision authority", () => {
-  function setup(status: "active" | "paused" = "active") {
+  function setup(status: "active" | "paused" = "active", whatIfFails = false, corruptGrade = false) {
     const calls: { sql: string; values?: readonly unknown[] }[] = [];
     const state = {
       ...initialRepricingPolicyState,
@@ -19,10 +20,42 @@ describe("Pricing Health current revision authority", () => {
       scope: { kind: "all-listings" as const },
       maxChangesPerDay: 101,
       status,
+      rules: corruptGrade
+        ? [
+            {
+              ...dryRunBody.rules[0]!,
+              directive: {
+                ...dryRunBody.rules[0]!.directive,
+                anchorChain: [
+                  {
+                    source: "curve-objective" as const,
+                    goalId: "fixed-percentile",
+                    goalVersion: 1,
+                    parameters: { percentile: 50 },
+                  },
+                ],
+              },
+            },
+          ]
+        : [],
     };
     const db: PgQueryable = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
         calls.push({ sql, values });
+        if (whatIfFails && sql.includes("FROM pricing_market_listing_inputs"))
+          throw new Error("synthetic what-if outage");
+        if (corruptGrade && sql.includes("FROM pricing_forecast_grades"))
+          return {
+            rows: [
+              {
+                closed_on: "2026-10-18",
+                forecast_kind: "curve",
+                model: "synthetic-corrupt",
+                horizon_days: 21,
+                grade: null,
+              },
+            ] as Row[],
+          };
         const rows = sql.includes("FROM pricing_repricing_policies")
           ? [
               {
@@ -61,6 +94,13 @@ describe("Pricing Health current revision authority", () => {
       },
       repricingEngine: { enqueueDryRun, getDryRun: vi.fn<RepricingEngineServices["getDryRun"]>() },
       forecastLedger: { listGoalAdoptions: async () => [] },
+      economics: whatIfFails
+        ? {
+            resolve: async () => {
+              throw new Error("must not reach Economics");
+            },
+          }
+        : undefined,
     });
     return { state, calls, services, loadOwnedRepricingPolicy, enqueueDryRun };
   }
@@ -95,4 +135,23 @@ describe("Pricing Health current revision authority", () => {
     expect(await services.compute("acc_owned", "rpp_owned", {} as never)).toBeNull();
     expect(enqueueDryRun).not.toHaveBeenCalled();
   });
+
+  it("contains an adapter rejection without losing the verdict, comparison or grades (F2)", async () => {
+    const { services } = setup("active", true);
+    expect(await services.getHealth("acc_owned", "rpp_owned", "2026-10-19T00:00:00.000Z")).toMatchObject({
+      target: { name: "Current policy" },
+      health: null,
+      comparison: [],
+      grades: [],
+      whatIf: { status: "unavailable" },
+    });
+  });
+
+  it.each([undefined, "rpp_owned"])(
+    "rejects corrupt grades for both implicit and explicit selectors: %s (F5)",
+    async (selector) => {
+      const { services } = setup("active", false, true);
+      await expect(services.getHealth("acc_owned", selector, "2026-10-19T00:00:00.000Z")).rejects.toThrow();
+    },
+  );
 });

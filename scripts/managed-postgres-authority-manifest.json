@@ -1376,56 +1376,84 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Summarize DOKS foundation#12",
+      "stepAnchor": "name:Preflight DOKS version change#8",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform apply DOKS#10",
+      "stepAnchor": "name:Summarize DOKS foundation#14",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-doks-foundation.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Terraform apply DOKS#12",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -1488,56 +1516,56 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform plan DOKS#9",
+      "stepAnchor": "name:Terraform plan DOKS#10",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Terraform validate DOKS#8",
+      "stepAnchor": "name:Terraform validate DOKS#9",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -1572,28 +1600,28 @@
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-doks-foundation.yml",
       "jobId": "apply",
-      "stepAnchor": "name:Verify DOKS cluster and nodes#11",
+      "stepAnchor": "name:Verify DOKS cluster and nodes#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -3289,6 +3317,13 @@
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "VOYAGE_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Build and push platform image#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
@@ -5275,6 +5310,20 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "build-image",
+      "stepAnchor": "name:Build release image#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "build-image",
+      "stepAnchor": "name:Push release image#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "build-image",
       "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
@@ -6222,6 +6271,13 @@
       "jobId": "deploy-production",
       "stepAnchor": "name:Install staged doctl binary#11",
       "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Mark production release#53",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
@@ -9104,6 +9160,13 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-production-marker",
+      "stepAnchor": "name:Reconcile retained production marker#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
       "stepAnchor": "uses:./.github/actions/production-marker-recovery-context",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
@@ -9132,7 +9195,14 @@
     {
       "file": ".github/workflows/platform-registry-cleanup.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Cleanup registry tags#7",
+      "stepAnchor": "name:Cleanup registry tags#8",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-registry-cleanup.yml",
+      "jobId": "cleanup",
+      "stepAnchor": "name:Resolve registry identity#5",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },

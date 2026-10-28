@@ -5,6 +5,7 @@ import { HealthSummary } from "./health-summary";
 import { ForecastGradePanel } from "./forecast-grade-panel";
 import { healthCopy as copy } from "./copy";
 import { GoalComparison, GoalPicker } from "./goal-comparison";
+import { PricingHealthWhatIfPanels } from "./what-if-panels";
 
 export function PricingHealthPage({
   data,
@@ -102,6 +103,9 @@ export function PricingHealthPage({
                         recommendation={data.recommendation ?? { kind: "compare-goals" }}
                         applyAction={applyAction}
                       />
+                    </PageSection>
+                    <PageSection title={copy("whatIf.title")} description={copy("whatIf.description")}>
+                      <PricingHealthWhatIfPanels data={data.whatIf} />
                     </PageSection>
                     <PageSection title={copy("grades.title")} description={copy("grades.platform")}>
                       <ForecastGradePanel grades={data.grades} />

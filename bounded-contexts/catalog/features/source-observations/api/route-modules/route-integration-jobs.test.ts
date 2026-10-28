@@ -465,9 +465,26 @@ describe("source observation routes: integration and bulk review jobs", () => {
     await expect(response.json()).resolves.toMatchObject({
       total: 1,
       count: 1,
+      completeness: "incomplete",
       items: [{ jobId: "job_integration", action: "import", status: "running" }],
     });
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+  });
+
+  it("returns an explicit incomplete active snapshot instead of an authoritative zero", async () => {
+    const listActiveIntegrationJobSnapshot = vi.fn(async () => ({ items: [], completeness: "incomplete" as const }));
+    const listActiveIntegrationJobs = vi.fn(async () => []);
+    const services = {
+      listActiveIntegrationJobSnapshot,
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/active");
+
+    await expect(response.json()).resolves.toMatchObject({ items: [], total: 0, count: 0, completeness: "incomplete" });
+    expect(listActiveIntegrationJobSnapshot).toHaveBeenCalledWith({ context });
+    expect(listActiveIntegrationJobs).not.toHaveBeenCalled();
   });
 
   it("runs provider import lifecycle commands through the current request context", async () => {

@@ -10,9 +10,11 @@ import { parse } from "yaml";
 import {
   admissionResources,
   captureServingSet,
+  failureCategory,
   main,
   proofDigest,
   refusalCode,
+  sqlstateClass,
   summarizeRuntimeLog,
 } from "./agent-grant-revocation-release.mjs";
 import { classifyDeploymentRootCause, DEPLOY_ROOT_CAUSE_CODES } from "./platform-deploy-incident.mjs";
@@ -69,6 +71,7 @@ describe("revocation release CLI decisions", () => {
     protocol = "revalidate",
     forbidden = null,
     logs = "",
+    childDiagnostic = null,
   } = {}) {
     let floor = absent
       ? null
@@ -167,6 +170,7 @@ describe("revocation release CLI decisions", () => {
             if (protocol === "lost-reply") return close(1);
             if (protocol === "refused") {
               child.stderr.write(`raw failure ${secretMarker}\nrevocation_dormant_request_unresolved\n`);
+              if (childDiagnostic) child.stderr.write(`${JSON.stringify(childDiagnostic)}\n`);
               return close(1);
             }
             if (protocol === "revalidate" && writes.length === 1)
@@ -301,6 +305,57 @@ describe("revocation release CLI decisions", () => {
     expectReleased(f);
     expect(status()).toMatchObject({ result: "refused", refusal: "revocation_dormant_request_unresolved" });
     expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
+  });
+  it("records a value-free diagnostic beside a refusal status", async () => {
+    const typed = Object.assign(new Error("raw database detail"), {
+      code: "42501",
+      failureCategory: "schema_permission",
+    });
+    expect(sqlstateClass(typed)).toBe("42");
+    expect(failureCategory(typed)).toBe("schema_permission");
+    const f = fixture({ statuses: [dormant], protocol: "refused" });
+    await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
+    expect(status()).toHaveProperty("diagnostic");
+    expect(JSON.stringify(status().diagnostic)).not.toContain(secretMarker);
+  });
+  it("preserves a known status identity over an unknown child diagnostic", async () => {
+    const f = fixture({
+      statuses: [dormant],
+      protocol: "refused",
+      childDiagnostic: {
+        schemaVersion: "agent-grant-revocation-diagnostic/v1",
+        identity: { state: "unknown" },
+        sqlstateClass: "unknown",
+        failureCategory: "application",
+      },
+    });
+    await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
+    expect(status().diagnostic).toMatchObject({ identity: { state: "dormant" } });
+  });
+  it("prints the status diagnostic beside a refusal", async () => {
+    const f = fixture({
+      statuses: [dormant],
+      protocol: "refused",
+      childDiagnostic: {
+        schemaVersion: "agent-grant-revocation-diagnostic/v1",
+        identity: { state: "unknown" },
+        sqlstateClass: "unknown",
+        failureCategory: "application",
+      },
+    });
+    let output = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output += chunk;
+      return true;
+    });
+    try {
+      await expect(main(args("activate"), f)).rejects.toThrow("revocation_dormant_request_unresolved");
+    } finally {
+      write.mockRestore();
+    }
+    const printed = JSON.parse(output.trim());
+    expect(printed).toEqual(status().diagnostic);
+    expect(printed.identity).toEqual({ state: "dormant" });
   });
   it("activate rejects a mismatched receipt digest without unfreezing", async () => {
     const f = fixture({ statuses: [dormant, activated], protocol: "wrong-digest" });
@@ -1075,6 +1130,9 @@ describe("revocation-caller-partition workflow caller", () => {
       expect(activations[1]).toContain(
         `--status-out artifacts/agent-grant-revocation/${environment}/replay-status.json`,
       );
+      expect(step.run).toContain(
+        `jq -c "{diagnostic, status: {environment,releaseCommit,imageDigest,identity,refusal}}"`,
+      );
       const refused = executeStep(step, { FAIL_ON: "activation.json" });
       expect(refused.status).not.toBe(0);
       expect(refused.trace.filter((line) => line.includes(`${releaseCli} activate`))).toHaveLength(1);
@@ -1121,6 +1179,9 @@ describe("revocation-caller-partition workflow caller", () => {
       "`agent-grant-revocation-activation-refused`",
       "`agent-grant-revocation-status-<environment>`",
       "`kubectl logs --since=5m --tail=200`",
+      "sqlstateClass",
+      "failureCategory",
+      "value-free diagnostic",
       "`revocation_membership_changed`",
       "(N18)",
       "Passing tests are not evidence of a live activation.",

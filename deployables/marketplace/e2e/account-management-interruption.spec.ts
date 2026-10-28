@@ -154,7 +154,8 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await form.getByRole("button", { name: /^Update profile$/i }).click();
       await expect(page.getByText("Saving your change", { exact: true })).toBeVisible();
       await expect(name).toHaveValue("Preserved synthetic work");
-      await expect(form.locator('button[type="submit"]')).toBeDisabled();
+      await expect(form.locator('button[type="submit"]')).toBeEnabled();
+      await expect(form.locator('button[type="submit"]')).toHaveAttribute("aria-busy", "true");
       await form.evaluate((node: HTMLFormElement) =>
         node.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
       );

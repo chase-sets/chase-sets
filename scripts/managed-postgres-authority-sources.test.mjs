@@ -58,6 +58,19 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #10591 reviewed additions: the DOKS version-change preflight's step-local credentials.
+const doksVersionChangePreflightDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+  "DIGITALOCEAN_ACCESS_TOKEN",
+].map((secretName) => ({
+  file: ".github/workflows/platform-doks-foundation.yml",
+  jobId: "apply",
+  stepAnchor: "name:Preflight DOKS version change#8",
+  secretName,
+  purpose: "terraform-infra",
+}));
 // #10356 threads the preview runtime provider secrets into the ephemeral verification apply step.
 const previewRuntimeSecretsDelta = [
   "SCRYDEX_API_KEY",
@@ -531,6 +544,9 @@ const reviewedRetiredVerifierRemovals = new Set([
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
 const uploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const reviewedStepInsertions = [
+  // #10591: preflight and inspected-plan steps ahead of the DOKS apply path.
+  { file: ".github/workflows/platform-doks-foundation.yml", jobId: "apply", position: 8 },
+  { file: ".github/workflows/platform-doks-foundation.yml", jobId: "apply", position: 11 },
   // #10259: scheduled batch download, batch resolution and target-number steps ahead of destroy-preview cleanup.
   { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
   { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
@@ -708,6 +724,43 @@ const productionMarkerRecoveryDelta = [
     purpose: "terraform-infra",
   })),
 ];
+// #9450 adds the existing scoped registry credentials to the new fail-closed
+// writer-gate invocations; these are deliberate authority additions, not a snapshot refresh.
+const registryGarbageCollectionGateCredentialDelta = [
+  [".github/workflows/platform-pr.yml", "preview-deploy-smoke", "name:Build and push platform image#9"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Build release image#5"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Push release image#8"],
+  [".github/workflows/platform-production.yml", "deploy-production", "name:Mark production release#53"],
+  [
+    ".github/workflows/platform-production.yml",
+    "reconcile-production-marker",
+    "name:Reconcile retained production marker#8",
+  ],
+].map(([file, jobId, stepAnchor]) => ({
+  file,
+  jobId,
+  stepAnchor,
+  secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+  purpose: "terraform-infra",
+}));
+// #9450 also resolves the registry before cleanup; migrate the existing cleanup
+// grant and add the new provider-touching resolver grant to the expected corpus.
+const registryCleanupResolverDelta = [
+  {
+    file: ".github/workflows/platform-registry-cleanup.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Resolve registry identity#5",
+    secretName: "DIGITALOCEAN_REGISTRY_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+];
+function applyRegistryCleanupStepInsertion(record) {
+  return record.file === ".github/workflows/platform-registry-cleanup.yml" &&
+    record.jobId === "cleanup" &&
+    record.stepAnchor === "name:Cleanup registry tags#7"
+    ? { ...record, stepAnchor: "name:Cleanup registry tags#8" }
+    : record;
+}
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -899,7 +952,10 @@ describe("managed Postgres authority source generator", () => {
     const expected = {
       ...original,
       grants: [
-        ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...[...retainedOriginalGrants, ...reviewedCatalogDelta]
+          .map(applyReviewedStepInsertions)
+          .map(applyRegistryCleanupStepInsertion),
+        ...doksVersionChangePreflightDelta,
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
@@ -935,7 +991,9 @@ describe("managed Postgres authority source generator", () => {
               record.stepAnchor === productionMarkerRecoveryRetiredAnchor
             ),
         )
-        .concat(productionMarkerRecoveryDelta),
+        .concat(productionMarkerRecoveryDelta)
+        .concat(registryGarbageCollectionGateCredentialDelta)
+        .concat(registryCleanupResolverDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
