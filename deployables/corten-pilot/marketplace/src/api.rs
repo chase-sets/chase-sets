@@ -3763,6 +3763,129 @@ impl SecurityCalls for Caller<'_> {
     }
 }
 
+const AUTH: &str = "auth";
+
+/// A sign-in session (Auth's `SessionRow`), the fields the session pages show.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SessionRecord {
+    pub session_id: String,
+    pub user_id: String,
+    pub user_display_name: Option<String>,
+    pub user_primary_email: Option<String>,
+    pub account_id: String,
+    pub account_display_name: Option<String>,
+    pub account_name: Option<String>,
+    pub available_account_ids: Vec<String>,
+    pub authentication_method: String,
+    pub status: String,
+    pub expires_at: String,
+    pub updated_at: String,
+}
+
+impl SessionRecord {
+    /// Who it is for, as marketplace names them: the display name, else the email, else the id.
+    pub fn user(&self) -> &str {
+        self.user_display_name.as_deref().or(self.user_primary_email.as_deref()).unwrap_or(&self.user_id)
+    }
+
+    /// The account it acts for: the display name, else the name, else the id.
+    pub fn account(&self) -> &str {
+        self.account_display_name.as_deref().or(self.account_name.as_deref()).unwrap_or(&self.account_id)
+    }
+
+    /// The accounts it could switch to: the available ones but the one it acts for.
+    pub fn others(&self) -> impl Iterator<Item = &str> {
+        self.available_account_ids.iter().map(String::as_str).filter(|id| *id != self.account_id)
+    }
+}
+
+#[derive(Deserialize)]
+struct SessionList {
+    #[serde(default)]
+    items: Vec<SessionRecord>,
+    #[serde(default)]
+    total: u64,
+}
+
+/// A write to a session: sign it out, or make it act for another of its accounts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionWrite<'a> {
+    Revoke,
+    Switch(&'a str),
+}
+
+#[derive(Deserialize)]
+struct ErrorBody {
+    error: Option<ErrorCode>,
+}
+
+#[derive(Deserialize)]
+struct ErrorCode {
+    code: Option<String>,
+}
+
+/// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
+/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
+/// already that account) with a 500 (chase-sets/chase-sets#10698).
+pub trait SessionCalls {
+    /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
+    /// by `search`, which it matches against names and emails too, so only the sessions whose
+    /// `user_id` is `user` are kept (chase-sets/chase-sets#10697), and the total counts them out.
+    async fn sessions(
+        &self,
+        user: &str,
+        status: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<(Vec<SessionRecord>, u64), ApiError>;
+    async fn session(&self, id: &str) -> Result<SessionRecord, ApiError>;
+    /// Send `write`; the write's receipt when it is done. A call with no answer is
+    /// `Err(ApiError::Transport)`.
+    async fn session_write(&self, id: &str, write: SessionWrite<'_>) -> Result<Option<String>, ApiError>;
+}
+
+impl SessionCalls for Caller<'_> {
+    async fn sessions(
+        &self,
+        user: &str,
+        status: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<(Vec<SessionRecord>, u64), ApiError> {
+        let mut path = format!("/api/auth/sessions?limit={limit}&offset={offset}");
+        if let Some(status) = status {
+            path.push_str(&format!("&status={}", segment(status)));
+        }
+        let list: SessionList = self.read(&path, AUTH).await?;
+        let found = list.items.len();
+        let items: Vec<SessionRecord> = list.items.into_iter().filter(|s| s.user_id == user).collect();
+        let total = list.total.saturating_sub((found - items.len()) as u64);
+        Ok((items, total))
+    }
+
+    async fn session(&self, id: &str) -> Result<SessionRecord, ApiError> {
+        self.read(&format!("/api/auth/sessions/{}", segment(id)), AUTH).await
+    }
+
+    async fn session_write(&self, id: &str, write: SessionWrite<'_>) -> Result<Option<String>, ApiError> {
+        let (path, body) = match write {
+            SessionWrite::Revoke => (format!("/api/auth/sessions/{}/revoke", segment(id)), serde_json::json!({})),
+            SessionWrite::Switch(account) => {
+                (format!("/api/auth/sessions/{}/switch-account", segment(id)), serde_json::json!({ "accountId": account }))
+            }
+        };
+        let res = self.request(Method::POST, &path, AUTH).json(&body).send().await?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        let receipt = Receipt::from_response(res.headers());
+        if status.is_success() {
+            return Ok(receipt.map(|r| r.param()));
+        }
+        let code = serde_json::from_str::<ErrorBody>(&res.text().await?).ok().and_then(|b| b.error).and_then(|e| e.code);
+        Err(ApiError::Status { status, code, message: String::new() })
+    }
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;

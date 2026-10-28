@@ -109,6 +109,15 @@
   "account_home": {
     "pending": "Your profile is still updating. This page reads it again in a moment."
   },
+  "sessions": {
+    "revoked": "The session was revoked. Anyone using it must sign in again.",
+    "not_active": "This session is no longer active.",
+    "switched": "The session now acts for the account you chose.",
+    "switch_refused": "The session could not switch to that account. It still acts for the account shown.",
+    "failed": "The change could not be confirmed. The session is shown as it is now.",
+    "pending": "This session is still updating. This page reads it again in a moment.",
+    "other_accounts": "Switch to"
+  },
   "security": {
     "pending": "Your security details are still updating. This page reads them again in a moment.",
     "pending_secret": "Your API keys are still updating. Reload this page after you have stored the secret."

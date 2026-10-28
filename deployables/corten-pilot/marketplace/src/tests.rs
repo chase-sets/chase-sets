@@ -416,6 +416,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         let zone = if session == "lister" { "America/New_York" } else { "UTC" };
         return Json(json!({ "userId": "usr_1", "locale": "en", "timeZone": zone })).into_response();
     }
+    if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -6327,6 +6330,188 @@ async fn a_key_write_without_an_answer_is_asked_about_and_its_lost_secret_is_sai
     let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("No change was recorded."), "{}", text(&html));
+}
+
+const SESSIONS_API: &str = "/api/auth/sessions";
+const SESSIONS: &str = "/account/sessions";
+
+/// A stand-in Auth session of `usr_seller` (or `user`), acting for `acc_seller`.
+fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&str]) -> Value {
+    json!({
+        "session_id": id, "user_id": user, "user_display_name": if user == "usr_seller" { "Synthetic Seller" } else { "Other usr_seller" },
+        "user_primary_email": format!("{user}@chasesets.test"), "account_id": "acc_seller", "account_display_name": "Synthetic Shop",
+        "account_name": "Synthetic Legal LLC", "available_account_ids": available, "authentication_method": method, "status": status,
+        "expires_at": "2026-11-11T05:54:48.508Z", "updated_at": "2026-10-28T05:54:48.508Z",
+    })
+}
+
+/// The stand-in Auth sessions: `ses_one` (active, two accounts), `ses_old` (revoked, by magic
+/// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
+/// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
+/// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
+/// or a switch of it to `acc_two` is done (a receipt at 42); every other write is Auth's 500.
+fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix(SESSIONS_API)?;
+    let failed = || refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
+    let rows = [
+        session_row("ses_one", "usr_seller", "active", "password", &["acc_seller", "acc_two"]),
+        session_row("ses_old", "usr_seller", "revoked", "magic-link", &["acc_seller"]),
+        session_row("ses_down", "usr_seller", "active", "passkey", &["acc_seller"]),
+        session_row("ses_else", "usr_other", "active", "password", &["acc_seller"]),
+    ];
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => {
+            let status = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("status=")).map(str::to_owned);
+            let items: Vec<&Value> = rows.iter().filter(|r| status.as_deref().is_none_or(|s| r["status"] == s)).collect();
+            Json(json!({ "items": items, "total": items.len(), "count": items.len() })).into_response()
+        }
+        ("GET", _) if waits_for(headers).as_deref() == Some("45") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        ("GET", "/ses_gone") | ("POST", "/ses_gone/revoke") => refusal(StatusCode::NOT_FOUND, "not_found", "Session not found."),
+        ("GET", "/ses_else") => refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden."),
+        ("GET", id) => match rows.iter().find(|r| format!("/{}", r["session_id"].as_str().unwrap()) == id) {
+            Some(row) => Json(row.clone()).into_response(),
+            None => refusal(StatusCode::NOT_FOUND, "not_found", "Session not found."),
+        },
+        ("POST", "/ses_one/revoke") => {
+            committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "revoked" }))
+        }
+        ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_two" => {
+            committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "active" }))
+        }
+        ("POST", _) => failed(),
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// The session writes the pilot sent: the path and the body.
+fn session_writes(pilot: &Pilot) -> Vec<(String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with(SESSIONS_API) && c.method == Method::POST)
+        .map(|c| (c.path.clone(), serde_json::from_str(&c.body).unwrap_or_default()))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_sessions_need_security_manage() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(SESSIONS, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "Auth requires security.manage");
+    let (status, headers, _) = pilot.send(get(SESSIONS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fsessions"), "{headers:?}");
+    let (status, _, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/revoke"), "addresser", "", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(session_writes(&pilot).is_empty(), "nothing is sent for who may not write");
+}
+
+#[tokio::test]
+async fn the_list_shows_the_users_own_sessions_by_status_and_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SESSIONS, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(html.contains("<title>Sessions | Chase Sets") || html.contains("<title>Sessions"), "{html}");
+    assert!(shown.contains("User Synthetic Seller Account Synthetic Shop Method Password Status Active"), "{shown}");
+    assert!(shown.contains("Method Magic link Status Revoked"), "{shown}");
+    assert!(!shown.contains("Other usr_seller"), "another user's session is not shown: {shown}");
+    assert!(html.contains(r#"href="/account/sessions/ses_one""#), "{html}");
+    assert!(!html.contains(r#"name="search""#), "no Search: Auth replaces it with the user's id");
+    let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.starts_with(SESSIONS_API)).cloned().unwrap();
+    assert_eq!(read.path, "/api/auth/sessions?limit=50&offset=0");
+
+    let (status, _, html) = pilot.send(get(&format!("{SESSIONS}?status=active&limit=1&offset=0"), Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.starts_with(SESSIONS_API)).cloned().unwrap();
+    assert_eq!(read.path, "/api/auth/sessions?limit=1&offset=0&status=active", "the filter and the page reach Auth");
+    let shown = text(&html);
+    assert!(shown.contains("Status: Active"), "{shown}");
+    assert!(!shown.contains("Magic link"), "{shown}");
+    assert!(html.contains("offset=1") && html.contains("status=active"), "the pages keep the status: {html}");
+    assert!(html.contains(r#"<option value="active" selected"#), "{html}");
+    let (status, _, html) = pilot.send(get(&format!("{SESSIONS}?status=pending"), Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!text(&html).contains("Status: "), "an unknown status is every status");
+}
+
+#[tokio::test]
+async fn a_session_shows_its_details_and_offers_only_what_auth_would_do() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{SESSIONS}/ses_one"), Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Synthetic Seller session Active"), "{shown}");
+    assert!(html.contains(r#"<a href="/account/sessions">Sessions</a>"#), "the breadcrumb is this list: {html}");
+    assert!(html.contains(r#"action="/account/sessions/ses_one/switch""#), "{html}");
+    assert!(
+        html.contains(r#"<option value="acc_two">"#) && !html.contains(r#"<option value="acc_seller">"#),
+        "only the other account: {html}"
+    );
+    assert!(html.contains(r#"action="/account/sessions/ses_one/revoke""#) && html.contains(r#"command="show-modal""#), "{html}");
+    assert!(shown.contains("Revoke session for Synthetic Seller?"), "{shown}");
+    assert!(
+        shown.contains("Available Accounts acc_seller, acc_two Authentication Method Password Expires At Nov 11, 2026"),
+        "{shown}"
+    );
+
+    let (_, _, html) = pilot.send(get(&format!("{SESSIONS}/ses_down"), Some("guard"))).await;
+    assert!(!html.contains("/switch"), "one account: nothing to switch to: {html}");
+    assert!(html.contains("/revoke"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{SESSIONS}/ses_old"), Some("guard"))).await;
+    assert!(!html.contains("/switch") && !html.contains("/revoke"), "a revoked session has no writes: {html}");
+    assert!(text(&html).contains("Magic link"), "{}", text(&html));
+    let (status, _, _) = pilot.send(get(&format!("{SESSIONS}/ses_gone"), Some("guard"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get(&format!("{SESSIONS}/ses_else"), Some("guard"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_the_session_is_now() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/revoke"), "guard", "", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/sessions/ses_one?"), "{to}");
+    assert_eq!(query(&to)["said"], "revoked");
+    assert!(query(&to)["after_write"].contains("\"commitPosition\":\"42\""), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("The session was revoked."), "{}", text(&html));
+    let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == "/api/auth/sessions/ses_one").cloned().unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the session waits for the write");
+
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_two", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_bogus", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switch-refused", "Auth's 500, and the account unchanged");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/revoke"), "guard", "", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "Auth's 500 for a revoked session");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_down/revoke"), "guard", "", false)).await;
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["said"], "failed", "still active after a failed revoke");
+    let (_, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert!(text(&html).contains("The change could not be confirmed."), "{}", text(&html));
+    let (status, _, _) = pilot.send(post(&format!("{SESSIONS}/ses_gone/revoke"), "guard", "", false)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let writes = session_writes(&pilot);
+    assert_eq!(writes[1], ("/api/auth/sessions/ses_one/switch-account".to_owned(), json!({ "accountId": "acc_two" })));
+    assert_eq!(writes[0].1, json!({}));
+
+    let to = format!("{SESSIONS}/ses_one?after_write={}&said=revoked", receipt_at("45"));
+    let (status, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("This session is still updating."), "{}", text(&html));
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
 }
 
 /// The address writes the pilot sent: method, path under the book, attempt and body.

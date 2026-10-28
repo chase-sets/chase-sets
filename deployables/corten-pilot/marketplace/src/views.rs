@@ -46,6 +46,7 @@ mod search_page;
 mod security_page;
 mod seller_listing_page;
 mod seller_listings_page;
+mod sessions_page;
 mod set_page;
 mod shipment_page;
 mod sign_in_page;
@@ -79,6 +80,7 @@ pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
+pub use sessions_page::{SessionPage, SessionsPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
@@ -141,6 +143,10 @@ pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT]
 /// secret (corten-ui has no copy control, todd-skelton/corten#244). Revoke's dialog opens with
 /// `command="show-modal"`, which needs no script.
 pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMPONENT];
+
+/// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
+/// dialog opens with `command="show-modal"`, which needs no script.
+pub const SESSIONS: &[Component] = &[SessionsPage];
 
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];

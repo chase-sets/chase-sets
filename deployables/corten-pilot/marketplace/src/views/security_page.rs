@@ -10,7 +10,7 @@ use corten::{
     prelude::*,
 };
 
-use super::{account_home_page::humanized, marketplace};
+use super::account_home_page::humanized;
 use crate::{
     addresses::Said,
     api::{AccountAction, ApiKey, KeySecret},
@@ -110,7 +110,6 @@ pub fn SecurityPage<'a>(t: SecurityMsg, p: Pilot, screen: &'a SecurityScreen) ->
         ),
         _ => None,
     };
-    let sessions = marketplace("/account/sessions").map(|u| u.to_string()).unwrap_or_default();
     let pending =
         if matches!(screen.secret, KeySecret::Issued { .. }) { p.security_pending_secret() } else { p.security_pending() };
     html! {
@@ -179,7 +178,7 @@ pub fn SecurityPage<'a>(t: SecurityMsg, p: Pilot, screen: &'a SecurityScreen) ->
                     <h2 id="signals-title" class={PartTitle}>{t.page_security_signals()}</h2>
                     <p class={Muted}>{t.page_security_signals_description()}</p>
                 </div>
-                <a class={(Button, Secondary)} href={&sessions}>{t.page_manage_sessions()}</a>
+                <a class={(Button, Secondary)} href={url::Sessions::default()}>{t.page_manage_sessions()}</a>
             </div>
             <p class={Verified}>{t.page_sign_in_methods_verified()}</p>
             <dl class={Specs}>

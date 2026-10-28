@@ -70,6 +70,10 @@
 //   (identity.features.apiKeys.ui.accountSecurityPage.* as page.*, .apiKeySecretReveal.* as reveal.*, the API
 //   key statuses' words as key_status.*, the user name labels, the authentication methods, their families,
 //   the unrecognized words, identity.accountManagement.* as manage.*, the action errors, and the route's title).
+// - marketplace/locales/sessions.en.json: the sessions pages' English catalog
+//   (auth.features.sessions.ui.sessionListPage.* as list.*, .sessionDetailPage.* as detail.*, Auth's
+//   session status family and unrecognized words as value.*, and Identity's authentication methods
+//   with their family as method.*, which `authenticationMethodLabel` reads).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -589,6 +593,25 @@ const outputs = [
         ["identity.routes.marketplace.accountSecurity.security.marketplace", "route.title"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/sessions.en.json",
+    json({
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.features.sessions.ui.sessionListPage.", "list"],
+        ["auth.features.sessions.ui.sessionDetailPage.", "detail"],
+        ["auth.values.family.sessionStatus", "value.family_session_status"],
+        ["auth.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["auth.values.unrecognized", "value.unrecognized"],
+        ["auth.values.date.unavailable", "value.date_unavailable"],
+      ])),
+      ...(await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.values.authenticationMethod.", "method"],
+        ["identity.values.family.authenticationMethod", "method.family"],
+        ["identity.values.unrecognized.withValue", "method.unrecognized_with_value"],
+        ["identity.values.unrecognized", "method.unrecognized"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/listing-new.en.json",

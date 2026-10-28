@@ -7,20 +7,29 @@ use crate::{
     text::Pilot,
 };
 
+/// The nav entries the pilot serves, by the exact path marketplace's nav names. Not `app::serves`,
+/// which answers for every path under an area's prefix, `/account/inventory/imports` too, which
+/// the inventory area does not route (todd-skelton/corten#203).
+const OWN: &[&str] = &[
+    <url::Locations as Route>::PATH,
+    <url::Restock as Route>::PATH,
+    <url::Inventory as Route>::PATH,
+    <url::Desk as Route>::PATH,
+    <url::Search as Route>::PATH,
+    <url::Purchases as Route>::PATH,
+    <url::Sales as Route>::PATH,
+    <url::Notifications as Route>::PATH,
+    <url::Sessions as Route>::PATH,
+    <url::SellerListings as Route>::PATH,
+    <url::OfferMatches as Route>::PATH,
+    <url::Cart as Route>::PATH,
+];
+
 /// Where a nav entry goes: the pilot's own page, or marketplace's.
 fn link(item: &NavItem) -> Option<String> {
     let href = item.href.as_deref()?;
-    if href == <url::Locations as Route>::PATH {
-        return Some(url::Locations::default().href());
-    }
-    if href == <url::Restock as Route>::PATH {
-        return Some(url::Restock::default().href());
-    }
-    if href == <url::Inventory as Route>::PATH {
-        return Some(url::Inventory::default().href());
-    }
-    if href == <url::Desk as Route>::PATH {
-        return Some(url::Desk.href());
+    if OWN.contains(&href) {
+        return Some(href.to_owned());
     }
     marketplace(href).map(|uri| uri.to_string())
 }
@@ -38,8 +47,8 @@ fn active<'a>(items: &[(&'a NavItem, Vec<&'a NavItem>)], path: &str) -> Option<&
         .map(|(item, _)| item.key.as_str())
 }
 
-/// marketplace's top bar: the entries the seller can open, groups as menus. The pilot serves only
-/// storage locations; every other entry links to marketplace. (Not ported: the bottom bar, the
+/// marketplace's top bar: the entries the seller can open, groups as menus. An entry the pilot
+/// serves (`OWN`) links to the pilot; every other one to marketplace. (Not ported: the bottom bar, the
 /// account menu and the cart count.)
 #[component(css)]
 pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {

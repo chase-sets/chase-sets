@@ -27,6 +27,7 @@
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /account?<place>`, `POST /account` | the account's own page and its profile's update (see `account_home`) |
+//! | `GET /account/sessions?<filters>`, `../{id}?<place>`, `POST ../{id}/revoke`, `../{id}/switch` | the user's sessions (see `sessions`) |
 //! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
@@ -142,6 +143,7 @@ pub mod url {
     pub use search::Search;
     pub use security::Security;
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
+    pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, SignIn};
@@ -499,6 +501,40 @@ pub mod url {
         /// Pause, resume or delete a Product alert (Discovery's).
         #[route("/account/notifications/product-alerts/{id}", post = crate::notifications::change_alert)]
         pub struct ProductAlertChange<'a> {
+            pub id: &'a str,
+        }
+    }
+
+    /// The user's sessions (Auth's `account-sessions`): the list is the area's route, and every
+    /// handler takes a `SecurityOwner` (`security.manage`, which Auth requires for every call).
+    #[corten::routes(state = crate::app::Shared, area = Sessions, caller = crate::auth::SecurityOwner)]
+    pub mod sessions {
+        /// A page of the user's sessions, by status.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sessions", get = crate::sessions::list)]
+        pub struct Sessions {
+            #[route(query)]
+            pub filters: crate::sessions::Filters,
+        }
+
+        /// A session, read after the write whose receipt it carries.
+        #[derive(Clone, Debug)]
+        #[route("/account/sessions/{id}", get = crate::sessions::page)]
+        pub struct SessionPage<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::sessions::Place,
+        }
+
+        /// Sign a session out.
+        #[route("/account/sessions/{id}/revoke", post = crate::sessions::revoke)]
+        pub struct SessionRevoke<'a> {
+            pub id: &'a str,
+        }
+
+        /// Make a session act for another of its accounts.
+        #[route("/account/sessions/{id}/switch", post = crate::sessions::switch)]
+        pub struct SessionSwitch<'a> {
             pub id: &'a str,
         }
     }
@@ -916,6 +952,7 @@ const AREAS: &[&str] = &[
     <url::notifications::Notifications as corten::route::Prefix>::PREFIX,
     <url::addresses::ShippingAddresses as corten::route::Prefix>::PREFIX,
     <url::security::Security as corten::route::Prefix>::PREFIX,
+    <url::sessions::Sessions as corten::route::Prefix>::PREFIX,
     <url::new_listing::NewListing as corten::route::Prefix>::PREFIX,
     <url::seller_listings::SellerListings as corten::route::Prefix>::PREFIX,
     <url::desk::Desk as corten::route::Prefix>::PREFIX,
@@ -982,6 +1019,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
+        .area(|area| url::sessions::area(area, shared.clone()).components(views::SESSIONS))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
         .area(|area| {

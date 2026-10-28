@@ -38,6 +38,7 @@ mod security;
 mod seller_listing;
 mod seller_listings;
 mod selling;
+mod sessions;
 mod sets;
 mod shipments;
 mod sign_in;
