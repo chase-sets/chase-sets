@@ -899,12 +899,14 @@ export function createDeployedPopupObserver(expected: {
       openerId?: string;
       browserContextId?: string;
       sessionId: string;
+      newAfterAction: boolean;
       url: string;
       requests: Map<string, { method: string; url: string }>;
       document?: { method: string; url: string; status: number; contentType: string | null; at: number };
     }
   >();
   let page: { targetId: string; url: string } | undefined;
+  let preActionTargetIds: ReadonlySet<string> | undefined;
   const matchesUrl = (value: string) => {
     try {
       const url = new URL(value);
@@ -915,6 +917,9 @@ export function createDeployedPopupObserver(expected: {
   };
   return {
     targets,
+    startAction(targetIds: readonly string[]) {
+      preActionTargetIds = new Set(targetIds);
+    },
     bindPage(targetId: string, url: string) {
       page = { targetId, url };
     },
@@ -937,6 +942,7 @@ export function createDeployedPopupObserver(expected: {
           openerId: typeof info.openerId === "string" ? info.openerId : undefined,
           browserContextId: typeof info.browserContextId === "string" ? info.browserContextId : undefined,
           sessionId: value.sessionId,
+          newAfterAction: preActionTargetIds !== undefined && !preActionTargetIds.has(info.targetId),
           url: info.url,
           requests: new Map(),
         });
@@ -984,8 +990,9 @@ export function createDeployedPopupObserver(expected: {
         target.targetId !== page.targetId ||
         target.targetId === expected.sourceTargetId ||
         target.type !== "page" ||
-        target.openerId !== expected.sourceTargetId ||
-        (expected.browserContextId !== undefined && target.browserContextId !== expected.browserContextId) ||
+        !target.newAfterAction ||
+        (target.openerId !== undefined && target.openerId !== expected.sourceTargetId) ||
+        target.browserContextId !== expected.browserContextId ||
         !document ||
         document.method !== "GET" ||
         document.status !== 200 ||
@@ -1014,7 +1021,7 @@ const rawCdpRecord = (value: unknown): value is Record<string, unknown> =>
  * addressed. This deliberately small adapter keeps the browser WebSocket's
  * sessionId on both commands and events instead of casting around that API.
  */
-async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport> {
+export async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport> {
   const activePort = readFileSync(join(profilePath, "DevToolsActivePort"), "utf8").split(/\r?\n/, 1)[0]?.trim();
   if (!activePort || !/^\d+$/.test(activePort)) throw new Error("browser-cdp-port-missing");
   const versionResponse = await fetch(`http://127.0.0.1:${activePort}/json/version`);
@@ -1027,7 +1034,6 @@ async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport
   const listeners = new Set<(event: RawCdpEvent) => void>();
   let sequence = 0;
   let closed = false;
-  let rootSessionId: string | undefined;
   const rejectPending = (message: string) => {
     for (const call of pending.values()) call.reject(new Error(message));
     pending.clear();
@@ -1052,8 +1058,7 @@ async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport
     }
     if (typeof message.method !== "string") return;
     const params = "params" in message ? message.params : undefined;
-    const sourceSessionId = typeof message.sessionId === "string" ? message.sessionId : undefined;
-    const sessionId = sourceSessionId === rootSessionId ? undefined : sourceSessionId;
+    const sessionId = typeof message.sessionId === "string" ? message.sessionId : undefined;
     for (const listener of listeners) listener({ method: message.method, params, sessionId });
   });
   socket.addEventListener("close", () => {
@@ -1072,21 +1077,9 @@ async function openRawCdpTransport(profilePath: string): Promise<RawCdpTransport
       socket.send(JSON.stringify({ id, method, params, ...(sessionId === undefined ? {} : { sessionId }) }));
     });
   };
-  let attached: unknown;
-  try {
-    attached = await sendRaw("Target.attachToBrowserTarget");
-  } catch (error) {
-    socket.close();
-    throw error;
-  }
-  if (!rawCdpRecord(attached) || typeof attached.sessionId !== "string") {
-    await socket.close();
-    throw new Error("browser-cdp-browser-target-refused");
-  }
-  rootSessionId = attached.sessionId;
   return {
     send(method, params = {}, sessionId) {
-      return sendRaw(method, params, sessionId ?? rootSessionId);
+      return sendRaw(method, params, sessionId);
     },
     on(listener) {
       listeners.add(listener);
@@ -1452,15 +1445,13 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       let popupTargetError: string | null = null;
       const rawBrowserCdp = await openRawCdpTransport(profilePath);
       try {
-        const sourceTargets = await rawBrowserCdp.send("Target.getTargets", {
-          filter: [{ type: "page" }],
-        });
-        const sourceTargetInfo =
-          rawCdpRecord(sourceTargets) && Array.isArray(sourceTargets.targetInfos)
-            ? sourceTargets.targetInfos.find(
-                (value: unknown) => rawCdpRecord(value) && value.type === "page" && value.url === page.url(),
-              )
-            : undefined;
+        const sourceIdentity = await context.newCDPSession(page);
+        let sourceTargetInfo;
+        try {
+          sourceTargetInfo = (await sourceIdentity.send("Target.getTargetInfo")).targetInfo;
+        } finally {
+          await sourceIdentity.detach();
+        }
         if (!rawCdpRecord(sourceTargetInfo) || typeof sourceTargetInfo.targetId !== "string") {
           fail("connector-drill-page-status");
         }
@@ -1505,7 +1496,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           } finally {
             await identity.detach();
           }
-          if (!popupTargets.has(targetId)) {
+          if (!popupTargets.get(targetId)?.newAfterAction) {
             popupTargetError = "popup-target-binding-refused";
             return false;
           }
@@ -1548,7 +1539,9 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             `CONNECTOR_DRILL_POPUP_DOCUMENT ${JSON.stringify({
               targetId: document.targetId,
               sessionId: document.sessionId,
-              openerId: document.openerId,
+              openerId: document.openerId ?? null,
+              browserContextId: popupTargets.get(document.targetId)?.browserContextId ?? null,
+              newAfterAction: popupTargets.get(document.targetId)?.newAfterAction,
               method: document.method,
               resourceType: "Document",
               origin: new URL(document.url).origin,
@@ -1573,6 +1566,16 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             filter: [{ type: "page" }],
           });
           await page.bringToFront();
+          const preActionTargets = await rawBrowserCdp.send("Target.getTargets", { filter: [{ type: "page" }] });
+          if (!rawCdpRecord(preActionTargets) || !Array.isArray(preActionTargets.targetInfos))
+            fail("connector-drill-page-status");
+          const preActionTargetIds: string[] = [];
+          for (const info of preActionTargets.targetInfos) {
+            if (!rawCdpRecord(info) || info.type !== "page" || typeof info.targetId !== "string")
+              fail("connector-drill-page-status");
+            preActionTargetIds.push(info.targetId);
+          }
+          popupObserver.startAction(preActionTargetIds);
           // Chromium's WebSocket client refuses unsafe extension operations. Use
           // Playwright's launch-pipe action while raw child-session routing stays armed.
           if (!(await triggerAction(context, page))) fail("connector-drill-pairing-refused");
@@ -1613,6 +1616,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
                   openerId: target.openerId ?? null,
                   browserContextId: target.browserContextId ?? null,
                   sessionId: target.sessionId,
+                  newAfterAction: target.newAfterAction,
                   url: redact(target.url),
                   document: target.document
                     ? {

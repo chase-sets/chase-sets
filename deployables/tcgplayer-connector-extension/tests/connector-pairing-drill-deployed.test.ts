@@ -15,6 +15,7 @@ import {
   deployedBrowserArgs,
   digestConnectorDist,
   drillBrowserEnvironment,
+  openRawCdpTransport,
   PairingDrillRefusal,
   providerEnvironmentPattern,
   retainDeployedReceipt,
@@ -42,8 +43,9 @@ describe("deployed popup target-scoped document controls", () => {
   const url = `${staging}${path}`;
   function scenario(
     overrides: {
-      openerId?: string;
+      openerId?: string | null;
       browserContextId?: string;
+      omitContext?: boolean;
       targetType?: string;
       requestSession?: string;
       responseSession?: string;
@@ -55,6 +57,9 @@ describe("deployed popup target-scoped document controls", () => {
       bind?: boolean;
       pageTargetId?: string;
       pageUrl?: string;
+      targetId?: string;
+      existingTargetIds?: readonly string[];
+      beforeAction?: boolean;
     } = {},
   ) {
     // Keep all URL signals consistent so only the declared origin/path guard
@@ -66,19 +71,21 @@ describe("deployed popup target-scoped document controls", () => {
       origin: staging,
       path,
     });
+    if (!overrides.beforeAction) observer.startAction(overrides.existingTargetIds ?? ["synthetic-source"]);
     observer.observe({
       method: "Target.attachedToTarget",
       params: {
         sessionId: "synthetic-child-session",
         targetInfo: {
-          targetId: "synthetic-popup",
+          targetId: overrides.targetId ?? "synthetic-popup",
           type: overrides.targetType ?? "page",
-          openerId: overrides.openerId ?? "synthetic-source",
-          browserContextId: overrides.browserContextId ?? "synthetic-context",
+          openerId: overrides.openerId === undefined ? "synthetic-source" : overrides.openerId,
+          ...(overrides.omitContext ? {} : { browserContextId: overrides.browserContextId ?? "synthetic-context" }),
           url: navigationUrl,
         },
       },
     });
+    if (overrides.beforeAction) observer.startAction(["synthetic-source", "synthetic-popup"]);
     observer.observe({
       method: "Network.requestWillBeSent",
       sessionId: overrides.requestSession ?? "synthetic-child-session",
@@ -114,6 +121,22 @@ describe("deployed popup target-scoped document controls", () => {
       url,
     });
   });
+  it("accepts null opener only for a newly attached action target", () => {
+    expect(scenario({ openerId: null }).document()).toMatchObject({ targetId: "synthetic-popup", status: 200 });
+  });
+  it("refuses null opener on a pre-existing target", () => {
+    expect(
+      scenario({ openerId: null, existingTargetIds: ["synthetic-source", "synthetic-popup"] }).document(),
+    ).toBeUndefined();
+  });
+  it("refuses a target attached before the action", () => {
+    expect(scenario({ beforeAction: true }).document()).toBeUndefined();
+  });
+  it("refuses the source target as the surfaced page", () => {
+    expect(
+      scenario({ targetId: "synthetic-source", pageTargetId: "synthetic-source", existingTargetIds: [] }).document(),
+    ).toBeUndefined();
+  });
   it("refuses wrong target session", () => {
     expect(scenario({ responseSession: "synthetic-unrelated-session" }).document()).toBeUndefined();
   });
@@ -125,6 +148,9 @@ describe("deployed popup target-scoped document controls", () => {
   });
   it("refuses wrong browser context", () => {
     expect(scenario({ browserContextId: "synthetic-other-context" }).document()).toBeUndefined();
+  });
+  it("refuses a missing browser context binding", () => {
+    expect(scenario({ openerId: null, omitContext: true }).document()).toBeUndefined();
   });
   it("refuses wrong origin", () => {
     expect(scenario({ navigationUrl: `https://unrelated.example${path}` }).document()).toBeUndefined();
@@ -166,6 +192,76 @@ describe("deployed popup target-scoped document controls", () => {
   it("refuses URL-only evidence", () => {
     expect(scenario({ response: false }).document()).toBeUndefined();
   });
+});
+
+it("routes direct-root commands and flattened child events without a synthetic browser session", async () => {
+  const profile = mkdtempSync(join(tmpdir(), "connector-cdp-root-control-"));
+  writeFileSync(join(profile, "DevToolsActivePort"), "12345\n");
+  const commands: { id: number; method: string; sessionId?: string }[] = [];
+  let socket: SyntheticSocket | undefined;
+  class SyntheticSocket extends EventTarget {
+    static OPEN = 1;
+    readyState = SyntheticSocket.OPEN;
+    constructor(readonly url: string) {
+      super();
+      socket = this;
+      queueMicrotask(() => this.dispatchEvent(new Event("open")));
+    }
+    emit(message: unknown) {
+      this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
+    }
+    send(data: string) {
+      const command = JSON.parse(data) as (typeof commands)[number];
+      commands.push(command);
+      queueMicrotask(() => this.emit({ id: command.id, result: {} }));
+    }
+    close() {
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+  vi.stubGlobal("WebSocket", SyntheticSocket);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ webSocketDebuggerUrl: "ws://127.0.0.1:12345/devtools/browser/synthetic" })),
+  );
+  try {
+    const transport = await openRawCdpTransport(profile);
+    try {
+      expect(commands).toEqual([]);
+      await transport.send("Target.getTargets");
+      await transport.send("Target.setAutoAttach", { autoAttach: true, flatten: true, waitForDebuggerOnStart: true });
+      const events: unknown[] = [];
+      const observe = vi.fn<Parameters<typeof transport.on>[0]>((event) => {
+        events.push(event);
+      });
+      transport.on(observe);
+      const attached = { method: "Target.attachedToTarget", params: { sessionId: "synthetic-child" } };
+      const response = {
+        method: "Network.responseReceived",
+        params: { type: "Document" },
+        sessionId: "synthetic-child",
+      };
+      socket!.emit(attached);
+      await transport.send("Network.enable", {}, "synthetic-child");
+      await transport.send("Runtime.runIfWaitingForDebugger", {}, "synthetic-child");
+      socket!.emit(response);
+      expect(events).toEqual([attached, response]);
+      expect(commands.map(({ method, sessionId }) => ({ method, sessionId }))).toEqual([
+        { method: "Target.getTargets", sessionId: undefined },
+        { method: "Target.setAutoAttach", sessionId: undefined },
+        { method: "Network.enable", sessionId: "synthetic-child" },
+        { method: "Runtime.runIfWaitingForDebugger", sessionId: "synthetic-child" },
+      ]);
+      transport.off(observe);
+      socket!.emit(response);
+      expect(observe).toHaveBeenCalledTimes(2);
+    } finally {
+      await transport.close();
+    }
+  } finally {
+    vi.unstubAllGlobals();
+    rmSync(profile, { recursive: true, force: true });
+  }
 });
 const authorizePath = "/channel-connector/oauth/authorize";
 const run = "1";
