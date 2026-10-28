@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   buildMergeQualificationCandidate,
   buildMergeQualificationEvent,
@@ -52,6 +53,110 @@ const candidate = buildMergeQualificationCandidate({
   policyRevision,
   capturedAt: "2026-07-21T10:00:00Z",
 }).record;
+
+const cliGhPreload = `
+import { readFileSync, writeFileSync } from "node:fs";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import path from "node:path";
+
+const fixture = JSON.parse(readFileSync(process.env.MERGE_QUALIFICATION_TEST_FIXTURE, "utf8"));
+const originalExecFileSync = childProcess.execFileSync;
+childProcess.execFileSync = (command, args, options) => {
+  if (command === "git") {
+    if (args[0] === "log") return \`${"${fixture.policyRevision}\\t2026-07-21T09:00:00Z\\n"}\`;
+    if (args[0] === "cat-file") return "";
+    if (args[0] === "ls-tree") return "scripts/merge-qualification-policy.json\\n";
+    if (args[0] === "show") return fixture.policyContent;
+    throw new Error(\`unexpected git call: \${args.join(" ")}\`);
+  }
+  if (command !== "gh") return originalExecFileSync(command, args, options);
+  if (args[0] === "api") {
+    const endpoint = args[1];
+    if (endpoint.includes("workflows/platform-pr.yml/runs")) return JSON.stringify(fixture.producerRuns);
+    if (endpoint.includes("workflows/platform-merge-qualification.yml/runs"))
+      return JSON.stringify(fixture.advisoryRuns);
+    if (endpoint.includes("/jobs?")) return JSON.stringify(fixture.jobs);
+    if (endpoint.includes("/commits/") && endpoint.endsWith("/pulls")) return JSON.stringify(fixture.landing);
+    const artifactName = endpoint.match(/\\/artifacts\\?name=([^&]+)/u)?.[1];
+    if (artifactName) return JSON.stringify({ total_count: (fixture.artifacts[artifactName] ?? []).length, artifacts: fixture.artifacts[artifactName] ?? [] });
+    const ownerId = endpoint.match(/\\/runs\\/(\\d+)$/u)?.[1];
+    if (ownerId) return JSON.stringify(fixture.owners[ownerId]);
+    throw new Error(\`unexpected gh api call: \${endpoint}\`);
+  }
+  if (args[0] === "run" && args[1] === "download") {
+    const name = args[args.indexOf("--name") + 1];
+    const directory = args[args.indexOf("--dir") + 1];
+    for (const [fileName, bytes] of Object.entries(fixture.downloads[name] ?? {}))
+      writeFileSync(path.join(directory, fileName), bytes);
+    return "";
+  }
+  throw new Error(\`unexpected gh call: \${args.join(" ")}\`);
+};
+syncBuiltinESMExports();
+`;
+
+function runQualificationCli(commandArgs, fixture, inputFiles = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), "qualification-cli-process-"));
+  const fixturePath = path.join(dir, "fixture.json");
+  const preloadPath = path.join(dir, "gh-preload.mjs");
+  const scriptPath = "scripts/merge-qualification.mjs";
+  writeFileSync(fixturePath, JSON.stringify(fixture));
+  writeFileSync(preloadPath, cliGhPreload);
+  const producerPath = path.join(dir, "producer.json");
+  const advisoryPath = path.join(dir, "advisory.json");
+  if (fixture.producer) writeFileSync(producerPath, JSON.stringify(fixture.producer));
+  if (fixture.advisory) writeFileSync(advisoryPath, JSON.stringify(fixture.advisory));
+  const outputPath = path.join(dir, "out.json");
+  const args = [
+    "--import",
+    pathToFileURL(preloadPath).href,
+    scriptPath,
+    ...commandArgs.map((arg) =>
+      arg === "__CLI_OUTPUT__"
+        ? outputPath
+        : arg === "__CLI_PRODUCER__"
+          ? producerPath
+          : arg === "__CLI_ADVISORY__"
+            ? advisoryPath
+            : arg,
+    ),
+  ];
+  const env = { ...process.env, MERGE_QUALIFICATION_TEST_FIXTURE: fixturePath };
+  try {
+    try {
+      const stdout = execFileSync(process.execPath, args, { cwd: process.cwd(), env, encoding: "utf8" });
+      return {
+        status: 0,
+        stdout,
+        stderr: "",
+        files: {
+          ...Object.fromEntries(Object.entries(inputFiles).map(([name, file]) => [name, readFileSync(file, "utf8")])),
+          output: readFileSync(outputPath, "utf8"),
+        },
+      };
+    } catch (error) {
+      return {
+        status: error.status ?? 1,
+        stdout: String(error.stdout ?? ""),
+        stderr: String(error.stderr ?? ""),
+        files: {},
+      };
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const artifact = (id, name, writerId) => ({ id, name, expired: false, workflow_run: { id: writerId } });
+const observerWriter = (id) => ({
+  id,
+  repository: { full_name: "chase-sets/chase-sets" },
+  head_repository: { full_name: "chase-sets/chase-sets" },
+  head_branch: "main",
+  path: ".github/workflows/platform-merge-qualification-observer.yml",
+  event: "schedule",
+});
 
 describe("producer dispatch-loss reconciliation", () => {
   it("inventories complete producer and advisory windows before filtering", async () => {
@@ -246,6 +351,270 @@ describe("producer dispatch-loss reconciliation", () => {
     if (result.attempts.length) reconcileCalls += result.attempts.length;
     expect(result).toEqual({ attempts: [], errors: [] });
     expect(reconcileCalls).toBe(0);
+  });
+
+  it.each([
+    {
+      name: "a ran image job without a push step",
+      jobs: {
+        total_count: 1,
+        jobs: [{ id: 77, name: "Docker Image Build", conclusion: "success", steps: [] }],
+      },
+      reason: "producer_image_eligibility_invalid",
+    },
+    {
+      name: "a malformed jobs payload",
+      jobs: { total_count: 1, jobs: [] },
+      reason: "producer_image_eligibility_invalid",
+    },
+    {
+      name: "a jobs transport failure",
+      jobs: null,
+      reason: "synthetic_transport_502",
+    },
+  ])("orders policy and tick decisions before image eligibility for $name", async ({ jobs, reason }) => {
+    const inventory = async ({ decision, at }) => {
+      let jobsGets = 0;
+      const result = await inventoryMergeQualificationProducerAttempts({
+        repository: "chase-sets/chase-sets",
+        now: () => new Date(at),
+        requestJson: async (endpoint) => {
+          if (endpoint.includes("/jobs?")) {
+            jobsGets += 1;
+            if (jobs === null) throw new Error(reason);
+            return jobs;
+          }
+          return endpoint.includes("platform-pr.yml")
+            ? { total_count: 1, workflow_runs: [producer()] }
+            : { total_count: 0, workflow_runs: [] };
+        },
+        readHistoricalPolicyContent: async () => ({
+          revision: policyRevision,
+          content: JSON.stringify({ enabled: decision }),
+          decision: { enabled: decision, reasonCode: decision ? "policy_enabled" : "policy_disabled" },
+        }),
+        readProducerImageEligibility: ({ run, repository }) =>
+          readMergeQualificationProducerImageEligibility({
+            repository,
+            run,
+            requestJson: async (endpoint) => {
+              jobsGets += 1;
+              if (jobs === null) throw new Error(reason);
+              return jobs;
+            },
+          }),
+      });
+      return { result, jobsGets };
+    };
+
+    await expect(inventory({ decision: false, at: "2026-07-21T12:00:00Z" })).resolves.toMatchObject({
+      result: { attempts: [], errors: [] },
+      jobsGets: 0,
+    });
+    await expect(inventory({ decision: true, at: "2026-07-21T10:05:00Z" })).resolves.toMatchObject({
+      result: { attempts: [], errors: [] },
+      jobsGets: 0,
+    });
+    await expect(inventory({ decision: true, at: "2026-07-21T12:00:00Z" })).resolves.toMatchObject({
+      result: {
+        attempts: [
+          {
+            historicalPolicyState: "unknown",
+            historicalPolicyReason: jobs === null || jobs.jobs.length > 0 ? reason : "run_collection_incomplete",
+            imageEligible: null,
+          },
+        ],
+        errors: [],
+      },
+      jobsGets: 1,
+    });
+  });
+
+  it("runs producer-inventory through the real image eligibility reader", () => {
+    const result = runQualificationCli(
+      [
+        "producer-inventory",
+        "--repository",
+        "chase-sets/chase-sets",
+        "--default-branch",
+        "main",
+        "--github-output",
+        "__CLI_OUTPUT__",
+        "--now",
+        now.toISOString(),
+      ],
+      {
+        policyRevision,
+        policyContent: JSON.stringify({ enabled: true }),
+        producerRuns: { total_count: 1, workflow_runs: [producer()] },
+        advisoryRuns: { total_count: 0, workflow_runs: [] },
+        jobs: { total_count: 1, jobs: [{ id: 77, name: "Docker Image Build", conclusion: "skipped", steps: [] }] },
+        landing: [
+          {
+            base: { ref: "main" },
+            merged_at: "2026-07-21T09:30:00Z",
+            merge_commit_sha: policyRevision,
+          },
+        ],
+        artifacts: {},
+        downloads: {},
+        owners: {},
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.files.output).toContain('matrix={"include":[]}');
+  });
+
+  it("binds historical policy landing evidence to the requested repository", async () => {
+    const endpoints = [];
+    const result = await inventoryMergeQualificationProducerAttempts({
+      repository: "chase-sets/chase-sets",
+      now: () => now,
+      requestJson: async (endpoint) => {
+        endpoints.push(endpoint);
+        if (endpoint.includes("platform-pr.yml")) return { total_count: 1, workflow_runs: [producer()] };
+        if (endpoint.includes("platform-merge-qualification.yml")) return { total_count: 0, workflow_runs: [] };
+        if (endpoint === `repos/chase-sets/chase-sets/commits/${policyRevision}/pulls`)
+          return [{ base: { ref: "main" }, merged_at: "2026-07-21T09:30:00Z", merge_commit_sha: policyRevision }];
+        throw new Error(`unexpected endpoint: ${endpoint}`);
+      },
+      execFile: (_command, args) => {
+        if (args[0] === "log") {
+          expect(args).toEqual([
+            "log",
+            "--format=%H%x09%cI",
+            "origin/main",
+            "--",
+            "scripts/merge-qualification-policy.json",
+          ]);
+          return `${policyRevision}\t2026-07-21T09:00:00Z\n`;
+        }
+        if (args[0] === "cat-file" || args[0] === "ls-tree") return "scripts/merge-qualification-policy.json\n";
+        if (args[0] === "show") return "policy";
+        throw new Error(`unexpected git args: ${args.join(" ")}`);
+      },
+      readPolicy: () =>
+        JSON.stringify({
+          schemaVersion: "merge-qualification-policy/v1",
+          enabled: true,
+          owner: "todd.skelton@chasesets.com",
+          ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+          enabledAt: "2026-07-20T00:00:00Z",
+          expiresAt: "2026-08-10T00:00:00Z",
+        }),
+      readProducerImageEligibility: async () => true,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.attempts).toHaveLength(1);
+    expect(endpoints).toContain(`repos/chase-sets/chase-sets/commits/${policyRevision}/pulls`);
+  });
+
+  it.each([
+    {
+      name: "cleanup marker",
+      cleanupArtifacts: [artifact(2, "merge-qualification-cleanup-complete-5000-1", 9001)],
+      cleanupFiles: {
+        "cleanup-complete.json": JSON.stringify({ runId: "5000", runAttempt: "1", cleanup: "complete" }),
+      },
+      expectedState: "advisory_cleanup_complete",
+    },
+    {
+      name: "missing cleanup marker",
+      cleanupArtifacts: [],
+      cleanupFiles: {},
+      expectedState: "awaiting_advisory_cleanup",
+    },
+  ])("runs the producer terminal downloader for a $name", ({ cleanupArtifacts, cleanupFiles, expectedState }) => {
+    const loss = reconcileMergeQualificationProducerAttempt({
+      producer: producer(),
+      candidate,
+      policy: { enabled: true },
+      advisoryRun: null,
+      now,
+    }).event;
+    const terminalName = "merge-qualification-producer-terminal-4000-1";
+    const cleanupName = "merge-qualification-cleanup-complete-5000-1";
+    const result = runQualificationCli(
+      [
+        "producer-terminal-inventory",
+        "--repository",
+        "chase-sets/chase-sets",
+        "--default-branch",
+        "main",
+        "--producer",
+        "__CLI_PRODUCER__",
+        "--advisory-run",
+        "__CLI_ADVISORY__",
+        "--out",
+        "__CLI_OUTPUT__",
+      ],
+      {
+        producer: producer(),
+        advisory: {
+          id: 5000,
+          run_attempt: 1,
+          repository: { full_name: "chase-sets/chase-sets" },
+          path: ".github/workflows/platform-merge-qualification.yml",
+          event: "workflow_dispatch",
+        },
+        artifacts: {
+          [terminalName]: [artifact(1, terminalName, 9000)],
+          [cleanupName]: cleanupArtifacts,
+          "merge-qualification-terminal-5000-1": [],
+        },
+        downloads: {
+          [terminalName]: { "event.json": JSON.stringify(loss) },
+          [cleanupName]: cleanupFiles,
+        },
+        owners: { 9000: observerWriter(9000), 9001: observerWriter(9001) },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.files.output)).toMatchObject({
+      state: expectedState,
+      advisoryCleanupComplete: expectedState === "advisory_cleanup_complete",
+    });
+  });
+
+  it.each([
+    { name: "an extra file", terminalFiles: { "event.json": "{}", "extra.json": "{}" } },
+    { name: "the wrong filename", terminalFiles: { "cleanup-complete.json": "{}" } },
+  ])("rejects a terminal download containing $name", ({ terminalFiles }) => {
+    const terminalName = "merge-qualification-producer-terminal-4000-1";
+    const result = runQualificationCli(
+      [
+        "producer-terminal-inventory",
+        "--repository",
+        "chase-sets/chase-sets",
+        "--default-branch",
+        "main",
+        "--producer",
+        "__CLI_PRODUCER__",
+        "--advisory-run",
+        "__CLI_ADVISORY__",
+        "--out",
+        "__CLI_OUTPUT__",
+      ],
+      {
+        producer: producer(),
+        advisory: {
+          id: 5000,
+          run_attempt: 1,
+          repository: { full_name: "chase-sets/chase-sets" },
+          path: ".github/workflows/platform-merge-qualification.yml",
+          event: "workflow_dispatch",
+        },
+        artifacts: {
+          [terminalName]: [artifact(1, terminalName, 9000)],
+          "merge-qualification-cleanup-complete-5000-1": [],
+          "merge-qualification-terminal-5000-1": [],
+        },
+        downloads: { [terminalName]: terminalFiles },
+        owners: { 9000: observerWriter(9000) },
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("terminal_authority_unavailable");
   });
 
   it.each([{ reasonCode: "policy_expired" }, { reasonCode: "policy_schema_invalid" }, {}])(

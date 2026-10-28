@@ -8,7 +8,6 @@ const platformPr = read(".github/workflows/platform-pr.yml");
 const advisory = read(".github/workflows/platform-merge-qualification.yml");
 const gate = read(".github/workflows/platform-merge-gate-verification.yml");
 const observer = read(".github/workflows/platform-merge-qualification-observer.yml");
-const mergeQualification = read("scripts/merge-qualification.mjs");
 const production = read(".github/workflows/platform-production.yml");
 const previewCleanup = read(".github/workflows/platform-preview-cleanup.yml");
 
@@ -73,24 +72,6 @@ describe("genuinely advisory workflow topology", () => {
 describe("producer-loss authority pins", () => {
   it("does not publish the unused advisory self head output", () => {
     expect(advisory).not.toContain('echo "head_sha=$(jq -r');
-  });
-  it("routes producer inventory through the real image eligibility reader", () => {
-    const start = mergeQualification.indexOf('if (command === "producer-inventory")');
-    const end = mergeQualification.indexOf('if (command === "producer-reconcile")', start);
-    const cli = mergeQualification.slice(start, end);
-    expect(cli).toContain("readMergeQualificationProducerImageEligibility");
-    expect(cli).toContain("readProducerImageEligibility:");
-    expect(mergeQualification).toContain('fileName = "event.json"');
-    expect(mergeQualification).toContain(
-      "entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName",
-    );
-    const producerTerminalCli = mergeQualification.slice(
-      mergeQualification.indexOf('if (command === "producer-terminal-inventory")'),
-      mergeQualification.indexOf('if (command === "terminal-inventory")'),
-    );
-    expect(producerTerminalCli).toContain("const file = path.join(directory, fileName);");
-    expect(producerTerminalCli).toContain('throw new Error("terminal_payload_extra_files");');
-    expect(mergeQualification).toContain('fileName: name.startsWith("merge-qualification-cleanup-complete-")');
   });
   it("inspects only image-eligible producers and uses the advisory run head for recovery", () => {
     const inspect = step(observer, "Inspect joined producer candidate and policy");
