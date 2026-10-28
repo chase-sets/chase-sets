@@ -1386,16 +1386,6 @@ export async function readHistoricalProducerPolicy({
     if (landed.length === 0) throw new Error("producer_policy_landing_evidence_unavailable");
     const landedMs = parseTimezoneInstantMs(landed[0].merged_at);
     if (landedMs === null || landedMs > startMs) continue;
-    try {
-      execFile("git", ["merge-base", "--is-ancestor", revision, ref], {
-        encoding: "utf8",
-        timeout: 30_000,
-        maxBuffer: 65_536,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch {
-      throw new Error("producer_policy_ancestry_unavailable");
-    }
     if (revision === lowerTrim(run.head_sha)) throw new Error("producer_policy_authority_unavailable");
     const content = await readPolicy(revision);
     return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
@@ -1443,6 +1433,7 @@ export async function readMergeQualificationProducerImageEligibility({ repositor
   });
   const imageJobs = jobs.jobs.filter((job) => job?.name === "Docker Image Build");
   if (imageJobs.length !== 1) throw new Error("producer_image_eligibility_invalid");
+  if (imageJobs[0].conclusion === "skipped") return false;
   const pushSteps = Array.isArray(imageJobs[0].steps)
     ? imageJobs[0].steps.filter((step) => step?.name === "Push boot-smoked merge-group image")
     : [];
@@ -1514,26 +1505,9 @@ export async function inventoryMergeQualificationProducerAttempts({
         parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
       )
         continue;
-      let imageEligible;
-      try {
-        imageEligible = readProducerImageEligibility ? await readProducerImageEligibility({ run, repository }) : true;
-      } catch (error) {
-        attempts.push({
-          run_id: String(run.id),
-          run_attempt: String(run.run_attempt),
-          workflow_id: String(run.workflow_id),
-          conclusion: run.conclusion,
-          historicalPolicyRevision: null,
-          historicalPolicyState: "unknown",
-          historicalPolicyReason: error instanceof Error ? error.message : "producer_image_eligibility_unavailable",
-          advisoryRunPresent: Boolean(advisoryRun),
-          imageEligible: null,
-          eligibleAfterTick: true,
-        });
-        continue;
-      }
-      if (imageEligible === false) continue;
-      if (imageEligible !== true) throw new Error("producer_image_eligibility_unavailable");
+      const eligibleAfterTick =
+        nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
+      if (!eligibleAfterTick) continue;
       let historical;
       try {
         historical = readHistoricalPolicyContent
@@ -1549,9 +1523,6 @@ export async function inventoryMergeQualificationProducerAttempts({
               },
             });
       } catch (error) {
-        const eligibleAfterTick =
-          nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
-        if (!eligibleAfterTick) continue;
         attempts.push({
           run_id: String(run.id),
           run_attempt: String(run.run_attempt),
@@ -1561,7 +1532,7 @@ export async function inventoryMergeQualificationProducerAttempts({
           historicalPolicyState: "unknown",
           historicalPolicyReason: error instanceof Error ? error.message : "producer_policy_authority_unavailable",
           advisoryRunPresent: Boolean(advisoryRun),
-          imageEligible: true,
+          imageEligible: null,
           eligibleAfterTick,
         });
         continue;
@@ -1575,8 +1546,26 @@ export async function inventoryMergeQualificationProducerAttempts({
       // historical instant. Only an unreadable revision/content throws and
       // refuses the inventory; malformed or expired policy must stay inert.
       if (!policyDecision || policyDecision.enabled !== true) continue;
-      const eligibleAfterTick = nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
-      if (!eligibleAfterTick) continue;
+      let imageEligible;
+      try {
+        imageEligible = readProducerImageEligibility ? await readProducerImageEligibility({ run, repository }) : true;
+      } catch (error) {
+        attempts.push({
+          run_id: String(run.id),
+          run_attempt: String(run.run_attempt),
+          workflow_id: String(run.workflow_id),
+          conclusion: run.conclusion,
+          historicalPolicyRevision: historical?.revision ?? null,
+          historicalPolicyState: "unknown",
+          historicalPolicyReason: error instanceof Error ? error.message : "producer_image_eligibility_unavailable",
+          advisoryRunPresent: Boolean(advisoryRun),
+          imageEligible: null,
+          eligibleAfterTick,
+        });
+        continue;
+      }
+      if (imageEligible === false) continue;
+      if (imageEligible !== true) throw new Error("producer_image_eligibility_unavailable");
       attempts.push({
         run_id: String(run.id),
         run_attempt: String(run.run_attempt),
@@ -3530,3 +3519,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     },
   );
 }
+
+export { main };
