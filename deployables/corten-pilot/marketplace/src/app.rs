@@ -30,6 +30,7 @@
 //! | `GET /account/sessions?<filters>`, `../{id}?<place>`, `POST ../{id}/revoke`, `../{id}/switch` | the user's sessions (see `sessions`) |
 //! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
 //! | `GET /account/team?<place>`, `POST ..` | the account's members and invitations, and their writes (see `team`) |
+//! | `GET /account/consents?<place>`, `POST ..` | the user's consent history, and withdrawing a consent (see `consents`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -130,6 +131,7 @@ pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use checkout::BuyCheckout;
+    pub use consents::Consents;
     pub use desk::Desk;
     pub use home::Home;
     pub use inventory::{
@@ -575,6 +577,20 @@ pub mod url {
         }
     }
 
+    /// The user's consent history (Identity's `account-consents`). Withdraw posts to the page
+    /// itself, as marketplace's form action does. Every handler takes a `ConsentHolder` (anyone
+    /// signed in; the API decides the rest).
+    #[corten::routes(state = crate::app::Shared, area = Consents, caller = crate::auth::ConsentHolder)]
+    pub mod consents {
+        /// The page, read after the withdrawal whose receipt it carries, and the withdrawal.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/consents", get = crate::consents::page, post = crate::consents::write)]
+        pub struct Consents {
+            #[route(query)]
+            pub place: crate::consents::Place,
+        }
+    }
+
     /// The account's shipping addresses (Identity's `account-shipping-addresses`): the list is the
     /// area's route, and every handler takes an `AddressOwner` (`accounts.view` to read,
     /// `accounts.manage` to write).
@@ -1001,6 +1017,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
         .area(|area| url::team::area(area, shared.clone()).components(views::TEAM))
+        .area(|area| url::consents::area(area, shared.clone()).components(views::CONSENTS))
         .area(|area| url::sessions::area(area, shared.clone()).components(views::SESSIONS))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.

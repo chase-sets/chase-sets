@@ -26,6 +26,7 @@ mod account_page;
 mod address_page;
 mod cart_item;
 mod checkout_page;
+mod consents_page;
 mod decision_card;
 mod desk_page;
 mod inventory_item_page;
@@ -61,6 +62,7 @@ pub use cart_item::{
     CheckoutLink, EmptyCart, Reputation,
 };
 pub use checkout_page::{CheckoutPage, CheckoutRecovery};
+pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
@@ -148,6 +150,8 @@ pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMP
 
 /// The account's team (`/account/team`): its stylesheet.
 pub const TEAM: &[Component] = &[TeamPage];
+/// The user's consent history (`/account/consents`): its stylesheet.
+pub const CONSENTS: &[Component] = &[ConsentsPage];
 
 /// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
 /// dialog opens with `command="show-modal"`, which needs no script.

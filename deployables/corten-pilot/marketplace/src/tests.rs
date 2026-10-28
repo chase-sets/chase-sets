@@ -422,6 +422,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = team_api(&method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = consents_api(&method, &uri, &headers) {
+        return answer;
+    }
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
         return answer;
     }
@@ -9784,6 +9787,195 @@ async fn signing_out_ends_the_session_and_clears_the_cookies() {
     assert_eq!(ended.len(), 1);
     assert!(ended[0].headers[header::COOKIE].to_str().unwrap().contains("chase_sets_session=seller"), "the session it ends");
     assert_eq!(auth_calls(&pilot, "/api/auth/guest-checkout/exit").len(), 1, "a guest checkout ends too");
+}
+
+const CONSENTS: &str = "/account/consents";
+
+/// The consents Identity lists for `usr_seller` on `acc_seller`, newest first: a current Terms of
+/// Service, an account's current Seller Agreement, a withdrawn Privacy Policy another one replaced,
+/// a policy the page does not know with a version that is not a token, and another user's consent
+/// (chase-sets/chase-sets#10707). A read that waits for 45 is still catching up. A withdrawal's
+/// attempt decides an answer as a team write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`
+/// are `indeterminate`); the old Privacy Policy is refused as superseded.
+fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let path = uri.path();
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if path == "/api/identity/account-management/attempts" {
+        let action = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("action=")).unwrap_or_default();
+        if action != "withdraw" {
+            return None;
+        }
+        return Some(match attempt {
+            APPLIED_BEFORE => {
+                Json(json!({ "outcome": "committed", "newlyCommitted": false, "destination": "/account/consents" }))
+                    .into_response()
+            }
+            CHECK_DOWN => Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })).into_response(),
+            _ => Json(json!({ "outcome": "not-recorded", "code": "not-recorded" })).into_response(),
+        });
+    }
+    let rest = path.strip_prefix("/api/identity/consents")?;
+    let consent = |id: &str,
+                   subject: &str,
+                   user: &str,
+                   account: Option<&str>,
+                   policy: &str,
+                   version: &str,
+                   withdrawn: Option<&str>,
+                   current: bool| {
+        json!({ "consent_id": id, "subject_type": subject, "user_id": user, "account_id": account, "policy_key": policy,
+                "policy_version": version, "status": if withdrawn.is_some() { "withdrawn" } else { "recorded" },
+                "recorded_at": "2026-10-01T15:00:00.000Z", "withdrawn_at": withdrawn,
+                "updated_at": "2026-10-02T15:00:00.000Z", "is_current": current })
+    };
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("45") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        ("GET", "") => {
+            let items = [
+                consent("cns_terms", "user", "usr_seller", None, "terms-of-service", "2026-05-01", None, true),
+                consent("cns_seller", "account", "usr_seller", Some("acc_seller"), "seller-agreement", "2026-06-01", None, true),
+                consent(
+                    "cns_privacy_old",
+                    "user",
+                    "usr_seller",
+                    None,
+                    "privacy-policy",
+                    "2025-01-01",
+                    Some("2026-10-05T15:00:00.000Z"),
+                    false,
+                ),
+                consent("cns_odd", "user", "usr_seller", None, "beta-terms", "1.0", None, false),
+                consent("cns_else", "user", "usr_else", Some("acc_seller"), "terms-of-service", "2026-05-01", None, true),
+            ];
+            Json(json!({ "items": items, "total": 5, "count": 5 })).into_response()
+        }
+        _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => {
+            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })))
+                .into_response()
+        }
+        ("POST", "/cns_privacy_old/withdraw") => {
+            refusal(StatusCode::CONFLICT, "consent_superseded", "A newer consent replaced this one.")
+        }
+        ("POST", "/cns_terms/withdraw" | "/cns_seller/withdraw") => committed(
+            StatusCode::OK,
+            "identity",
+            "42",
+            json!({ "outcome": "committed", "newlyCommitted": true, "receipt": { "result": { "id": "cns_terms", "changed": true } } }),
+        ),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
+/// The consent withdrawals the pilot sent: path and attempt.
+fn consent_writes(pilot: &Pilot) -> Vec<(String, String)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with("/api/identity/consents/") && c.method == Method::POST)
+        .map(|c| (c.path.clone(), c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default()))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_current_one() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CONSENTS, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(
+        calls.iter().any(|c| c == "/api/identity/consents?limit=50&offset=0&userId=usr_seller&accountId=acc_seller"),
+        "the user's own, as marketplace asks: {calls:?}"
+    );
+    assert!(html.contains("Consent History") && html.contains("Audit history for agreements"), "{html}");
+    assert!(
+        html.contains("Terms of Service · Version 2026-05-01") && html.contains("Seller Agreement · Version 2026-06-01"),
+        "{html}"
+    );
+    assert!(html.contains("Privacy Policy · Version 2025-01-01") && html.contains("Withdrawn"), "{html}");
+    assert!(html.contains("Unrecognized consent policy: Beta Terms · Version unavailable"), "{html}");
+    assert!(html.contains("Recorded Oct 1, 2026") && html.contains("· Withdrawn Oct 5, 2026"), "the moments: {html}");
+    assert!(!html.contains("cns_else"), "another user's consent (#10707): {html}");
+    assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_terms""#), "{html}");
+    assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_seller""#), "{html}");
+    assert!(
+        !html.contains("withdraw-consent-dialog-cns_privacy_old") && !html.contains("withdraw-consent-dialog-cns_odd"),
+        "only a current, recorded one: {html}"
+    );
+    assert!(html.contains("Withdraw Terms of Service consent?"), "{html}");
+    let mut req = get(CONSENTS, Some("buyer"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["consents"].as_array().map(Vec::len), Some(4), "{body}");
+
+    let (status, headers, _) = pilot.send(get(CONSENTS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Fconsents"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_withdrawal_sends_its_attempt_and_the_page_is_read_after_it() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=withdraw&attempt={ATTEMPT}&consent_id=cns_terms");
+    let (status, headers, _) = pilot.send(post(CONSENTS, "buyer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/consents?after_write=") && to.ends_with(&format!("&saved={ATTEMPT}")), "{to}");
+    assert_eq!(consent_writes(&pilot), [("/api/identity/consents/cns_terms/withdraw".to_owned(), ATTEMPT.to_owned())]);
+    let (_, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert!(html.contains("Your change was saved"), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let read = calls.iter().rev().find(|c| c.path.starts_with("/api/identity/consents?")).unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "read after the withdrawal's receipt");
+
+    let (status, _, html) = pilot.send(get(&format!("{CONSENTS}?after_write={}", receipt_at("45")), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Terms of Service") && html.contains("still updating"), "the history as it was: {html}");
+}
+
+#[tokio::test]
+async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
+    let pilot = Pilot::new().await;
+    let refused = |body: String| post(CONSENTS, "buyer", &body, false);
+    let (status, _, html) = pilot.send(refused(format!("intent=forget&attempt={ATTEMPT}&consent_id=cns_terms"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Unknown consent action."), "{html}");
+    let (status, _, html) = pilot.send(refused("intent=withdraw&attempt=nope&consent_id=cns_terms".into())).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("out of date"), "{html}");
+    let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={ATTEMPT}&consent_id=+"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a consent to withdraw."), "{html}");
+    assert!(consent_writes(&pilot).is_empty(), "nothing sent for a form the page cannot send");
+    // Superseded: Identity's rule, a refusal that recorded nothing.
+    let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={ATTEMPT}&consent_id=cns_privacy_old"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("No change was recorded"), "{html}");
+
+    // No answer that says what happened: the lookup settles it, or the page asks again with Withdraw off.
+    let (status, headers, _) =
+        pilot.send(refused(format!("intent=withdraw&attempt={APPLIED_BEFORE}&consent_id=cns_terms"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains(&format!("saved={APPLIED_BEFORE}")), "{headers:?}");
+    let (_, headers, _) = pilot.send(refused(format!("intent=withdraw&attempt={CHECK_DOWN}&consent_id=cns_terms"))).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, format!("/account/consents?check={CHECK_DOWN}&target=cns_terms"));
+    let (_, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert!(html.contains("We could not confirm the result") && html.contains("Check again"), "{html}");
+    let dialog = html.find(r#"id="withdraw-consent-dialog-cns_terms""#).unwrap();
+    assert!(
+        html[dialog..].split("</dialog>").next().unwrap().contains(" disabled>"),
+        "the withdrawal it would repeat is off: {html}"
+    );
+    let other = html.find(r#"id="withdraw-consent-dialog-cns_seller""#).unwrap();
+    assert!(!html[other..].split("</dialog>").next().unwrap().contains(" disabled>"), "another consent's is not: {html}");
+    let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={NO_RECORD}&consent_id=cns_terms"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the lookup says nothing was recorded");
+    assert!(html.contains("No change was recorded"), "{html}");
 }
 
 const TEAM: &str = "/account/team";

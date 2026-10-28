@@ -70,6 +70,10 @@
 //   (identity.features.apiKeys.ui.accountSecurityPage.* as page.*, .apiKeySecretReveal.* as reveal.*, the API
 //   key statuses' words as key_status.*, the user name labels, the authentication methods, their families,
 //   the unrecognized words, identity.accountManagement.* as manage.*, the action errors, and the route's title).
+// - marketplace/locales/consents.en.json: the consent history page's English catalog
+//   (identity.features.consents.ui.consentHistoryPage.* as page.*, the consent policies as policy.*,
+//   the policy and status families, the version and date words and the unrecognized words as value.*,
+//   identity.accountManagement.* as manage.*, the action errors, and the route's words as route.*).
 // - marketplace/locales/team.en.json: the team page's English catalog
 //   (identity.features.memberships.ui.accountTeamPage.* as page.*, the membership roles as role.*, the
 //   membership and invitation statuses' words, their families and the unrecognized words as value.*,
@@ -599,6 +603,25 @@ const outputs = [
         ["identity.accountManagement.", "manage"],
         ["identity.support.routeSupport.accountActionErrors.", "action"],
         ["identity.routes.marketplace.accountSecurity.security.marketplace", "route.title"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/consents.en.json",
+    json(
+      await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.features.consents.ui.consentHistoryPage.", "page"],
+        ["identity.values.consentPolicy.", "policy"],
+        ["identity.values.family.consentPolicy", "family.consent_policy"],
+        ["identity.values.family.consentStatus", "family.consent_status"],
+        ["identity.values.version.unavailable", "value.version_unavailable"],
+        ["identity.values.version", "value.version"],
+        ["identity.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["identity.values.unrecognized", "value.unrecognized"],
+        ["identity.values.date.unavailable", "value.date_unavailable"],
+        ["identity.accountManagement.", "manage"],
+        ["identity.support.routeSupport.accountActionErrors.", "action"],
+        ["identity.routes.marketplace.accountConsents.", "route"],
       ]),
     ),
   ],

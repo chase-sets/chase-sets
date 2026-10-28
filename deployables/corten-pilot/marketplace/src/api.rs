@@ -3276,8 +3276,8 @@ pub struct SuggestedAddress {
 }
 
 /// An Identity account-management write the pilot sends (`MutationAction`): the address book's
-/// four, the account's profile, the security page's user profile and API key writes, and the team
-/// page's invitation and membership writes.
+/// four, the account's profile, the security page's user profile and API key writes, the team
+/// page's invitation and membership writes, and a consent's withdrawal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountAction {
@@ -3296,6 +3296,8 @@ pub enum AccountAction {
     /// A membership's revoke.
     Revoke,
     Reinstate,
+    /// A consent's withdrawal.
+    Withdraw,
 }
 
 impl AccountAction {
@@ -3315,6 +3317,7 @@ impl AccountAction {
             AccountAction::ChangeRole => "change-role",
             AccountAction::Revoke => "revoke",
             AccountAction::Reinstate => "reinstate",
+            AccountAction::Withdraw => "withdraw",
         }
     }
 }
@@ -3465,8 +3468,9 @@ impl Addresses for Caller<'_> {
             | AccountAction::CancelInvitation
             | AccountAction::ChangeRole
             | AccountAction::Revoke
-            | AccountAction::Reinstate => {
-                unreachable!("not in the address book: AccountCalls::update_profile, SecurityCalls, TeamCalls")
+            | AccountAction::Reinstate
+            | AccountAction::Withdraw => {
+                unreachable!("not in the address book: AccountCalls::update_profile, SecurityCalls, TeamCalls, ConsentCalls")
             }
         };
         let req = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt);
@@ -3725,6 +3729,68 @@ impl TeamCalls for Caller<'_> {
             req = req.header("x-forwarded-for", ip.to_string());
         }
         self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+}
+
+/// A consent the user or its account gave (Identity's `Consent`), the fields the history shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Consent {
+    pub consent_id: String,
+    pub subject_type: String,
+    pub user_id: Option<String>,
+    pub account_id: Option<String>,
+    pub policy_key: String,
+    pub policy_version: String,
+    pub status: String,
+    pub recorded_at: String,
+    pub withdrawn_at: Option<String>,
+    pub updated_at: String,
+    pub is_current: bool,
+}
+
+impl Consent {
+    /// Whether the consent is the user's own: a user consent of `user`, or an account consent
+    /// `user` gave for `account` (Identity's withdraw rule, `subjectMatchesActor`).
+    pub fn is_of(&self, user: &str, account: &str) -> bool {
+        let by_user = self.user_id.as_deref() == Some(user);
+        match self.subject_type.as_str() {
+            "user" => by_user,
+            "account" => by_user && self.account_id.as_deref() == Some(account),
+            _ => false,
+        }
+    }
+}
+
+/// The user's consent history (Identity's `consents`), as the signed-in user. A withdrawal is an
+/// account-management attempt, as the address book's writes are.
+pub trait ConsentCalls {
+    /// The user's consents for the account, newest first, as marketplace's loader asks (the first
+    /// 50). Workaround for chase-sets/chase-sets#10707: Identity takes the user and account from the
+    /// query for an actor with `security.manage`, so only the user's own consents are kept.
+    async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError>;
+    /// Withdraw `consent` as `attempt`.
+    async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError>;
+}
+
+impl ConsentCalls for Caller<'_> {
+    async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError> {
+        let path = format!("/api/identity/consents?limit=50&offset=0&userId={}&accountId={}", segment(user), segment(account));
+        let list: TeamList<Consent> = self.read(&path, IDENTITY).await?;
+        Ok(list.items.into_iter().filter(|c| c.is_of(user, account)).collect())
+    }
+
+    async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError> {
+        let path = format!("/api/identity/consents/{}/withdraw", segment(consent));
+        let res = self
+            .request(Method::POST, &path, IDENTITY)
+            .header(IDEMPOTENCY_KEY, attempt)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let text = res.text().await?;
+        AccountAnswer::read(status, &text, receipt)
     }
 }
 

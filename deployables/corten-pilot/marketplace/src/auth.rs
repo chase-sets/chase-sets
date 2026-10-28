@@ -265,6 +265,22 @@ impl Identify<Shared> for TeamOwner {
     }
 }
 
+/// A user on its consent history (`/account/consents`): anyone signed in to an account, as
+/// Identity's loader and action require (the API decides which consents it lists and who may
+/// withdraw one). Anyone not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ConsentHolder(pub Viewer);
+
+impl Identify<Shared> for ConsentHolder {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) => Ok(ConsentHolder(viewer)),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A buyer on its purchases: reading needs `orders.view`, cancelling `orders.manage`, as
 /// marketplace's loader and action require (the API checks both again). Anyone not signed in is
 /// sent to the sign-in, back to the page.
