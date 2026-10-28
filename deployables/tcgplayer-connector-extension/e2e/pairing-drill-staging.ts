@@ -56,6 +56,7 @@ export type StagingDrillPorts = Readonly<{
   outputDir: string;
   /** Fake seam only; the composed staging command never supplies one. */
   resolver?: PairingDrillResolver;
+  fakeDocuments?: DeployedPairingDrillInput["fakeDocuments"];
   secretMarkers?: readonly string[];
   /** Test seams: an active trace, and the profile's launcher. */
   traceActive?: boolean;
@@ -220,6 +221,7 @@ export async function stagingPreflightRows(
  */
 export async function runStagingDrill(argv: readonly string[], ports: StagingDrillPorts) {
   const args = parseStagingDrillArgs(argv);
+  if (ports.fakeDocuments && !ports.resolver) throw refusal("connector-drill-page-status");
   if (Object.keys(process.env).some((key) => providerEnvironmentPattern.test(key)))
     throw refusal("connector-drill-provider-environment-refused");
   const { signIn } = ports;
@@ -245,6 +247,7 @@ export async function runStagingDrill(argv: readonly string[], ports: StagingDri
     personaAlias: args.personaAlias,
     signIn: signIn && args.personaAlias ? (context) => signIn(context, args.personaAlias!) : undefined,
     resolver: ports.resolver,
+    fakeDocuments: ports.fakeDocuments,
     secretMarkers: ports.secretMarkers,
     outputDir: ports.outputDir,
     traceActive: ports.traceActive,

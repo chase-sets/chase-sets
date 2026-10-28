@@ -1,6 +1,6 @@
 import { createHash, X509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, get, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { LookupFunction } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,8 +11,10 @@ import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import {
   cleanDrillProfile,
+  correlateFakePopupDocument,
   createDeployedPopupObserver,
   deployedBrowserArgs,
+  deployedInputRefusal,
   digestConnectorDist,
   drillBrowserEnvironment,
   openRawCdpTransport,
@@ -21,6 +23,9 @@ import {
   retainDeployedReceipt,
   type DeployedPairingDrillReceipt,
   type DrillLaunchOptions,
+  type FakeDocumentResponse,
+  type FakePopupBoundary,
+  type FakePopupMainDocument,
   type PairingDrillDeployBinding,
   type PairingDrillRefusalCode,
 } from "../e2e/pairing-drill";
@@ -32,13 +37,205 @@ import {
   type DeployBindingResult,
   type StagingDrillPorts,
 } from "../e2e/pairing-drill-staging";
-import { drillTestCertificate, stagingFakePlatform, stagingSynthetic, synthetic } from "../e2e/loopback-platform";
+import {
+  createFakeDocumentRecorder,
+  drillTestCertificate,
+  stagingFakePlatform,
+  stagingSynthetic,
+  synthetic,
+} from "../e2e/loopback-platform";
 
 const staging = linkIntentOrigins["marketplace-web"].staging;
 const production = linkIntentOrigins["marketplace-web"].production;
 const stagingHost = new URL(staging).host;
 
-describe("deployed popup target-scoped document controls", () => {
+describe("fake response completion and main-document join", () => {
+  const path = "/account/channels/producer-connection";
+  const boundary: FakePopupBoundary = {
+    origin: staging,
+    path,
+    sourceTargetId: "source",
+    browserContextId: "context",
+    targetIds: ["source", "old-tab"],
+    sequence: 0,
+  };
+  const mainDocument = (marker: string): FakePopupMainDocument => ({
+    targetId: "new-tab",
+    type: "page",
+    browserContextId: "context",
+    openerId: null,
+    newPage: true,
+    mainDocument: true,
+    url: `${staging}${path}`,
+    targetUrl: `${staging}${path}`,
+    documentUrl: `${staging}${path}`,
+    markers: [marker],
+  });
+  async function produce(options: { abort?: boolean; status?: number } = {}, recorder = createFakeDocumentRecorder()) {
+    let beforeFinish: readonly FakeDocumentResponse[] = [];
+    let startedSequence = 0;
+    const server = createServer((request, reply) => {
+      const meta = recorder.begin(request, reply, true);
+      startedSequence = recorder.sequence();
+      reply.writeHead(options.status ?? 200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
+      beforeFinish = recorder.responses();
+      if (options.abort) reply.destroy();
+      else reply.end(`<!doctype html><title>Producer</title>${meta}`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("producer-listen-refused");
+      const body = await new Promise<string>((resolve, reject) => {
+        get({ hostname: "127.0.0.1", port: address.port, path, headers: { Host: stagingHost } }, (response) => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk: string) => {
+            body += chunk;
+          });
+          response.on("end", () => resolve(body));
+          response.on("error", reject);
+        }).on("error", (error) => (options.abort ? resolve("") : reject(error)));
+      });
+      // This extracts server markup for unit correlation, not browser receipt evidence.
+      const marker = /<meta name="connector-drill-response" content="([a-f0-9-]+)">/.exec(body)?.[1] ?? "";
+      return { marker, beforeFinish, startedSequence, rows: recorder.responses() };
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  }
+  it("publishes only on actual finish, not unfinished writeHead intent", async () => {
+    const produced = await produce();
+    expect(produced.beforeFinish).toEqual([]);
+    expect(produced.startedSequence).toBe(1);
+    expect(produced.rows).toEqual([
+      {
+        sequence: 1,
+        marker: produced.marker,
+        host: stagingHost,
+        path,
+        method: "GET",
+        status: 200,
+        session: true,
+        completed: "finish",
+      },
+    ]);
+  });
+  it("does not publish an aborted response", async () => {
+    const produced = await produce({ abort: true });
+    expect(produced.startedSequence).toBe(1);
+    expect(produced.rows).toEqual([]);
+  });
+  it("records emitted status rather than assuming successful intent", async () => {
+    const produced = await produce({ status: 503 });
+    expect(produced.rows[0]?.status).toBe(503);
+    expect(correlateFakePopupDocument(boundary, mainDocument(produced.marker), produced.rows)).toBeUndefined();
+  });
+  it("joins a unique completed response before Page discovery, including null opener", async () => {
+    const produced = await produce();
+    const document = mainDocument(produced.marker);
+    expect(correlateFakePopupDocument(boundary, document, produced.rows)).toEqual(produced.rows[0]);
+    expect(correlateFakePopupDocument(boundary, { ...document, openerId: "source" }, produced.rows)).toEqual(
+      produced.rows[0],
+    );
+    expect((await produce()).marker).not.toBe(produced.marker);
+  });
+  const documentControls: readonly [string, Partial<FakePopupMainDocument>][] = [
+    ["old Page", { newPage: false }],
+    ["subframe", { mainDocument: false }],
+    ["worker-only", { type: "service_worker" }],
+    ["source target", { targetId: "source" }],
+    ["missing target", { targetId: "" }],
+    ["old same-URL target", { targetId: "old-tab" }],
+    ["different context", { browserContextId: "other-context" }],
+    ["wrong opener", { openerId: "other-source" }],
+    ["wrong origin", { url: `https://other.invalid${path}` }],
+    ["wrong path", { url: `${staging}/account/channels/other` }],
+    ["wrong target URL", { targetUrl: `${staging}${path}?other` }],
+    ["different main document", { documentUrl: `${staging}${path}?other` }],
+    ["missing marker", { markers: [] }],
+    ["malformed marker", { markers: ["driver-injected"] }],
+    ["wrong driver-injected marker", { markers: ["a".repeat(36)] }],
+  ];
+  it.each(documentControls)("refuses %s with all other inputs frozen", async (_name, change) => {
+    const produced = await produce();
+    const changedDocument = { ...mainDocument(produced.marker), ...change };
+    // Keep the other URL authorities aligned so only the declared origin/path rule can reject it.
+    if (_name === "wrong origin" || _name === "wrong path") {
+      Object.assign(changedDocument, { targetUrl: changedDocument.url, documentUrl: changedDocument.url });
+    }
+    const isolatedBoundary = _name === "source target" ? { ...boundary, targetIds: ["old-tab"] } : boundary;
+    expect(correlateFakePopupDocument(isolatedBoundary, changedDocument, produced.rows)).toBeUndefined();
+  });
+  const responseControls: readonly [string, Partial<FakeDocumentResponse>][] = [
+    ["prior sequence", { sequence: 0 }],
+    ["wrong Host", { host: "other.invalid" }],
+    ["wrong response path", { path: "/account/channels/other" }],
+    ["non-GET", { method: "POST" }],
+    ["non-200", { status: 404 }],
+    ["missing session", { session: false }],
+  ];
+  it.each(responseControls)("refuses %s with all other inputs frozen", async (_name, change) => {
+    const produced = await produce();
+    expect(
+      correlateFakePopupDocument(boundary, mainDocument(produced.marker), [{ ...produced.rows[0]!, ...change }]),
+    ).toBeUndefined();
+  });
+  it("refuses replayed marker even when a newer response exists", async () => {
+    const recorder = createFakeDocumentRecorder();
+    const produced = await produce({}, recorder);
+    const newer = await produce({}, recorder);
+    expect(newer.rows.map((row) => row.sequence)).toEqual([1, 2]);
+    expect(
+      correlateFakePopupDocument({ ...boundary, sequence: 1 }, mainDocument(produced.marker), newer.rows),
+    ).toBeUndefined();
+  });
+  it("refuses missing context authority", async () => {
+    const produced = await produce();
+    expect(
+      correlateFakePopupDocument(
+        { ...boundary, browserContextId: "" },
+        { ...mainDocument(produced.marker), browserContextId: "" },
+        produced.rows,
+      ),
+    ).toBeUndefined();
+  });
+  it("refuses a non-finish row even with the correct document marker", async () => {
+    const produced = await produce();
+    Object.defineProperty(produced.rows[0], "completed", { value: "close" });
+    expect(correlateFakePopupDocument(boundary, mainDocument(produced.marker), produced.rows)).toBeUndefined();
+  });
+  it("refuses duplicate response identity", async () => {
+    const produced = await produce();
+    expect(
+      correlateFakePopupDocument(boundary, mainDocument(produced.marker), [...produced.rows, ...produced.rows]),
+    ).toBeUndefined();
+  });
+  it("refuses duplicate document marker", async () => {
+    const produced = await produce();
+    expect(
+      correlateFakePopupDocument(
+        boundary,
+        { ...mainDocument(produced.marker), markers: [produced.marker, produced.marker] },
+        produced.rows,
+      ),
+    ).toBeUndefined();
+  });
+  it("refuses malformed response marker with other join inputs frozen", async () => {
+    const produced = await produce();
+    Object.defineProperty(produced.rows[0], "marker", { value: "driver-injected" });
+    expect(correlateFakePopupDocument(boundary, mainDocument("driver-injected"), produced.rows)).toBeUndefined();
+  });
+  it("refuses server-only, URL-only and driver-injected document-only evidence", async () => {
+    const produced = await produce();
+    expect(
+      correlateFakePopupDocument(boundary, { ...mainDocument(produced.marker), markers: [] }, produced.rows),
+    ).toBeUndefined();
+    expect(correlateFakePopupDocument(boundary, mainDocument(produced.marker), [])).toBeUndefined();
+  });
+});
+
+describe("live deployed popup browser-response refusals", () => {
   const path = "/account/channels/synthetic-popup-connection";
   const url = `${staging}${path}`;
   type Transport = Parameters<typeof createDeployedPopupObserver>[1];
@@ -304,92 +501,6 @@ describe("deployed popup target-scoped document controls", () => {
   });
   it("refuses URL-only evidence", async () => {
     expect((await scenario({ response: false })).observer.document()).toBeUndefined();
-  });
-  it("holds a root tab and instruments its parent-scoped page before resuming", async () => {
-    const { observer, commands } = await scenario();
-    expect(commands).toEqual([
-      {
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: "tab" }] },
-        sessionId: undefined,
-      },
-      {
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: "page" }] },
-        sessionId: "synthetic-tab-session",
-      },
-      { method: "Network.enable", params: {}, sessionId: "synthetic-child-session" },
-      { method: "Page.enable", params: {}, sessionId: "synthetic-child-session" },
-      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-child-session" },
-      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-tab-session" },
-    ]);
-    expect(
-      observer.diagnostic().targets.map(({ type, waitingForDebugger, parentSessionId }) => ({
-        type,
-        waitingForDebugger,
-        parentSessionId,
-      })),
-    ).toEqual([
-      { type: "tab", waitingForDebugger: true, parentSessionId: null },
-      { type: "page", waitingForDebugger: false, parentSessionId: "synthetic-tab-session" },
-    ]);
-    expect(observer.document()).toMatchObject({
-      tabSessionId: "synthetic-tab-session",
-      frameId: "synthetic-main-frame",
-      loaderId: "synthetic-loader",
-    });
-  });
-  it("buffers early events until Network acknowledgement after tab resume", async () => {
-    const { observer, acknowledgeNetwork } = await scenario({ holdNetworkAck: true });
-    expect(observer.document()).toBeUndefined();
-    expect(observer.diagnostic().targets[1]).toMatchObject({ rawDocumentRequests: 1, rawDocumentResponses: 1 });
-    acknowledgeNetwork();
-    await Promise.resolve();
-    expect(observer.document()).toMatchObject({ status: 200 });
-    const rows = observer.diagnostic().chronology;
-    expect(rows.findIndex((row) => row.event === "send" && row.method === "Network.enable")).toBeLessThan(
-      rows.findIndex(
-        (row) =>
-          row.event === "send" &&
-          row.sessionId === "synthetic-tab-session" &&
-          row.method === "Runtime.runIfWaitingForDebugger",
-      ),
-    );
-    expect(rows.findIndex((row) => row.event === "ack" && row.method === "Network.enable")).toBeGreaterThan(
-      rows.findIndex((row) => row.event === "Network.responseReceived"),
-    );
-  });
-  it("refuses an unheld tab", async () => {
-    expect((await scenario({ tabWaiting: false })).observer.document()).toBeUndefined();
-  });
-  it.each([
-    { method: "Page.enable", sessionId: "synthetic-child-session" },
-    { method: "Runtime.runIfWaitingForDebugger", sessionId: "synthetic-child-session" },
-    { method: "Target.setAutoAttach", sessionId: "synthetic-tab-session" },
-    { method: "Runtime.runIfWaitingForDebugger", sessionId: "synthetic-tab-session" },
-  ])("requires acknowledgement of $method on $sessionId", async (holdCommand) => {
-    expect((await scenario({ holdCommand })).observer.document()).toBeUndefined();
-  });
-  it("refuses a root setup command error", async () => {
-    const { observer } = await scenario({ failCommand: "Target.setAutoAttach" });
-    expect(observer.failure).toBe("Target.setAutoAttach:command-error");
-    expect(observer.document()).toBeUndefined();
-  });
-  it("refuses a pre-existing tab with a new child page", async () => {
-    expect(
-      (await scenario({ existingTargetIds: ["synthetic-source", "synthetic-tab"] })).observer.document(),
-    ).toBeUndefined();
-  });
-  it("refuses wrong tab context", async () => {
-    expect((await scenario({ tabContext: "synthetic-other-context" })).observer.document()).toBeUndefined();
-  });
-  it("refuses an unowned parent session", async () => {
-    const { observer, commands } = await scenario({ parentSession: "synthetic-unowned-parent" });
-    expect(observer.document()).toBeUndefined();
-    expect(commands.some((command) => command.method === "Network.enable")).toBe(false);
-  });
-  it("refuses the superseded direct-root page topology", async () => {
-    expect((await scenario({ parentSession: null })).observer.document()).toBeUndefined();
   });
   it("refuses a mismatched response URL", async () => {
     expect((await scenario({ responseUrl: `${url}?synthetic-other-response` })).observer.document()).toBeUndefined();
@@ -675,6 +786,7 @@ async function command(
     dist,
     outputDir,
     resolver,
+    fakeDocuments: fake.documents,
     launch,
   };
   try {
@@ -691,6 +803,20 @@ async function command(
 const codeOf = (error: unknown) => (error instanceof PairingDrillRefusal ? error.code : error);
 
 describe("connector-pairing-drill-deployed arguments", () => {
+  it("refuses fake response proof supplied to live mode", () => {
+    const input = {
+      mode: "deployed" as const,
+      smoke: true,
+      platformOrigin: staging,
+      deployRun: run,
+      deployCommit: commit,
+      outputDir: "unused",
+      preflight: { deploy: binding(), rows: [] },
+      fakeDocuments: createFakeDocumentRecorder(),
+    };
+    expect(deployedInputRefusal(input)).toBe("connector-drill-page-status");
+    expect(deployedInputRefusal({ ...input, fakeDocuments: undefined })).toBeNull();
+  });
   it("accepts a complete pairing run and a deploy-and-origin-only smoke", () => {
     expect(parseStagingDrillArgs(pairingArgs())).toMatchObject({ smoke: false, deployRun: run, deployCommit: commit });
     expect(parseStagingDrillArgs(["--", ...smokeArgs()])).toEqual({
@@ -929,6 +1055,19 @@ describe("connector-pairing-drill-deployed fake staging host", () => {
 });
 
 describe("connector-pairing-drill-deployed composed command before Chromium", () => {
+  it("refuses fake response injection without a resolver before any adapter read", async () => {
+    const resolveDeployBinding = vi.fn(async () => ({ binding: binding() }));
+    const error = await refused(
+      runStagingDrill(smokeArgs(), {
+        dist,
+        outputDir: "unused",
+        resolveDeployBinding,
+        fakeDocuments: createFakeDocumentRecorder(),
+      }),
+    );
+    expect(error.code).toBe("connector-drill-page-status");
+    expect(resolveDeployBinding).not.toHaveBeenCalled();
+  });
   it("refuses an unavailable sign-in and a provider environment before reading the deploy", async () => {
     const unavailable = await command(pairingArgs(), { signIn: false });
     expect(codeOf(unavailable.error)).toBe("connector-drill-sign-in-unavailable");

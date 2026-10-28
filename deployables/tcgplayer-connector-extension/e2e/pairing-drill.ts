@@ -197,6 +197,21 @@ export type PairingDrillResolver = Readonly<{
   certificateSpki: string;
   certificatePem: string;
 }>;
+export const fakeDocumentMarkerName = "connector-drill-response";
+export type FakeDocumentResponse = Readonly<{
+  sequence: number;
+  marker: string;
+  host: string;
+  path: string;
+  method: string;
+  status: number;
+  session: boolean;
+  completed: "finish";
+}>;
+export type FakeDocumentSource = Readonly<{
+  sequence(): number;
+  responses(): readonly FakeDocumentResponse[];
+}>;
 export type DrillLaunchOptions = Readonly<{
   channel: "chromium";
   headless: false;
@@ -217,6 +232,8 @@ export type DeployedPairingDrillInput = Readonly<{
   personaAlias?: string;
   signIn?: (context: BrowserContext) => Promise<void>;
   resolver?: PairingDrillResolver;
+  /** Completed response authority from the test-owned resolver server, never a live fallback. */
+  fakeDocuments?: FakeDocumentSource;
   /** Literal values the caller held; the retained receipt must contain none of them. */
   secretMarkers?: readonly string[];
   /** A fresh directory the receipt is retained and scanned in before PASS. */
@@ -242,6 +259,16 @@ export type DeployedPageRow = Readonly<{
   contentType: string | null;
   locationHost: string | null;
   at: number;
+  fakeDocument?: Readonly<{
+    marker: string;
+    sequence: number;
+    targetId: string;
+    browserContextId: string;
+    openerId: string | null;
+    mainDocument: true;
+    session: true;
+    completed: "finish";
+  }>;
 }>;
 export type DeployedClaimRow = Readonly<{
   phase: "paused" | "unpaired";
@@ -826,6 +853,7 @@ export function retainDeployedReceipt(outputDir: string, receipt: unknown, marke
 
 /** The pre-launch verdict on a deployed input: its inputs, origin, deploy binding and preflight rows. */
 export function deployedInputRefusal(input: DeployedPairingDrillInput): PairingDrillRefusalCode | null {
+  if (input.fakeDocuments && !input.resolver) return "connector-drill-page-status";
   if (input.platformOrigin === productionOrigin) return "connector-drill-production-origin-refused";
   if (input.platformOrigin !== stagingOrigin) return "connector-drill-platform-origin-refused";
   if (
@@ -883,6 +911,136 @@ type RawCdpEvent = Readonly<{
   params: unknown;
   sessionId?: string;
 }>;
+
+export type FakePopupBoundary = Readonly<{
+  origin: string;
+  path: string;
+  sourceTargetId: string;
+  browserContextId: string;
+  targetIds: readonly string[];
+  sequence: number;
+}>;
+export type FakePopupMainDocument = Readonly<{
+  targetId: string;
+  type: string;
+  browserContextId: string;
+  openerId: string | null;
+  newPage: boolean;
+  mainDocument: boolean;
+  url: string;
+  targetUrl: string;
+  documentUrl: string;
+  markers: readonly string[];
+}>;
+
+/** Two authorities, joined by a server-issued marker. Neither URL nor a completed response alone qualifies. */
+export function correlateFakePopupDocument(
+  boundary: FakePopupBoundary,
+  document: FakePopupMainDocument,
+  responses: readonly FakeDocumentResponse[],
+): FakeDocumentResponse | undefined {
+  const expectedUrl = `${boundary.origin}${boundary.path}`;
+  if (!document.newPage) return;
+  if (!document.mainDocument) return;
+  if (document.type !== "page") return;
+  if (!document.targetId || document.targetId === boundary.sourceTargetId) return;
+  if (boundary.targetIds.includes(document.targetId)) return;
+  if (!boundary.browserContextId || document.browserContextId !== boundary.browserContextId) return;
+  if (document.openerId !== null && document.openerId !== boundary.sourceTargetId) return;
+  if (document.url !== expectedUrl) return;
+  if (document.targetUrl !== document.url) return;
+  if (document.documentUrl !== document.url) return;
+  if (document.markers.length !== 1) return;
+  const marker = document.markers[0];
+  if (!marker || !/^[a-f0-9-]{36}$/.test(marker)) return;
+  const matches = responses.filter((response) => response.marker === marker);
+  if (matches.length !== 1) return;
+  const response = matches[0]!;
+  if (response.sequence <= boundary.sequence) return;
+  if (response.completed !== "finish") return;
+  if (response.host !== new URL(boundary.origin).host) return;
+  if (response.path !== boundary.path) return;
+  if (response.method !== "GET") return;
+  if (response.status !== 200) return;
+  if (!response.session) return;
+  return response;
+}
+
+async function fakePairedPage(
+  context: BrowserContext,
+  source: Page,
+  origin: string,
+  path: string,
+  documents: FakeDocumentSource,
+) {
+  await source.bringToFront();
+  const identity = await context.newCDPSession(source);
+  let boundary: FakePopupBoundary;
+  let beforePages: Set<Page>;
+  try {
+    const { targetInfo } = await identity.send("Target.getTargetInfo");
+    const { targetInfos } = await identity.send("Target.getTargets");
+    beforePages = new Set(context.pages());
+    boundary = {
+      origin,
+      path,
+      sourceTargetId: targetInfo.targetId,
+      browserContextId: targetInfo.browserContextId ?? "",
+      targetIds: targetInfos.map((target) => target.targetId),
+      sequence: documents.sequence(),
+    };
+  } finally {
+    await identity.detach();
+  }
+  // Discovery is armed before the unchanged action, independent of initial response event delivery.
+  const surfaced = context.waitForEvent("page", { timeout: legMs }).catch(() => undefined);
+  if (!(await triggerAction(context, source))) return;
+  const page = await surfaced;
+  if (!page || page === source || beforePages.has(page) || page.context() !== context) return;
+  await page.waitForLoadState("domcontentloaded", { timeout: legMs });
+  const pageIdentity = await context.newCDPSession(page);
+  try {
+    const { targetInfo } = await pageIdentity.send("Target.getTargetInfo");
+    const frame = page.mainFrame();
+    // Read the existing MAIN document only. No fetch, injection, navigation or reload is performed.
+    const observed = await frame.evaluate(
+      (name) => ({
+        url: document.location.href,
+        top: window === window.top,
+        markers: [...document.querySelectorAll(`meta[name="${name}"]`)].map(
+          (element) => element.getAttribute("content") ?? "",
+        ),
+      }),
+      fakeDocumentMarkerName,
+    );
+    const response = correlateFakePopupDocument(
+      boundary,
+      {
+        targetId: targetInfo.targetId,
+        type: targetInfo.type,
+        browserContextId: targetInfo.browserContextId ?? "",
+        openerId: targetInfo.openerId ?? null,
+        newPage: !beforePages.has(page) && page.context() === context,
+        mainDocument:
+          observed.top && frame === page.mainFrame() && frame.parentFrame() === null && frame.page() === page,
+        url: page.url(),
+        targetUrl: targetInfo.url,
+        documentUrl: observed.url,
+        markers: observed.markers,
+      },
+      documents.responses(),
+    );
+    if (!response) return;
+    return {
+      response,
+      targetId: targetInfo.targetId,
+      browserContextId: targetInfo.browserContextId!,
+      openerId: targetInfo.openerId ?? null,
+    };
+  } finally {
+    await pageIdentity.detach();
+  }
+}
 
 /** Hold the tab while instrumenting its child page on the same flattened transport. */
 export function createDeployedPopupObserver(
@@ -1682,178 +1840,217 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
 
       // The next click opens the stored connection's page in a new tab, served through the browser.
       const reopenedAt = Date.now();
-      let popupPage: Page | undefined;
-      let popupResponse: BrowserResponse | undefined;
-      let popupDocument: DeployedPageRow | undefined;
-      let popupTargetId: string | undefined;
-      let popupTargetError: string | null = null;
-      const rawBrowserCdp = await openRawCdpTransport(profilePath);
-      try {
-        const sourceIdentity = await context.newCDPSession(page);
-        let sourceTargetInfo;
-        try {
-          sourceTargetInfo = (await sourceIdentity.send("Target.getTargetInfo")).targetInfo;
-        } finally {
-          await sourceIdentity.detach();
-        }
-        if (!rawCdpRecord(sourceTargetInfo) || typeof sourceTargetInfo.targetId !== "string") {
-          fail("connector-drill-page-status");
-        }
-        const sourceTargetId = sourceTargetInfo.targetId;
-        const sourceBrowserContextId =
-          typeof sourceTargetInfo.browserContextId === "string" ? sourceTargetInfo.browserContextId : undefined;
-        const popupObserver = createDeployedPopupObserver(
-          {
-            sourceTargetId,
-            browserContextId: sourceBrowserContextId,
-            origin: platformOrigin,
-            path: connectionPage,
-          },
-          rawBrowserCdp,
+      if (input.resolver) {
+        if (!input.fakeDocuments) fail("connector-drill-page-status");
+        const joined = await fakePairedPage(context, page, platformOrigin, connectionPage, input.fakeDocuments).catch(
+          () => undefined,
         );
-        const popupTargets = popupObserver.targets;
-        let preActionPages = new Set(context.pages());
-        const bindPopupPage = async () => {
-          if (popupPage !== undefined) return true;
-          const candidate = context
-            .pages()
-            .find(
-              (value) =>
-                value !== page &&
-                !preActionPages.has(value) &&
-                new URL(value.url()).origin === platformOrigin &&
-                new URL(value.url()).pathname === connectionPage,
-            );
-          if (!candidate) return false;
-          // This later session identifies the surfaced page only. Network evidence
-          // still comes exclusively from the originally auto-attached raw session.
-          const identity = await context.newCDPSession(candidate);
-          let targetId: string;
-          try {
-            targetId = (await identity.send("Target.getTargetInfo")).targetInfo.targetId;
-          } finally {
-            await identity.detach();
-          }
-          if (!popupTargets.get(targetId)?.newAfterAction) {
-            popupTargetError = "popup-target-binding-refused";
-            return false;
-          }
-          popupTargetId = targetId;
-          popupPage = candidate;
-          popupObserver.bindPage(targetId, candidate.url());
-          return true;
-        };
-        const observePopupResponse = (response: BrowserResponse) => {
-          if (popupDocument !== undefined) return;
-          const request = response.request();
-          if (request.resourceType() !== "document") return;
-          const url = new URL(request.url());
-          if (url.origin !== platformOrigin || url.pathname !== connectionPage) return;
-          // Corroboration only: this response cannot satisfy the raw target proof.
-          popupResponse = response;
-        };
-        const bindPopupDocument = () => {
-          if (popupDocument !== undefined || popupPage === undefined || popupTargetId === undefined) return false;
-          popupObserver.bindPage(popupTargetId, popupPage.url());
-          const document = popupObserver.document();
-          if (!document) return false;
-          popupDocument = pages.find(
-            (row) =>
-              row.host === new URL(document.url).host && row.path === redact(connectionPage) && row.at >= reopenedAt,
-          );
-          if (!popupDocument) {
-            popupDocument = {
-              method: document.method,
-              host: new URL(document.url).host,
-              path: redact(new URL(document.url).pathname),
-              status: document.status,
-              contentType: document.contentType,
-              locationHost: null,
-              at: document.at,
-            };
-            pages.push(popupDocument);
-          }
-          console.log(
-            `CONNECTOR_DRILL_POPUP_DOCUMENT ${JSON.stringify({
-              targetId: document.targetId,
-              sessionId: document.sessionId,
-              tabTargetId: document.tabTargetId,
-              tabSessionId: document.tabSessionId,
-              requestId: document.requestId,
-              frameId: document.frameId,
-              loaderId: document.loaderId,
-              openerId: document.openerId ?? null,
-              browserContextId: popupTargets.get(document.targetId)?.browserContextId ?? null,
-              newAfterAction: popupTargets.get(document.targetId)?.newAfterAction,
-              method: document.method,
-              resourceType: "Document",
-              origin: new URL(document.url).origin,
-              path: redact(new URL(document.url).pathname),
-              storedPathMatched: new URL(document.url).pathname === connectionPage,
-              status: document.status,
-              pageTargetId: popupTargetId,
-              pageUrl: `${new URL(popupPage.url()).origin}${redact(new URL(popupPage.url()).pathname)}`,
-              pageUrlMatched: popupPage.url() === document.url,
-            })}`,
-          );
-          return true;
-        };
-        // Arm corroboration before the action; the raw attached session is authoritative.
-        context.on("response", observePopupResponse);
-        let reopened = false;
+        if (!joined) fail("connector-drill-page-status");
+        const { response, targetId, browserContextId, openerId } = joined;
+        const fakeDocument = {
+          marker: response.marker,
+          sequence: response.sequence,
+          targetId,
+          browserContextId,
+          openerId,
+          mainDocument: true,
+          session: true,
+          completed: "finish",
+        } as const;
+        pages.push({
+          method: response.method,
+          host: response.host,
+          path: redact(response.path),
+          status: response.status,
+          contentType: "text/html",
+          locationHost: null,
+          at: Date.now(),
+          fakeDocument,
+        });
+        console.log(
+          `CONNECTOR_DRILL_FAKE_DOCUMENT ${JSON.stringify({
+            origin: "fake",
+            method: response.method,
+            host: response.host,
+            path: redact(response.path),
+            status: response.status,
+            ...fakeDocument,
+          })}`,
+        );
+      } else {
+        let popupPage: Page | undefined;
+        let popupResponse: BrowserResponse | undefined;
+        let popupDocument: DeployedPageRow | undefined;
+        let popupTargetId: string | undefined;
+        let popupTargetError: string | null = null;
+        const rawBrowserCdp = await openRawCdpTransport(profilePath);
         try {
-          if (!(await popupObserver.start())) fail("connector-drill-page-status");
-          await page.bringToFront();
-          const preActionTargets = await rawBrowserCdp.send("Target.getTargets", {
-            filter: [{ type: "tab" }, { type: "page" }],
-          });
-          if (!rawCdpRecord(preActionTargets) || !Array.isArray(preActionTargets.targetInfos))
-            fail("connector-drill-page-status");
-          const preActionTargetIds: string[] = [];
-          for (const info of preActionTargets.targetInfos) {
-            if (
-              !rawCdpRecord(info) ||
-              (info.type !== "page" && info.type !== "tab") ||
-              typeof info.targetId !== "string"
-            )
-              fail("connector-drill-page-status");
-            preActionTargetIds.push(info.targetId);
-          }
-          preActionPages = new Set(context.pages());
-          popupObserver.startAction(preActionTargetIds);
-          // Chromium's WebSocket client refuses unsafe extension operations. Use
-          // Playwright's launch-pipe action while raw child-session routing stays armed.
-          if (!(await triggerAction(context, page))) fail("connector-drill-pairing-refused");
-          reopened = await waitFor(
-            async () =>
-              !popupObserver.failure &&
-              (await bindPopupPage()) &&
-              bindPopupDocument() &&
-              popupDocument?.status === 200 &&
-              popupDocument.at >= reopenedAt,
-          );
-        } finally {
-          context.off("response", observePopupResponse);
+          const sourceIdentity = await context.newCDPSession(page);
+          let sourceTargetInfo;
           try {
-            await popupObserver.close();
+            sourceTargetInfo = (await sourceIdentity.send("Target.getTargetInfo")).targetInfo;
           } finally {
+            await sourceIdentity.detach();
+          }
+          if (!rawCdpRecord(sourceTargetInfo) || typeof sourceTargetInfo.targetId !== "string") {
+            fail("connector-drill-page-status");
+          }
+          const sourceTargetId = sourceTargetInfo.targetId;
+          const sourceBrowserContextId =
+            typeof sourceTargetInfo.browserContextId === "string" ? sourceTargetInfo.browserContextId : undefined;
+          const popupObserver = createDeployedPopupObserver(
+            {
+              sourceTargetId,
+              browserContextId: sourceBrowserContextId,
+              origin: platformOrigin,
+              path: connectionPage,
+            },
+            rawBrowserCdp,
+          );
+          const popupTargets = popupObserver.targets;
+          let preActionPages = new Set(context.pages());
+          const bindPopupPage = async () => {
+            if (popupPage !== undefined) return true;
+            const candidate = context
+              .pages()
+              .find(
+                (value) =>
+                  value !== page &&
+                  !preActionPages.has(value) &&
+                  new URL(value.url()).origin === platformOrigin &&
+                  new URL(value.url()).pathname === connectionPage,
+              );
+            if (!candidate) return false;
+            // This later session identifies the surfaced page only. Network evidence
+            // still comes exclusively from the originally auto-attached raw session.
+            const identity = await context.newCDPSession(candidate);
+            let targetId: string;
+            try {
+              targetId = (await identity.send("Target.getTargetInfo")).targetInfo.targetId;
+            } finally {
+              await identity.detach();
+            }
+            if (!popupTargets.get(targetId)?.newAfterAction) {
+              popupTargetError = "popup-target-binding-refused";
+              return false;
+            }
+            popupTargetId = targetId;
+            popupPage = candidate;
+            popupObserver.bindPage(targetId, candidate.url());
+            return true;
+          };
+          const observePopupResponse = (response: BrowserResponse) => {
+            if (popupDocument !== undefined) return;
+            const request = response.request();
+            if (request.resourceType() !== "document") return;
+            const url = new URL(request.url());
+            if (url.origin !== platformOrigin || url.pathname !== connectionPage) return;
+            // Corroboration only: this response cannot satisfy the raw target proof.
+            popupResponse = response;
+          };
+          const bindPopupDocument = () => {
+            if (popupDocument !== undefined || popupPage === undefined || popupTargetId === undefined) return false;
+            popupObserver.bindPage(popupTargetId, popupPage.url());
+            const document = popupObserver.document();
+            if (!document) return false;
+            popupDocument = pages.find(
+              (row) =>
+                row.host === new URL(document.url).host && row.path === redact(connectionPage) && row.at >= reopenedAt,
+            );
+            if (!popupDocument) {
+              popupDocument = {
+                method: document.method,
+                host: new URL(document.url).host,
+                path: redact(new URL(document.url).pathname),
+                status: document.status,
+                contentType: document.contentType,
+                locationHost: null,
+                at: document.at,
+              };
+              pages.push(popupDocument);
+            }
             console.log(
-              `CONNECTOR_DRILL_POPUP_CHRONOLOGY ${JSON.stringify({
-                ...popupObserver.diagnostic(),
-                accepted: reopened && !popupObserver.failure,
-                responseSeen: popupResponse !== undefined,
-                responseStatus: popupResponse?.status() ?? null,
-                pageEventSeen: popupPage !== undefined,
-                cdpTargetId: popupTargetId ?? null,
-                cdpSessionId: popupTargets.get(popupTargetId ?? "")?.sessionId ?? null,
-                cdpTargetError: popupTargetError,
+              `CONNECTOR_DRILL_POPUP_DOCUMENT ${JSON.stringify({
+                targetId: document.targetId,
+                sessionId: document.sessionId,
+                tabTargetId: document.tabTargetId,
+                tabSessionId: document.tabSessionId,
+                requestId: document.requestId,
+                frameId: document.frameId,
+                loaderId: document.loaderId,
+                openerId: document.openerId ?? null,
+                browserContextId: popupTargets.get(document.targetId)?.browserContextId ?? null,
+                newAfterAction: popupTargets.get(document.targetId)?.newAfterAction,
+                method: document.method,
+                resourceType: "Document",
+                origin: new URL(document.url).origin,
+                path: redact(new URL(document.url).pathname),
+                storedPathMatched: new URL(document.url).pathname === connectionPage,
+                status: document.status,
+                pageTargetId: popupTargetId,
+                pageUrl: `${new URL(popupPage.url()).origin}${redact(new URL(popupPage.url()).pathname)}`,
+                pageUrlMatched: popupPage.url() === document.url,
               })}`,
             );
+            return true;
+          };
+          // Arm corroboration before the action; the raw attached session is authoritative.
+          context.on("response", observePopupResponse);
+          let reopened = false;
+          try {
+            if (!(await popupObserver.start())) fail("connector-drill-page-status");
+            await page.bringToFront();
+            const preActionTargets = await rawBrowserCdp.send("Target.getTargets", {
+              filter: [{ type: "tab" }, { type: "page" }],
+            });
+            if (!rawCdpRecord(preActionTargets) || !Array.isArray(preActionTargets.targetInfos))
+              fail("connector-drill-page-status");
+            const preActionTargetIds: string[] = [];
+            for (const info of preActionTargets.targetInfos) {
+              if (
+                !rawCdpRecord(info) ||
+                (info.type !== "page" && info.type !== "tab") ||
+                typeof info.targetId !== "string"
+              )
+                fail("connector-drill-page-status");
+              preActionTargetIds.push(info.targetId);
+            }
+            preActionPages = new Set(context.pages());
+            popupObserver.startAction(preActionTargetIds);
+            // Chromium's WebSocket client refuses unsafe extension operations. Use
+            // Playwright's launch-pipe action while raw child-session routing stays armed.
+            if (!(await triggerAction(context, page))) fail("connector-drill-pairing-refused");
+            reopened = await waitFor(
+              async () =>
+                !popupObserver.failure &&
+                (await bindPopupPage()) &&
+                bindPopupDocument() &&
+                popupDocument?.status === 200 &&
+                popupDocument.at >= reopenedAt,
+            );
+          } finally {
+            context.off("response", observePopupResponse);
+            try {
+              await popupObserver.close();
+            } finally {
+              console.log(
+                `CONNECTOR_DRILL_POPUP_CHRONOLOGY ${JSON.stringify({
+                  ...popupObserver.diagnostic(),
+                  accepted: reopened && !popupObserver.failure,
+                  responseSeen: popupResponse !== undefined,
+                  responseStatus: popupResponse?.status() ?? null,
+                  pageEventSeen: popupPage !== undefined,
+                  cdpTargetId: popupTargetId ?? null,
+                  cdpSessionId: popupTargets.get(popupTargetId ?? "")?.sessionId ?? null,
+                  cdpTargetError: popupTargetError,
+                })}`,
+              );
+            }
           }
+          if (!reopened || popupObserver.failure) fail("connector-drill-page-status");
+        } finally {
+          await rawBrowserCdp.close();
         }
-        if (!reopened || popupObserver.failure) fail("connector-drill-page-status");
-      } finally {
-        await rawBrowserCdp.close();
       }
       const pairedRead = await step(page, "pairing-paired", "GET", pairingApi);
       if (bodyCode(pairedRead.body) !== "paired") fail("connector-drill-pairing-refused");

@@ -155,6 +155,7 @@ async function stagingCommand(name: string, setup: CommandSetup = {}) {
       resolver: setup.untrusted
         ? { ...fake.resolver, certificateSpki: drillTestCertificate().certificateSpki }
         : fake.resolver,
+      fakeDocuments: fake.documents,
       secretMarkers: [synthetic.cookieValue],
       traceActive: setup.traceActive,
     }).then(
@@ -170,6 +171,7 @@ async function stagingCommand(name: string, setup: CommandSetup = {}) {
       signIns,
       outputDir,
       rows: fake.rows(),
+      documents: fake.documents.responses(),
       connections: fake.connections(),
       pairing: fake.pairing(),
       forbidden: fake.forbidden(),
@@ -198,14 +200,30 @@ const milestones = (rows: Awaited<ReturnType<typeof stagingCommand>>["rows"]) =>
     .map((row) => `${row.step}:${row.status}`)
     .join(",");
 
-test("connector-pairing-drill-deployed composed staging command against the fake seam (popup-document observer mutant)", async () => {
+test("connector-pairing-drill-deployed composed staging command against the fake seam (aborted stylesheet control)", async () => {
   // Bounded waits: pairing, two paused claims, unpair and cleanup each stop within their 10 s legs.
-  // Mutant: the planted page stylesheet is aborted; the popup document must still be recorded as a page status.
+  // The planted stylesheet is aborted; only the completed response joined to the MAIN document can qualify.
   test.setTimeout(180_000);
   const outcome = await stagingCommand("pairing", { pageSubresource: plantedAsset });
   expect(outcome.error).toBeUndefined();
   const receipt = outcome.receipt as DeployedPairingDrillReceipt;
   const [connection] = outcome.connections;
+  const documents = receipt.pages.filter((row) => row.fakeDocument);
+  expect(documents).toHaveLength(1);
+  const document = documents[0]!;
+  const completed = outcome.documents.filter((row) => row.marker === document.fakeDocument!.marker);
+  expect(completed).toHaveLength(1);
+  expect(completed[0]).toMatchObject({
+    sequence: document.fakeDocument!.sequence,
+    method: "GET",
+    status: 200,
+    session: true,
+    completed: "finish",
+    host: stagingHost,
+    path: `/account/channels/${connection.connectionId}`,
+  });
+  expect(document.fakeDocument).toMatchObject({ mainDocument: true, session: true, completed: "finish" });
+  expect(new Set(outcome.documents.map((row) => row.marker)).size).toBe(outcome.documents.length);
 
   // AC1: the deploy binding and the three edge rows, recorded before launch.
   expect(receipt.deploy).toEqual(syntheticBinding());

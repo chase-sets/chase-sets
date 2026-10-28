@@ -1,10 +1,10 @@
-import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createTlsServer } from "node:https";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { syntheticClaim } from "../__tests__/harness/claim";
-import type { PairingDrillResolver } from "./pairing-drill";
+import { fakeDocumentMarkerName, type FakeDocumentResponse, type PairingDrillResolver } from "./pairing-drill";
 
 export const synthetic = {
   cookieName: "synthetic_connector_session",
@@ -367,6 +367,41 @@ export type StagingFakeRow = Readonly<{
 }>;
 type FakeConnection = { connectionId: string; providerKey: string; status: string; storageLocationIds: string[] };
 
+/** A response intent is not evidence. Only finish publishes a row; the document proves receipt separately. */
+export function createFakeDocumentRecorder() {
+  let sequence = 0;
+  const responses: FakeDocumentResponse[] = [];
+  return {
+    sequence: () => sequence,
+    responses: () => [...responses],
+    begin(request: IncomingMessage, reply: ServerResponse, session: boolean) {
+      if (sequence >= 512) throw new Error("connector-drill-fake-document-limit");
+      const responseSequence = ++sequence;
+      const marker = randomUUID();
+      const host = request.headers.host ?? "";
+      const path = request.url ?? "";
+      const method = request.method ?? "";
+      reply.once("finish", () => {
+        const row = {
+          sequence: responseSequence,
+          marker,
+          host,
+          path,
+          method,
+          status: reply.statusCode,
+          session,
+          completed: "finish",
+        } as const;
+        responses.push(row);
+        console.log(
+          `CONNECTOR_DRILL_FAKE_RESPONSE ${JSON.stringify({ ...row, path: path.replace(/^\/account\/channels\/[^/?]+$/, "/account/channels/<connectionId>") })}`,
+        );
+      });
+      return `<meta name="${fakeDocumentMarkerName}" content="${marker}">`;
+    },
+  };
+}
+
 /**
  * The deployed staging host's fake, served over TLS with a per-run test certificate. The drill reaches it only
  * through `resolver`: Chromium maps the exact staging host to it and trusts the certificate's SPKI, and the Node
@@ -376,6 +411,7 @@ export async function stagingFakePlatform(options: StagingFakeOptions = {}) {
   const certificate = drillTestCertificate();
   const session = `${synthetic.cookieName}=${synthetic.cookieValue}`;
   const rows: StagingFakeRow[] = [];
+  const documents = createFakeDocumentRecorder();
   const connections = new Map<string, FakeConnection>();
   const pairing = {
     state: "unpaired" as "unpaired" | "code" | "authorized" | "paired",
@@ -598,7 +634,8 @@ export async function stagingFakePlatform(options: StagingFakeOptions = {}) {
         }
         return respond(intent === "connector-unpair" ? "unpair" : "code", 409, { "Content-Type": "text/html" }, "");
       }
-      return respond("page", 200, { "Content-Type": "text/html" }, accountPage(connectionId));
+      const marker = documents.begin(request, reply, sessionPresent);
+      return respond("page", 200, { "Content-Type": "text/html" }, accountPage(connectionId) + marker);
     }
     return json("unknown", 404, { error: "not-found" });
   };
@@ -627,6 +664,7 @@ export async function stagingFakePlatform(options: StagingFakeOptions = {}) {
       certificatePem: certificate.certificatePem,
     } satisfies PairingDrillResolver,
     rows: () => [...rows],
+    documents,
     connections: () => [...connections.values()].map((connection) => ({ ...connection })),
     pairing: () => ({ ...pairing }),
     forbidden: () => [
