@@ -4,6 +4,7 @@
 //! design system's English chart words among it. `messages!` checks every call against the
 //! catalogs when the crate compiles.
 pub use compare::CompareMsg;
+pub use developers::DevelopersMsg;
 pub use help::HelpMsg;
 pub use home::HomeMsg;
 pub use market::MarketMsg;
@@ -25,6 +26,12 @@ mod home {
 mod compare {
     corten::i18n::messages! {
         pub struct CompareMsg { "en" => "locales/compare.en.json" }
+    }
+}
+
+mod developers {
+    corten::i18n::messages! {
+        pub struct DevelopersMsg { "en" => "locales/developers.en.json" }
     }
 }
 

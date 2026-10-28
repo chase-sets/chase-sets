@@ -140,6 +140,10 @@
 //   the policy values it cites) and the public policy value whitelist's types and value contracts, which
 //   a live value is checked against before it is shown.
 // - public/locales/help.en.json: the help center's English catalog (publicPresence.help.*).
+// - public/developers.json: the developer portal (features/developer-portal's generated articles and
+//   MCP tool catalog, the supported MCP protocol versions and the Agent Connector Terms' address).
+// - public/locales/developers.en.json: the developer portal's English catalog
+//   (publicPresence.developers.*).
 // - public/locales/compare.en.json: the compare pages' and Contact's English catalog
 //   (publicPresence.compare.*, each compare route's meta as meta.tcgplayer.* and meta.ebay.*,
 //   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
@@ -336,6 +340,57 @@ const homeAssets = [
   "chase-sets-og-founders.png",
 ];
 
+/** An article as the help center and the developer portal draw it. */
+const article = (a) => ({
+  slug: a.slug,
+  locale: a.locale,
+  title: a.title,
+  description: a.description,
+  audience: a.audience,
+  category: a.category,
+  reviewed_at: a.reviewedAt,
+  href: a.href,
+  headings: a.headings,
+  blocks: a.blocks,
+  policy_value_keys: a.policyValueKeys,
+});
+
+/**
+ * The developer portal (features/developer-portal): its articles, the MCP tool catalog (each tool
+ * as the manifest lists it, and its schemas as the page prints them), the protocol versions the
+ * MCP endpoint supports, and the Agent Connector Terms' address.
+ */
+async function developers() {
+  const load = (file) => import(pathToFileURL(path.join(repo, file)).href);
+  const { developerArticles } = await load("bounded-contexts/public-presence/features/developer-portal/domain/generated/articles.ts");
+  const { mcpToolCatalog } = await load("bounded-contexts/public-presence/features/developer-portal/domain/generated/mcp-tool-catalog.ts");
+  const { SUPPORTED_MCP_PROTOCOL_VERSIONS } = await load("infrastructure/platform-runtime/mcp-protocol.ts");
+  const { publicPolicyHrefsByKey } = await load("contracts/public-docs/policy-corpus.ts");
+  return {
+    articles: developerArticles.map(article),
+    tools: mcpToolCatalog.map((tool) => ({
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      available: tool.availability === "available",
+      service: tool.serviceId,
+      risk: tool.risk,
+      scope: tool.permissionBoundary.scope,
+      permissions: tool.permissionBoundary.requiredPermissions,
+      scopes: tool.permissionBoundary.requiredScopes ?? [],
+      usage: tool.expectedUsage,
+      confirmation: tool.guardrails.confirmation.required,
+      idempotency: tool.guardrails.idempotencyKey,
+      dry_run: tool.guardrails.dryRunSupported,
+      input_schema: JSON.stringify(tool.inputSchema, null, 2),
+      output_schema: tool.outputSchema ? JSON.stringify(tool.outputSchema, null, 2) : null,
+      manifest: tool,
+    })),
+    protocol_versions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+    agent_terms: publicPolicyHrefsByKey["agent-connector-terms"],
+  };
+}
+
 /** The help center's articles and the whitelist their live values are checked against. */
 async function help() {
   const { helpArticles } = await import(
@@ -345,19 +400,7 @@ async function help() {
     pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/help/domain/public-policy-value-whitelist.mjs")).href
   );
   return {
-    articles: helpArticles.map((a) => ({
-      slug: a.slug,
-      locale: a.locale,
-      title: a.title,
-      description: a.description,
-      audience: a.audience,
-      category: a.category,
-      reviewed_at: a.reviewedAt,
-      href: a.href,
-      headings: a.headings,
-      blocks: a.blocks,
-      policy_value_keys: a.policyValueKeys,
-    })),
+    articles: helpArticles.map(article),
     values: publicPolicyValueWhitelist.map((p) => ({
       key: p.key,
       type: p.type,
@@ -1008,6 +1051,13 @@ const outputs = [
   ],
   ["public/policies.json", json(await policies())],
   ["public/help.json", json(await help())],
+  ["public/developers.json", json(await developers())],
+  [
+    "public/locales/developers.en.json",
+    json(
+      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.developers.", ""]]),
+    ),
+  ],
   [
     "public/locales/help.en.json",
     json(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.help.", ""]])),

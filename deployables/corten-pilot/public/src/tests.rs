@@ -169,6 +169,11 @@ struct Site {
 
 impl Site {
     async fn new(indexing: bool, origin: &str) -> Self {
+        Site::with(indexing, origin, false).await
+    }
+
+    /// A site whose developer portal is open or not.
+    async fn with(indexing: bool, origin: &str, developers: bool) -> Self {
         let calls = Calls::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -180,6 +185,7 @@ impl Site {
             marketplace: "https://marketplace.chasesets.com".into(),
             indexing,
             discord: None,
+            developers,
             home: Default::default(),
         };
         Site { router: app(config).router(), calls }
@@ -945,4 +951,89 @@ async fn contact_says_where_to_write_and_the_shell_links_here() {
     for loc in ["/contact", "/compare/tcgplayer", "/compare/ebay"] {
         assert!(sitemap.contains(&format!("<loc>https://chasesets.com{loc}</loc>")), "{loc}: {sitemap}");
     }
+}
+
+#[tokio::test]
+async fn the_developer_portal_is_not_found_until_it_is_ready() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    for path in ["/developers", "/developers/developer-quickstart", "/developers/manifest.json", "/llms.txt"] {
+        let (status, _, _) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn the_open_developer_portal_lists_its_guides_out_of_search() {
+    let site = Site::with(true, "https://chasesets.com", true).await;
+    let (status, headers, page) = site.get("/developers", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(cache(&headers), "public, max-age=60, s-maxage=300, stale-while-revalidate=60");
+    assert_eq!(headers["x-robots-tag"], "noindex, nofollow");
+    assert!(page.contains("<title>Developer Portal | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<meta name="robots" content="noindex,nofollow""#), "{page}");
+    assert!(page.contains(">Build with Chase Sets</h1>"), "{page}");
+    assert!(page.contains(r#"href="/developers/developer-quickstart""#) && page.contains("Read guide"), "{page}");
+    assert!(page.contains(r#"href="/agent-terms""#) && page.contains(r#"href="/developers/manifest.json""#), "{page}");
+    assert!(page.contains(r#"href="/llms.txt""#), "{page}");
+
+    // A guide, with its trail and contents; one that is not one is not found.
+    let (status, headers, page) = site.get("/developers/developer-quickstart", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(headers["x-robots-tag"], "noindex, nofollow");
+    assert!(page.contains("<title>Developer quickstart | Chase Sets Developers</title>"), "{page}");
+    assert!(page.contains(r#"<li><a href="/developers">Developers</a></li>"#), "{page}");
+    assert!(page.contains(">On this page</h2>"), "{page}");
+    assert!(!page.contains("Generated MCP tool descriptors"), "{page}");
+    let (status, _, _) = site.get("/developers/nope", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // The tool catalog's guide lists every tool, available first.
+    let (_, _, page) = site.get("/developers/mcp-tool-catalog", None).await;
+    assert!(page.contains(">Generated MCP tool descriptors</h2>"), "{page}");
+    assert!(page.contains("<code>checkout.add-cart-line</code>") && page.contains("<code>auth.resolve-actor</code>"), "{page}");
+    assert!(page.find(">Available tools</h3>") < page.find(">Planned tools</h3>"), "{page}");
+    assert!(page.contains("Input schema"), "{page}");
+}
+
+#[tokio::test]
+async fn the_developer_manifest_and_llms_txt_describe_the_portal_for_agents() {
+    let site = Site::with(true, "https://chasesets.com", true).await;
+    let (status, headers, body) = site.get("/developers/manifest.json", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "application/json");
+    assert_eq!(headers["x-robots-tag"], "noindex, nofollow");
+    let manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(manifest["schemaVersion"], 1);
+    assert_eq!(manifest["indexing"], "disabled");
+    assert_eq!(manifest["portalUrl"], "https://chasesets.com/developers");
+    assert_eq!(
+        manifest["policies"],
+        json!([{ "policyKey": "agent-connector-terms", "title": "Agent Connector Terms", "url": "https://chasesets.com/agent-terms" }])
+    );
+    assert_eq!(manifest["articles"][1]["url"], "https://chasesets.com/developers/developer-quickstart");
+    assert_eq!(manifest["mcp"]["endpoint"], "https://chasesets.com/mcp");
+    assert!(manifest["mcp"]["tools"].as_array().unwrap().len() > 60);
+    assert_eq!(manifest["mcp"]["tools"][0]["availability"], "available");
+
+    let (status, headers, text) = site.get("/llms.txt", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
+    assert_eq!(headers["x-robots-tag"], "noindex, nofollow");
+    assert!(text.starts_with("# Chase Sets Developer Portal\n\n> Gated, non-indexed documentation"), "{text}");
+    assert!(text.contains("- [Agent Connector Terms](https://chasesets.com/agent-terms)\n- [Machine-readable developer manifest](https://chasesets.com/developers/manifest.json)"), "{text}");
+    assert!(text.contains("Supported protocol versions: 2025-06-18, 2025-11-25, 2026-07-28"), "{text}");
+}
+
+/// The manifest is about 160 KB, so it is the pilot's own answer (`developers::File`), which
+/// Corten compresses, not a `Relay`, which it never does (todd-skelton/corten#287).
+#[tokio::test]
+async fn the_developer_manifest_is_compressed_with_its_robots_header() {
+    let site = Site::with(true, "https://chasesets.com", true).await;
+    let req = Request::get("/developers/manifest.json").header(header::ACCEPT_ENCODING, "br").body(Body::empty()).unwrap();
+    let res = site.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()[header::CONTENT_ENCODING], "br");
+    assert_eq!(res.headers()["x-robots-tag"], "noindex, nofollow");
+    let sent = res.into_body().collect().await.unwrap().to_bytes().len();
+    assert!(sent < 40_000, "{sent} bytes");
 }

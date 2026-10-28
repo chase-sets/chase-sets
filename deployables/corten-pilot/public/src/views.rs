@@ -17,7 +17,7 @@ mod policy_page;
 mod welcome_page;
 
 pub use compare_page::{ComparePage, ContactPage, FeeCalculator, FeeCalculatorId};
-pub use help_page::{HelpArticlePage, HelpCategoryPage, HelpHub};
+pub use help_page::{DeveloperArticle, DeveloperPortal, HelpArticlePage, HelpCategoryPage, HelpHub};
 pub use home_page::HomePage;
 pub use market_page::{MarketPage, Screen};
 pub use policy_page::PolicyPage;

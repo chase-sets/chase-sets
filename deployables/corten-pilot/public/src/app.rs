@@ -11,6 +11,7 @@
 //! | `GET /help`, `/help/{category}`, `/help/{category}/{slug}`, `/sales-fees`, `/press` | the help center and its articles (`Public`) |
 //! | `GET /compare/tcgplayer`, `/compare/ebay` | a comparison with the fee calculator (`Public`; with a script the calculator's GET answers with its section) |
 //! | `GET /contact` | Contact (`Public`) |
+//! | `GET /developers`, `/developers/{slug}`, `/developers/manifest.json`, `/llms.txt` | the developer portal, a 404 until `CHASE_SETS_M86_DEVELOPER_PORTAL_READY` (`Public`, out of search) |
 //! | `GET /faq`, `/order-protection`, `/refunds-and-returns` and public-web's two older addresses | moved for good to their articles |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
@@ -35,6 +36,9 @@ pub struct Config {
     pub indexing: bool,
     /// The Discord invite the home page links (`CHASE_SETS_DISCORD_INVITE_URL`), when set.
     pub discord: Option<String>,
+    /// Whether the developer portal is open (`CHASE_SETS_M86_DEVELOPER_PORTAL_READY` is `true`);
+    /// every address of it is a 404 until it is.
+    pub developers: bool,
     /// The home page's reads, kept for the next visitor.
     pub home: crate::home::Kept,
 }
@@ -49,6 +53,7 @@ impl Config {
             marketplace: origin("CHASE_SETS_MARKETPLACE_ORIGIN", "https://marketplace.chasesets.com"),
             indexing: indexing(var("CHASE_SETS_PUBLIC_INDEXING").as_deref()),
             discord: var("CHASE_SETS_DISCORD_INVITE_URL"),
+            developers: crate::developers::ready(var("CHASE_SETS_M86_DEVELOPER_PORTAL_READY").as_deref()),
             home: crate::home::Kept::default(),
         }
     }
@@ -141,6 +146,10 @@ pub mod url {
         #[route("/seller-fees", get = crate::help::older_fees)]
         pub struct OlderFees;
 
+        /// `llms.txt`, the developer portal's index for agents.
+        #[route("/llms.txt", get = crate::developers::llms_file)]
+        pub struct Llms;
+
         #[route("/robots.txt", get = crate::market::robots)]
         pub struct Robots;
 
@@ -204,6 +213,21 @@ pub mod url {
         pub struct Contact;
     }
 
+    /// The developer portal (`crate::developers`), an area listing the help center's components.
+    #[corten::routes(state = crate::app::Shared, area = Developers)]
+    pub mod developers {
+        #[route("/developers", get = crate::developers::portal)]
+        pub struct Developers;
+
+        #[route("/developers/manifest.json", get = crate::developers::manifest_file)]
+        pub struct Manifest;
+
+        #[route("/developers/{slug}", get = crate::developers::article)]
+        pub struct Guide<'a> {
+            pub slug: &'a str,
+        }
+    }
+
     /// The market pages, public.
     #[corten::routes(state = crate::app::Shared, area = Market)]
     pub mod market {
@@ -229,6 +253,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::help::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::sales_fees::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::press::area(area, shared.clone()).components(views::HELP))
+        .area(|area| url::developers::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::compare::area(area, shared.clone()).components(views::COMPARE))
         .area(|area| url::contact::area(area, shared.clone()).components(views::COMPARE))
         .area(|area| url::market::area(area, shared).components(views::MARKET))

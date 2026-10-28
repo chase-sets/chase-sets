@@ -4,6 +4,7 @@
 mod api;
 mod app;
 mod compare;
+mod developers;
 mod help;
 mod home;
 mod kept;
