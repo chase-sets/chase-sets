@@ -39,7 +39,10 @@ import {
   type PromotionTargetExclusion,
 } from "../api/promotion/promotion-target-exclusion";
 import { sourceObservationTargetId } from "../api/promotion/promotion-target-identity";
-import { normalizeCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
+import {
+  normalizeCatalogProviderSourceObservation,
+  type CatalogProviderSourceObservationInput,
+} from "../api/promotion/provider-source-observation-normalizer";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../api/providers/provider-integration-profile-store";
 import {
   loadCatalogItemPromotionProfile,
@@ -69,6 +72,7 @@ import {
 } from "../api/source-observation-merge-candidate-bulk-job-runtime";
 import { catalogMergeCandidateStreamId } from "../api/source-observation-stream-identity";
 import { getSourceObservationDetail, listCatalogMergeCandidates } from "../read-model/queries";
+import { furySliver, magicCandidate, magicObservation, registeredMagicProfile } from "./magic-provider-role-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -1537,6 +1541,206 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect(legacy.result?.outcomes[0]?.reason).toMatch(/^promotion-application-legacy-job/);
     expect(await candidateEvents(straggler)).toMatchObject({ approved: 0, planned: 0 });
     expect(await candidateEvents(candidateId)).toMatchObject({ applied: 1 });
+  });
+
+  describe("registered Magic provider roles", () => {
+    const scryfallCardPrint = registeredMagicProfile("scryfall-card-print");
+    const scryfallPin = [
+      {
+        providerKey: "scryfall",
+        profileKey: scryfallCardPrint.profileKey,
+        profileVersion: scryfallCardPrint.profileVersion,
+      },
+    ];
+
+    // Observations come from the registered MTGJSON and Scryfall mappers; the
+    // real matcher builds each candidate in the application scope.
+    async function magicCandidateFrom(observations: readonly CatalogProviderSourceObservationInput[]) {
+      const rows = [];
+      for (const observation of observations) {
+        await services.sourceObservations.commandHandler({
+          streamId: `catalog.source-observation-${observation.observationId}`,
+          command: { type: "RecordSourceObservation", ...observation },
+          context,
+        });
+        await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+        rows.push((await getSourceObservationDetail(pool, observation.observationId))!);
+      }
+      const candidate = magicCandidate(rows, applicationScopeId);
+      await candidateWriter(pool, store).create(candidate.candidateId, candidate.snapshot);
+      return candidate.candidateId;
+    }
+
+    const mixed = () => magicCandidateFrom([magicObservation("mtgjson-card"), magicObservation("scryfall-card-print")]);
+    const referenceOnly = (collectorNumber: string) =>
+      magicCandidateFrom([magicObservation("mtgjson-card", { collectorNumber })]);
+
+    async function streamEvents(prefix: string): Promise<number> {
+      const result = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id LIKE $1",
+        [`${prefix}%`],
+      );
+      return Number(result.rows[0]!.count);
+    }
+
+    async function plannedProfiles(candidateId: string) {
+      const planned = (await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-planned") as
+        | { plan: { profiles: unknown } }
+        | undefined;
+      return planned?.plan.profiles;
+    }
+
+    async function completedJobs(): Promise<readonly CatalogMergeCandidateBulkJob[]> {
+      const jobs: CatalogMergeCandidateBulkJob[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 20; page += 1) {
+        const listed = await services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({
+          context,
+          scopeRecordId: applicationScopeId,
+          kind: "merge-candidate-promote",
+          cursor,
+        });
+        jobs.push(...listed.items);
+        cursor = listed.cursor ?? undefined;
+        if (!cursor) return jobs;
+      }
+      throw new Error("Completed promotion jobs did not end within 20 pages.");
+    }
+
+    it.each(["b", "e"] as const)(
+      "AC4: a mixed MTGJSON/Scryfall candidate interrupted at %s recovers its bound plan into one Scryfall-authored Item; a second submit is zero",
+      async (point) => {
+        const candidateId = await mixed();
+        const target = catalogMergeCandidateTargetId(candidateId);
+        const job = await submit();
+
+        const processResult = await processOne(runtimeWith({ crash: point }));
+        expect(processResult).toBe(0);
+        expect(await candidateEvents(candidateId)).toMatchObject({
+          approved: 1,
+          planned: 1,
+          applied: point === "e" ? 1 : 0,
+        });
+
+        await drainWorker(services.sourceObservations);
+        const completed = await requireJob(services.sourceObservations, job.jobId);
+        const outcome = completed.result?.outcomes[0];
+        expect(completed.result).toMatchObject({ requested: 1, promoted: 1, skippedNotEligible: 0, failed: 0 });
+        expect(completed.result?.outcomes[0]).toMatchObject({
+          candidateId,
+          status: "promoted",
+          appliedCatalogItemId: target,
+          appliedMode: "create",
+        });
+        expect(await candidateEvents(candidateId)).toMatchObject({ approved: 1, planned: 1, applied: 1 });
+        expect(await plannedProfiles(candidateId)).toEqual(scryfallPin);
+        expect(await itemCreations()).toBe(1);
+
+        const later = await submit();
+        await drainWorker(services.sourceObservations);
+        expect((await requireJob(services.sourceObservations, later.jobId)).result).toMatchObject({
+          requested: 1,
+          promoted: 0,
+          skippedNotEligible: 1,
+          failed: 0,
+        });
+        expect(await itemCreations()).toBe(1);
+        expect((await candidateEvents(candidateId)).applied).toBe(1);
+      },
+    );
+
+    it("AC4: reference-only MTGJSON candidates skip with zero approval, plan, Item or Reference Record writes, however often submitted", async () => {
+      const candidateIds = [await referenceOnly(furySliver), await referenceOnly("158")];
+      const writes = async () => ({
+        items: await streamEvents("catalog.item-"),
+        referenceRecords: await streamEvents("catalog.reference-record-"),
+      });
+      const before = await writes();
+
+      for (let submission = 0; submission < 2; submission += 1) {
+        const job = await submit();
+        await drainWorker(services.sourceObservations);
+        const completed = await requireJob(services.sourceObservations, job.jobId);
+        expect(completed.result).toMatchObject({ requested: 2, promoted: 0, skippedNotEligible: 2, failed: 0 });
+        for (const outcome of completed.result!.outcomes) {
+          expect(outcome).toMatchObject({
+            status: "skipped-not-eligible",
+            disposition: "reference-only",
+            appliedCatalogItemId: null,
+          });
+          expect(outcome).not.toHaveProperty("diagnosticCode");
+        }
+      }
+
+      for (const candidateId of candidateIds) {
+        expect(await candidateEvents(candidateId)).toMatchObject({ length: 1, approved: 0, planned: 0, applied: 0 });
+      }
+      expect(await writes()).toEqual(before);
+      expect(await itemCreations()).toBe(0);
+    });
+
+    it("AC5: a job over mixed and reference-only candidates never settles from a prefix and reads back one terminal per unit from complete pages", async () => {
+      const mixedId = await mixed();
+      const referenceIds = [];
+      for (const collectorNumber of ["158", "159", "160"]) referenceIds.push(await referenceOnly(collectorNumber));
+      const independent = await pool.query<{ candidate_id: string }>(
+        "SELECT candidate_id FROM catalog_merge_candidates WHERE scope_record_id = $1 ORDER BY candidate_id",
+        [applicationScopeId],
+      );
+      const expected = independent.rows.map((row) => row.candidate_id);
+      expect(new Set(expected)).toEqual(new Set([mixedId, ...referenceIds]));
+
+      const job = await submit();
+      await expect(processOne(services.sourceObservations)).resolves.toBe(1);
+      const prefix = await requireJob(services.sourceObservations, job.jobId);
+      expect(prefix).toMatchObject({ status: "running", completedAt: null });
+      expect(prefix.progress).toMatchObject({ completed: 1, total: expected.length });
+      expect((await completedJobs()).map((completed) => completed.jobId)).not.toContain(job.jobId);
+
+      await drainWorker(services.sourceObservations);
+      const completed = await requireJob(services.sourceObservations, job.jobId);
+      expect(completed.status).toBe("completed");
+      expect(completed.result).toMatchObject({
+        requested: expected.length,
+        promoted: 1,
+        skippedNotEligible: referenceIds.length,
+        failed: 0,
+      });
+      const outcomes = new Map(completed.result!.outcomes.map((outcome) => [outcome.candidateId, outcome]));
+      expect(completed.result!.outcomes).toHaveLength(expected.length);
+      expect([...outcomes.keys()].sort()).toEqual([...expected].sort());
+      expect(outcomes.get(mixedId)).toMatchObject({
+        status: "promoted",
+        appliedCatalogItemId: catalogMergeCandidateTargetId(mixedId),
+        appliedMode: "create",
+      });
+      for (const candidateId of referenceIds) {
+        expect(outcomes.get(candidateId)).toMatchObject({
+          status: "skipped-not-eligible",
+          disposition: "reference-only",
+        });
+      }
+
+      const units = await pool.query<{ unit_id: string; state: string }>(
+        `SELECT unit_id, state
+         FROM catalog_source_observation_bulk_review_work_units
+         WHERE job_id = $1
+         ORDER BY unit_id`,
+        [job.jobId],
+      );
+      expect(units.rows).toEqual(
+        expected.map((candidateId) => ({
+          unit_id: candidateId,
+          state: candidateId === mixedId ? "completed" : "skipped",
+        })),
+      );
+
+      const readBack = (await completedJobs()).filter((listed) => listed.jobId === job.jobId);
+      expect(readBack).toHaveLength(1);
+      expect(readBack[0]!.result).toEqual(completed.result);
+      expect(await plannedProfiles(mixedId)).toEqual(scryfallPin);
+      expect(await itemCreations()).toBe(1);
+    });
   });
 });
 

@@ -26,6 +26,21 @@ import {
 } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+const skippedTimestampJobsFixture = JSON.parse(
+  readFileSync(
+    resolve("scripts/fixtures/platform-staging-advisory-evidence/platform-production-40605810706-jobs.json"),
+    "utf8",
+  ),
+);
+const skippedTimestampJobFixture = skippedTimestampJobsFixture.jobs.find(
+  (job) => job.name === "Reconcile Managed Postgres CA (staging)",
+);
+const skippedTimestampRunFixture = JSON.parse(
+  readFileSync(
+    resolve("scripts/fixtures/platform-staging-advisory-evidence/platform-production-40605810706-run.json"),
+    "utf8",
+  ),
+);
 
 // These are the finite input contracts in #8993, executed by Bash's own ERE
 // implementation, not a second regex classifier or a provider integration.
@@ -285,6 +300,11 @@ async function executeAdvisoryPostWindow({
   driftOnly = false,
   unreadable = false,
   unsafeTimestamp = false,
+  executedReversedTimestamp = false,
+  skippedTimestampFixture = false,
+  cancelledReversedTimestamp = false,
+  skippedNoncompletedTimestamp = false,
+  admissionAt,
   rerun = false,
   active = false,
   activeCompleted = false,
@@ -437,7 +457,21 @@ async function executeAdvisoryPostWindow({
       if (driftOnly && workflow[1] !== "platform-production.yml") return send({ total_count: 0, workflow_runs: [] });
       if (completedOverlap && workflow[1] !== "platform-production.yml")
         return send({ total_count: 0, workflow_runs: [] });
-      if (!overlap && !cancelled && !unsafeTimestamp && !rerun && !driftOnly && !mutator && !completedOverlap)
+      if (skippedTimestampFixture && workflow[1] !== "platform-production.yml")
+        return send({ total_count: 0, workflow_runs: [] });
+      if (
+        !overlap &&
+        !cancelled &&
+        !unsafeTimestamp &&
+        !executedReversedTimestamp &&
+        !rerun &&
+        !driftOnly &&
+        !mutator &&
+        !completedOverlap &&
+        !skippedTimestampFixture &&
+        !cancelledReversedTimestamp &&
+        !skippedNoncompletedTimestamp
+      )
         return send({ total_count: 0, workflow_runs: [] });
       const workflowRun = rerun
         ? {
@@ -449,21 +483,23 @@ async function executeAdvisoryPostWindow({
             updated_at: new Date().toISOString(),
             run_started_at: new Date(Date.now() - 180_000).toISOString(),
           }
-        : {
-            id: 2001,
-            path: `.github/workflows/${workflow[1]}`,
-            run_attempt: 1,
-            status: "completed",
-            created_at: new Date(Date.now() - 60_000).toISOString(),
-            updated_at: new Date().toISOString(),
-            run_started_at: new Date(Date.now() - 60_000).toISOString(),
-          };
+        : skippedTimestampFixture
+          ? skippedTimestampRunFixture
+          : {
+              id: 2001,
+              path: `.github/workflows/${workflow[1]}`,
+              run_attempt: 1,
+              status: "completed",
+              created_at: new Date(Date.now() - 60_000).toISOString(),
+              updated_at: new Date().toISOString(),
+              run_started_at: new Date(Date.now() - 60_000).toISOString(),
+            };
       return send({
         total_count: 1,
         workflow_runs: [workflowRun],
       });
     }
-    const jobs = route.match(/^actions\/runs\/(2001|2002|3001|3\d{3}|5200)\/attempts\/(1|2)\/jobs\?/u);
+    const jobs = route.match(/^actions\/runs\/(2001|2002|3001|3\d{3}|5200|40605810706)\/attempts\/(1|2)\/jobs\?/u);
     if (jobs) {
       if (activeCompleted && jobs[1] === "3001") {
         return send({
@@ -486,15 +522,38 @@ async function executeAdvisoryPostWindow({
           ],
         });
       }
+      if (skippedTimestampFixture && jobs[1] === "40605810706") {
+        return send(skippedTimestampJobsFixture);
+      }
       return send({
         total_count: 1,
         jobs: [
           {
             name: driftOnly ? "Deploy Preview" : mutator ? "Reset staging" : "Deploy Staging",
-            status: active ? "in_progress" : "completed",
-            conclusion: active ? null : cancelled ? "cancelled" : "success",
-            started_at: unsafeTimestamp ? "not-a-time" : new Date(Date.now() - 60_000).toISOString(),
-            completed_at: active ? null : new Date(Date.now() - 1_000).toISOString(),
+            status: skippedNoncompletedTimestamp || active ? "in_progress" : "completed",
+            conclusion: active
+              ? null
+              : cancelled || cancelledReversedTimestamp
+                ? "cancelled"
+                : skippedNoncompletedTimestamp
+                  ? "skipped"
+                  : "success",
+            started_at: unsafeTimestamp
+              ? "not-a-time"
+              : new Date(
+                  Date.now() -
+                    (executedReversedTimestamp || cancelledReversedTimestamp || skippedNoncompletedTimestamp
+                      ? 1_000
+                      : 60_000),
+                ).toISOString(),
+            completed_at: active
+              ? null
+              : new Date(
+                  Date.now() -
+                    (executedReversedTimestamp || cancelledReversedTimestamp || skippedNoncompletedTimestamp
+                      ? 2_000
+                      : 1_000),
+                ).toISOString(),
           },
         ],
       });
@@ -517,7 +576,7 @@ async function executeAdvisoryPostWindow({
     const steps = {
       advisory_preflight: {
         outcome: "success",
-        outputs: { admission_at: new Date(Date.now() - 120_000).toISOString() },
+        outputs: { admission_at: admissionAt ?? new Date(Date.now() - 120_000).toISOString() },
       },
       scenario_seed: { outcome: seedFailure ? "failure" : "success" },
       await_scenario_seed: { outcome: "success", outputs: { cleanup_outcome: preempted ? "stale" : "" } },
@@ -5806,6 +5865,44 @@ describe("DigitalOcean platform configuration", () => {
     const unsafe = await executeAdvisoryPostWindow({ unsafeTimestamp: true });
     expect(unsafe.status).not.toBe(0);
     expect(unsafe.outputs.freshness_status).toBe("unknown");
+
+    expect(skippedTimestampJobFixture).toMatchObject({
+      name: "Reconcile Managed Postgres CA (staging)",
+      status: "completed",
+      conclusion: "skipped",
+    });
+    expect(Date.parse(skippedTimestampJobFixture.completed_at)).toBeLessThan(
+      Date.parse(skippedTimestampJobFixture.started_at),
+    );
+    expect(skippedTimestampJobsFixture.total_count).toBe(16);
+    expect(skippedTimestampJobsFixture.jobs).toHaveLength(16);
+    expect(skippedTimestampRunFixture).toMatchObject({
+      id: 40605810706,
+      path: ".github/workflows/platform-production.yml",
+      run_attempt: 1,
+      status: "completed",
+      conclusion: "success",
+      created_at: "2026-10-27T23:59:25Z",
+      run_started_at: "2026-10-27T23:59:25Z",
+      updated_at: "2026-10-28T00:20:06Z",
+    });
+    const admissionAt = "2026-10-28T00:12:27.415Z";
+    const skippedTimestamp = await executeAdvisoryPostWindow({ skippedTimestampFixture: true, admissionAt });
+    expect(skippedTimestamp.status, skippedTimestamp.stderr).toBe(0);
+    expect(skippedTimestamp.outputs.freshness_status).toBe("fresh");
+    expect(JSON.parse(skippedTimestamp.outputs.window_census)).toMatchObject({ admissionAt, overlaps: [] });
+
+    const executedReversedTimestamp = await executeAdvisoryPostWindow({ executedReversedTimestamp: true });
+    expect(executedReversedTimestamp.status).not.toBe(0);
+    expect(executedReversedTimestamp.outputs.freshness_status).toBe("unknown");
+
+    const cancelledReversedTimestamp = await executeAdvisoryPostWindow({ cancelledReversedTimestamp: true });
+    expect(cancelledReversedTimestamp.status).not.toBe(0);
+    expect(cancelledReversedTimestamp.outputs.freshness_status).toBe("unknown");
+
+    const skippedNoncompletedTimestamp = await executeAdvisoryPostWindow({ skippedNoncompletedTimestamp: true });
+    expect(skippedNoncompletedTimestamp.status).not.toBe(0);
+    expect(skippedNoncompletedTimestamp.outputs.freshness_status).toBe("unknown");
 
     const rerun = await executeAdvisoryPostWindow({ rerun: true });
     expect(rerun.status).not.toBe(0);

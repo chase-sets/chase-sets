@@ -39,6 +39,19 @@ components:
           - 100
         pauseAfterWeight: 10
   marketplace:
+    replicas: 1
+    strategy:
+      type: "RollingUpdate"
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "1280Mi"
+      limits:
+        cpu: "1"
+        memory: "1536Mi"
     rollout:
       enabled: true
       revisionHistoryLimit: 5
@@ -63,6 +76,8 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+        maxSurge: 1
+        maxUnavailable: 0
   platform-api:
     replicas: 2
     envOverrides:
