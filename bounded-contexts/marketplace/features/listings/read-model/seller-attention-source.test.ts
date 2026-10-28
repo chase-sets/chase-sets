@@ -27,7 +27,7 @@ describe("toListingActionAttentionItems", () => {
       code: "listing-needs-action",
       params: { reference: "LS-1", action: "unavailable" },
     });
-    expect(item.deepLink).toEqual({ surface: "listing", href: "/account/desk/listings/listing-1" });
+    expect(item.deepLink).toEqual({ surface: "listing", href: "/account/listings/listing-1" });
     expect(item.dueAt).toBeNull();
     expect(isSellerAttentionItem(item, "listing-action")).toBe(true);
   });

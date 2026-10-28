@@ -241,6 +241,12 @@ export const pricingEnglishTranslations = {
   "pricing.features.repricingPolicies.ui.editor.presets": "Choose a strategy",
   "pricing.features.repricingPolicies.ui.editor.structured": "Structured editor",
   "pricing.features.repricingPolicies.ui.editor.advanced": "Advanced rule editor",
+  "pricing.features.repricingPolicies.ui.editor.goal": "Pricing Goal",
+  "pricing.features.repricingPolicies.ui.editor.intent.simple": "Return to simple controls",
+  "pricing.features.repricingPolicies.ui.editor.intent.custom":
+    "Custom policy. Advanced changes are kept; no preset is inferred.",
+  "pricing.features.repricingPolicies.ui.editor.intent.unsupportedGoal":
+    "This Pricing Goal version is not selectable. Your saved policy is unchanged; use the custom editor to replace the unsupported goal.",
   "pricing.features.repricingPolicies.ui.editor.strategy": "Strategy",
   "pricing.features.repricingPolicies.ui.editor.preset.track": "Track the market",
   "pricing.features.repricingPolicies.ui.editor.preset.beat": "Beat the lowest listing",
