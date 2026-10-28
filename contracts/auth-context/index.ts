@@ -2,6 +2,13 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
 export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
+export const STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID = "staging-ebay-receipt-lookup";
+export const EBAY_RECEIPT_LOOKUP_PERMISSION = "channels.receipt.lookup";
+export type ReceiptLookupServiceActor = Readonly<{
+  kind: "service";
+  serviceId: typeof STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID;
+  permissions: readonly string[];
+}>;
 export const CHANNEL_CONNECTOR_OPERATIONS = ["claim", "report", "ingest"] as const;
 export const CHANNEL_CONNECTOR_SCOPE_FAMILY = {
   key: "channel-connector",
@@ -108,6 +115,7 @@ export const PERMISSION_KEYS = [
   "catalog.manage",
   "catalog.view",
   "channels.manage",
+  "channels.receipt.lookup",
   "channels.view",
   "commercial-terms.agreements.manage",
   "commercial-terms.manage",

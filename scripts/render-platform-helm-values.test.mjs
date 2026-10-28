@@ -671,7 +671,25 @@ describe("render platform Helm values", () => {
     // environment gets it -- not just staging. The staging overlay stays
     // scoped to what is genuinely staging-only: replica count, resources,
     // and the staged Argo Rollout activation.
-    expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
+    expect(stagingValues.components["platform-api"]).toEqual({
+      ...doksStagingApiOverrides,
+      env: [
+        { name: "CHANNELS_CREDENTIAL_KEYRING_JSON", secret: true, secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON" },
+        { name: "EBAY_ACCOUNT_DELETION_ENDPOINT", secret: true, secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT" },
+        {
+          name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+          secret: true,
+          secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+        },
+        { name: "EBAY_APPLICATION_CLIENT_ID", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_ID" },
+        { name: "EBAY_APPLICATION_CLIENT_SECRET", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_SECRET" },
+        {
+          name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+          secret: true,
+          secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+        },
+      ],
+    });
     expect(stagingValues.components["platform-api"]).toMatchObject({
       replicas: 2,
       envOverrides: { PROJECTION_INLINE_APPLY_ENABLED: "true" },

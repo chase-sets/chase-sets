@@ -347,7 +347,12 @@ export function buildPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
-  const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
+  const {
+    schemaVersion: _schemaVersion,
+    productionEnvOverrides: _productionEnvOverrides,
+    stagingApiEnv: _stagingApiEnv,
+    ...values
+  } = runtimeValues;
   const components = Object.fromEntries(
     Object.entries(values.components ?? {}).map(([name, component]) => [
       name,
@@ -423,6 +428,7 @@ export function renderPlatformHelmValues(options = {}) {
 }
 
 export function buildPlatformHelmStagingValues(options = {}) {
+  const stagingApiEnv = readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot)).stagingApiEnv ?? [];
   return {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
@@ -453,7 +459,21 @@ export function buildPlatformHelmStagingValues(options = {}) {
           },
         },
       },
-      "platform-api": doksStagingApiOverrides,
+      "platform-api": {
+        ...doksStagingApiOverrides,
+        env: [
+          { name: "CHANNELS_CREDENTIAL_KEYRING_JSON", secret: true, secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON" },
+          { name: "EBAY_ACCOUNT_DELETION_ENDPOINT", secret: true, secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT" },
+          {
+            name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+            secret: true,
+            secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+          },
+          { name: "EBAY_APPLICATION_CLIENT_ID", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_ID" },
+          { name: "EBAY_APPLICATION_CLIENT_SECRET", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_SECRET" },
+          ...stagingApiEnv,
+        ],
+      },
       "platform-worker": {
         autoscaling: {
           ...doksStagingWorkerAutoscaling,

@@ -5,7 +5,7 @@
   "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
-  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"],
+  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "service-actors", "sessions", "sign-in"],
   "allowedSupportDirectories": [
     "api-support",
     "auth-support",

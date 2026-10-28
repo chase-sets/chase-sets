@@ -633,6 +633,7 @@ const ucpProfileResolver = createUcpProfileResolver({
 });
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
+  receiptLookupActor: config.receiptLookupActor,
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
