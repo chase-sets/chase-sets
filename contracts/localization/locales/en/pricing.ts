@@ -116,6 +116,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.goals.economics.provenance":
     "Economics facts resolved for the first listing in this scope.",
   "pricing.features.pricingHealth.goals.economics.unavailable": "Economics is unavailable for this scope.",
+  "pricing.features.pricingHealth.goals.economics.unavailableReason":
+    "Economics is unavailable for this scope: {reason}",
   "pricing.features.pricingHealth.goals.economics.override": "Overridden",
   "pricing.features.pricingHealth.goals.economics.fact.dailyReturnHurdle": "Daily return hurdle",
   "pricing.features.pricingHealth.goals.economics.fact.platformFeeRelativeBps": "Platform fee rate",

@@ -120,9 +120,9 @@ export function GoalPicker({
                           {goal.economics?.availability === "resolved"
                             ? copy("goals.economics.provenance")
                             : goal.economics?.availability === "unavailable"
-                              ? `${copy("goals.economics.unavailable")} ${localizedEconomicsReason(
-                                  goal.economics.reason ?? "unknown",
-                                )}`
+                              ? copy("goals.economics.unavailableReason", {
+                                  reason: localizedEconomicsReason(goal.economics.reason ?? "unknown"),
+                                })
                               : copy("goals.economics.unavailable")}
                         </Text>
                         {goal.economics?.facts ? (

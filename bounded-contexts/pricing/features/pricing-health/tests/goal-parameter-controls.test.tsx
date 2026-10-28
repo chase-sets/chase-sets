@@ -111,7 +111,7 @@ describe("Pricing Health goal parameter controls", () => {
       },
     };
     render(<GoalPicker goals={[economicsGoal]} />);
-    expect(screen.getByText(/Terms unavailable/)).toBeTruthy();
+    expect(screen.getByText("Economics is unavailable for this scope: Terms unavailable")).toBeTruthy();
     expect(screen.getByText(/10\.75%/)).toBeTruthy();
     expect(screen.getByText(/1\.25%/)).toBeTruthy();
     expect(screen.getByText(/14/)).toBeTruthy();
