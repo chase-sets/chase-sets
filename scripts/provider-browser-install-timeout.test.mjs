@@ -363,10 +363,33 @@ describe("Static Checks provider installer", () => {
       expect(f.lines.join("")).not.toContain("PRIVATE");
       expect(f.signalGroupImpl).not.toHaveBeenCalled();
     }
+    // A started child's error is not proof that its group is gone: it waits for KILL.
     const startedError = fixture();
+    let startedErrorSettled = false;
+    const startedErrorResult = startedError.result.then((result) => {
+      startedErrorSettled = true;
+      return result;
+    });
     startedError.child.emit("spawn");
     startedError.child.emit("error", new Error("PRIVATE ipc failure"));
-    expect(await startedError.result).not.toHaveProperty("startRefused");
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    // Later errors and the leader's close cannot finish the attempt early.
+    startedError.child.emit("error", new Error("PRIVATE late ipc failure"));
+    startedError.child.emit("close", 1);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(startedErrorSettled).toBe(false);
+    expect(startedError.lines).toEqual([]);
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    const started = await startedErrorResult;
+    expect(started).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
+    expect(started).not.toHaveProperty("startRefused");
+    expect(startedError.lines).toHaveLength(1);
+    expect(startedError.lines.join("")).not.toContain("PRIVATE");
     const startedRefusal = fixture();
     startedRefusal.child.emit("spawn");
     startedRefusal.child.emit("message", { installerStatus: 7 });
@@ -374,6 +397,39 @@ describe("Static Checks provider installer", () => {
     const refused = await startedRefusal.result;
     expect(refused).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
     expect(refused).not.toHaveProperty("startRefused");
+  });
+
+  it("a started child's error while stopping keeps cancellation and cleanup failure through KILL", async () => {
+    const controller = new AbortController();
+    const cancelled = fixture({ cancelSignal: controller.signal });
+    cancelled.child.emit("spawn");
+    controller.abort();
+    cancelled.child.emit("error", new Error("PRIVATE ipc failure"));
+    expect(cancelled.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(cancelled.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(cancelled.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(await cancelled.result).toMatchObject({ status: 1, record: { terminalOutcome: "cancelled" } });
+    // A refused TERM is a cleanup failure even when KILL is accepted.
+    const signalGroupImpl = vi.fn((_pid, signal) => {
+      if (signal === "TERM") throw new Error("SYNTHETIC TERM denied");
+    });
+    const termRefused = fixture({ signalGroupImpl });
+    termRefused.child.emit("spawn");
+    termRefused.child.emit("message", { installerStatus: 1 });
+    termRefused.child.emit("error", new Error("PRIVATE ipc failure"));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(termRefused.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(await termRefused.result).toMatchObject({ status: 1, record: { terminalOutcome: "cleanup-failure" } });
   });
 });
 

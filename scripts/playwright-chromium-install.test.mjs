@@ -588,6 +588,95 @@ describe("Playwright Chromium installer primitive", () => {
     expect(f.lines.filter(isTimingLine)).toHaveLength(1);
   });
 
+  it("AC2 kills a started real supervised child that errors before removing the tree or retrying", async () => {
+    const removeCacheImpl = vi.fn();
+    const f = supervisedInstall({ removeCacheImpl });
+    f.children[0].emit("spawn");
+    f.children[0].emit("error", new Error("PRIVATE synthetic ipc failure"));
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(removeCacheImpl).not.toHaveBeenCalled();
+    expect(f.delayImpl).not.toHaveBeenCalled();
+    expect(f.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(removeCacheImpl).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.spawnImpl).toHaveBeenCalledTimes(2);
+    expect(f.signalsAtSpawn).toEqual([0, 2]);
+    f.children[1].emit("spawn");
+    writeInstalledChromium(f.cache);
+    f.children[1].emit("message", { installerStatus: 0 });
+    f.children[1].emit("close", 0);
+    await expect(f.result).resolves.toMatchObject({ status: 0, reason: "success", cache: "complete" });
+    expect(f.delayImpl.mock.calls).toEqual([[5_000]]);
+    expect(f.lines.filter(isRetryLine)).toEqual([expect.stringContaining('"reason":"refused"')]);
+    expect(f.lines.filter(isTimingLine)).toHaveLength(1);
+    expect(f.lines.join("\n")).not.toContain("PRIVATE");
+  });
+
+  it("AC2 keeps a real supervised cancellation terminal when the started child errors during its grace", async () => {
+    const controller = new AbortController();
+    const removeCacheImpl = vi.fn();
+    const f = supervisedInstall({ cancelSignal: controller.signal, removeCacheImpl });
+    f.children[0].emit("spawn");
+    controller.abort();
+    f.children[0].emit("error", new Error("PRIVATE synthetic ipc failure"));
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(removeCacheImpl).not.toHaveBeenCalled();
+    expect(f.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(400_001);
+    expect(f.spawnImpl).toHaveBeenCalledOnce();
+    expect(f.delayImpl).not.toHaveBeenCalled();
+    expect(f.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cancelled" });
+    expect(removeCacheImpl).toHaveBeenCalledOnce();
+    expect(f.lines.filter(isRetryLine)).toEqual([]);
+    const timing = f.lines.filter(isTimingLine);
+    expect(timing).toHaveLength(1);
+    expect(JSON.parse(timing[0].slice("provider-browser-install-timing/v1 ".length))).toMatchObject({
+      terminalOutcome: "cancelled",
+    });
+  });
+
+  it.each([
+    ["TERM and KILL", () => true],
+    ["TERM", (signal) => signal === "TERM"],
+  ])(
+    "AC2 keeps a real supervisor cleanup failure (%s refused) terminal when the started child then errors",
+    async (_name, refuses) => {
+      const signalGroupImpl = vi.fn((_pid, signal) => {
+        if (refuses(signal)) throw new Error("synthetic cleanup refusal");
+      });
+      const removeCacheImpl = vi.fn();
+      const f = supervisedInstall({ signalGroupImpl, removeCacheImpl });
+      f.children[0].emit("spawn");
+      f.children[0].emit("message", { installerStatus: 1 });
+      f.children[0].emit("error", new Error("PRIVATE synthetic ipc failure"));
+      expect(signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(f.lines).toEqual([]);
+      await vi.advanceTimersByTimeAsync(400_001);
+      expect(f.spawnImpl).toHaveBeenCalledOnce();
+      expect(signalGroupImpl.mock.calls).toEqual([
+        [4567, "TERM"],
+        [4567, "KILL"],
+      ]);
+      expect(removeCacheImpl).not.toHaveBeenCalled();
+      expect(f.delayImpl).not.toHaveBeenCalled();
+      await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cleanup-failure" });
+      expect(f.lines.filter(isRetryLine)).toEqual([]);
+      expect(f.lines.filter(isTimingLine)).toHaveLength(1);
+    },
+  );
+
   it("AC2 emits one primitive terminal line when the supervisor succeeds without a cache payload", async () => {
     const cache = makeCache();
     const lines = [];

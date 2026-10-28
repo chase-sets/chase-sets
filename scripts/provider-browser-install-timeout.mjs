@@ -393,12 +393,19 @@ export function runInstaller({
       }
       releaseIfComplete();
     });
-    // A spawn error arrives before "spawn"; later errors belong to a started child.
+    // A spawn error arrives before "spawn" and leaves no child to clean up. A later
+    // error belongs to a started child, which may still be live: it takes the same
+    // TERM, grace and KILL barrier, and an error while stopping changes nothing.
     child.once("spawn", () => {
       spawned = true;
     });
-    child.once("error", () => {
-      startRefused = !spawned;
+    child.on("error", () => {
+      if (stopping || settled) return;
+      if (spawned) {
+        stop("refused");
+        return;
+      }
+      startRefused = true;
       failure = "refused";
       finish(1);
     });
