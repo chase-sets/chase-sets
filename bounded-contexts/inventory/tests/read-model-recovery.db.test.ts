@@ -27,6 +27,7 @@ import type { ProjectorHandlerContext } from "@chase-sets/event-core/projector";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryItemLedgerProjectionHandlers } from "../features/inventory-items/read-model/ledger-projection";
 import { inventoryItemSchemaMigrations } from "../features/inventory-items/read-model/schema";
+import { withInventorySystemHoldReleaseAuthority } from "../features/holds/api/runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionGroupWorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -416,7 +417,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       if (terminal === "converted") {
         await services.holds.releaseHold(
           { accountId, holdId: hold.holdId, releaseReason: "order-cancelled" },
-          withInventoryMutationAttempt(context, randomUUID()),
+          withInventorySystemHoldReleaseAuthority(withInventoryMutationAttempt(context, randomUUID())),
         );
       }
     }
