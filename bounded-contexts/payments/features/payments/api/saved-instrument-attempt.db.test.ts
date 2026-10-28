@@ -784,6 +784,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const duplicateAdmitted = deferred();
         const releaseDuplicate = deferred();
         const appended: Runtime[] = [];
+        const appendClients = new Set<number>();
         const opened: Partial<Record<"order" | "admitted" | "first" | "duplicate", boolean>> = {};
         let firstHeld = false;
         let duplicateHeld = false;
@@ -796,10 +797,16 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
             if (statement.runtime !== firstAppender) opened.order = await bounded(firstAppended.promise);
             appended.push(statement.runtime);
             const result = await run();
+            appendClients.add(statement.client);
             (statement.runtime === firstAppender ? firstAppended : secondAppended).resolve();
             return result;
           }
-          if (statement.runtime === "replica" && isTransactionBegin(statement.sql) && !duplicateHeld) {
+          if (
+            statement.runtime === "replica" &&
+            isTransactionBegin(statement.sql) &&
+            !appendClients.has(statement.client) &&
+            !duplicateHeld
+          ) {
             duplicateHeld = true;
             const result = await run();
             duplicateAdmitted.resolve();
