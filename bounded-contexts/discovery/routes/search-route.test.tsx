@@ -257,13 +257,13 @@ describe("marketplace search route", () => {
     );
     const request = { request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never;
     const errorResult = await loader(request);
-    const errorPayload = "searchFailed" in errorResult ? errorResult : errorResult.data;
-    expect(errorPayload).toMatchObject({ searchFailed: true, data: null });
+    const errorPayload = payloadOf(errorResult);
+    expect(errorPayload).toMatchObject({ searchFailed: true, data: { items: [] } });
     cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), errorPayload);
     expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
     failed = false;
     const successResult = await loader(request);
-    const successPayload = "searchFailed" in successResult ? successResult : successResult.data;
+    const successPayload = payloadOf(successResult);
     expect(successPayload).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
     cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), successPayload);
     expect(
@@ -1200,6 +1200,11 @@ describe("marketplace search route", () => {
     expect(revalidate).toHaveBeenCalledOnce();
   });
 });
+
+function payloadOf(value: unknown): Record<string, unknown> {
+  const record = value as Record<string, unknown>;
+  return typeof record.searchFailed === "boolean" ? record : (record.data as Record<string, unknown>);
+}
 
 describe("marketplace search back-navigation restoration", () => {
   it("restores corrected first-page metadata and notice through the actual client loader", async () => {
