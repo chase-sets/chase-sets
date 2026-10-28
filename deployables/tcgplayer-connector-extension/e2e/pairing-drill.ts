@@ -1465,6 +1465,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
           path: connectionPage,
         });
         const popupTargets = popupObserver.targets;
+        let preActionPages = new Set(context.pages());
         const observeRawCdpEvent = (event: RawCdpEvent) => {
           const sessionId = popupObserver.observe(event);
           if (sessionId)
@@ -1483,6 +1484,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             .find(
               (value) =>
                 value !== page &&
+                !preActionPages.has(value) &&
                 new URL(value.url()).origin === platformOrigin &&
                 new URL(value.url()).pathname === connectionPage,
             );
@@ -1575,6 +1577,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
               fail("connector-drill-page-status");
             preActionTargetIds.push(info.targetId);
           }
+          preActionPages = new Set(context.pages());
           popupObserver.startAction(preActionTargetIds);
           // Chromium's WebSocket client refuses unsafe extension operations. Use
           // Playwright's launch-pipe action while raw child-session routing stays armed.
