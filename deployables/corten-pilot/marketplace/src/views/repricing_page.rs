@@ -477,13 +477,11 @@ fn EditorBody<'a>(t: RepricingMsg, p: Pilot, screen: &'a EditorScreen) -> impl R
             </div>
         }
         <div class={EditorGrid}>
-            // A POST form whose Apply gets (todd-skelton/corten#190): the runtime takes a
-            // navigation's method from Chromium's formData, which follows the form, so a POST button
-            // in a GET form would be sent as a GET with nothing in it.
+            // A GET form: Apply reads the page for its choices; Preview and Activate post.
             <form
                 id={EditorFormId}
                 class={EditorForm}
-                method="post"
+                method="get"
                 action={url::Repricing::default()}
                 data-keep-place
                 on:change={handlers::apply(event)}
@@ -641,12 +639,13 @@ fn EditorBody<'a>(t: RepricingMsg, p: Pilot, screen: &'a EditorScreen) -> impl R
                     }
                 </fieldset>
                 <div class={Actions}>
-                    <button type="submit" class={(Button, Secondary)} formmethod="get" data-repricing-apply="true">
+                    <button type="submit" class={(Button, Secondary)} data-repricing-apply="true">
                         {p.repricing_apply()}
                     </button>
                     <button
                         type="submit"
                         class={Button}
+                        formmethod="post"
                         name={w.intent}
                         value="preview"
                         data-repricing-preview="true"
@@ -861,6 +860,7 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                         type="submit"
                         class={Button}
                         form={EditorFormId}
+                        formmethod="post"
                         name={w.intent}
                         value="create-policy"
                         disabled={!view.activates()}

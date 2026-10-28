@@ -96,7 +96,9 @@ for (const javaScriptEnabled of [true, false]) {
   const matching = (await scope.json()).matching;
   check((await page.locator('[data-repricing-scope="true"] dd').first().textContent())?.trim() === String(matching), `${label}: the scope matches the API's ${matching}`);
 
-  // A strategy chosen applies at once with a script, and by Apply without one.
+  // A strategy chosen applies at once with a script, and by Apply without one. With a script the
+  // GET swaps the page in place (todd-skelton/corten#190): the window that chose it is still there.
+  if (javaScriptEnabled) await page.evaluate(() => { /** @type {any} */ (window).__smokeSameWindow = true; });
   await page.locator('select[name="preset"]').selectOption("beat-lowest");
   if (!javaScriptEnabled) await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/preset=beat-lowest/);
@@ -104,6 +106,9 @@ for (const javaScriptEnabled of [true, false]) {
   await page.locator('input[name="from"][value="beat-lowest"]').waitFor({ state: "attached" });
   await hydrated(page, javaScriptEnabled);
   check((await page.locator('input[name="name"]').inputValue()) === "Beat the lowest listing", `${label}: a new strategy brings its name`);
+  if (javaScriptEnabled) {
+    check(await page.evaluate(() => /** @type {any} */ (window).__smokeSameWindow === true), `${label}: and applies in place, without loading the page`);
+  }
   check((await page.locator('input[name="knob"]').inputValue()) === "2", `${label}: and its undercut`);
   const amount = page.locator('input[name="fallback"], input[name="amount"]');
   await amount.fill("1.00");

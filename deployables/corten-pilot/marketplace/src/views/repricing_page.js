@@ -1,6 +1,6 @@
 // @ts-check
-// The repricing editor. Its controls are one form whose Apply gets the page for them, which works
-// without this script; with it,
+// The repricing editor. Its controls are one GET form whose Apply reads the page for them (Preview
+// and Activate post), which works without this script; with it,
 // a choice (a select, a box, a number) applies as soon as it changes, as marketplace's editor
 // does. A text field waits for Apply or Enter. The form is marked data-keep-place, so the
 // navigation keeps the page's scroll position and the focus on the control.
@@ -18,7 +18,7 @@ export function apply(event) {
     form.reportValidity();
     return;
   }
-  // Apply, which gets the page for the form: the form itself posts (Preview).
-  const apply = form.querySelector('button[formmethod="get"]');
+  // Apply, which reads the page for the form (Preview and Activate post).
+  const apply = form.querySelector("button[data-repricing-apply]");
   if (apply instanceof HTMLButtonElement) form.requestSubmit(apply);
 }
