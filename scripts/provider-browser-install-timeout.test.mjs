@@ -212,15 +212,28 @@ describe("Static Checks provider installer", () => {
     await vi.advanceTimersByTimeAsync(179_999);
     expect(f.signalGroupImpl).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(f.signalGroupImpl).toHaveBeenCalledWith(4567, "TERM");
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(f.signalGroupImpl).toHaveBeenLastCalledWith(4567, "KILL");
-    expect((await f.result).record.terminalOutcome).toBe("timeout");
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    f.child.exitCode = 0;
+    f.child.emit("close", 0);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    expect(f.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    const { record, status } = await f.result;
+    expect(status).toBe(1);
+    expect(record).toMatchObject({ terminalOutcome: "timeout", elapsedMs: 185_000 });
+    expect(consumeTimingRecords(f.lines, authority)).toHaveLength(1);
   });
 
   it("keeps the existing 600-second default and rejects caller bounds above it", () => {
     expect(() => runInstaller({ identity, env, timeoutSeconds: 601 })).toThrow(/600/);
     expect(() => runInstaller({ identity, env, timeoutSeconds: 0 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 180.5 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: "180" })).toThrow(/600/);
   });
 
   it.each([

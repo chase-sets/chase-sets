@@ -3,13 +3,21 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation } from "./lib/process.mjs";
-import { runInstaller } from "./provider-browser-install-timeout.mjs";
+import { INSTALLER_TIMEOUT_GRACE_MS, runInstaller } from "./provider-browser-install-timeout.mjs";
 import { TIMING_RECORD_PREFIX } from "./provider-browser-install-timing.mjs";
 
 export const PLAYWRIGHT_INSTALL_COMMAND = ["exec", "playwright", "install", "--with-deps", "chromium"];
 export const PLAYWRIGHT_INSTALL_SITE = "playwright-chromium";
 export const PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS = 180;
 export const PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS = 390;
+export const PLAYWRIGHT_INSTALL_RETRY_DELAY_MS = 5_000;
+
+// Playwright marks each browser directory it finishes with INSTALLATION_COMPLETE;
+// registry extras such as .links and ffmpeg carry no marker and are not browsers.
+const PLAYWRIGHT_BROWSER_DIRECTORIES = [
+  { directory: /^chromium-\d+$/, payload: /^chrome(?:\.exe)?$/ },
+  { directory: /^chromium_headless_shell-\d+$/, payload: /^(?:chrome-headless-shell|headless_shell)(?:\.exe)?$/ },
+];
 
 function safeField(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(value) ? value : fallback;
@@ -70,25 +78,26 @@ export function inspectCache(
       return false;
     }
   });
-  const topLevelDirectories = entries.filter(
-    ({ path: entryPath, stat }) => stat.isDirectory() && path.dirname(entryPath) === cachePath,
-  );
-  const markerCount = entries.filter(
-    ({ path: entryPath, stat }) => !stat.isDirectory() && path.basename(entryPath) === "INSTALLATION_COMPLETE",
-  ).length;
-  const markedDirectories = topLevelDirectories.every(({ path: directory }) =>
-    entries.some(
-      ({ path: entryPath, stat }) => !stat.isDirectory() && entryPath === path.join(directory, "INSTALLATION_COMPLETE"),
-    ),
-  );
-  const payload = entries.some(
-    ({ path: entryPath, stat }) => !stat.isDirectory() && /(?:^|[\\/])chrome(?:\.exe)?$/.test(entryPath),
-  );
-  if (!owned || !readable) return { state: "mismatched", complete: false, owned, markerCount };
-  if (!payload || topLevelDirectories.length === 0 || !markedDirectories) {
-    return { state: "incomplete", complete: false, owned, markerCount };
-  }
-  return { state: "complete", complete: true, owned, markerCount };
+  if (!owned || !readable) return { state: "mismatched", complete: false, owned };
+  const files = entries.filter(({ stat }) => !stat.isDirectory()).map(({ path: entryPath }) => entryPath);
+  const browsersComplete = PLAYWRIGHT_BROWSER_DIRECTORIES.every(({ directory, payload }) => {
+    const browserDirectories = entries.filter(
+      ({ path: entryPath, stat }) =>
+        stat.isDirectory() && path.dirname(entryPath) === cachePath && directory.test(path.basename(entryPath)),
+    );
+    return (
+      browserDirectories.length > 0 &&
+      browserDirectories.every(({ path: browserDirectory }) => {
+        const browserFiles = files.filter((file) => file.startsWith(`${browserDirectory}${path.sep}`));
+        return (
+          browserFiles.includes(path.join(browserDirectory, "INSTALLATION_COMPLETE")) &&
+          browserFiles.some((file) => payload.test(path.basename(file)))
+        );
+      })
+    );
+  });
+  if (!browsersComplete) return { state: "incomplete", complete: false, owned };
+  return { state: "complete", complete: true, owned };
 }
 
 export function removeCache(cachePath, { remove = rmSync, exists = existsSync } = {}) {
@@ -166,86 +175,64 @@ export async function installPlaywrightChromium({
     const value = clock();
     return value instanceof Date ? value.getTime() : Number(value);
   };
-  const envelopeStarted = clockMs();
-  let lastResult;
-  const initialCache = inspectCacheImpl(cachePath);
-  let lastCache = initialCache;
-  let lastTimingLine;
-  for (let installerAttempt = 1; installerAttempt <= 2; installerAttempt += 1) {
-    if (installerAttempt > 1 && cancelSignal?.aborted) break;
-    if (installerAttempt > 1 && clockMs() - envelopeStarted >= PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000) break;
-    lastCache = inspectCacheImpl(cachePath);
-    const timingLines = [];
+  const envelopeEndsAt = clockMs() + PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000;
+  const attemptBudgetMs = PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS * 1000 + INSTALLER_TIMEOUT_GRACE_MS;
+  // A retry starts only when its whole bound and kill grace still end inside the envelope.
+  const retryFits = (reservedMs) => clockMs() + reservedMs + attemptBudgetMs <= envelopeEndsAt;
+  for (let installerAttempt = 1; ; installerAttempt += 1) {
+    const cacheBefore = inspectCacheImpl(cachePath);
+    let result;
+    let timingLine;
     try {
       const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: callerEnv });
-      const writeInstaller = (line) => {
-        if (typeof line === "string" && line.startsWith(TIMING_RECORD_PREFIX)) timingLines.push(line);
-        else write(line);
-      };
-      lastResult = await runInstallerImpl({
+      result = await runInstallerImpl({
         identity: identityFromEnvironment(callerEnv),
         env: callerEnv,
         installerCommand: invocation.command,
         installerArgs: invocation.args,
         installerEnv: explicitEnv,
-        cacheHit: lastCache.state === "complete",
+        cacheHit: cacheBefore.state === "complete",
         requireComplete: false,
         cancelSignal,
         timeoutSeconds: PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS,
         now,
-        write: writeInstaller,
+        // A job keeps one timing record: the attempt that decides its outcome.
+        write: (line) => {
+          if (typeof line === "string" && line.startsWith(TIMING_RECORD_PREFIX)) timingLine = line;
+          else write(line);
+        },
       });
-      lastTimingLine = timingLines.at(-1);
     } catch {
-      lastResult = undefined;
-      timingLines.length = 0;
+      result = undefined;
     }
-    let cacheAfter = lastCache;
-    if (lastResult?.status === 0) cacheAfter = inspectCacheImpl(cachePath);
-    if (lastResult?.status === 0 && cacheAfter.complete) {
-      if (timingLines.length > 0) write(timingLines.at(-1));
-      return { ...lastResult, reason: "success", cache: cacheAfter.state };
+    const cacheAfter = result?.status === 0 ? inspectCacheImpl(cachePath) : cacheBefore;
+    const fail = (reason) => {
+      if (timingLine) write(timingLine);
+      return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
+    };
+    if (result?.status === 0 && cacheAfter.complete) {
+      if (timingLine) write(timingLine);
+      return { ...result, reason: "success", cache: cacheAfter.state };
     }
-    const authorityRefusal = !lastResult;
-    let reason = lastResult?.record?.terminalOutcome ?? "authority-refusal";
-    if (lastResult?.status === 0) reason = "incomplete-cache";
+    const reason = !result
+      ? "authority-refusal"
+      : result.status === 0
+        ? "incomplete-cache"
+        : (result.record?.terminalOutcome ?? "refused");
+    // An installer group not proven gone may still write the tree; the red job never saves it.
+    if (reason === "cleanup-failure") return fail(reason);
     try {
       removeCacheImpl(cachePath);
     } catch {
-      reason = "cleanup-refusal";
+      return fail("cleanup-refusal");
     }
-    lastResult = { ...(lastResult ?? { status: 1 }), status: 1, reason, cache: cacheAfter.state };
-    const terminal = authorityRefusal || ["cleanup-refusal", "cleanup-failure", "cancelled"].includes(reason);
-    if (terminal) {
-      if (timingLines.length > 0) write(timingLines.at(-1));
-      return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
-    }
-    if (installerAttempt === 2 || cancelSignal?.aborted) {
-      if (timingLines.length > 0) write(timingLines.at(-1));
-      return refusal({
-        site,
-        attempt,
-        reason: clockMs() - envelopeStarted >= PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000 ? "timeout" : reason,
-        cache: cacheAfter.state,
-        write,
-      });
-    }
+    if (reason === "authority-refusal" || reason === "cancelled" || installerAttempt === 2) return fail(reason);
+    if (!retryFits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout");
     write(retryDiagnostic(site, attempt, installerAttempt, reason, cacheAfter.state));
-    await delayImpl(5_000);
-    if (cancelSignal?.aborted || clockMs() - envelopeStarted >= PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000) {
-      if (timingLines.length > 0) write(timingLines.at(-1));
-      return refusal({
-        site,
-        attempt,
-        reason: cancelSignal?.aborted ? "cancelled" : "timeout",
-        cache: cacheAfter.state,
-        write,
-      });
-    }
+    await delayImpl(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS);
+    if (cancelSignal?.aborted) return fail("cancelled");
+    if (!retryFits(0)) return fail("timeout");
   }
-  const reason = lastResult?.reason ?? (cancelSignal?.aborted ? "cancelled" : "timeout");
-  if (lastTimingLine) write(lastTimingLine);
-  return refusal({ site, attempt, reason, cache: lastCache.state, write });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
