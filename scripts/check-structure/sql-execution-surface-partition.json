@@ -489,6 +489,7 @@
     "infrastructure/bounded-context-runtime/test-support.ts",
     "infrastructure/event-core-postgres/aggregate-snapshot-store.ts",
     "infrastructure/event-core-postgres/catalog-mirror.ts",
+    "infrastructure/event-core-postgres/configuration-epoch.ts",
     "infrastructure/event-core-postgres/event-store.ts",
     "infrastructure/event-core-postgres/list-query.ts",
     "infrastructure/event-core-postgres/measure-publication-staging.ts",
