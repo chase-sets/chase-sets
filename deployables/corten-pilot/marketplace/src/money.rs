@@ -4,6 +4,9 @@
 //! (a preview with its fees, then Confirm or Edit), the payouts that need a next step (Retry or
 //! Check status), every payout with its breakdown, and the wallet's activity, with a wallet
 //! adjustment's breakdown when the address names one (`?drawer=wallet-adjustment&entity=`).
+//! A payout's own page (Settlement's `account-desk-payout`): its status, amounts and moments and
+//! its timeline, read after the request whose receipt the address carries. Settlement's old
+//! addresses move for good to these.
 //!
 //! Three of the page's rules are Settlement's but live in marketplace's web layer: when the next
 //! payout arrives, which payouts are blocked, and whether a payout can be requested
@@ -13,14 +16,19 @@
 //! Every write posts to the page, as marketplace's form action does. Preview, Edit, Retry and
 //! Check status draw the page with what they did, as marketplace's action data does. Confirm
 //! requests the payout with the form's `SubmitKey` as its `Idempotency-Key` (marketplace sends none),
-//! so a request sent again after a lost answer is the same payout, and goes to the payout's page
-//! on marketplace, read after it. Unlike marketplace's route, the page sends no Stripe Connect CSP:
+//! so a request sent again after a lost answer is the same payout, and goes to the payout's page,
+//! read after it. Unlike marketplace's route, the page sends no Stripe Connect CSP:
 //! nothing on it embeds Stripe (payout setup is on marketplace's settings page).
 //!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/desk/money?<place>` | the page, with a wallet adjustment's breakdown open |
 //! | `POST /account/desk/money` | `preview-payout`, `edit-payout`, `confirm-payout`, `retry`, `run-reconciliation` |
+//! | `GET /account/desk/payouts/{id}?requested=1&afterWrite=` | the payout (`202` while Settlement catches up with the request) |
+//! | `GET /account/payouts`, `/account/settlement` | `301` to the money page, with the query |
+//! | `GET /account/payouts/{id}` | `301` to the payout's page, with the query |
+//! | `GET /account/wallet/adjustments/{reference}` | `301` to the money page with the adjustment open |
+//! | `GET /account/payouts/setup` | `301` to marketplace's payout settings (not ported), with the query |
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
@@ -28,12 +36,13 @@ use corten::{
     i18n::{Currency, parse_timestamp},
     prelude::*,
 };
+use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
         ApiError, MoneyCalls as _, Payout, PayoutAmount, PayoutPreview, PayoutReadiness, QuickAmounts, Wallet, WalletAdjustment,
-        WalletEntry, segment,
+        WalletEntry,
     },
     app::{PAYOUTS_RECONCILE, PAYOUTS_REQUEST, PAYOUTS_SETUP, Shared, read_failed, sign_in, url},
     auth::{PayoutViewer, Viewer},
@@ -412,12 +421,8 @@ pub(crate) async fn write(
             let amount = input.amount.trim();
             match caller.request_payout(&input.attempt, amount, input.note().as_deref()).await {
                 Ok((id, receipt)) => {
-                    let mut to = format!("/account/desk/payouts/{}?requested=1", segment(&id));
-                    if let Some(receipt) = receipt {
-                        to.push_str(&format!("&afterWrite={}", segment(&receipt.param())));
-                    }
-                    let to: Uri = views::on_marketplace(&to).parse().map_err(corten::Error::new)?;
-                    req.redirect(&to)
+                    let place = PayoutPlace { requested: Some("1".into()), after_write: receipt.map(|r| r.param()) };
+                    req.redirect(&url::DeskPayout { id: &id, place })
                 }
                 // No answer: the same attempt sent again is the same payout, so say so with a 5xx,
                 // which keeps the form's key for the resend.
@@ -441,6 +446,99 @@ pub(crate) async fn write(
         // Marketplace's `onUnknownIntent`: the page again.
         _ => req.redirect(&url::Money { place: here.clone() }),
     }
+}
+
+/// A payout page's address: `requested=1` after Request a payout, and the receipt of the request
+/// the read waits for.
+#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[route(query)]
+#[serde(rename_all = "camelCase")]
+pub struct PayoutPlace {
+    pub requested: Option<String>,
+    pub after_write: Option<String>,
+}
+
+/// A payout's page: the payout, and whether it was just requested (marketplace's `requestSuccess`).
+#[derive(Serialize, ToJson)]
+pub struct PayoutScreen {
+    pub payout: Payout,
+    pub requested: bool,
+}
+
+/// A payout's page (marketplace's `account-desk-payout` loader). One the account has not is a 404;
+/// one a request's receipt names that Settlement has not caught up to says it is being prepared
+/// (`202`) and reads again.
+pub(crate) async fn payout(
+    req: Req,
+    Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(place): Query<PayoutPlace>,
+) -> HtmlResult {
+    let receipt = Receipt::from_param(place.after_write.as_deref());
+    let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    let payout = match caller.payout(&id).await {
+        Ok(Some(payout)) => payout,
+        Ok(None) if receipt.is_some() => return preparing(&req, &viewer),
+        Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
+        Err(error) if receipt.is_some() && error.catching_up() => return preparing(&req, &viewer),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+    };
+    let screen = PayoutScreen { payout, requested: place.requested.as_deref() == Some("1") };
+    let t: MoneyMsg = req.t();
+    let view = html! { <views::PayoutPage t={t} screen={&screen} /> };
+    req.screen(
+        &screen,
+        html! { <Layout req={&req} viewer={Some(&viewer)} title={t.route_payout_marketplace()} head={()}>{view}</Layout> },
+    )
+}
+
+/// A requested payout Settlement has not caught up to (marketplace's `SettlementPayoutDetailRecoveryPage`).
+fn preparing(req: &Req, viewer: &Viewer) -> HtmlResult {
+    let t: MoneyMsg = req.t();
+    let head = html! {
+        <meta name="robots" content="noindex">
+        {ReadAgain { after: Duration::from_secs(2) }}
+    };
+    req.page_with_status(
+        StatusCode::ACCEPTED,
+        html! {
+            <Layout req={req} viewer={Some(viewer)} title={t.route_payout_preparing()} head={head}>
+                <views::PayoutPreparing t={t} />
+            </Layout>
+        },
+    )
+}
+
+/// `to` with the query the old address had.
+fn moved_with(req: &Req, to: String, uri: &Uri) -> HtmlResult {
+    let to = match uri.query() {
+        Some(query) if !query.is_empty() => format!("{to}?{query}"),
+        _ => to,
+    };
+    let to: Uri = to.parse().map_err(corten::Error::new)?;
+    req.moved(&to)
+}
+
+/// `/account/payouts` and `/account/settlement`: the money page.
+pub(crate) async fn legacy_payouts(req: Req, uri: Uri) -> HtmlResult {
+    moved_with(&req, url::Money::default().href(), &uri)
+}
+
+/// `/account/payouts/{id}`: the payout's page.
+pub(crate) async fn legacy_payout(req: Req, uri: Uri, Path(id): Path<String>) -> HtmlResult {
+    moved_with(&req, url::DeskPayout { id: &id, place: PayoutPlace::default() }.href(), &uri)
+}
+
+/// `/account/payouts/setup`: marketplace's payout settings, which the pilot does not port.
+pub(crate) async fn legacy_payout_setup(req: Req, uri: Uri) -> HtmlResult {
+    moved_with(&req, views::on_marketplace("/account/desk/settings"), &uri)
+}
+
+/// `/account/wallet/adjustments/{reference}`: the money page with the adjustment's breakdown open.
+pub(crate) async fn legacy_adjustment(req: Req, Path(reference): Path<String>) -> HtmlResult {
+    req.moved(&url::Money { place: Place::adjustment(&reference) })
 }
 
 /// A refusal that is not the page's to draw: a session that ended, or an API that did not answer.

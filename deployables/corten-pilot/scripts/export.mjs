@@ -768,6 +768,9 @@ const outputs = [
       ...(await catalog("settlement.ts", "settlementEnglishTranslations", [
         ["settlement.features.moneyDashboard.ui.", "page"],
         ["settlement.features.payouts.ui.netPayout", "payout.net_payout"],
+        ["settlement.features.payouts.ui.netPayoutAmount", "payout.net_payout_amount"],
+        ["settlement.features.payouts.ui.payoutDetailPage.", "detail"],
+        ["settlement.routes.marketplace.accountPayout.", "route"],
         ["settlement.features.payouts.ui.requestedAmount", "payout.requested_amount"],
         ["settlement.features.payouts.ui.payoutFeeTerms", "payout.fee_terms"],
         ["settlement.features.payouts.ui.payoutFee", "payout.fee"],

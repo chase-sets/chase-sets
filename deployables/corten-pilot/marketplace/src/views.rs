@@ -76,7 +76,7 @@ pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingPart
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::MarketNav;
-pub use money_page::MoneyPage;
+pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
 pub use order_page::{OrderList, OrderPage};

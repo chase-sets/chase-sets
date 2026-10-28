@@ -5410,6 +5410,11 @@ pub struct Payout {
     pub failure_reason: Option<String>,
     pub provider_failure_code: Option<String>,
     pub provider_payout_reference: Option<String>,
+    /// What the seller wrote with the request.
+    pub note: Option<String>,
+    pub provider_transfer_reference: Option<String>,
+    pub last_provider_event_at: Option<String>,
+    pub last_reconciled_at: Option<String>,
 }
 
 /// Whether the account can be paid out (`SettlementPayoutReadinessRow`), the fields the page reads.
@@ -5508,6 +5513,8 @@ pub trait MoneyCalls {
     async fn wallet_entries(&self) -> Result<Vec<WalletEntry>, ApiError>;
     /// The account's payouts, the API's first page, as marketplace's loader reads them.
     async fn payouts(&self) -> Result<Vec<Payout>, ApiError>;
+    /// One of the account's payouts; `None` when it has none by `id`.
+    async fn payout(&self, id: &str) -> Result<Option<Payout>, ApiError>;
     async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError>;
     async fn payout_quick_amounts(&self) -> Result<QuickAmounts, ApiError>;
     /// The adjustment by its display reference; `None` when the account has none by it.
@@ -5539,6 +5546,14 @@ impl MoneyCalls for Caller<'_> {
     async fn payouts(&self) -> Result<Vec<Payout>, ApiError> {
         let body: Items<Payout> = self.read(PAYOUTS, SETTLEMENT).await?;
         Ok(body.items)
+    }
+
+    async fn payout(&self, id: &str) -> Result<Option<Payout>, ApiError> {
+        match self.read(&format!("{PAYOUTS}/{}", segment(id)), SETTLEMENT).await {
+            Ok(payout) => Ok(Some(payout)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError> {

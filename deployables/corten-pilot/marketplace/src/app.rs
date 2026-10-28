@@ -158,6 +158,7 @@ pub mod url {
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
+    pub use payout::DeskPayout;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
@@ -174,9 +175,12 @@ pub mod url {
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
-    /// The home page, public: marketplace's index route is its search route, so it is the search
-    /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
-    /// is the start of each of its paths, and every path starts with `/`.
+    /// The routes in no area, all public. The home page: marketplace's index route is its search
+    /// route, so it is the search at `/` (with nothing asked, the landing and its shelf); an area's
+    /// prefix is the start of each of its paths, and every path starts with `/`. And Settlement's
+    /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
+    /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
+    /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -185,6 +189,25 @@ pub mod url {
         pub struct Home {
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+
+        #[route("/account/payouts", get = crate::money::legacy_payouts)]
+        pub struct LegacyPayouts;
+
+        #[route("/account/payouts/setup", get = crate::money::legacy_payout_setup)]
+        pub struct LegacyPayoutSetup;
+
+        #[route("/account/payouts/{id}", get = crate::money::legacy_payout)]
+        pub struct LegacyPayout<'a> {
+            pub id: &'a str,
+        }
+
+        #[route("/account/settlement", get = crate::money::legacy_payouts)]
+        pub struct LegacySettlement;
+
+        #[route("/account/wallet/adjustments/{reference}", get = crate::money::legacy_adjustment)]
+        pub struct LegacyAdjustment<'a> {
+            pub reference: &'a str,
         }
     }
 
@@ -754,6 +777,24 @@ pub mod url {
         }
     }
 
+    /// A payout's page (Settlement's `account-desk-payout`, see `money`). It takes a
+    /// `PayoutViewer`, as the money page does.
+    #[corten::routes(state = crate::app::Shared, area = PayoutsArea, caller = crate::auth::PayoutViewer)]
+    pub mod payout {
+        /// The prefix, with no page: the payouts are listed on the money page.
+        #[route("/account/desk/payouts")]
+        pub struct PayoutsArea;
+
+        /// The payout, read after the request whose receipt it carries.
+        #[derive(Clone, Debug)]
+        #[route("/account/desk/payouts/{id}", get = crate::money::payout)]
+        pub struct DeskPayout<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::money::PayoutPlace,
+        }
+    }
+
     /// The account's support: its cases and Report a problem (Platform Operations' marketplace
     /// `account-support`, see `support_list`), and a Support Request's participant page
     /// (`account-support-detail`): the case, what its buyer or seller is asked for, and their
@@ -1127,6 +1168,7 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))

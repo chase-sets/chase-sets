@@ -10062,6 +10062,25 @@ fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Re
             "currency_code": "usd", "minimum_amount": "5.00", "maximum_amount": "10000.00", "full_available_amount": "26.83",
         }))
         .into_response(),
+        ("GET", path) if path.starts_with("/api/settlement/payouts/") => {
+            let mut one = match &path["/api/settlement/payouts/".len()..] {
+                "pyo_failed" => payout("pyo_failed", "failed", None, Some("Bank account temporarily unavailable")),
+                "pyo_moving" => payout("pyo_moving", "in-transit", Some("2026-10-26T12:00:00.000Z"), None),
+                "pyo_paid" => payout("pyo_paid", "completed", Some("2026-10-23T16:00:00.000Z"), None),
+                "pyo_noted" => payout("pyo_noted", "requested", None, None),
+                // `pyo_new` is the one Request a payout makes, which Settlement has not caught up to.
+                _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Payout not found.")),
+            };
+            if one["status"] == "completed" {
+                one["provider_transfer_reference"] = json!("tr_1");
+                one["last_provider_event_at"] = json!("2026-10-24T14:00:00.000Z");
+                one["last_reconciled_at"] = json!("2026-10-24T15:30:00.000Z");
+            }
+            if one["status"] == "requested" {
+                one["note"] = json!("Rent for November");
+            }
+            Json(one).into_response()
+        }
         ("GET", "/api/settlement/wallet/adjustments/WADJ-1") => Json(json!({
             "status": "posted", "display_reference": "WADJ-1", "direction": "credit", "amount": "30.00", "currency_code": "usd",
             "reason_code": "goodwill-cash-credit", "requested_at": "2026-10-21T15:00:00.000Z", "posted_at": "2026-10-21T15:05:00.000Z",
@@ -10214,11 +10233,13 @@ async fn a_payout_is_previewed_then_confirmed_with_its_attempt() {
     let body = format!("intent=confirm-payout&amount=5.00&note=Rent&attempt={ATTEMPT}");
     let (status, headers, _) = pilot.send(post(MONEY, "banker", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(
-        to.starts_with("http://localhost:7753/account/desk/payouts/pyo_new?requested=1&afterWrite="),
-        "marketplace's payout: {to}"
-    );
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/desk/payouts/pyo_new?requested=1&afterWrite="), "the pilot's payout: {to}");
+    // Settlement has not caught up to it yet: the page says it is being prepared and reads again.
+    let (status, _, html) = pilot.send(get(&to, Some("banker"))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(text(&html).contains("Preparing payout"), "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
     let (path, sent, key) = money_writes(&pilot).pop().unwrap();
     assert_eq!(path, "/api/settlement/payouts");
     assert_eq!(sent, json!({ "amount": "5.00", "destinationReference": null, "note": "Rent" }));
@@ -10231,6 +10252,75 @@ async fn a_payout_is_previewed_then_confirmed_with_its_attempt() {
     let (status, _, _) = pilot.send(post(MONEY, "banker", "intent=confirm-payout&amount=5.00&attempt=nope", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "no attempt, nothing sent");
     assert_eq!(money_writes(&pilot).iter().filter(|(p, ..)| p == "/api/settlement/payouts").count(), 2);
+}
+
+#[tokio::test]
+async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/desk/payouts/pyo_paid", Some("banker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Payout PYO-pyo_paid") && words.contains("Net payout: $9.73"), "{words}");
+    assert!(words.contains("Payout account: Saved payout account"), "no note, no failure: {words}");
+    assert!(words.contains("$10.00") && words.contains("$0.27") && words.contains("Completed"), "{words}");
+    assert!(words.contains("Last provider check"), "{words}");
+    assert!(words.contains("The payout provider accepted the transfer."), "{words}");
+    assert_eq!(html.matches(r#"data-status="complete""#).count(), 5, "every step done: {html}");
+    assert!(!words.contains("Payout requested") && !words.contains("needs review"), "{words}");
+    assert!(html.contains(r#"href="/account/desk/money""#), "Back to payouts: {html}");
+
+    let (_, _, html) = pilot.send(get("/account/desk/payouts/pyo_failed", Some("banker"))).await;
+    let words = text(&html);
+    assert!(words.contains("Needs attention") && words.contains("Bank account temporarily unavailable"), "{words}");
+    assert!(words.contains("Payout account needs review"), "{words}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/desk/settings?mode=manage""#), "{html}");
+    assert!(html.contains(r#"href="/account/support""#), "Contact support is the pilot's: {html}");
+    assert!(html.contains(r#"data-status="issue""#), "{html}");
+
+    let (_, _, html) = pilot.send(get("/account/desk/payouts/pyo_noted?requested=1", Some("banker"))).await;
+    let words = text(&html);
+    assert!(
+        words.contains("Payout requested") && words.contains("$9.73 is being sent to your saved payout destination."),
+        "{words}"
+    );
+    assert!(words.contains("Rent for November"), "the seller's note: {words}");
+    assert!(words.contains("Waiting for provider transfer reference"), "{words}");
+    assert!(html.contains(r#"aria-current="step""#), "the last step is the current one: {html}");
+
+    let mut req = get("/account/desk/payouts/pyo_moving", Some("banker"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["payout"]["status"], "in-transit", "{body}");
+
+    let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_nope", Some("banker"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "one the account has not");
+    let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_new", Some("banker"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "with no receipt to wait for, not there is not found");
+    let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_paid", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "without payouts.view");
+    let (status, headers, _) = pilot.send(get("/account/desk/payouts/pyo_paid", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
+
+    let (_, _, html) = pilot.send(get(MONEY, Some("banker"))).await;
+    assert!(html.contains(r#"href="/account/desk/payouts/pyo_paid""#), "the money page's Open payout: {html}");
+}
+
+#[tokio::test]
+async fn settlements_old_addresses_move_for_good_with_their_query() {
+    let pilot = Pilot::new().await;
+    for (from, to) in [
+        ("/account/payouts?tab=history", "/account/desk/money?tab=history"),
+        ("/account/settlement", "/account/desk/money"),
+        ("/account/payouts/pyo_paid?requested=1", "/account/desk/payouts/pyo_paid?requested=1"),
+        ("/account/payouts/setup?mode=manage", "http://localhost:7753/account/desk/settings?mode=manage"),
+        ("/account/wallet/adjustments/WADJ-1", "/account/desk/money?drawer=wallet-adjustment&entity=WADJ-1"),
+    ] {
+        let (status, headers, _) = pilot.send(get(from, None)).await;
+        assert_eq!(status, StatusCode::MOVED_PERMANENTLY, "{from}");
+        assert_eq!(headers[header::LOCATION].to_str().unwrap(), to, "{from}");
+    }
 }
 
 #[tokio::test]

@@ -61,6 +61,24 @@
 .banner.row { display: flex; justify-content: space-between; }
 .banner[data-tone="warning"] { border-color: var(--color-warning); background: var(--color-warning-soft); }
 .banner[data-tone="danger"] { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.banner[data-tone="success"] { border-color: var(--color-success); background: var(--color-success-soft); }
+.banner[data-tone="neutral"] { border-color: var(--color-border); background: var(--color-surface-2); }
+/* A payout's timeline: a dot per step, filled once it is done, ringed while it is the current one. */
+.timeline { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.step { display: grid; grid-template-columns: 1rem minmax(0, 1fr); gap: 0.125rem var(--space-3); min-width: 0; }
+.step::before {
+  content: "";
+  grid-row: span 2;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-block-start: 0.3rem;
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+.step > p { grid-column: 2; margin: 0; }
+.step[data-status="complete"]::before { border-color: var(--color-success); background: var(--color-success); }
+.step[data-status="current"]::before { border-color: var(--color-primary); }
+.step[data-status="issue"]::before { border-color: var(--color-danger); background: var(--color-danger); }
 .badge {
   display: inline-block;
   padding: 0.125rem 0.5rem;

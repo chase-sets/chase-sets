@@ -18,7 +18,7 @@ use super::on_marketplace;
 use crate::{
     api::{Payout, WalletAdjustment, WalletEntry},
     app::url,
-    money::{Blocked, MoneyInput, MoneyScreen, Place},
+    money::{Blocked, MoneyInput, MoneyScreen, PayoutScreen, Place},
     text::{MoneyMsg, Pilot},
 };
 
@@ -90,6 +90,193 @@ fn reason(t: MoneyMsg, code: &str) -> String {
         code => format!("reason.{}", code.replace('-', ".")),
     };
     t.by_key(&key, &NONE).map_or_else(|| t.reason_other().to_owned(), |m| m.to_string())
+}
+
+/// Whether the API sent a value (`Boolean(x)`: an empty one is none).
+fn present(value: &Option<String>) -> bool {
+    value.as_deref().is_some_and(|v| !v.is_empty())
+}
+
+/// A label the catalog ends with `": "`, as a breakdown's term.
+fn term(label: &str) -> &str {
+    label.trim_end_matches(": ")
+}
+
+/// A payout's page (Settlement's `SettlementPayoutDetailPage`, without the support details
+/// marketplace hides from sellers): the header with Back to payouts, Payout requested after a
+/// request, the summary (the status, a failed payout's next step, the amounts and moments, the last
+/// provider check) and the status timeline as a list of steps.
+#[component(css = MoneyPage)]
+pub fn PayoutPage<'a>(t: MoneyMsg, screen: &'a PayoutScreen) -> impl Render {
+    let payout = &screen.payout;
+    let currency = payout.currency_code.as_str();
+    let net = money(t, &payout.net_amount, currency);
+    let requested_at = date_time(t, &payout.requested_at);
+    let transfer = present(&payout.provider_transfer_reference) || present(&payout.sent_at);
+    let submitted = present(&payout.provider_payout_reference) || present(&payout.sent_at);
+    let completed = payout.status == "completed";
+    let failed = payout.status == "failed";
+    let failure = status_label(t, payout.failure_reason.as_deref().unwrap_or("recent-payout-failure"));
+    let status = match payout.status.as_str() {
+        "requested" => t.detail_requested().to_owned(),
+        "in-transit" => t.detail_on_the_way().to_owned(),
+        "completed" => t.detail_paid().to_owned(),
+        "failed" => t.detail_needs_attention().to_owned(),
+        other => other.to_owned(),
+    };
+    let tone = if failed {
+        "danger"
+    } else if completed {
+        "success"
+    } else {
+        "info"
+    };
+    let said = if failed {
+        failure.clone()
+    } else {
+        payout.note.clone().unwrap_or_else(|| t.detail_payout_account_saved_payout_account().to_owned())
+    };
+    let moments = [
+        (t.detail_sent(), &payout.sent_at),
+        (t.detail_completed(), &payout.completed_at),
+        (t.detail_failed(), &payout.failed_at),
+    ];
+    let event = payout.last_provider_event_at.as_deref().map(|at| date_time(t, at));
+    let (last, last_says, last_status) = if failed {
+        (t.detail_needs_attention_2(), failure.clone(), "issue")
+    } else if completed {
+        let when = payout
+            .completed_at
+            .as_deref()
+            .map_or_else(|| t.detail_usually_1_3_business_days_after().to_owned(), |at| date_time(t, at));
+        (t.detail_paid_2(), when, "complete")
+    } else {
+        (t.detail_paid_2(), t.detail_usually_1_3_business_days_after().to_owned(), "current")
+    };
+    let steps = [
+        (t.detail_requested_3(), requested_at.clone(), "complete"),
+        (
+            t.detail_provider_transfer_submitted(),
+            if transfer { t.page_provider_accepted_transfer() } else { t.detail_waiting_for_provider_transfer_reference() }
+                .to_owned(),
+            if transfer { "complete" } else { "upcoming" },
+        ),
+        (
+            t.detail_payout_submitted(),
+            if submitted { t.page_provider_accepted_payout() } else { t.detail_waiting_for_provider_payout_reference() }
+                .to_owned(),
+            if submitted { "complete" } else { "upcoming" },
+        ),
+        (
+            t.detail_provider_event_received(),
+            event.clone().unwrap_or_else(|| t.detail_waiting_for_provider_event().to_owned()),
+            if event.is_some() { "complete" } else { "upcoming" },
+        ),
+        (last, last_says, last_status),
+    ];
+    html! {
+        <header class={Header}>
+            <div class={Tight}>
+                <p class={Eyebrow}>{t.detail_settlement()}</p>
+                <h1 class={Title}>{t.detail_payout_title(&payout.display_reference)}</h1>
+                <p class={Muted}>{t.payout_net_payout_amount(&net)}</p>
+            </div>
+            <a class={(Button, Secondary)} href={url::Money::default()}>{t.detail_back_to_payouts()}</a>
+        </header>
+        if screen.requested {
+            <section class={Section} aria-labelledby="payout-requested-title">
+                <h2 id="payout-requested-title" class={PartTitle}>{t.detail_payout_requested()}</h2>
+                <div class={Banner} data-tone="success" role="status">
+                    <p class={Strong}>{t.detail_payout_requested_2()}</p>
+                    <p>{t.detail_amount_is_being_sent_to_your_saved(&net)}</p>
+                </div>
+            </section>
+        }
+        <section class={Section} aria-labelledby="payout-summary-title">
+            <h2 id="payout-summary-title" class={PartTitle}>{t.detail_summary()}</h2>
+            <div class={Banner} data-tone={tone}>
+                <p class={Strong}>{&status}</p>
+                <p>{&said}</p>
+            </div>
+            if failed {
+                <div class={Banner} data-tone="warning">
+                    <p class={Strong}>{t.detail_payout_account_needs_review()}</p>
+                    <p>{t.detail_review_payout_details_before_requesting()}</p>
+                    <p class={Row}>
+                        <a class={(Button, Secondary)} href={on_marketplace("/account/desk/settings?mode=manage")}>
+                            {t.detail_review_payout_details()}
+                        </a>
+                        <a class={(Button, Secondary)} href={url::SupportList::default()}>{t.detail_contact_support()}</a>
+                    </p>
+                </div>
+            }
+            <dl class={(Card, Breakdown)}>
+                <div>
+                    <dt>{t.payout_requested_amount()}</dt>
+                    <dd>{money(t, &payout.requested_amount, currency)}</dd>
+                </div>
+                <div>
+                    <dt>{t.payout_fee()}</dt>
+                    <dd>{money(t, &payout.fee_amount, currency)}</dd>
+                </div>
+                <div>
+                    <dt>{term(t.detail_requested_2())}</dt>
+                    <dd>{&requested_at}</dd>
+                </div>
+                for (label, at) in moments {
+                    if let Some(at) = at {
+                        <div>
+                            <dt>{term(label)}</dt>
+                            <dd>{date_time(t, at)}</dd>
+                        </div>
+                    }
+                }
+                <div class={Total}>
+                    <dt>{t.payout_net_payout()}</dt>
+                    <dd>{&net}</dd>
+                </div>
+            </dl>
+            if let Some(at) = &payout.last_reconciled_at {
+                <div class={Banner} data-tone="neutral">
+                    <p class={Strong}>{term(t.detail_last_provider_check())}</p>
+                    <p>{date_time(t, at)}</p>
+                </div>
+            }
+        </section>
+        <section class={Section} aria-labelledby="payout-timeline-title">
+            <h2 id="payout-timeline-title" class={PartTitle}>{t.detail_status_timeline()}</h2>
+            <ol class={Timeline}>
+                for (label, says, status) in steps {
+                    <li class={Step} data-status={status} aria-current={(status == "current").then_some("step")}>
+                        <p class={Strong}>{label}</p>
+                        <p class={Muted}>{&says}</p>
+                    </li>
+                }
+            </ol>
+        </section>
+    }
+}
+
+/// A requested payout Settlement has not caught up to (`SettlementPayoutDetailRecoveryPage`).
+#[component(css = MoneyPage)]
+pub fn PayoutPreparing(t: MoneyMsg) -> impl Render {
+    html! {
+        <header class={Header}>
+            <div class={Tight}>
+                <p class={Eyebrow}>{t.detail_settlement()}</p>
+                <h1 class={Title}>{t.route_payout_preparing()}</h1>
+                <p class={Muted}>{t.route_payout_preparing_description()}</p>
+            </div>
+            <a class={(Button, Secondary)} href={url::Money::default()}>{t.detail_back_to_payouts()}</a>
+        </header>
+        <section class={Section} aria-labelledby="payout-summary-title">
+            <h2 id="payout-summary-title" class={PartTitle}>{t.detail_summary()}</h2>
+            <div class={Banner} data-tone="info" role="status">
+                <p class={Strong}>{t.route_payout_preparing()}</p>
+                <p>{t.route_payout_preparing_description()}</p>
+            </div>
+        </section>
+    }
 }
 
 /// The page.
@@ -427,7 +614,7 @@ fn PayoutRow<'a>(t: MoneyMsg, p: Pilot, payout: &'a Payout) -> impl Render {
     let currency = payout.currency_code.as_str();
     let id = PayoutBreakdownId(&payout.payout_id);
     let title = format!("breakdown-{}", payout.payout_id);
-    let open = on_marketplace(&format!("/account/desk/payouts/{}", crate::api::segment(&payout.payout_id)));
+    let open = url::DeskPayout { id: &payout.payout_id, place: Default::default() };
     html! {
         <li class={(Card, Line)} data-payout={&payout.payout_id}>
             <div class={Tight}>
