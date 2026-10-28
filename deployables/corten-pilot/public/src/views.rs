@@ -9,12 +9,14 @@ use crate::text::MarketMsg;
 #[derive(Id)]
 pub struct MainContentId;
 
+mod compare_page;
 mod help_page;
 mod home_page;
 mod market_page;
 mod policy_page;
 mod welcome_page;
 
+pub use compare_page::{ComparePage, ContactPage, FeeCalculator, FeeCalculatorId};
 pub use help_page::{HelpArticlePage, HelpCategoryPage, HelpHub};
 pub use home_page::HomePage;
 pub use market_page::{MarketPage, Screen};
@@ -33,6 +35,10 @@ pub const COMPONENTS: &[Component] =
 /// The help center's components (`/help`, `/sales-fees` and `/press`), in a stylesheet those
 /// pages share.
 pub const HELP: &[Component] = &[HelpHub];
+
+/// The compare pages' and Contact's components (`/compare` and `/contact`), in a stylesheet
+/// those pages share.
+pub const COMPARE: &[Component] = &[ComparePage];
 
 /// The market pages' components (`/market`): the page and its chart.
 pub const MARKET: &[Component] = &[MarketPage, TimeSeries];

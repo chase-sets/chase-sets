@@ -415,7 +415,7 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
         "{page}"
     );
     assert_eq!(page.matches("data-promo=").count(), 2, "the untitled message is left out: {page}");
-    assert!(page.contains(r#"href="http://localhost:7754/order-protection""#), "{page}");
+    assert!(page.contains(r#"href="/order-protection""#), "{page}");
     // The roster keeps the address's query and lands on the hero's form.
     assert!(page.contains(r#"href="/?game=pokemon#waitlist-form""#), "{page}");
     // Nothing about the visitor reached the API.
@@ -441,7 +441,7 @@ async fn an_old_fee_calculator_share_link_moves_to_the_compare_page() {
     let query = "price=12.50&utm_source=fee-calculator&utm_medium=share&utm_campaign=what-you-keep";
     let (status, headers, _) = site.get(&format!("/?{query}"), None).await;
     assert_eq!(status, StatusCode::MOVED_PERMANENTLY);
-    assert_eq!(headers[header::LOCATION], format!("http://localhost:7754/compare/tcgplayer?{query}#fee-calculator"));
+    assert_eq!(headers[header::LOCATION], format!("/compare/tcgplayer?{query}#fee-calculator"));
     assert!(site.calls.lock().unwrap().is_empty(), "no read for a move");
 }
 
@@ -542,11 +542,11 @@ async fn a_policy_page_draws_its_document_and_says_counsel_review_is_pending() {
     // registry says.
     assert!(page.contains(r#"<a href="/seller-agreement">chasesets.com/seller-agreement</a>"#), "{page}");
     assert!(page.contains("Whether Wallet balances are treated as a bank deposit"), "{page}");
-    // The shell: the promo bar, and the footer's policies here and its other links on public-web.
+    // The shell: the promo bar, and the footer's links, all here now.
     assert_eq!(page.matches("data-promo=").count(), 2, "{page}");
     assert!(page.contains(r#"<li><a href="/privacy">"#), "{page}");
     assert!(page.contains(r#"<li><a href="/help">"#), "{page}");
-    assert!(page.contains(r#"<li><a href="http://localhost:7754/contact">"#), "{page}");
+    assert!(page.contains(r#"<li><a href="/contact">"#), "{page}");
 
     // Another document: the corpus's words, and out of search while counsel reviews it.
     let (status, _, page) = site.get("/seller-agreement", None).await;
@@ -803,14 +803,14 @@ async fn the_fees_page_shows_the_schedule_and_its_coming_change_and_any_cache_ma
 }
 
 #[tokio::test]
-async fn an_articles_account_links_go_to_marketplace_and_public_pages_not_here_go_to_public_web() {
+async fn an_articles_account_links_go_to_marketplace_and_its_public_links_stay_here() {
     let site = Site::new(true, "https://chasesets.com").await;
     let (_, _, page) = site.get("/help/selling/inventory-csv-import", None).await;
     assert!(page.contains(r#"href="https://marketplace.chasesets.com/account/inventory/imports""#), "{page}");
     assert!(page.contains(r#"href="https://marketplace.chasesets.com/account/listings""#), "{page}");
     assert!(page.contains(r#"href="/help/selling/seller-migration-tcgplayer-ebay""#), "{page}");
     let (_, _, page) = site.get("/help/selling/prohibited-and-restricted-items", None).await;
-    assert!(page.contains(&format!(r#"href="{}/contact""#, crate::app::public_web())), "{page}");
+    assert!(page.contains(r#"href="/contact""#), "{page}");
 }
 
 #[tokio::test]
@@ -840,5 +840,109 @@ async fn public_webs_old_help_addresses_move_for_good() {
     }
     for href in ["/help", "/sales-fees", "/press", "/order-protection", "/refunds-and-returns"] {
         assert!(home.contains(&format!(r#"href="{href}""#)), "{href}: {home}");
+    }
+}
+
+#[tokio::test]
+async fn a_compare_page_sets_the_live_schedule_beside_the_competitors_and_works_out_a_sale() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/compare/tcgplayer", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(cache(&headers).contains("s-maxage"), "{headers:?}");
+    assert!(page.contains("<title>TCGplayer Seller Fees vs Chase Sets | 2026 Comparison</title>"), "{page}");
+    assert!(page.contains(r#"<meta property="og:url" content="https://chasesets.com/compare/tcgplayer""#), "{page}");
+    assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/compare/tcgplayer""#), "{page}");
+    assert!(
+        page.contains(r#""@type":"FAQPage""#) && page.contains("How much does TCGplayer charge to sell trading cards?"),
+        "{page}"
+    );
+    assert!(page.contains(">Chase Sets vs TCGplayer for selling trading cards</h1>"), "{page}");
+    // The table: the live schedule, and TCGplayer's dated facts.
+    assert!(page.contains("8% of the item price plus $0.30, never more than $50.00 per item"), "{page}");
+    assert!(page.contains("10.75% marketplace commission, capped at $75.00 per item, for standard marketplace sellers, per TCGplayer&#39;s published fee schedule as of July 12, 2026."), "{page}");
+    assert!(page.contains("Sellers pay 2.5% + $0.30 payment processing per order"), "{page}");
+    assert!(page.contains(">Where TCGplayer is ahead today</h2>"), "{page}");
+    // The calculator at $50.00 and one card: $4.30 here, TCGplayer $5.37 and $1.55, eBay $6.62 and $0.40.
+    assert!(page.contains(r#"id="fee-calculator""#) && page.contains(r#"value="50.00""#), "{page}");
+    for kept in ["$45.70", "$43.08", "$42.98", "$4.30", "$5.37", "$1.55", "$6.62", "$0.40"] {
+        assert!(page.contains(kept), "{kept}: {page}");
+    }
+    assert!(!page.contains("fee-calculator-cap-note"), "under the cap: {page}");
+    assert!(
+        page.contains(r#"data-value="https://chasesets.com/compare/tcgplayer?price=50.00&amp;cards=1&amp;utm_source=fee-calculator&amp;utm_medium=share&amp;utm_campaign=what-you-keep#fee-calculator""#),
+        "{page}"
+    );
+    assert!(page.contains(r#"action="/compare/tcgplayer#fee-calculator" data-patch"#), "{page}");
+    assert!(page.contains(r#"href="/compare/ebay""#) && page.contains("Compare Chase Sets vs eBay"), "{page}");
+    assert!(page.contains(r#"href="/sales-fees""#), "{page}");
+    // eBay's page, and a competitor that is not one.
+    let (status, _, page) = site.get("/compare/ebay", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("13.25% trading-cards final value fee on the portion of a sale up to $7,500.00, plus 2.35% above it."),
+        "{page}"
+    );
+    let (status, _, _) = site.get("/compare/nope", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_share_link_opens_its_comparison_and_the_calculator_answers_a_script_with_its_section() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/compare/ebay?price=1000&cards=2&utm_source=fee-calculator", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!cache(&headers).contains("s-maxage"), "one comparison is kept by the browser only: {headers:?}");
+    assert!(page.contains(r#"value="1000""#) && page.contains(r#"value="2""#), "{page}");
+    assert!(page.contains("2 cards at $1,000.00 each — $2,000.00 total."), "{page}");
+    // 8% of $1,000 + $0.30 is $80.30, over the $50 cap.
+    assert!(
+        page.contains(
+            "The per-item cap kicked in: 8% would be $80.30 per card, but Chase Sets never charges more than $50.00 per item."
+        ),
+        "{page}"
+    );
+    // A field that is not a price says so, with no results.
+    let (_, _, page) = site.get("/compare/ebay?price=abc&cards=1", None).await;
+    assert!(page.contains(r#"aria-invalid="true""#) && page.contains("Enter a price from $0.01 to $9,999.99."), "{page}");
+    assert!(!page.contains("You keep"), "{page}");
+    // With a script: the section alone.
+    let req = Request::get("/compare/tcgplayer?price=10.01&cards=1")
+        .header(header::HOST, "localhost:7797")
+        .header("corten", "action")
+        .body(Body::empty())
+        .unwrap();
+    let res = site.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(body.starts_with(r#"<section class=""#) && body.contains(r#"id="fee-calculator""#), "{body}");
+    assert!(!body.contains("<html") && !body.contains("<h1"), "{body}");
+    // $10.01: here $0.81 + $0.30 rounded up; TCGplayer $1.07 and $0.55 rounded down.
+    assert!(body.contains("$1.11") && body.contains("$1.07") && body.contains("$0.55"), "{body}");
+    // The schedule was read once for all three pages.
+    let reads = site.calls.lock().unwrap().iter().filter(|(path, _)| path.ends_with("/policy-values")).count();
+    assert_eq!(reads, 1);
+}
+
+#[tokio::test]
+async fn contact_says_where_to_write_and_the_shell_links_here() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, page) = site.get("/contact", None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(cache(&headers).contains("s-maxage"), "{headers:?}");
+    assert!(page.contains("<title>Contact | Chase Sets</title>"), "{page}");
+    assert!(page.contains(r#"<link rel="canonical" href="https://chasesets.com/contact""#), "{page}");
+    assert!(page.contains(">Contact Chase Sets</h1>") && page.contains("Email support@chasesets.com"), "{page}");
+    assert!(page.contains(">Current status</h2>"), "{page}");
+    // The home page links here and to the compare page and the FAQ article, not to public-web.
+    let (_, _, home) = site.get("/", None).await;
+    for href in ["/contact", "/compare/tcgplayer", "/help/getting-started/frequently-asked-questions"] {
+        assert!(home.contains(&format!(r#"href="{href}""#)), "{href}: {home}");
+    }
+    assert!(!home.contains("localhost:7754/compare"), "{home}");
+    // The promo bar's link to the moved order-protection address is this app's too.
+    assert!(home.contains(r#"href="/order-protection">Order protection"#), "{home}");
+    let (_, _, sitemap) = site.get("/sitemap.xml", None).await;
+    for loc in ["/contact", "/compare/tcgplayer", "/compare/ebay"] {
+        assert!(sitemap.contains(&format!("<loc>https://chasesets.com{loc}</loc>")), "{loc}: {sitemap}");
     }
 }

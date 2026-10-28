@@ -130,14 +130,22 @@ pub(crate) async fn robots(State(config): State<Shared>) -> Public<seo::File> {
 /// The sitemap of the pages this app serves, when the site may be indexed, and none otherwise:
 /// the ones public-web lists among its stable pages (the home page, the terms, the privacy notice
 /// and the founders' terms; its other policy documents stay out of search while counsel reviews
-/// them), the help center, then the market pages Pricing says are worth indexing, each with when it last traded. A failed read
+/// them), Contact, the compare pages, the help center, then the market pages Pricing says are worth indexing, each with when it last traded. A failed read
 /// is a 502, which no cache keeps, rather than a sitemap without them.
 pub(crate) async fn sitemap(State(config): State<Shared>) -> Result<Public<seo::File>, corten::Error> {
     if !config.indexing {
         return Ok(seo::sitemap([]));
     }
     let indexed = config.api().indexed().await.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
-    let stable = [url::files::Home.href(), url::files::Terms.href(), url::files::Privacy.href(), url::Founders.href()];
+    let stable = [
+        url::files::Home.href(),
+        url::contact::Contact.href(),
+        url::files::Terms.href(),
+        url::files::Privacy.href(),
+        url::Founders.href(),
+        crate::compare::Competitor::Tcgplayer.path(),
+        crate::compare::Competitor::Ebay.path(),
+    ];
     let urls: Vec<(String, Option<&str>)> = stable
         .into_iter()
         .chain(crate::help::indexed())

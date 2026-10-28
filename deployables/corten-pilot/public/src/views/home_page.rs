@@ -450,7 +450,7 @@ fn Fees<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
             <div>
                 <a
                     class={(Button, Secondary)}
-                    href={screen.web("/compare/tcgplayer")}
+                    href={crate::compare::Competitor::Tcgplayer.path()}
                     data-cta="fee_comparison"
                     data-target="compare_tcgplayer"
                 >
@@ -548,7 +548,14 @@ fn Faq<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
                 }
             </div>
             <div>
-                <a class={(Button, Secondary)} href={screen.web("/faq")} data-cta="faq" data-target="faq">{t.faq_all()}</a>
+                <a
+                    class={(Button, Secondary)}
+                    href={crate::app::url::help::HelpArticle { category: "getting-started", slug: "frequently-asked-questions" }}
+                    data-cta="faq"
+                    data-target="faq"
+                >
+                    {t.faq_all()}
+                </a>
             </div>
         </section>
     }
@@ -625,13 +632,22 @@ pub fn HomeNav(t: HomeMsg) -> impl Render {
     }
 }
 
+/// A public page's link: here when this app serves the page, else on public-web; a link
+/// elsewhere as it is.
+pub fn public_href(web: &str, href: &str) -> String {
+    if !href.starts_with('/') || href.starts_with("//") {
+        return href.to_owned();
+    }
+    let path = href.split(['?', '#']).next().unwrap_or(href);
+    let ours = path == "/" || crate::policy::serves(path) || crate::help::serves(path) || crate::compare::serves(path);
+    if ours { href.to_owned() } else { format!("{web}{href}") }
+}
+
 /// The shell's footer: the policies, the help center and Contact. The policy documents, the help
-/// center, the fees and the press sheet are this app's pages; the rest are public-web's.
+/// center, the fees, the press sheet, Contact and the compare pages are this app's pages.
 #[component(css = HomePage)]
 pub fn HomeFooter<'a>(t: HomeMsg, web: &'a str) -> impl Render {
-    let href = |path: &str| {
-        if crate::policy::serves(path) || crate::help::serves(path) { path.to_owned() } else { format!("{web}{path}") }
-    };
+    let href = |path: &str| public_href(web, path);
     let links = [
         ("/help", t.nav_help()),
         ("/terms", t.nav_terms()),
@@ -693,7 +709,7 @@ pub fn PromoBar<'a>(p: Pilot, promos: &'a [Promo], web: &'a str) -> impl Render 
                         if let (Some(href), Some(label)) = (&message.href, &message.link_label) {
                             <a
                                 class={(Button, Secondary, Small)}
-                                href={if href.starts_with('/') { format!("{web}{href}") } else { href.clone() }}
+                                href={public_href(web, href)}
                             >
                                 {label}
                                 <Icon name={IconName::ChevronRight} />
@@ -753,7 +769,7 @@ pub enum IconName {
 }
 
 #[component(css = HomePage)]
-fn Icon(name: IconName) -> impl Render {
+pub(crate) fn Icon(name: IconName) -> impl Render {
     html! {
         <svg
             class={Icon}

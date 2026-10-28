@@ -140,6 +140,9 @@
 //   the policy values it cites) and the public policy value whitelist's types and value contracts, which
 //   a live value is checked against before it is shown.
 // - public/locales/help.en.json: the help center's English catalog (publicPresence.help.*).
+// - public/locales/compare.en.json: the compare pages' and Contact's English catalog
+//   (publicPresence.compare.*, each compare route's meta as meta.tcgplayer.* and meta.ebay.*,
+//   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -1008,6 +1011,18 @@ const outputs = [
   [
     "public/locales/help.en.json",
     json(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.help.", ""]])),
+  ],
+  [
+    "public/locales/compare.en.json",
+    json(
+      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.compare.", ""],
+        ["publicPresence.routes.compareTcgplayer.meta.", "meta.tcgplayer"],
+        ["publicPresence.routes.compareEbay.meta.", "meta.ebay"],
+        ["publicPresence.info.contact.", "contact"],
+        ["publicPresence.routes.contact.meta.", "meta.contact"],
+      ]),
+    ),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

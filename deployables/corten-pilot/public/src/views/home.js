@@ -397,3 +397,55 @@ export function wave(event) {
   }
   field.form.requestSubmit(button);
 }
+
+/** A compare page: the analytics bridge. @param {HTMLElement} _root */
+export function compare(_root) {
+  bridge();
+}
+
+/** A compare page's call to action: its section and target. @param {MouseEvent} event @param {HTMLElement} root */
+export function compared(event, root) {
+  const link = event.target instanceof Element ? event.target.closest("a[data-cta]") : null;
+  if (!link || !root.contains(link)) return;
+  track("cta_clicked", { section: link.getAttribute("data-cta"), target: link.getAttribute("data-target") });
+}
+
+/** @type {WeakMap<HTMLFormElement, number>} */
+const pending = new WeakMap();
+
+/**
+ * The calculator's fields changed: send the form a moment after the visitor stops typing, so the
+ * section is drawn again with the new numbers (a newer send replaces one on its way).
+ * @param {Event} event
+ */
+export function calculate(event) {
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement) || !field.form) return;
+  const form = field.form;
+  clearTimeout(pending.get(form));
+  pending.set(form, window.setTimeout(() => form.requestSubmit(), 150));
+}
+
+/**
+ * Copy share link: the button's `data-value`, and Link copied beside it for two seconds.
+ * @param {HTMLButtonElement} button
+ */
+export async function share(button) {
+  track("cta_clicked", { section: "fee_calculator", target: "copy_share_link" });
+  try {
+    await navigator.clipboard.writeText(button.dataset.value ?? "");
+  } catch {
+    return;
+  }
+  const status = button.parentElement?.querySelector("[data-copied]");
+  if (!(status instanceof HTMLElement)) return;
+  status.textContent = status.dataset.copied ?? "";
+  setTimeout(() => {
+    status.textContent = "";
+  }, 2000);
+}
+
+/** What only a page without a script needs (the calculator's Calculate): hidden. @param {HTMLElement} element */
+export function conceal(element) {
+  element.hidden = true;
+}

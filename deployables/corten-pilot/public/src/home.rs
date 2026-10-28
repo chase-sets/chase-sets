@@ -40,9 +40,10 @@ const SHARED: Duration = Duration::from_secs(240);
 const STALE: Duration = Duration::from_secs(60);
 /// How long the page waits for a read before it draws without it (`LANDING_FEE_READ_TIMEOUT_MS`).
 const READ_WAIT: Duration = Duration::from_secs(2);
-/// How long a read is kept for the next visitor: the policy values as public-web keeps them, the
-/// promo bar and counter a minute.
-pub const POLICY_LIFE: Duration = Duration::from_secs(300);
+/// How long a read is kept for the next visitor, each a minute. public-web keeps the policy values
+/// five; the pilot keeps them one so that, with a shared cache's four minutes and one stale, a fee
+/// change shows within the six minutes the fees article promises (`propagationSeconds`).
+pub const POLICY_LIFE: Duration = Duration::from_secs(60);
 pub const SHELL_LIFE: Duration = Duration::from_secs(60);
 
 const USD: Currency = Currency::new("USD");
@@ -50,6 +51,8 @@ const USD: Currency = Currency::new("USD");
 /// The reads the page keeps for the next visitor ([`crate::kept::Kept`]).
 pub struct Kept {
     pub terms: crate::kept::Kept<Terms>,
+    /// The compare pages' sales fee schedule.
+    pub schedule: crate::kept::Kept<crate::compare::Schedule>,
     pub promos: crate::kept::Kept<Vec<Promo>>,
     pub count: crate::kept::Kept<Option<f64>>,
 }
@@ -58,6 +61,7 @@ impl Default for Kept {
     fn default() -> Self {
         Kept {
             terms: crate::kept::Kept::new(POLICY_LIFE),
+            schedule: crate::kept::Kept::new(crate::compare::SCHEDULE_LIFE),
             promos: crate::kept::Kept::new(SHELL_LIFE),
             count: crate::kept::Kept::new(SHELL_LIFE),
         }
@@ -571,22 +575,23 @@ impl Screen {
     pub fn variant(&self) -> Variant {
         self.role.variant()
     }
-
-    /// A page of public-web's (`/founders`, `/faq`), or a promo message's link.
-    pub fn web(&self, path: &str) -> String {
-        if path.starts_with('/') { format!("{}{path}", self.web) } else { path.to_owned() }
-    }
 }
 
 /// The home page, or a fee-calculator share link's move to the compare page.
 pub(crate) async fn page(req: Req, State(config): State<Shared>, uri: Uri) -> Public<HtmlResult> {
     let landing = Landing::read(&uri);
     if legacy_share(&landing.params) {
-        let to = format!("{}/compare/tcgplayer?{}", public_web(), uri.query().unwrap_or(""));
-        // The compare page's calculator, which owns the anchor.
-        let moved =
-            to.parse::<Uri>().map_err(corten::Error::new).and_then(|to| req.moved(&corten::Elsewhere::at(&to, "fee-calculator")));
-        return Public::new(FRESH, moved);
+        // The compare page's calculator, which owns the anchor, with the link's price and tags.
+        let param = |name: &str| landing.params.get(name).map(str::to_owned);
+        let inputs = crate::compare::Inputs {
+            price: param("price"),
+            cards: None,
+            utm_source: param("utm_source"),
+            utm_medium: param("utm_medium"),
+            utm_campaign: param("utm_campaign"),
+        };
+        let to = crate::app::url::compare::Compare { competitor: "tcgplayer", inputs };
+        return Public::new(FRESH, req.moved(&to.at(views::FeeCalculatorId)));
     }
     let reads = read(&config).await;
     let live = reads.live;

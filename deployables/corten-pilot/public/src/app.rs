@@ -9,6 +9,8 @@
 //! | `GET /welcome`, `POST /welcome` | a signup's welcome page and its wave-placement answers (private, `noindex`) |
 //! | `GET /terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms`, `/authenticity-terms` | a policy document (`Public`) |
 //! | `GET /help`, `/help/{category}`, `/help/{category}/{slug}`, `/sales-fees`, `/press` | the help center and its articles (`Public`) |
+//! | `GET /compare/tcgplayer`, `/compare/ebay` | a comparison with the fee calculator (`Public`; with a script the calculator's GET answers with its section) |
+//! | `GET /contact` | Contact (`Public`) |
 //! | `GET /faq`, `/order-protection`, `/refunds-and-returns` and public-web's two older addresses | moved for good to their articles |
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
@@ -178,6 +180,30 @@ pub mod url {
         pub struct Press;
     }
 
+    /// The compare pages (`crate::compare`), an area sharing its stylesheet with Contact's.
+    #[corten::routes(state = crate::app::Shared, area = CompareArea)]
+    pub mod compare {
+        /// The area's prefix: no page is served at `/compare` (public-web answers it 404).
+        #[route("/compare")]
+        pub struct CompareArea;
+
+        /// A competitor's compare page, with the calculator's two fields as the address has them.
+        #[derive(Clone, Debug, Default)]
+        #[route("/compare/{competitor}", get = crate::compare::page)]
+        pub struct Compare<'a> {
+            pub competitor: &'a str,
+            #[route(query)]
+            pub inputs: crate::compare::Inputs,
+        }
+    }
+
+    /// Contact, an area listing the compare pages' components.
+    #[corten::routes(state = crate::app::Shared, area = Contact)]
+    pub mod contact {
+        #[route("/contact", get = crate::compare::contact)]
+        pub struct Contact;
+    }
+
     /// The market pages, public.
     #[corten::routes(state = crate::app::Shared, area = Market)]
     pub mod market {
@@ -203,6 +229,8 @@ pub fn app(config: Config) -> App {
         .area(|area| url::help::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::sales_fees::area(area, shared.clone()).components(views::HELP))
         .area(|area| url::press::area(area, shared.clone()).components(views::HELP))
+        .area(|area| url::compare::area(area, shared.clone()).components(views::COMPARE))
+        .area(|area| url::contact::area(area, shared.clone()).components(views::COMPARE))
         .area(|area| url::market::area(area, shared).components(views::MARKET))
         .error_page(views::error_page, ())
 }

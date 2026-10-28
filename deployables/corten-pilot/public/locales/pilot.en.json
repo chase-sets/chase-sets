@@ -30,5 +30,8 @@
     "next": "Next announcement",
     "pause": "Pause announcements",
     "resume": "Resume announcements"
+  },
+  "compare": {
+    "calculate": "Calculate"
   }
 }

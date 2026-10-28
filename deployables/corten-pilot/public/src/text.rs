@@ -1,8 +1,9 @@
 //! The pages' text. `MarketMsg` is the Pricing context's market page catalog with public-web's
-//! own (its error and not-found words), `HomeMsg` Public Presence's home page catalog, `PolicyMsg` its policy pages', `HelpMsg` its help center's, exported from contracts/localization by
+//! own (its error and not-found words), `HomeMsg` Public Presence's home page catalog, `PolicyMsg` its policy pages', `HelpMsg` its help center's, `CompareMsg` its compare pages' and Contact's, exported from contracts/localization by
 //! scripts/export.mjs, so the copy cannot drift; `Pilot` is what the pilot says itself, the
 //! design system's English chart words among it. `messages!` checks every call against the
 //! catalogs when the crate compiles.
+pub use compare::CompareMsg;
 pub use help::HelpMsg;
 pub use home::HomeMsg;
 pub use market::MarketMsg;
@@ -18,6 +19,12 @@ mod market {
 mod home {
     corten::i18n::messages! {
         pub struct HomeMsg { "en" => "locales/home.en.json" }
+    }
+}
+
+mod compare {
+    corten::i18n::messages! {
+        pub struct CompareMsg { "en" => "locales/compare.en.json" }
     }
 }
 
