@@ -48,7 +48,7 @@ describe("deployed popup target-scoped document controls", () => {
       requestSession?: string;
       responseSession?: string;
       method?: string;
-      responseUrl?: string;
+      navigationUrl?: string;
       resourceType?: string;
       status?: number;
       response?: boolean;
@@ -57,6 +57,9 @@ describe("deployed popup target-scoped document controls", () => {
       pageUrl?: string;
     } = {},
   ) {
+    // Keep all URL signals consistent so only the declared origin/path guard
+    // can reject these controls, not an unrelated page-binding mismatch.
+    const navigationUrl = overrides.navigationUrl ?? url;
     const observer = createDeployedPopupObserver({
       sourceTargetId: "synthetic-source",
       browserContextId: "synthetic-context",
@@ -72,14 +75,18 @@ describe("deployed popup target-scoped document controls", () => {
           type: overrides.targetType ?? "page",
           openerId: overrides.openerId ?? "synthetic-source",
           browserContextId: overrides.browserContextId ?? "synthetic-context",
-          url,
+          url: navigationUrl,
         },
       },
     });
     observer.observe({
       method: "Network.requestWillBeSent",
       sessionId: overrides.requestSession ?? "synthetic-child-session",
-      params: { requestId: "synthetic-request", type: "Document", request: { method: overrides.method ?? "GET", url } },
+      params: {
+        requestId: "synthetic-request",
+        type: "Document",
+        request: { method: overrides.method ?? "GET", url: navigationUrl },
+      },
     });
     if (overrides.response !== false)
       observer.observe({
@@ -88,13 +95,13 @@ describe("deployed popup target-scoped document controls", () => {
         params: {
           requestId: "synthetic-request",
           type: overrides.resourceType ?? "Document",
-          response: { url: overrides.responseUrl ?? url, status: overrides.status ?? 200, mimeType: "text/html" },
+          response: { url: navigationUrl, status: overrides.status ?? 200, mimeType: "text/html" },
         },
       });
     // The actual observer must retain a response arriving before Playwright's page.
     expect(observer.document()).toBeUndefined();
     if (overrides.bind !== false)
-      observer.bindPage(overrides.pageTargetId ?? "synthetic-popup", overrides.pageUrl ?? url);
+      observer.bindPage(overrides.pageTargetId ?? "synthetic-popup", overrides.pageUrl ?? navigationUrl);
     return observer;
   }
 
@@ -120,11 +127,11 @@ describe("deployed popup target-scoped document controls", () => {
     expect(scenario({ browserContextId: "synthetic-other-context" }).document()).toBeUndefined();
   });
   it("refuses wrong origin", () => {
-    expect(scenario({ responseUrl: `https://unrelated.example${path}` }).document()).toBeUndefined();
+    expect(scenario({ navigationUrl: `https://unrelated.example${path}` }).document()).toBeUndefined();
   });
   it("refuses wrong stored path", () => {
     expect(
-      scenario({ responseUrl: `${staging}/account/channels/synthetic-wrong-connection` }).document(),
+      scenario({ navigationUrl: `${staging}/account/channels/synthetic-wrong-connection` }).document(),
     ).toBeUndefined();
   });
   it("refuses non-Document resource", () => {
