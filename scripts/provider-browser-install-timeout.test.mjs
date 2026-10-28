@@ -342,6 +342,39 @@ describe("Static Checks provider installer", () => {
     expect(failed.lines.join("")).not.toContain("PRIVATE");
     expect(() => runInstaller({ identity, env: { ...env, INSTALLER_TIMEOUT_SECONDS: "601" } })).toThrow(/600/);
   });
+
+  it("marks only a refused start, never a started child's refusal, as start-refused", async () => {
+    const preStart = [
+      fixture({
+        spawnImpl: () => {
+          throw new Error("PRIVATE spawn refusal");
+        },
+      }),
+      fixture({ spawnImpl: () => Object.assign(new EventEmitter(), { pid: undefined }) }),
+      fixture({ spawnImpl: () => Object.assign(new EventEmitter(), { pid: 0 }) }),
+    ];
+    const spawnError = fixture();
+    spawnError.child.emit("error", new Error("PRIVATE spawn failure"));
+    preStart.push(spawnError);
+    for (const f of preStart) {
+      const result = await f.result;
+      expect(result).toMatchObject({ status: 1, startRefused: true, record: { terminalOutcome: "refused" } });
+      expect(f.lines).toHaveLength(1);
+      expect(f.lines.join("")).not.toContain("PRIVATE");
+      expect(f.signalGroupImpl).not.toHaveBeenCalled();
+    }
+    const startedError = fixture();
+    startedError.child.emit("spawn");
+    startedError.child.emit("error", new Error("PRIVATE ipc failure"));
+    expect(await startedError.result).not.toHaveProperty("startRefused");
+    const startedRefusal = fixture();
+    startedRefusal.child.emit("spawn");
+    startedRefusal.child.emit("message", { installerStatus: 7 });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const refused = await startedRefusal.result;
+    expect(refused).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
+    expect(refused).not.toHaveProperty("startRefused");
+  });
 });
 
 describe("owning hosted job identity", () => {

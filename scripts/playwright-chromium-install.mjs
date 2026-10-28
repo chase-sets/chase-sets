@@ -216,9 +216,11 @@ export async function installPlaywrightChromium({
     }
     const reason = !result
       ? "authority-refusal"
-      : result.status === 0
-        ? "incomplete-cache"
-        : (result.record?.terminalOutcome ?? "refused");
+      : result.startRefused === true
+        ? "start-refusal"
+        : result.status === 0
+          ? "incomplete-cache"
+          : (result.record?.terminalOutcome ?? "refused");
     // An installer group not proven gone may still write the tree; the red job never saves it.
     if (reason === "cleanup-failure") return fail(reason);
     try {
@@ -226,7 +228,9 @@ export async function installPlaywrightChromium({
     } catch {
       return fail("cleanup-refusal");
     }
-    if (reason === "authority-refusal" || reason === "cancelled" || installerAttempt === 2) return fail(reason);
+    // Refused authority, a refused start and cancellation are terminal; other finished attempts get one retry.
+    if (["authority-refusal", "start-refusal", "cancelled"].includes(reason) || installerAttempt === 2)
+      return fail(reason);
     if (!retryFits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout");
     write(retryDiagnostic(site, attempt, installerAttempt, reason, cacheAfter.state));
     await delayImpl(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS);

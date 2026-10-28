@@ -266,6 +266,9 @@ export function runInstaller({
   let installerStatus;
   let released = false;
   let abortListener;
+  let spawned = false;
+  // Set only when no installer child ever started; callers must not retry it.
+  let startRefused = false;
 
   return new Promise((resolve) => {
     const finish = (status) => {
@@ -284,7 +287,7 @@ export function runInstaller({
         terminalOutcome: failure ?? "success",
       };
       write(timingRecordLine(record));
-      resolve({ status: failure ? 1 : status, record });
+      resolve({ status: failure ? 1 : status, record, ...(startRefused ? { startRefused } : {}) });
     };
     const stop = (outcome) => {
       if (stopping || settled) return;
@@ -319,11 +322,13 @@ export function runInstaller({
         windowsHide: true,
       });
     } catch {
+      startRefused = true;
       failure = "refused";
       finish(1);
       return;
     }
     if (!Number.isSafeInteger(child.pid) || child.pid < 1) {
+      startRefused = true;
       failure = "refused";
       child.once("error", () => {});
       finish(1);
@@ -388,7 +393,12 @@ export function runInstaller({
       }
       releaseIfComplete();
     });
+    // A spawn error arrives before "spawn"; later errors belong to a started child.
+    child.once("spawn", () => {
+      spawned = true;
+    });
     child.once("error", () => {
+      startRefused = !spawned;
       failure = "refused";
       finish(1);
     });

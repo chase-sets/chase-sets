@@ -517,6 +517,77 @@ describe("Playwright Chromium installer primitive", () => {
     expect(f.lines.filter(isTimingLine)).toHaveLength(1);
   });
 
+  it.each([
+    [
+      "a synchronous spawn refusal",
+      () => {
+        throw new Error("PRIVATE synthetic spawn refusal");
+      },
+    ],
+    ["a child without a valid PID", () => Object.assign(new EventEmitter(), { pid: undefined })],
+    [
+      "a spawn error before the child starts",
+      () => {
+        const child = Object.assign(new EventEmitter(), {
+          pid: 4567,
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          send: vi.fn(),
+        });
+        queueMicrotask(() => child.emit("error", new Error("PRIVATE synthetic spawn error")));
+        return child;
+      },
+    ],
+  ])("AC1 treats %s in the real supervisor as a terminal start refusal", async (_name, start) => {
+    const cache = makeCache();
+    const spawnImpl = vi.fn(start);
+    const signalGroupImpl = vi.fn();
+    const delayImpl = vi.fn(async () => {});
+    const lines = [];
+    const result = await installPlaywrightChromium({
+      env: envFor(cache),
+      delayImpl,
+      runInstallerImpl: (options) => runInstaller({ ...options, spawnImpl, signalGroupImpl }),
+      write: (line) => lines.push(line),
+    });
+    expect(result).toMatchObject({ status: 1, reason: "start-refusal" });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(delayImpl).not.toHaveBeenCalled();
+    expect(signalGroupImpl).not.toHaveBeenCalled();
+    expect(lines.filter(isRetryLine)).toEqual([]);
+    // The timing schema is unchanged: the record still reports a refused terminal outcome.
+    const timing = lines.filter(isTimingLine);
+    expect(timing).toHaveLength(1);
+    expect(JSON.parse(timing[0].slice("provider-browser-install-timing/v1 ".length))).toMatchObject({
+      terminalOutcome: "refused",
+    });
+    expect(lines.at(-1)).toContain('"reason":"start-refusal"');
+    expect(lines.join("\n")).not.toContain("PRIVATE");
+  });
+
+  it("AC2 still retries a started real supervised attempt that the installer refuses", async () => {
+    const f = supervisedInstall();
+    f.children[0].emit("spawn");
+    f.children[0].emit("message", { installerStatus: 1 });
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(f.spawnImpl).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.spawnImpl).toHaveBeenCalledTimes(2);
+    f.children[1].emit("spawn");
+    writeInstalledChromium(f.cache);
+    f.children[1].emit("message", { installerStatus: 0 });
+    f.children[1].emit("close", 0);
+    await expect(f.result).resolves.toMatchObject({ status: 0, reason: "success", cache: "complete" });
+    expect(f.delayImpl.mock.calls).toEqual([[5_000]]);
+    expect(f.lines.filter(isRetryLine)).toEqual([expect.stringContaining('"reason":"refused"')]);
+    expect(f.lines.filter(isTimingLine)).toHaveLength(1);
+  });
+
   it("AC2 emits one primitive terminal line when the supervisor succeeds without a cache payload", async () => {
     const cache = makeCache();
     const lines = [];
