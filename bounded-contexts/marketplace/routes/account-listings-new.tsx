@@ -28,6 +28,7 @@ import {
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
 import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import { MarketplaceListingCreatePage } from "../features/listings/ui/listing-create-page";
+import type { MarketplaceListingPurchaseLimits } from "../features/listings/domain/domain";
 
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
@@ -116,10 +117,17 @@ function listingPhotoFilesFromForm(formData: FormData) {
   return formData.getAll("evidence").filter((entry): entry is File => entry instanceof File && entry.size > 0);
 }
 
-function createListingApiForm(listingBody: Record<string, unknown>, listingPhotoFiles: readonly File[]) {
+function createListingApiForm(
+  listingBody: Record<string, unknown> & { purchaseLimits: MarketplaceListingPurchaseLimits },
+  listingPhotoFiles: readonly File[],
+) {
   const apiForm = new FormData();
-  for (const [key, value] of Object.entries(listingBody)) {
+  const { purchaseLimits, ...fields } = listingBody;
+  for (const [key, value] of Object.entries(fields)) {
     apiForm.set(key, typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? ""));
+  }
+  for (const [key, value] of Object.entries(purchaseLimits)) {
+    if (value !== null) apiForm.set(key, String(value));
   }
   for (const file of listingPhotoFiles) {
     apiForm.append("evidence", file);
