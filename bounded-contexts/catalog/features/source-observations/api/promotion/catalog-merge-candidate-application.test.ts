@@ -138,11 +138,46 @@ describe("pinned application profile eligibility", () => {
   });
 
   it("does not block a plan for review-only bridge evidence without concrete duplicate candidates", () => {
-    expect(shouldBlockDuplicatePrevention({ status: "review-only", candidateCatalogItemIds: [] })).toBe(false);
-    expect(shouldBlockDuplicatePrevention({ status: "review-only", candidateCatalogItemIds: ["cat_existing"] })).toBe(
-      true,
-    );
-    expect(shouldBlockDuplicatePrevention({ status: "blocked", candidateCatalogItemIds: [] })).toBe(true);
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "review-only",
+        ruleKey: "exact-external-catalog-item-reference",
+        candidateCatalogItemIds: [],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "0 external Catalog Item reference(s)",
+          candidateCatalogItemIds: [],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "review-only",
+        ruleKey: "exact-external-catalog-item-reference",
+        candidateCatalogItemIds: ["cat_existing"],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "1 external Catalog Item reference(s)",
+          candidateCatalogItemIds: ["cat_existing"],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "blocked",
+        ruleKey: "exact-external-catalog-item-reference",
+        diagnosticText: "Multiple Catalog Items match this Source Observation's external catalog item references.",
+        candidateCatalogItemIds: [],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "0 external Catalog Item reference(s)",
+          candidateCatalogItemIds: [],
+        },
+      }),
+    ).toBe(true);
   });
 });
 
