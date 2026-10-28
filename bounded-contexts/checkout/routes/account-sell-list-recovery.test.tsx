@@ -183,7 +183,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
 
     await mount(path);
     expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Pending, non-authoritative")).toBeTruthy();
+    expect(screen.getByText("Unavailable")).toBeTruthy();
     expect(screen.getByText("Charizard")).toBeTruthy();
     expect(
       screen
@@ -192,7 +192,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     ).toBe(true);
     await tick();
     expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText("Pending, non-authoritative")).toBeNull();
+    expect(screen.queryByText("Unavailable")).toBeNull();
     expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
   });
 

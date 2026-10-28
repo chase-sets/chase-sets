@@ -214,7 +214,7 @@ export function CheckoutSellListPage({
                 </Text>
                 <Text tone="secondary">{recoveryState.message}</Text>
               </Stack>
-              <Badge tone="neutral">Pending, non-authoritative</Badge>
+              <Badge tone="neutral">{t("checkout.features.sellList.ui.sellListPage.unavailable")}</Badge>
               {sellListLines.length > 0 ? (
                 <Stack gap={3}>
                   {sellListLines.map((line) => (
