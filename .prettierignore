@@ -39,3 +39,5 @@ infrastructure/helm/*/templates/*.yaml
 !**/.env.example
 # Intentionally malformed JSON fixture (release-qualification reader negative control)
 scripts/fixtures/release-qualification/malformed.json
+# Compact boundary fixture is intentionally byte-exact at the response cap.
+tests/fixtures/largest-valid-receipt-lookup.json
