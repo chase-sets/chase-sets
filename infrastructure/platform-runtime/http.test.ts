@@ -247,12 +247,12 @@ describe("readOffsetPageParams", () => {
 
 describe("createForwardedAuthHeaders", () => {
   it("trusted forwarded client identity matrix", async () => {
-    const nowMs = 1_800_000_000_000;
+    const nowMs = Date.now();
     const receipt = {
       observedAtMs: nowMs,
       sources: [{ sourceContextName: "auth", maxGlobalPosition: "7", eventIds: ["evt_auth_7"] }],
     };
-    const cases = [
+    const cases: Array<{ trust: boolean; incoming: Record<string, string>; expected: string | null }> = [
       {
         trust: true,
         incoming: {
@@ -278,20 +278,21 @@ describe("createForwardedAuthHeaders", () => {
     for (const row of cases) {
       vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, String(row.trust));
       const request = new Request("http://web.internal/sign-in", {
-        headers: {
+        headers: new Headers({
           ...row.incoming,
           cookie: "session=synthetic",
           authorization: "Bearer synthetic",
           [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt),
           "x-forwarded-host": "marketplace.chasesets.test",
           "x-forwarded-proto": "https",
-        },
+        }),
       });
       const initHeaders = {
         "x-forwarded-for": "192.0.2.200",
         "x-real-ip": "192.0.2.201",
         "cf-connecting-ip": "192.0.2.202",
         "x-caller-header": "preserved",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt),
       };
       const options = { nowMs, readTargetContextName: "auth" };
       let captured: RequestInit | undefined;

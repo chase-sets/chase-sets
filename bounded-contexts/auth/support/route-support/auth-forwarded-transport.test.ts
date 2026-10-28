@@ -61,7 +61,13 @@ function hostRequest(signInPath: string, address: string, fields: Record<string,
 }
 
 function actionArgs(request: Request): ActionFunctionArgs {
-  return { request, params: {}, context: {} };
+  return {
+    request,
+    params: {},
+    context: {},
+    url: new URL(request.url),
+    pattern: "/*",
+  };
 }
 
 describe.each(hosts)("$hostLabel forwarded Auth transport", (config) => {
@@ -138,7 +144,7 @@ describe.each(hosts)("$hostLabel forwarded Auth transport", (config) => {
     };
     vi.stubGlobal("fetch", fetchImpl);
     const action = defineAuthHost(config).createSignInAction();
-    const cases = [
+    const cases: Array<{ fields: Record<string, string>; path: string }> = [
       {
         fields: { intent: "password", email: "synthetic@example.test", password: "valid-synthetic" },
         path: "/api/auth/password-sign-in",
