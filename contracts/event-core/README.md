@@ -135,6 +135,23 @@ The live manifest is bounded to 8 purposes, 32 resources per operation and 128
 live grants per resource. Inbound evidence is recorded before conflict
 settlement and reports PENDING or BLOCKED rather than being discarded.
 
+Capture each reservation inside the owner's transaction, then prepare the
+consumer terminal with the complete immutable manifest. Preparation checks
+the captured reservations; the atomic append checks only that local record.
+Only `appendToStreams` can commit. Failed preparation can create an original
+ABORTED terminal through the abort port; a preparation deadline invokes that
+same CAS, never owner-side expiry. The recovery driver requests abort outside
+owner locks, reconciles exact original terminals, then generation-fences the
+writer's effective change and APPLIED status in one owner transaction.
+
+The PostgreSQL adapter's `applyInvalidation` and `applyInboundEvidence` ports
+write through the supplied owner transaction. Inbound payloads are durably
+recorded as PENDING before settlement. A pending resource refuses new grants;
+inbound settlement reports BLOCKED for unknown terminals. Settlement resumes from canonical records,
+applies the evidence and marks APPLIED atomically, and is repeatable without
+applying twice. The memory adapter uses synchronous equivalents and the
+existing EventStore snapshot/append/restore section, with no intervening await.
+
 ## Import Surface
 
 Core contracts and composition helpers:

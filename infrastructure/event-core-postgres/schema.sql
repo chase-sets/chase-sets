@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS event_owner_stream_reservations (
   purpose text NOT NULL,
   resource_key text NOT NULL,
   consumer_store_id text NOT NULL,
+  consumer_incarnation text NOT NULL,
   request_id text NOT NULL,
   seal_version bigint NOT NULL CHECK (seal_version >= 0),
   store_incarnation text NOT NULL,
@@ -57,6 +58,10 @@ CREATE INDEX IF NOT EXISTS event_owner_stream_reservations_owner_open_idx
   ON event_owner_stream_reservations (owner_stream_id, status)
   WHERE status = 'OPEN';
 
+CREATE INDEX IF NOT EXISTS event_owner_stream_reservations_operation_open_idx
+  ON event_owner_stream_reservations (operation_id, purpose, resource_key)
+  WHERE status = 'OPEN';
+
 CREATE TABLE IF NOT EXISTS event_owner_stream_invalidations (
   owner_stream_id text PRIMARY KEY,
   generation bigint NOT NULL CHECK (generation >= 1),
@@ -70,7 +75,7 @@ CREATE TABLE IF NOT EXISTS event_request_terminals (
   consumer_store_id text NOT NULL,
   request_id text NOT NULL,
   status text NOT NULL CHECK (status IN ('OPEN', 'COMMITTED', 'ABORTED')),
-  reservation_ids text[] NOT NULL CHECK (cardinality(reservation_ids) > 0),
+  binding jsonb NOT NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (consumer_store_id, request_id)

@@ -475,6 +475,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.requestTerminal))
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (inputs.some((input) => input.configurationGrants?.length))
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
@@ -871,13 +873,13 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   const results: AppendToStreamsResult[] = [];
   const terminals = args.inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
   if (terminals.length) {
-    const keys = terminals.map((binding) => `${binding.consumerStoreId}:${binding.requestId}`);
+    const keys = terminals.map((binding) => JSON.stringify([binding.consumerStoreId, binding.requestId]));
     if (new Set(keys).size !== keys.length)
       throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
     // Request-terminal locks are the first lock in the class-C append order.
     // The CAS is consumer-local and therefore never reads an owner database.
     for (const binding of [...terminals].sort((a, b) =>
-      `${a.consumerStoreId}:${a.requestId}`.localeCompare(`${b.consumerStoreId}:${b.requestId}`),
+      JSON.stringify([a.consumerStoreId, a.requestId]).localeCompare(JSON.stringify([b.consumerStoreId, b.requestId])),
     ))
       await lockAndCommitRequestTerminalInTransaction(args.client, binding);
   }

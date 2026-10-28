@@ -279,11 +279,15 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
 
       try {
         const terminalBindings = inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
-        const terminalKeys = terminalBindings.map((binding) => `${binding.consumerStoreId}:${binding.requestId}`);
+        const terminalKeys = terminalBindings.map((binding) =>
+          JSON.stringify([binding.consumerStoreId, binding.requestId]),
+        );
         if (new Set(terminalKeys).size !== terminalKeys.length)
           throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
         for (const binding of terminalBindings.sort((left, right) =>
-          `${left.consumerStoreId}:${left.requestId}`.localeCompare(`${right.consumerStoreId}:${right.requestId}`),
+          JSON.stringify([left.consumerStoreId, left.requestId]).localeCompare(
+            JSON.stringify([right.consumerStoreId, right.requestId]),
+          ),
         )) {
           if (!options.ownerStreamReservations)
             throw createEventStoreError(

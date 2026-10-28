@@ -690,6 +690,7 @@ function removeEventCoreMigrationStatements(schemaSql: string): string {
     eventStoreWriteHotFillfactorLockTimeoutSql,
     eventStoreStreamsFillfactorSql,
     eventProjectionCheckpointsFillfactorSql,
+    ...ownerStreamReservationMigration.statements,
   ]) {
     result = result.replace(statement, "");
   }
