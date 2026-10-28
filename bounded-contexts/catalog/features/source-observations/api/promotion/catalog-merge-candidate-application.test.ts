@@ -647,6 +647,23 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
     );
   });
 
+  it("AC3: an optional MTGJSON-only rarity is omitted before display planning", () => {
+    const [mtgjson, scryfall] = mixed({ scryfallRarity: null });
+    const arranged = arrange([mtgjson!, scryfall!]);
+    const effective = snapshotWithAuthoredFacts(arranged.snapshot, [
+      {
+        revision: { normalized: scryfall!.normalized, providerKey: "scryfall" },
+        normalized: scryfall!.normalized,
+        version: scryfallCardPrint,
+      },
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("rarity");
+    expect(effective.fieldProvenance).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.rarity" })]),
+    );
+  });
+
   it("AC3: a reviewer's correction is reviewed authority, not reference facts", async () => {
     const arranged = arrange(mixed({ scryfallRarity: null }), (snapshot) =>
       applyCatalogMergeCandidateEdit(snapshot, {
@@ -838,31 +855,16 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     expect(await itemCreations()).toBe(1);
   });
 
-  it("AC3: an optional rarity carried only by MTGJSON is omitted from the Item", async () => {
+  it("AC3: an optional rarity carried only by MTGJSON is omitted before the display-identity gate", async () => {
     const { candidateId } = await candidateFrom([
       magicObservation("mtgjson-card"),
       magicObservation("scryfall-card-print", { scryfallRarity: null }),
     ]);
 
-    const result = await apply(candidateId);
-    expect(result.status).toBe("promoted");
-
-    const target = catalogMergeCandidateTargetId(candidateId);
-    const itemHistory = await readCompleteStream(store, { streamId: `catalog.item-${target}` });
-    const item = itemHistory
-      .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
-      .reduce(evolveCatalogItem, initialCatalogItemState);
-    const mapping = await loadCatalogItemPromotionProfile(
-      {
-        db: pool,
-        eventStore: store,
-        checkpointStore: createPostgresProjectionStore({ db: pool }),
-      } as CatalogRuntimeDeps,
-      registeredMagicProfile("scryfall-card-print").profile,
-    );
-    expect(item.fieldValues).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ fieldId: mapping.fieldIds.rarity })]),
-    );
+    await expect(apply(candidateId)).rejects.toMatchObject({
+      code: "promotion-plan-blocked:display-identity-unresolvable",
+    });
+    expect(await itemCreations()).toBe(0);
   });
 
   it("AC2: an MTGJSON-only candidate with a Scryfall reference is reference-only with zero Item, Reference Record or candidate writes", async () => {
