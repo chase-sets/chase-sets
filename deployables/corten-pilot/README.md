@@ -2463,7 +2463,11 @@ postage, storage locations, cart, item and Add to List. What changed:
     answer `302` and render nothing; the pilot's answer `301` (`req.moved`) with the old query,
     since the old addresses will not come back. They are public, as marketplace's are: the page
     each moves to asks who it is for. They share no prefix, so they sit with the home page in the
-    routes module with no area
+    routes module with no area. Two more small routes sit there for the same reason: Discovery's
+    `/account/product-alerts` sends a `GET` to the notification center's Product alerts (its form
+    action is not ported, since only marketplace's notification center posts to it), and Auth's
+    `/guest-checkout/exit` is the pilot's Sign out, which already ends a guest checkout and any
+    session and goes to the search, as marketplace's does
     ([`money.rs`](marketplace/src/money.rs),
     [`money_page.rs`](marketplace/src/views/money_page.rs)).
 

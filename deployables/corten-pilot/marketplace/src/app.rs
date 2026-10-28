@@ -181,6 +181,7 @@ pub mod url {
     /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
     /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
     /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
+    /// And two more that share no prefix: Product alerts' old address and leaving a guest checkout.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -209,6 +210,15 @@ pub mod url {
         pub struct LegacyAdjustment<'a> {
             pub reference: &'a str,
         }
+
+        /// Discovery's `account-product-alerts`: the notification center's Product alerts.
+        #[route("/account/product-alerts", get = crate::notifications::product_alerts)]
+        pub struct ProductAlerts;
+
+        /// Auth's `guest-checkout-exit`: a guest leaves checkout as Sign out does (it ends the guest
+        /// checkout and any session, then the search).
+        #[route("/guest-checkout/exit", post = crate::sign_in::sign_out)]
+        pub struct GuestCheckoutExit;
     }
 
     /// The account's own page (Identity's `account`): its profile and Update Profile. Every handler

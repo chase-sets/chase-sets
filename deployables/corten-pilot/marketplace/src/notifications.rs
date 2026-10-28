@@ -9,6 +9,9 @@
 //! | A channel's switch | `/account/notifications/preferences/{key}` | the settings; with a script, the switch the API answered with |
 //! | Pause, Resume, Delete | `/account/notifications/product-alerts/{id}` | the settings at the alerts, read after the write (`afterWrite`); with a script, the alerts read after it, drawn in place |
 //!
+//! `/account/product-alerts` (Discovery's `account-product-alerts`) sends a `GET` to the settings at
+//! the alerts. Its form action is not ported: only marketplace's notification center posts to it.
+//!
 //! Each form works without JavaScript (post, then redirect). With it, each is a `data-patch`
 //! form: the answer is only the part that changed. The API's answer to a feed or channel write
 //! already holds what changed, so nothing is read again.
@@ -36,6 +39,11 @@ use crate::{
     text::{NotificationsMsg, Pilot},
     views::{self, Layout},
 };
+
+/// `/account/product-alerts`: the settings at the Product alerts, which ask who they are for.
+pub(crate) async fn product_alerts(req: Req) -> HtmlResult {
+    req.redirect(&url::Notifications { place: Place::settings(Section::ProductAlerts, None) })
+}
 
 /// The address's parameters: the view, the settings' section, and the receipt of the write the
 /// read waits for.

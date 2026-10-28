@@ -9821,6 +9821,13 @@ async fn signing_out_ends_the_session_and_clears_the_cookies() {
     assert_eq!(ended.len(), 1);
     assert!(ended[0].headers[header::COOKIE].to_str().unwrap().contains("chase_sets_session=seller"), "the session it ends");
     assert_eq!(auth_calls(&pilot, "/api/auth/guest-checkout/exit").len(), 1, "a guest checkout ends too");
+
+    // Leaving a guest checkout is the same (Auth's `guest-checkout-exit`).
+    let (status, headers, _) =
+        pilot.send(sign_in_post("/guest-checkout/exit", Some("chase_sets_guest_checkout=gst_2"), "")).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/search"));
+    assert!(cookies_set(&headers)["chase_sets_guest_checkout"].contains("Max-Age=0"));
+    assert_eq!(auth_calls(&pilot, "/api/auth/guest-checkout/exit").len(), 2);
 }
 
 const CONSENTS: &str = "/account/consents";
@@ -10321,6 +10328,9 @@ async fn settlements_old_addresses_move_for_good_with_their_query() {
         assert_eq!(status, StatusCode::MOVED_PERMANENTLY, "{from}");
         assert_eq!(headers[header::LOCATION].to_str().unwrap(), to, "{from}");
     }
+    let (status, headers, _) = pilot.send(get("/account/product-alerts", Some("buyer"))).await;
+    assert!(status.is_redirection(), "{status}");
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/notifications?view=settings&section=product-alerts");
 }
 
 #[tokio::test]
