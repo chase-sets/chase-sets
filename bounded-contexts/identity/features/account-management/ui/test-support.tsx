@@ -53,6 +53,48 @@ export function renderHeldAccountManagementRoute<T>(path: string, initial: T, pa
   return { ...render(<RouterProvider router={router} />), router, loads };
 }
 
+type AccountManagementRouter = ReturnType<typeof createMemoryRouter>;
+
+function routerIsIdle(router: AccountManagementRouter) {
+  return (
+    router.state.initialized &&
+    router.state.navigation.state === "idle" &&
+    [...router.state.fetchers.values()].every((fetcher) => fetcher.state === "idle")
+  );
+}
+
+/** Waits for route idle and the React commit that renders its settled data. */
+export function settleAccountManagementRoute(router: AccountManagementRouter, settled: () => boolean = () => true) {
+  if (routerIsIdle(router) && settled()) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let idle = false;
+    let committed = false;
+    let done = false;
+    const finish = () => {
+      if (done || !idle || !committed || !settled()) return;
+      done = true;
+      unsubscribe();
+      observer.disconnect();
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      committed = true;
+      finish();
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    const unsubscribe = router.subscribe((state) => {
+      idle =
+        state.initialized &&
+        state.navigation.state === "idle" &&
+        [...state.fetchers.values()].every((fetcher) => fetcher.state === "idle");
+      finish();
+    });
+    idle = routerIsIdle(router);
+    finish();
+  });
+}
+
 /** Routes the controller's real transport through a held fetch whose JSON bodies decode as route data. */
 export function stubHeldAccountManagementTransport() {
   vi.stubGlobal("crypto", webcrypto);

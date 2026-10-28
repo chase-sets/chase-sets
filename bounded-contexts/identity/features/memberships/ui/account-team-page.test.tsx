@@ -6,6 +6,7 @@ import { AccountMutationBoundary } from "../../account-management/ui/controller"
 import {
   renderAccountManagementPage as render,
   renderHeldAccountManagementRoute,
+  settleAccountManagementRoute,
   stubHeldAccountManagementTransport,
 } from "../../account-management/ui/test-support";
 import { syntheticMutationResult } from "../../account-management/api/test-support";
@@ -62,7 +63,7 @@ describe("TeamPage pending state", () => {
   it("per-row forms sharing one intent stay independent", async () => {
     const transport = stubHeldAccountManagementTransport();
     const rows = [membership("mem_1", "Alex"), membership("mem_2", "Blair"), membership("mem_3", "Casey")];
-    const { loads } = renderHeldAccountManagementRoute("/account/team", rows, (memberships) => (
+    const { loads, router } = renderHeldAccountManagementRoute("/account/team", rows, (memberships) => (
       <TeamPage invitations={[]} memberships={memberships} />
     ));
     const [first, second, third] = screen.getAllByRole("button", { name: "Change Role" });
@@ -84,7 +85,8 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(loads).toHaveLength(1));
     expect(busy(second)).toEqual({ disabled: false, busy: "true" });
     loads[0](rows);
-    await waitFor(() => expect(busy(second)).toEqual({ disabled: false, busy: null }));
+    await settleAccountManagementRoute(router, () => busy(second).busy === null);
+    expect(busy(second)).toEqual({ disabled: false, busy: null });
     expect(roles()[1].value).toBe("manager");
 
     fireEvent.click(third);
@@ -139,7 +141,8 @@ describe("TeamPage pending state", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     loads[0]([membership("mem_1", "Alex", "revoked"), membership("mem_2", "Blair")]);
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    await settleAccountManagementRoute(router, () => screen.queryByRole("button", { name: "Confirm revoke" }) === null);
+    expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull();
     observer.disconnect();
     expect(staleUnlocked).toBe(false);
     expect(transport.posts()).toHaveLength(1);
@@ -216,7 +219,8 @@ describe("TeamPage pending state", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     await waitFor(() => expect(loads).toBe(1));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    await settleAccountManagementRoute(router, () => screen.queryByRole("button", { name: "Confirm revoke" }) === null);
+    expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull();
     observer.disconnect();
 
     expect(staleUnlocked).toBe(false);
@@ -226,7 +230,7 @@ describe("TeamPage pending state", () => {
 
   it("dialog-hosted invitation forms stay busy until the redirect completes", async () => {
     const transport = stubHeldAccountManagementTransport();
-    const { loads } = renderHeldAccountManagementRoute(
+    const { loads, router } = renderHeldAccountManagementRoute(
       "/account/team",
       {
         memberships: [membership("mem_1", "Alex")],
@@ -272,7 +276,11 @@ describe("TeamPage pending state", () => {
       memberships: [membership("mem_1", "Alex")],
       invitations: [invitation("ivt_1", "invitee@example.test", "cancelled")],
     });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull());
+    await settleAccountManagementRoute(
+      router,
+      () => screen.queryByRole("button", { name: "Confirm cancellation" }) === null,
+    );
+    expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull();
     observer.disconnect();
     expect(staleUnlocked).toBe(false);
     expect(transport.posts()).toHaveLength(1);
