@@ -162,6 +162,10 @@ Examples:
 - Withdrawn
 - Sold Out
 
+## Inventory-Capacity Pause
+
+An **Inventory-Capacity Pause** is a system pause of a previously active Listing when active quantity caps exceed Inventory's available capacity. Its `inventory-capacity` provenance is distinct from seller, policy and channel pauses. Reconciliation restores only still-capacity-paused native Listings that fit after active commitments and pass current publication checks, preserving identity, price, quantity cap and Fee Locks. Blocked recovery stays actionable in Listing attention and detail until recovery or a superseding seller action. Historical missing reasons are never inferred to be capacity pauses.
+
 ## Fee Lock
 
 A **Fee Lock** is the immutable Commercial Terms formula snapshot bound to a Listing identity for a defined number of units. Marketplace records the percentage, fixed amount, per-item cap, Shipping Allowance, schedule/agreement source, and resolution time; Ordering copies the resulting locked fee amounts into the Order fact consumed by Settlement.

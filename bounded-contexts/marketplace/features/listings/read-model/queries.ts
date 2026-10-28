@@ -7,6 +7,8 @@ import {
   type MarketplaceListingFeeLock,
   type MarketplaceListingPhoto,
   type MarketplaceListingPhotoDraft,
+  type ListingPauseReason,
+  type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
 import { toPublicListingGallery, type MarketplaceListingPublicGalleryImage } from "../domain/evidence-gallery";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
@@ -45,6 +47,8 @@ export type MarketplaceListingListRow = Readonly<{
   evidence_requirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: string;
+  pause_reason: ListingPauseReason | null;
+  inventory_capacity_recovery_block: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -156,6 +160,8 @@ type MarketplaceListingPageRow = Readonly<{
   evidence_requirements: unknown;
   evidence: unknown;
   status: string;
+  pause_reason: ListingPauseReason | null;
+  inventory_capacity_recovery_block: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -206,6 +212,8 @@ const listingPageColumnSelectSql = `
        listing.evidence_requirements,
        listing.evidence,
        listing.status,
+       listing.pause_reason,
+       listing.inventory_capacity_recovery_block,
        listing.created_at,
        listing.updated_at`;
 
@@ -237,6 +245,8 @@ export type MarketplaceInventoryItemSupply = Readonly<{
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
   return {
     ...row,
+    pause_reason: row.pause_reason ?? null,
+    inventory_capacity_recovery_block: row.inventory_capacity_recovery_block ?? null,
     ship_from_address:
       typeof row.ship_from_address === "object" && row.ship_from_address !== null
         ? (row.ship_from_address as AddressSnapshot)
