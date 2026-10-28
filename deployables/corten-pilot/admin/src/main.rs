@@ -8,6 +8,7 @@ mod auth;
 mod catalog;
 mod form;
 mod operations;
+mod projections;
 mod text;
 mod views;
 

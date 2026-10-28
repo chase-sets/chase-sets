@@ -4,7 +4,7 @@ use super::admin_web;
 use crate::{
     app::url,
     auth::{self, NavItem, Viewer},
-    catalog, operations,
+    catalog, operations, projections,
     text::Pilot,
 };
 
@@ -17,6 +17,7 @@ fn served(path: &str) -> Option<String> {
         (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
         (<catalog::url::Scopes as Route>::PATH, catalog::url::Scopes::default().href()),
         (<operations::url::Attention as Route>::PATH, operations::url::Attention.href()),
+        (<projections::url::Projections as Route>::PATH, projections::url::Projections::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }
@@ -51,7 +52,7 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). The pilot serves postage policies, the catalog's dimensions, fields,
-/// items list and scopes list, and the platform's Operations Attention queue; every other entry
+/// items list and scopes list, and the platform's Operations Attention queue and Projection Operations; every other entry
 /// links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {

@@ -82,7 +82,7 @@ macro_rules! rules {
 rules! {
     /// Commerce > Postage policies.
     PostageView => "postage-policies.view";
-    /// Platform > Operations attention.
+    /// Platform > Operations attention and Projection operations.
     OperationsView => "projection-operations.view";
 }
 

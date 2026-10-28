@@ -82,7 +82,15 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             || cookie.contains("chase_sets_session=queue-down")
         {
             actor(&["catalog.view"])
-        } else if cookie.contains("chase_sets_session=ops") {
+        } else if cookie.contains("chase_sets_session=projections-operator") {
+            actor(&[
+                "projection-operations.view",
+                "projection-operations.operate",
+                "projection-operations.rebuild",
+                "catalog.view",
+                "accounts.view",
+            ])
+        } else if cookie.contains("chase_sets_session=ops") || cookie.contains("chase_sets_session=projections-") {
             actor(&["projection-operations.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
@@ -94,6 +102,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/realtime/public/events" {
         return realtime(cookie);
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/platform/projections") {
+        return projections_api(&method, rest, cookie, &body);
     }
     if uri.path() == "/api/platform/operations-attention" {
         return operations_attention(cookie);
@@ -2122,4 +2133,375 @@ async fn a_catalog_viewer_sees_a_scope_without_its_commands_and_cannot_write() {
     let (status, _, _) = pilot.send(post_as("catalog-viewer", "/catalog/scopes/scp_paf/publish", "", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
     assert!(pilot.catalog_writes().is_empty());
+}
+
+// Projection Operations (/platform/projections).
+
+const GROUP_KEY: &str = "settlement-fulfillment-source-projection:fulfillment:v2";
+
+fn projection_operation(id: &str, kind: &str, state: &str, updated_at: &str) -> Value {
+    json!({
+        "operationId": id,
+        "operationKind": kind,
+        "state": state,
+        "contextName": "settlement",
+        "projectionName": "settlement-fulfillment-source-projection",
+        "projectionKey": null,
+        "streamId": null,
+        "requestedByUserId": "usr_1",
+        "claimOwnerId": null,
+        "requestedAt": "2026-10-28T10:00:00.000Z",
+        "startedAt": null,
+        "updatedAt": updated_at,
+        "completedAt": null,
+        "error": if state == "failed" { json!({ "message": "Rebuild failed." }) } else { Value::Null },
+    })
+}
+
+/// The console as the API answers it: a degraded group with blocked streams and poison events
+/// (sent as counts only, as the API does: chase-sets/chase-sets#10710), a running operation and a
+/// failed one, and the API's triage of them.
+fn projections_console() -> Value {
+    json!({
+        "summary": { "status": "degraded", "totalGroups": 2, "runningGroups": 0, "outstandingEventCount": "12345" },
+        "projectionGroups": [
+            {
+                "projectionName": "settlement-fulfillment-source-projection",
+                "projectionRevision": 2,
+                "storedProjectionRevision": 1,
+                "revisionStale": false,
+                "targetContextName": "settlement",
+                "sourceContextNames": ["fulfillment"],
+                "ownedTables": ["settlement_order_fulfillment_sources"],
+                "requiredDuringBootstrap": false,
+                "initialized": true,
+                "caughtUp": false,
+                "state": "degraded",
+                "lastError": null,
+                "outstandingEventCount": "0",
+                "sourceLagEventCount": "0",
+                "applicableLagEstimate": "0",
+                "blockedStreamCount": 1,
+                "poisonEventCount": 1,
+                "updatedAt": "2026-10-28T10:00:00.000Z",
+                "subscriptions": [{
+                    "checkpointKey": GROUP_KEY,
+                    "sourceContextName": "fulfillment",
+                    "targetContextName": "settlement",
+                    "subscriptionVersion": 2,
+                    "lastGlobalPosition": "47",
+                    "sourceHeadGlobalPosition": "47",
+                    "outstandingEventCount": "0",
+                    "state": "degraded",
+                    "lastError": null,
+                    "blockedStreamCount": 1,
+                    "poisonEventCount": 1
+                }]
+            },
+            {
+                "projectionName": "auth-session-projection",
+                "projectionRevision": 1,
+                "storedProjectionRevision": 1,
+                "targetContextName": "auth",
+                "state": "caught-up",
+                "caughtUp": true,
+                "initialized": true,
+                "outstandingEventCount": "0",
+                "blockedStreamCount": 0,
+                "poisonEventCount": 0,
+                "updatedAt": "2026-10-28T10:00:00.000Z",
+                "subscriptions": []
+            }
+        ],
+        "blockedProjections": [{ "projectionKey": GROUP_KEY, "blockedStreamCount": 1, "poisonEventCount": 1 }],
+        "projectionStatusSource": "worker-snapshot",
+        "workers": [{ "worker_id": "platform-worker-1", "worker_kind": "platform-worker", "worker_state": "active" }],
+        "workerHeartbeatHistory": { "expiredWithinDiagnosticWindowCount": 16 },
+        "runners": [],
+        "operations": [
+            projection_operation("op_run", "rebuild-projection-group", "running", "2026-10-28T10:01:00.000Z"),
+            projection_operation("op_fail", "rebuild-context", "failed", "2026-10-28T09:00:00.000Z"),
+        ],
+        "operationSummary": { "queuedCount": "0", "runningCount": "1", "failedCount": "1", "cancelRequestedCount": "0" },
+        "attentionItems": [
+            { "id": "degraded-groups", "label": "Degraded projection groups", "detail": "One or more projection groups report degraded or error state.", "tone": "danger", "count": 1, "targetTab": "groups" },
+            { "id": "failed-operations", "label": "Failed operations", "detail": "Projection work reached a terminal failure.", "tone": "danger", "count": 1, "targetTab": "operations" }
+        ],
+        "repairQueue": [
+            { "kind": "operation", "targetId": "op_fail", "label": "rebuild-context", "detail": "settlement", "state": "failed", "tone": "danger", "contextName": "settlement" },
+            { "kind": "projection-group", "targetId": "settlement:settlement-fulfillment-source-projection", "label": "settlement-fulfillment-source-projection", "detail": "settlement projection group; poison events: 1; blocked streams: 1", "state": "degraded", "tone": "warning", "contextName": "settlement", "projectionName": "settlement-fulfillment-source-projection" }
+        ],
+        "activeWorkerCount": 1,
+        "staleWorkerCount": 0
+    })
+}
+
+/// The projections API. `projections-down` fails the console's read, `projections-nowake` the wake
+/// read; staff who may only look are refused every write, as the API refuses them. A rebuild
+/// without its confirm word is refused, as the API refuses it.
+fn projections_api(method: &Method, rest: &str, cookie: &str, body: &str) -> Response {
+    let view_only = !cookie.contains("chase_sets_session=projections-operator");
+    let queued = |id: &str, kind: &str| {
+        let operation = projection_operation(id, kind, "queued", "2026-10-28T10:10:00.000Z");
+        (StatusCode::ACCEPTED, Json(json!({ "operation": operation }))).into_response()
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") if cookie.contains("chase_sets_session=projections-down") => {
+            refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Failed.")
+        }
+        (Method::GET, "") => Json(projections_console()).into_response(),
+        (Method::GET, "/wake-status") if cookie.contains("chase_sets_session=projections-nowake") => {
+            refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Failed.")
+        }
+        (Method::GET, "/wake-status") => Json(json!({
+            "generatedAt": "2026-10-28T10:00:00.000Z",
+            "attentionItems": [{ "id": "wake-failed", "label": "Failed wake intents", "detail": "Wake intents failed.", "tone": "warning", "targetTab": "wake" }]
+        }))
+        .into_response(),
+        (Method::GET, "/settlement-fulfillment-source-projection%3Afulfillment%3Av2/blocked-streams") => Json(json!({
+            "projectionKey": GROUP_KEY,
+            "blockedStreams": [{
+                "projectionKey": GROUP_KEY,
+                "streamId": "fulfillment.shipment-shp_1",
+                "firstBlockedGlobalPosition": "11",
+                "firstBlockedStreamVersion": 5,
+                "lastSeenGlobalPosition": "12",
+                "deferredEventCount": 1,
+                "state": "blocked"
+            }],
+            "poisonEvents": [{
+                "projectionKey": GROUP_KEY,
+                "eventId": "evt_1",
+                "eventType": "fulfillment.shipment.label-attached",
+                "streamId": "fulfillment.shipment-shp_1",
+                "streamVersion": 5,
+                "globalPosition": "11",
+                "errorMessage": "Label postage activation was not read.",
+                "retryCount": 0,
+                "firstSeenAt": "2026-10-24T03:56:21.724Z",
+                "lastSeenAt": "2026-10-24T03:56:21.724Z",
+                "state": "blocked"
+            }]
+        }))
+        .into_response(),
+        (Method::GET, "/operations/op_run/events") => {
+            let event = |id: u32, operation: Value| format!("id: {id}\nevent: job.progress\ndata: {operation}\n\n");
+            let body = [
+                event(1, projection_operation("op_run", "rebuild-projection-group", "running", "2026-10-28T10:01:00.000Z")),
+                event(2, projection_operation("op_run", "rebuild-projection-group", "succeeded", "2026-10-28T10:05:00.000Z")),
+            ]
+            .concat();
+            ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+        }
+        (Method::POST, _) if view_only => refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden."),
+        (Method::POST, "/refresh") => Json(json!({ "summary": {}, "projectionGroups": [] })).into_response(),
+        (Method::POST, "/settlement-fulfillment-source-projection%3Afulfillment%3Av2/blocked-streams/fulfillment.shipment-shp_1/retry") => {
+            queued("op_retry", "retry-blocked-stream")
+        }
+        (Method::POST, "/groups/settlement/settlement-fulfillment-source-projection/rebuild") if body.contains(r#""confirm":"rebuild""#) => {
+            queued("op_rebuild", "rebuild-projection-group")
+        }
+        (Method::POST, "/groups/settlement/rebuild") if body.contains(r#""confirm":"rebuild-all""#) => queued("op_context", "rebuild-context"),
+        (Method::POST, "/operations/op_run/cancel") => Json(json!({ "result": { "cancelled": true } })).into_response(),
+        (Method::POST, _) => refusal(StatusCode::BAD_REQUEST, "confirmation_required", "Confirm."),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+impl Pilot {
+    fn projection_calls(&self) -> Vec<Call> {
+        self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with("/api/platform/projections")).cloned().collect()
+    }
+}
+
+#[tokio::test]
+async fn projection_operations_draws_the_apis_console_and_triage() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/platform/projections", Some("projections-operator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("<h1>Projection Operations</h1>")
+            && html.contains("<title>Projection Operations | Chase Sets Admin</title>"),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/platform/projections" aria-current="page""#), "the nav entry is the pilot's: {html}");
+    assert!(html.contains("/sections/platform/projections.css"), "the area's own stylesheet: {html}");
+    // The API's and the wake read's attention: a danger item makes the console Needs attention.
+    for text in
+        ["Needs attention", "Source: worker-snapshot", "Degraded projection groups", "Failed operations", "Failed wake intents"]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    // The counts: three attention items, the source lag grouped, the API's worker counts.
+    assert!(html.contains("<dt>Attention</dt><dd>3</dd>"), "{html}");
+    assert!(html.contains("12,345"), "grouped as admin-web's formatDecimalCount: {html}");
+    assert!(html.contains("1 active · 0 stale"), "{html}");
+    assert!(html.contains("16 expired heartbeats in the last 7 days"), "{html}");
+    // The API's repair queue in its order, and the operations most urgent first.
+    let failed = html.find("rebuild-context").unwrap();
+    let group = html.find("settlement projection group; poison events: 1; blocked streams: 1").unwrap();
+    assert!(failed < group, "the API's order");
+    assert!(html.contains(r#"href="/platform/projections?selected=op_fail""#), "{html}");
+    assert!(
+        html.contains("contextName=settlement&amp;projectionName=settlement-fulfillment-source-projection"),
+        "the group's reference on admin-web: {html}"
+    );
+    let ops = &html[html.find("projections-operations-title").unwrap()..];
+    assert!(ops.find("op_fail").unwrap() < ops.find("op_run").unwrap(), "failed before running");
+    // Staff who may operate get Refresh status, and the console follows the running operation.
+    assert!(html.contains(r#"action="/platform/projections/refresh""#) && html.contains("Refresh status"), "{html}");
+    assert!(html.contains(r#"src="/platform/projections/live""#), "{html}");
+    assert!(
+        html.contains(r#"href="/catalog/dimensions""#) && html.contains("/access/accounts"),
+        "Catalog and Identity for who may see them"
+    );
+    assert!(!html.contains("<dialog"), "nothing selected, no sheet");
+    assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "no detail read without a selection");
+
+    // Staff who may only look: no Refresh, no Catalog.
+    let (status, _, html) = pilot.send(get("/platform/projections", Some("ops"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("/platform/projections/refresh") && !html.contains(r#"href="/catalog/dimensions""#), "{html}");
+}
+
+#[tokio::test]
+async fn projection_operations_is_for_staff_who_may_see_it_and_survives_a_failed_wake_read() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/platform/projections", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "postage and catalog staff do not see projections");
+    let (status, headers, _) = pilot.send(get("/platform/projections", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/access/sign-in?returnTo=%2Fplatform%2Fprojections"));
+    let (status, _, html) = pilot.send(get("/platform/projections", Some("projections-nowake"))).await;
+    assert_eq!(status, StatusCode::OK, "the console without the wake read's items, as admin-web: {html}");
+    assert!(!html.contains("Failed wake intents") && html.contains("Degraded projection groups"), "{html}");
+    let (status, _, _) = pilot.send(get("/platform/projections", Some("projections-down"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn projection_operations_filters_the_queue_and_the_operations() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/platform/projections?state=failed", Some("ops"))).await;
+    assert!(html.contains("State: failed"), "the applied filter as a chip: {html}");
+    assert!(html.contains(r#"<option value="failed" selected>failed</option>"#), "{html}");
+    assert!(!html.contains("settlement projection group;"), "the degraded group is filtered out: {html}");
+    let ops = &html[html.find("projections-operations-title").unwrap()..];
+    assert!(ops.contains("op_fail") && !ops.contains("op_run"), "{ops}");
+    // The details link keeps the filters.
+    assert!(html.contains(r#"href="/platform/projections?state=failed&amp;selected=op_fail""#), "{html}");
+    let (_, _, html) = pilot.send(get("/platform/projections?search=AUTH&context_name=auth", Some("ops"))).await;
+    assert!(html.contains("No attention signals") && html.contains("Search: AUTH") && html.contains("Context: auth"), "{html}");
+    assert!(html.contains(r#"<option value="auth" selected>auth</option>"#), "the contexts are the groups': {html}");
+}
+
+#[tokio::test]
+async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make() {
+    let pilot = Pilot::new().await;
+    // A running operation: Cancel for staff who may operate.
+    let (_, _, html) = pilot.send(get("/platform/projections?selected=op_run", Some("projections-operator"))).await;
+    assert!(html.contains("<dialog") && html.contains("rebuild-projection-group / running"), "{html}");
+    assert!(
+        html.contains(r#"action="/platform/projections/cancel?selected=op_run""#)
+            && html.contains(r#"name="operation_id" value="op_run""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/platform/projections" aria-label="Close projection detail""#), "closed by a link: {html}");
+    let (_, _, html) = pilot.send(get("/platform/projections?selected=op_run", Some("ops"))).await;
+    assert!(
+        html.contains("<dialog") && !html.contains("/platform/projections/cancel"),
+        "no Cancel for who may only look: {html}"
+    );
+    assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "an operation needs no detail read");
+
+    // A group: Rebuild and Rebuild context, each confirmed in its dialog, and its blocked streams
+    // and poison events, read from the projection's own read (chase-sets/chase-sets#10710).
+    let group = "/platform/projections?selected=settlement%3Asettlement-fulfillment-source-projection";
+    let (_, _, html) = pilot.send(get(group, Some("projections-operator"))).await;
+    assert!(html.contains("settlement.settlement-fulfillment-source-projection"), "{html}");
+    assert!(
+        html.contains(r#"command="show-modal""#)
+            && html.contains("Queue rebuild")
+            && html.contains(r#"action="/platform/projections/rebuild-context"#),
+        "{html}"
+    );
+    assert!(html.contains("1 -&gt; 2") || html.contains("1 -> 2"), "the revision range: {html}");
+    assert!(html.contains("selected=poison-event%3Aevt_1") && html.contains("fulfillment.shipment-shp_1"), "{html}");
+    assert!(pilot.projection_calls().iter().any(|c| c.path.ends_with("%3Afulfillment%3Av2/blocked-streams")));
+
+    // A poison event: Retry its stream.
+    let (_, _, html) = pilot.send(get("/platform/projections?selected=poison-event%3Aevt_1", Some("projections-operator"))).await;
+    assert!(
+        html.contains("Label postage activation was not read.") && html.contains(r#"action="/platform/projections/retry"#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="stream_id" value="fulfillment.shipment-shp_1""#), "{html}");
+    // A blocked stream, and a record that is gone.
+    let blocked =
+        "/platform/projections?selected=settlement-fulfillment-source-projection%3Afulfillment%3Av2%3Afulfillment.shipment-shp_1";
+    let (_, _, html) = pilot.send(get(blocked, Some("projections-operator"))).await;
+    assert!(
+        html.contains("<dialog")
+            && html.contains(r#"name="projection_key" value="settlement-fulfillment-source-projection:fulfillment:v2""#),
+        "{html}"
+    );
+    let (status, _, html) = pilot.send(get("/platform/projections?selected=gone", Some("projections-operator"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("<dialog"), "{html}");
+}
+
+#[tokio::test]
+async fn each_projection_repair_goes_to_the_api_and_back_to_the_console_as_it_was() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("/platform/projections/refresh?state=failed", "", "/refresh", "{}"),
+        (
+            "/platform/projections/retry?selected=poison-event%3Aevt_1",
+            "projection_key=settlement-fulfillment-source-projection%3Afulfillment%3Av2&stream_id=fulfillment.shipment-shp_1",
+            "/settlement-fulfillment-source-projection%3Afulfillment%3Av2/blocked-streams/fulfillment.shipment-shp_1/retry",
+            "{}",
+        ),
+        (
+            "/platform/projections/rebuild?selected=settlement%3Asettlement-fulfillment-source-projection",
+            "context_name=settlement&projection_name=settlement-fulfillment-source-projection",
+            "/groups/settlement/settlement-fulfillment-source-projection/rebuild",
+            r#"{"confirm":"rebuild"}"#,
+        ),
+        (
+            "/platform/projections/rebuild-context",
+            "context_name=settlement",
+            "/groups/settlement/rebuild",
+            r#"{"confirm":"rebuild-all"}"#,
+        ),
+        ("/platform/projections/cancel?selected=op_run", "operation_id=op_run", "/operations/op_run/cancel", "{}"),
+    ];
+    for (uri, body, api, sent) in cases {
+        let (status, headers, html) = pilot.send(post_as("projections-operator", uri, body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{uri}: {html}");
+        let back = uri.replacen(uri.split('?').next().unwrap(), "/platform/projections", 1);
+        assert_eq!(headers[header::LOCATION], back.as_str(), "{uri}: back to the console as it was");
+        let call = pilot.projection_calls().into_iter().rev().find(|c| c.method == Method::POST).unwrap();
+        assert_eq!(call.path, format!("/api/platform/projections{api}"), "{uri}");
+        assert_eq!(call.body, sent, "{uri}");
+    }
+    // The API refuses who may only look: the page says so.
+    let (status, _, html) =
+        pilot.send(post_as("ops", "/platform/projections/rebuild-context", "context_name=settlement", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+}
+
+#[tokio::test]
+async fn the_console_is_drawn_again_when_a_running_operation_changes_state() {
+    let pilot = Pilot::new().await;
+    // The stream's first record is the state the page has (running): nothing. The second
+    // (succeeded) draws the health, the repair queue and the operations again from a new read.
+    let events = pilot.events("/platform/projections/live", "projections-operator", 3).await;
+    let patches: Vec<&(String, String)> = events.iter().filter(|(event, _)| event == "patch").collect();
+    assert_eq!(patches.len(), 1, "{events:?}");
+    let html = &patches[0].1;
+    for id in [r#"id="projections-health""#, r#"id="projections-repair""#, r#"id="projections-operations""#] {
+        assert!(html.contains(id), "{id}: {html}");
+    }
+    assert!(!html.contains(r#"method="get""#), "the filters are not drawn again: {html}");
+    assert_eq!(events.last().unwrap().0, "end", "the stream ends once the operation is done: {events:?}");
 }

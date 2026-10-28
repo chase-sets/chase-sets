@@ -817,6 +817,22 @@ which two areas render) and `sections/platform/operations-attention.css` (1,055 
 JavaScript includes the live status's script. Interactive waits for it, and the page's stream
 opens and ends at once while the API refuses its topic.
 
+Projection Operations (`/platform/projections`, the sandbox's 208 groups with one degraded, and
+that group's sheet), at the `9f854ec` pin, the pilot's release build against admin-web's dev server
+(`react-router dev`), so admin-web's numbers are high by an unknown amount and are not a comparison.
+admin-web desktop only: its mobile run did not finish one load in 120 s. Measured once, 7 loads
+each, on a busy machine. The pilot's server time is the projections read and the wake read
+together (the API's projections read is most of it).
+
+| Projection Operations | admin-web (dev) desktop | pilot desktop | pilot mobile | pilot desktop, a group's sheet | pilot mobile, a group's sheet |
+|---|---|---|---|---|---|
+| Interactive | 3,556 ms | 242 ms | 1,262 ms | 266 ms | 1,526 ms |
+| Largest contentful paint | 1,792 ms | 340 ms | 1,012 ms | 284 ms | 1,552 ms |
+| Server time (document) | 1,586 ms | 182 ms | 137 ms | 138 ms | 138 ms |
+| JavaScript transferred | 5,164,092 B | 8,481 B | 8,481 B | 9,341 B | 9,341 B |
+| HTML / CSS transferred | 878,138 / 186,139 B | 5,371 / 5,366 B | 5,371 / 5,366 B | 6,550 / 5,366 B | 6,550 / 5,366 B |
+| Requests | 251 | 10 | 10 | 11 | 11 |
+
 **A change to a catalog list**, measured with one tab watching the dimensions list and another
 creating a dimension through the pilot, 5 changes each (median; `scripts/measure-live.mjs`). Both
 follow the same realtime topic. admin-web here is its dev server (`react-router dev`), not a
@@ -893,6 +909,7 @@ node scripts/smoke-items.mjs           # the catalog items list: create, the cha
 node scripts/smoke-item.mjs            # a catalog item's page: a draft through every dialog, with and without JavaScript, 390 px
 node scripts/smoke-attention.mjs       # the attention queue beside admin-web's: same items, a sheet, dismiss, defer and restore, no JavaScript, 390 px (parks one item and restores it)
 node scripts/smoke-operations-attention.mjs  # the Operations Attention queue beside admin-web's: the counts, the same rows in order, each Open answering on admin-web, the stream, no JavaScript, 390 px (only reads)
+node scripts/smoke-projections.mjs           # Projection Operations beside admin-web's: the repair queue in order, eight counts, a filter, a group's sheet (Rebuild's confirm opened and cancelled), its blocked streams and poison events, a poison event's Retry (not pressed), Escape or the close link, Refresh status, no JavaScript, 390 px (refreshes the groups' status; repairs nothing)
 node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..] [admin-web]): same rows, the filters, View, no JavaScript, 390 px (only reads)
 node scripts/smoke-scope.mjs           # a scope's page ([..] [admin-web] [state] [scope]): its sections, the coverage beside admin-web's, a revoke's fold, Propose mapping and its refusal, no JavaScript, 390 px (writes nothing)
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
@@ -1083,6 +1100,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `admin/src/catalog/attention.rs`, `views/attention_panel.*` | the Catalog attention queue on the scopes list: an item's sheet, the park and restore routes, the alias commands, and the queue's messages by key |
 | `admin/src/views/live_status.*` | a stream's status, for the catalog items list and the attention queue: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`), each in its screen's words; in `components.css`, since two areas render it |
 | `admin/src/operations/` | the Operations Attention area: its routes and the Open links (`mod.rs`), the queue's read (`api.rs`), and its page, whose stylesheet is `sections/platform/operations-attention.css` |
+| `admin/src/projections/` | the Projection Operations area: its routes, filters, the live relay of running operations and the five repairs (`mod.rs`), the console's reads and writes (`api.rs`), and its views: the console (`console_page.*`) and the record's sheet with its confirm dialogs (`detail_sheet.*`), whose stylesheet is `sections/platform/projections.css` |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -2295,7 +2313,38 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([`review.rs`](marketplace/src/review.rs),
     [`reviews_page.rs`](marketplace/src/views/reviews_page.rs)).
 
+71. **Projection Operations is the pilot's, and a record's sheet is in the address.**
+    admin-web's `projections` route is `/platform/projections` in the platform section, an area
+    with its own stylesheet and admin-web's caller (`projection-operations.view`). The console draws
+    what the API derived (`deriveProjectionTriage`): its attention items with the wake read's, the
+    repair queue in its order, and the worker counts; the page computes only admin-web's console
+    status, its eight counts and the filters (`matchesProjectionFilters`, on the server, a `GET`
+    form). The wake read is optional, as admin-web's: a failed one leaves its items out. A record's
+    details are `?selected=` (admin-web's `projectionSelectionHref`), drawn as an open `<dialog>`
+    closed by a link, made modal by its script, with the repairs the viewer may make: Cancel and
+    Retry for `.operate`, Rebuild and Rebuild context for `.rebuild`, each confirm a
+    `command="show-modal"` dialog. Each repair is its own route that posts to the API and goes back
+    to the console as it was (admin-web's `formActionRedirect` to the current path); a refusal is
+    the error page with the API's status, as admin-web throws it. The live part follows each queued
+    or running operation's status stream (`platform::jobs`, as the catalog's bulk jobs) and draws
+    the health, the queue and the operations again from a fresh read when one changes state, as
+    admin-web revalidates (`onOperationTerminal`); it ends when they are all done. Two gaps:
+    the API sends blocked projections as counts only, so neither the repair queue nor Operations
+    Attention lists a blocked stream or a poison event
+    ([chase-sets/chase-sets#10710 [platform-operations] List each blocked projection's streams and poison events in the projections read (the repair queue and Operations Attention show none)](https://github.com/chase-sets/chase-sets/issues/10710)):
+    a group's sheet reads its projections' details (`GET /{projectionKey}/blocked-streams`) and
+    links each one, so Retry is reachable. And Escape on a sheet the address opened must follow its
+    close link, which corten-ui's `dialog::modal` does not
+    ([todd-skelton/corten#257 corten-ui's dialog::modal closes a dialog the address opened without following its close link, so Escape leaves ?selected= behind](https://github.com/todd-skelton/corten/issues/257)):
+    the sheet's own script does, a second copy of the postage sheet's. Not ported: the
+    reference page (`/platform/projections/reference`), which the console links to on admin-web
+    ([`projections`](admin/src/projections/mod.rs),
+    [`console_page.rs`](admin/src/projections/views/console_page.rs),
+    [`detail_sheet.rs`](admin/src/projections/views/detail_sheet.rs)).
+
 ## Corten gaps
+
+Open at the `9f854ec` pin, found by Projection Operations' port (decision 71): [todd-skelton/corten#257 corten-ui's dialog::modal closes a dialog the address opened without following its close link, so Escape leaves ?selected= behind](https://github.com/todd-skelton/corten/issues/257), worked around by two copies of one script (`views/policy_sheet.js` and `projections/views/detail_sheet.js`).
 
 Open at the `9f854ec` pin, found by the review page's port (decision 70): [todd-skelton/corten#254 A link to an element on the same page cannot take an Id, so each app writes its #fragment by hand](https://github.com/todd-skelton/corten/issues/254), worked around by `views::fragment`.
 
@@ -2403,6 +2452,8 @@ browser against the dev sandbox). The pilot shows the refusal in the dialog;
 `scripts/smoke-catalog.mjs` reports the step as blocked by the API, not as passed.
 Filed as [#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520);
 once it lands, the smoke test's reorder step should pass instead of being reported blocked.
+
+Also found in Chase Sets, by Projection Operations' port: [chase-sets/chase-sets#10710 [platform-operations] List each blocked projection's streams and poison events in the projections read (the repair queue and Operations Attention show none)](https://github.com/chase-sets/chase-sets/issues/10710). The projections read sends each blocked projection's counts only, so the API's repair queue and attention items, and Operations Attention's poison-event and blocked-stream sources, list none of them. Workaround: a group's sheet reads its projections' details and links each one (`blocked_details` and `group_problems` in [`projections`](admin/src/projections/)). Remove both once the issue lands.
 
 Also found in Chase Sets, by the Operations Attention queue's port:
 
