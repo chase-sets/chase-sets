@@ -4,14 +4,21 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
-  createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryApi } from "../../../api";
 import { module as discoveryModule } from "../../../index";
 import { createDiscoveryServices } from "../../../support/runtime-support/services";
+import {
+  DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR,
+  DISCOVERY_SEARCH_HYBRID_ENV_VAR,
+  DISCOVERY_SEARCH_RESCUE_ENV_VAR,
+  discoverySearchEmbeddingEnrichmentEnabled,
+  discoverySearchHybridEnabled,
+  discoverySearchRescueEnabled,
+} from "../domain/embedding-rollout";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const correlationPrefix = "idle-first-search-10609";
@@ -20,10 +27,15 @@ const cycleCount = 4;
 
 type ObservedFailure = Readonly<{
   correlationId: string;
-  request: "blank" | "named" | "category";
+  request: "blank" | "named" | "category" | "unknown";
   resource: string;
   errorClass: string;
-  sqlState: string | null;
+  sqlStateCategory: string | null;
+}>;
+
+type ActiveRequest = Readonly<{
+  correlationId: string;
+  request: "blank" | "named" | "category";
 }>;
 
 function requireDatabaseBaseUrl(): string {
@@ -43,14 +55,18 @@ function classifyResource(sql: string): string {
   return "discovery-other-read";
 }
 
-function classifyError(error: unknown): { errorClass: string; sqlState: string | null } {
+function classifyError(error: unknown): { errorClass: string; sqlStateCategory: string | null } {
   const candidate = error as { constructor?: { name?: string }; code?: unknown };
   const errorClass = candidate.constructor?.name || "UnknownError";
   const code = typeof candidate.code === "string" && /^[A-Z0-9]{5}$/.test(candidate.code) ? candidate.code : null;
-  return { errorClass, sqlState: code };
+  return { errorClass, sqlStateCategory: code ? code.slice(0, 2) : null };
 }
 
-function withFailureCapture(pool: PgTransactionalPool, failures: ObservedFailure[]): PgTransactionalPool {
+function withFailureCapture(
+  pool: PgTransactionalPool,
+  failures: ObservedFailure[],
+  getActiveRequest: () => ActiveRequest | undefined,
+): PgTransactionalPool {
   return new Proxy(pool, {
     get(target, property, receiver) {
       if (property === "query") {
@@ -59,13 +75,10 @@ function withFailureCapture(pool: PgTransactionalPool, failures: ObservedFailure
             return await target.query<Row>(sql, values);
           } catch (error) {
             const classified = classifyError(error);
+            const activeRequest = getActiveRequest();
             failures.push({
-              correlationId: `${correlationPrefix}-${failures.length + 1}`,
-              request: sql.includes("discovery_categories")
-                ? "category"
-                : values?.some((value) => value === "charizard")
-                  ? "named"
-                  : "blank",
+              correlationId: activeRequest?.correlationId ?? "unattributed",
+              request: activeRequest?.request ?? "unknown",
               resource: classifyResource(sql),
               ...classified,
             });
@@ -99,18 +112,77 @@ describe("idle-first-search dependency attribution (#10609)", () => {
   let pool: PgTransactionalPool;
   let app: Hono;
   const failures: ObservedFailure[] = [];
+  let activeRequest: ActiveRequest | undefined;
+  const effectiveFlags = {
+    embeddings: discoverySearchEmbeddingEnrichmentEnabled({
+      [DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR]: process.env[DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR],
+    }),
+    rescue: discoverySearchRescueEnabled({
+      [DISCOVERY_SEARCH_RESCUE_ENV_VAR]: process.env[DISCOVERY_SEARCH_RESCUE_ENV_VAR],
+    }),
+    hybrid: discoverySearchHybridEnabled({
+      [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: process.env[DISCOVERY_SEARCH_HYBRID_ENV_VAR],
+    }),
+  };
+
+  function classifyHookFailure(error: unknown, resource: "pool-idle-client" | "pool-active-client"): ObservedFailure {
+    const request = activeRequest;
+    return {
+      correlationId: request?.correlationId ?? "unattributed",
+      request: request?.request ?? "unknown",
+      resource,
+      ...classifyError(error),
+    };
+  }
+
+  async function request(path: string, requestInfo: ActiveRequest): Promise<Response> {
+    const previous = activeRequest;
+    activeRequest = requestInfo;
+    try {
+      return await app.request(path, {
+        headers: { "x-request-id": requestInfo.correlationId },
+      });
+    } finally {
+      activeRequest = previous;
+    }
+  }
 
   beforeAll(async () => {
+    const externalProviderRequired = effectiveFlags.embeddings || effectiveFlags.rescue || effectiveFlags.hybrid;
+    if (externalProviderRequired) {
+      console.info(
+        "idle-first-search-attribution",
+        JSON.stringify({
+          cycles: 0,
+          idleIntervalMs,
+          effectiveFlags,
+          fixture: "idle-charizard",
+          failures: [],
+          outcome: "UNKNOWN_EXTERNAL_PROVIDER_REQUIRED",
+        }),
+      );
+      throw new Error("Configured retrieval flags require an external provider; attribution probe stopped as unknown.");
+    }
     const urls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), ["discovery"], "idle_first_search");
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), urls);
-    const rawPool = createMultiContextTestPools(urls).discovery;
+    const rawPool = createPgPool(urls.discovery, {
+      onIdleClientError: ({ error }) => failures.push(classifyHookFailure(error, "pool-idle-client")),
+      onActiveClientError: ({ error }) => failures.push(classifyHookFailure(error, "pool-active-client")),
+    });
     pool = rawPool;
     await resetMultiContextTestSchemas({ discovery: rawPool });
     await bootstrapContextDatabase(discoveryModule, rawPool);
     await seedFixture(rawPool);
-    const services = createDiscoveryServices(withFailureCapture(rawPool, failures), {
-      searchEmbeddingConfig: { rolloutValue: "disabled", rescueValue: "disabled", hybridValue: "disabled" },
-    });
+    const services = createDiscoveryServices(
+      withFailureCapture(rawPool, failures, () => activeRequest),
+      {
+        searchEmbeddingConfig: {
+          rolloutValue: process.env[DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR],
+          rescueValue: process.env[DISCOVERY_SEARCH_RESCUE_ENV_VAR],
+          hybridValue: process.env[DISCOVERY_SEARCH_HYBRID_ENV_VAR],
+        },
+      },
+    );
     app = new Hono();
     app.route("/api/marketplace", buildDiscoveryApi(services));
   }, 120_000);
@@ -122,51 +194,53 @@ describe("idle-first-search dependency attribution (#10609)", () => {
   it(
     "keeps blank and named first-after-idle searches healthy beside a category control",
     async () => {
-      const effectiveFlags = { embeddings: false, rescue: false, hybrid: false };
-      for (let cycle = 1; cycle <= cycleCount; cycle += 1) {
-        await sleep(idleIntervalMs);
-        const category = await app.request("/api/marketplace/categories", {
-          headers: { "x-request-id": `${correlationPrefix}-category-${cycle}` },
-        });
-        expect(category.status, `cycle ${cycle} category control`).toBe(200);
+      try {
+        for (let cycle = 1; cycle <= cycleCount; cycle += 1) {
+          await sleep(idleIntervalMs);
 
-        for (const [request, path] of [
-          ["blank", "/api/marketplace/items?sort=relevance&limit=24&includeTotal=true"],
-          ["named", "/api/marketplace/items?search=charizard&sort=relevance&limit=24&includeTotal=true"],
-        ] as const) {
-          const first = await app.request(path, {
-            headers: { "x-request-id": `${correlationPrefix}-${request}-first-${cycle}` },
-          });
-          if (first.status !== 200) {
-            const failure = failures.at(-1);
-            throw new Error(
-              `idle-first-search failure correlation=${failure?.correlationId ?? `${correlationPrefix}-${request}-first-${cycle}`} request=${request} resource=${failure?.resource ?? "unknown"} errorClass=${failure?.errorClass ?? "UnknownError"} sqlState=${failure?.sqlState ?? "UNKNOWN"}`,
+          for (const [requestKind, path] of [
+            ["blank", "/api/marketplace/items?sort=relevance&limit=24&includeTotal=true"],
+            ["named", "/api/marketplace/items?search=charizard&sort=relevance&limit=24&includeTotal=true"],
+          ] as const) {
+            const firstCorrelationId = `${correlationPrefix}-${requestKind}-first-${cycle}`;
+            const first = await request(path, { correlationId: firstCorrelationId, request: requestKind });
+            if (first.status !== 200) {
+              const failure = failures.find((candidate) => candidate.correlationId === firstCorrelationId);
+              throw new Error(
+                `idle-first-search failure correlation=${failure?.correlationId ?? firstCorrelationId} request=${requestKind} resource=${failure?.resource ?? "unknown"} errorClass=${failure?.errorClass ?? "UnknownError"} sqlStateCategory=${failure?.sqlStateCategory ?? "UNKNOWN"}`,
+              );
+            }
+            const firstBody = (await first.json()) as { items?: Array<{ catalog_item_id?: string }>; total?: number };
+            expect(firstBody.items?.[0]?.catalog_item_id, `cycle ${cycle} ${requestKind} result identity`).toBe(
+              "idle-charizard",
             );
+            expect(firstBody.total, `cycle ${cycle} ${requestKind} result count`).toBe(1);
+
+            const secondCorrelationId = `${correlationPrefix}-${requestKind}-second-${cycle}`;
+            const second = await request(path, { correlationId: secondCorrelationId, request: requestKind });
+            expect(second.status, `cycle ${cycle} ${requestKind} immediate repeat`).toBe(200);
           }
-          const firstBody = (await first.json()) as { items?: Array<{ catalog_item_id?: string }>; total?: number };
-          expect(firstBody.items?.[0]?.catalog_item_id, `cycle ${cycle} ${request} result identity`).toBe(
-            "idle-charizard",
-          );
-          expect(firstBody.total, `cycle ${cycle} ${request} result count`).toBe(1);
 
-          const second = await app.request(path, {
-            headers: { "x-request-id": `${correlationPrefix}-${request}-second-${cycle}` },
+          const categoryCorrelationId = `${correlationPrefix}-category-${cycle}`;
+          const category = await request("/api/marketplace/categories", {
+            correlationId: categoryCorrelationId,
+            request: "category",
           });
-          expect(second.status, `cycle ${cycle} ${request} immediate repeat`).toBe(200);
+          expect(category.status, `cycle ${cycle} category control`).toBe(200);
         }
+      } finally {
+        console.info(
+          "idle-first-search-attribution",
+          JSON.stringify({
+            cycles: cycleCount,
+            idleIntervalMs,
+            effectiveFlags,
+            fixture: "idle-charizard",
+            failures,
+            outcome: failures.length === 0 ? "UNKNOWN_NO_EXCEPTION_OBSERVED" : "FAILURE_CLASSIFIED",
+          }),
+        );
       }
-
-      console.info(
-        "idle-first-search-attribution",
-        JSON.stringify({
-          cycles: cycleCount,
-          idleIntervalMs,
-          effectiveFlags,
-          fixture: "idle-charizard",
-          failures,
-          outcome: failures.length === 0 ? "UNKNOWN_NO_EXCEPTION_OBSERVED" : "FAILURE_CLASSIFIED",
-        }),
-      );
     },
     cycleCount * idleIntervalMs + 120_000,
   );
