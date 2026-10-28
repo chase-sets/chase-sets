@@ -1447,6 +1447,8 @@ export async function inventoryMergeQualificationProducerAttempts({
   defaultBranch = "main",
   readHistoricalPolicyContent,
   readProducerImageEligibility,
+  execFile = execFileSync,
+  readPolicy = readOriginalQualificationPolicy,
   now = () => new Date(),
 } = {}) {
   const refused = (code) => ({ attempts: [], errors: [code] });
@@ -1515,6 +1517,8 @@ export async function inventoryMergeQualificationProducerAttempts({
               run,
               repository,
               defaultBranch,
+              execFile,
+              readPolicy,
               readLandingEvidence: async ({ revision }) => {
                 if (!landingCache.has(revision))
                   landingCache.set(revision, await requestJson(`repos/${repository}/commits/${revision}/pulls`));

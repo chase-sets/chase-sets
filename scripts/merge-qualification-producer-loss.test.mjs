@@ -531,7 +531,7 @@ describe("producer dispatch-loss reconciliation", () => {
         requestJson: async (endpoint) => {
           if (endpoint.includes("platform-pr.yml")) return { total_count: 2, workflow_runs: producers };
           if (endpoint.includes("platform-merge-qualification.yml")) return { total_count: 0, workflow_runs: [] };
-          if (endpoint === `repos/chase-sets/chase-sets/commits/${revision}/pulls`) {
+          if (endpoint.includes("/commits/") && endpoint.endsWith("/pulls")) {
             landingCalls.push(endpoint);
             return [{ base: { ref: "main" }, merged_at: "2026-07-21T09:00:00Z", merge_commit_sha: revision }];
           }
