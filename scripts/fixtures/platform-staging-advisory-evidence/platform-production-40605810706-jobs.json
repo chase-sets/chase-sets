@@ -1,0 +1,1868 @@
+{
+  "total_count": 16,
+  "jobs": [
+    {
+      "id": 122544904226,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciD7YIg",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122544904226",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122544904226",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-27T23:59:27Z",
+      "started_at": "2026-10-27T23:59:29Z",
+      "completed_at": "2026-10-28T00:00:41Z",
+      "name": "Resolve Release",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-27T23:59:30Z",
+          "completed_at": "2026-10-27T23:59:31Z"
+        },
+        {
+          "name": "Validate Catalog provider-send window opt-in",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-27T23:59:31Z",
+          "completed_at": "2026-10-27T23:59:31Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-27T23:59:31Z",
+          "completed_at": "2026-10-27T23:59:40Z"
+        },
+        {
+          "name": "Resolve release commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-27T23:59:40Z",
+          "completed_at": "2026-10-27T23:59:41Z"
+        },
+        {
+          "name": "Validate release dispatch contract",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-27T23:59:41Z",
+          "completed_at": "2026-10-27T23:59:42Z"
+        },
+        {
+          "name": "Validate release checks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-27T23:59:42Z",
+          "completed_at": "2026-10-27T23:59:43Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-27T23:59:43Z",
+          "completed_at": "2026-10-27T23:59:50Z"
+        },
+        {
+          "name": "Resolve deployment scope",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-27T23:59:50Z",
+          "completed_at": "2026-10-27T23:59:50Z"
+        },
+        {
+          "name": "Require a deploy for Agent Grant revocation activation",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-27T23:59:50Z",
+          "completed_at": "2026-10-27T23:59:50Z"
+        },
+        {
+          "name": "Resolve production recovery mode",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-27T23:59:50Z",
+          "completed_at": "2026-10-27T23:59:50Z"
+        },
+        {
+          "name": "Known Failure Guard",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-27T23:59:50Z",
+          "completed_at": "2026-10-28T00:00:38Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-28T00:00:38Z",
+          "completed_at": "2026-10-28T00:00:39Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-28T00:00:39Z",
+          "completed_at": "2026-10-28T00:00:39Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-28T00:00:39Z",
+          "completed_at": "2026-10-28T00:00:39Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122544904226",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217446,
+      "runner_name": "GitHub Actions 1000217446",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122544905483,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciD7dCw",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122544905483",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122544905483",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-27T23:59:27Z",
+      "started_at": "2026-10-27T23:59:27Z",
+      "completed_at": "2026-10-27T23:59:27Z",
+      "name": "Reconcile Production Marker Only",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122544905483",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122544905577,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciD7daQ",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122544905577",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122544905577",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-27T23:59:27Z",
+      "started_at": "2026-10-27T23:59:27Z",
+      "completed_at": "2026-10-27T23:59:27Z",
+      "name": "App Platform Decommission Live Plans",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122544905577",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122545361809,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciEXTkQ",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122545361809",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122545361809",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:00:41Z",
+      "started_at": "2026-10-28T00:00:44Z",
+      "completed_at": "2026-10-28T00:00:56Z",
+      "name": "Preflight Deployment Contract (production)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:00:45Z",
+          "completed_at": "2026-10-28T00:00:46Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:00:46Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Materialize release deployment contract",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Preflight deployment contract",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Upload failed deployment contract",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Enforce deployment contract preflight",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122545361809",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217451,
+      "runner_name": "GitHub Actions 1000217451",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122545362018,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciEXUYg",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122545362018",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122545362018",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:00:42Z",
+      "started_at": "2026-10-28T00:00:45Z",
+      "completed_at": "2026-10-28T00:00:57Z",
+      "name": "Preflight Deployment Contract (staging)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:00:45Z",
+          "completed_at": "2026-10-28T00:00:46Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:00:46Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Materialize release deployment contract",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Preflight deployment contract",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Upload failed deployment contract",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Enforce deployment contract preflight",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:54Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-28T00:00:54Z",
+          "completed_at": "2026-10-28T00:00:55Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-28T00:00:55Z",
+          "completed_at": "2026-10-28T00:00:55Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122545362018",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217452,
+      "runner_name": "GitHub Actions 1000217452",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122545364117,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciEXclQ",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122545364117",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122545364117",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:00:42Z",
+      "started_at": "2026-10-28T00:00:42Z",
+      "completed_at": "2026-10-28T00:00:42Z",
+      "name": "Reconcile Managed Postgres CA (production)",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122545364117",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122545364156,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciEXcvA",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122545364156",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122545364156",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:00:42Z",
+      "started_at": "2026-10-28T00:00:42Z",
+      "completed_at": "2026-10-28T00:00:41Z",
+      "name": "Reconcile Managed Postgres CA (staging)",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122545364156",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122545461053,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciEdXPQ",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122545461053",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122545461053",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:00:57Z",
+      "started_at": "2026-10-28T00:01:00Z",
+      "completed_at": "2026-10-28T00:04:18Z",
+      "name": "Build Release Image",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:01:00Z",
+          "completed_at": "2026-10-28T00:01:01Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:01:01Z",
+          "completed_at": "2026-10-28T00:01:07Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:01:07Z",
+          "completed_at": "2026-10-28T00:01:11Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 4,
+          "started_at": "2026-10-28T00:01:11Z",
+          "completed_at": "2026-10-28T00:01:11Z"
+        },
+        {
+          "name": "Run digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-28T00:01:11Z",
+          "completed_at": "2026-10-28T00:01:12Z"
+        },
+        {
+          "name": "Build release image",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-28T00:01:12Z",
+          "completed_at": "2026-10-28T00:03:19Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-28T00:03:19Z",
+          "completed_at": "2026-10-28T00:03:35Z"
+        },
+        {
+          "name": "Boot smoke release image",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-28T00:03:35Z",
+          "completed_at": "2026-10-28T00:03:48Z"
+        },
+        {
+          "name": "Push release image",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-28T00:03:48Z",
+          "completed_at": "2026-10-28T00:04:05Z"
+        },
+        {
+          "name": "Pin release image identity",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-28T00:04:05Z",
+          "completed_at": "2026-10-28T00:04:06Z"
+        },
+        {
+          "name": "Classify build-image failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 11,
+          "started_at": "2026-10-28T00:04:06Z",
+          "completed_at": "2026-10-28T00:04:06Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-28T00:04:06Z",
+          "completed_at": "2026-10-28T00:04:06Z"
+        },
+        {
+          "name": "Post Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-28T00:04:06Z",
+          "completed_at": "2026-10-28T00:04:17Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-28T00:04:17Z",
+          "completed_at": "2026-10-28T00:04:17Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-28T00:04:17Z",
+          "completed_at": "2026-10-28T00:04:17Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122545461053",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217453,
+      "runner_name": "GitHub Actions 1000217453",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122546722492,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciFqWvA",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122546722492",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122546722492",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:04:19Z",
+      "started_at": "2026-10-28T00:04:22Z",
+      "completed_at": "2026-10-28T00:12:14Z",
+      "name": "Deploy Staging",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:04:23Z",
+          "completed_at": "2026-10-28T00:04:25Z"
+        },
+        {
+          "name": "Record staging start",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:04:25Z",
+          "completed_at": "2026-10-28T00:04:25Z"
+        },
+        {
+          "name": "Configure Git defaults",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:04:25Z",
+          "completed_at": "2026-10-28T00:04:25Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-28T00:04:25Z",
+          "completed_at": "2026-10-28T00:04:32Z"
+        },
+        {
+          "name": "Check out release commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-28T00:04:32Z",
+          "completed_at": "2026-10-28T00:04:33Z"
+        },
+        {
+          "name": "Validate staging configuration",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-28T00:04:33Z",
+          "completed_at": "2026-10-28T00:04:36Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-28T00:04:36Z",
+          "completed_at": "2026-10-28T00:04:48Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-28T00:04:48Z",
+          "completed_at": "2026-10-28T00:04:53Z"
+        },
+        {
+          "name": "Run hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-28T00:04:53Z",
+          "completed_at": "2026-10-28T00:04:55Z"
+        },
+        {
+          "name": "Run digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-28T00:04:55Z",
+          "completed_at": "2026-10-28T00:04:56Z"
+        },
+        {
+          "name": "Package staged doctl binary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-28T00:04:56Z",
+          "completed_at": "2026-10-28T00:04:57Z"
+        },
+        {
+          "name": "Upload staged doctl binary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-28T00:04:57Z",
+          "completed_at": "2026-10-28T00:04:59Z"
+        },
+        {
+          "name": "Terraform init staging environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-28T00:04:59Z",
+          "completed_at": "2026-10-28T00:05:01Z"
+        },
+        {
+          "name": "Terraform format staging environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-10-28T00:05:01Z",
+          "completed_at": "2026-10-28T00:05:01Z"
+        },
+        {
+          "name": "Terraform validate staging environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-28T00:05:01Z",
+          "completed_at": "2026-10-28T00:05:01Z"
+        },
+        {
+          "name": "Activate immutable release before staging mutation",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-28T00:05:01Z",
+          "completed_at": "2026-10-28T00:05:02Z"
+        },
+        {
+          "name": "Terraform apply staging environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-28T00:05:02Z",
+          "completed_at": "2026-10-28T00:05:03Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-28T00:05:03Z",
+          "completed_at": "2026-10-28T00:05:16Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 19,
+          "started_at": "2026-10-28T00:05:16Z",
+          "completed_at": "2026-10-28T00:05:16Z"
+        },
+        {
+          "name": "Verify immutable active release image",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-28T00:05:16Z",
+          "completed_at": "2026-10-28T00:05:19Z"
+        },
+        {
+          "name": "Terraform init",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-28T00:05:19Z",
+          "completed_at": "2026-10-28T00:05:21Z"
+        },
+        {
+          "name": "Terraform format",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-28T00:05:21Z",
+          "completed_at": "2026-10-28T00:05:21Z"
+        },
+        {
+          "name": "Terraform plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-28T00:05:21Z",
+          "completed_at": "2026-10-28T00:05:27Z"
+        },
+        {
+          "name": "Upload staging Terraform plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 24,
+          "started_at": "2026-10-28T00:05:27Z",
+          "completed_at": "2026-10-28T00:05:28Z"
+        },
+        {
+          "name": "Terraform apply",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-10-28T00:05:28Z",
+          "completed_at": "2026-10-28T00:05:29Z"
+        },
+        {
+          "name": "Capture staging Terraform errored state",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 26,
+          "started_at": "2026-10-28T00:05:29Z",
+          "completed_at": "2026-10-28T00:05:29Z"
+        },
+        {
+          "name": "Upload staging Terraform errored state",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 27,
+          "started_at": "2026-10-28T00:05:29Z",
+          "completed_at": "2026-10-28T00:05:29Z"
+        },
+        {
+          "name": "Configure staging Kubernetes context",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 28,
+          "started_at": "2026-10-28T00:05:29Z",
+          "completed_at": "2026-10-28T00:05:35Z"
+        },
+        {
+          "name": "Apply staging ingress-nginx forwarded-header policy",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 29,
+          "started_at": "2026-10-28T00:05:35Z",
+          "completed_at": "2026-10-28T00:06:00Z"
+        },
+        {
+          "name": "Converge staging preview DNS-01 token and renewal",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 30,
+          "started_at": "2026-10-28T00:06:00Z",
+          "completed_at": "2026-10-28T00:06:01Z"
+        },
+        {
+          "name": "Install Argo Rollouts kubectl plugin for staging",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 31,
+          "started_at": "2026-10-28T00:06:01Z",
+          "completed_at": "2026-10-28T00:06:01Z"
+        },
+        {
+          "name": "Install Argo Rollouts controller and CRDs for staging",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 32,
+          "started_at": "2026-10-28T00:06:01Z",
+          "completed_at": "2026-10-28T00:06:01Z"
+        },
+        {
+          "name": "Export staging Kubernetes database URLs",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-28T00:06:01Z",
+          "completed_at": "2026-10-28T00:06:02Z"
+        },
+        {
+          "name": "Apply staging Kubernetes runtime secrets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 34,
+          "started_at": "2026-10-28T00:06:02Z",
+          "completed_at": "2026-10-28T00:06:03Z"
+        },
+        {
+          "name": "Reconcile staging managed Postgres CA trust",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 35,
+          "started_at": "2026-10-28T00:06:03Z",
+          "completed_at": "2026-10-28T00:06:05Z"
+        },
+        {
+          "name": "Deploy staging Kubernetes release",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 36,
+          "started_at": "2026-10-28T00:06:05Z",
+          "completed_at": "2026-10-28T00:09:31Z"
+        },
+        {
+          "name": "Capture staging Kubernetes deploy diagnostics",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 37,
+          "started_at": "2026-10-28T00:09:31Z",
+          "completed_at": "2026-10-28T00:09:31Z"
+        },
+        {
+          "name": "Upload staging Kubernetes deploy diagnostics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 38,
+          "started_at": "2026-10-28T00:09:31Z",
+          "completed_at": "2026-10-28T00:09:31Z"
+        },
+        {
+          "name": "Wait for staging ingress URLs",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 39,
+          "started_at": "2026-10-28T00:09:31Z",
+          "completed_at": "2026-10-28T00:09:33Z"
+        },
+        {
+          "name": "Dispatch advisory staging evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 40,
+          "started_at": "2026-10-28T00:09:33Z",
+          "completed_at": "2026-10-28T00:09:35Z"
+        },
+        {
+          "name": "Smoke check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 41,
+          "started_at": "2026-10-28T00:09:35Z",
+          "completed_at": "2026-10-28T00:09:54Z"
+        },
+        {
+          "name": "Resolve Playwright Chromium version",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 42,
+          "started_at": "2026-10-28T00:09:54Z",
+          "completed_at": "2026-10-28T00:09:54Z"
+        },
+        {
+          "name": "Cache Playwright Chromium for staging critical flows",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 43,
+          "started_at": "2026-10-28T00:09:54Z",
+          "completed_at": "2026-10-28T00:09:57Z"
+        },
+        {
+          "name": "Install Playwright Chromium for staging critical flows",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 44,
+          "started_at": "2026-10-28T00:09:57Z",
+          "completed_at": "2026-10-28T00:10:12Z"
+        },
+        {
+          "name": "Await staging projection convergence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 45,
+          "started_at": "2026-10-28T00:10:12Z",
+          "completed_at": "2026-10-28T00:11:32Z"
+        },
+        {
+          "name": "Staging Buy Now freshness probes",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 46,
+          "started_at": "2026-10-28T00:11:32Z",
+          "completed_at": "2026-10-28T00:11:54Z"
+        },
+        {
+          "name": "Upload staging blocking probe release-health evidence",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 47,
+          "started_at": "2026-10-28T00:11:54Z",
+          "completed_at": "2026-10-28T00:11:54Z"
+        },
+        {
+          "name": "Upload staging Buy Now probe evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 48,
+          "started_at": "2026-10-28T00:11:54Z",
+          "completed_at": "2026-10-28T00:11:55Z"
+        },
+        {
+          "name": "Staging account-cart freshness canary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 49,
+          "started_at": "2026-10-28T00:11:55Z",
+          "completed_at": "2026-10-28T00:11:55Z"
+        },
+        {
+          "name": "Upload staging account-cart canary evidence",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 50,
+          "started_at": "2026-10-28T00:11:55Z",
+          "completed_at": "2026-10-28T00:11:55Z"
+        },
+        {
+          "name": "Staging Stripe money smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 51,
+          "started_at": "2026-10-28T00:11:55Z",
+          "completed_at": "2026-10-28T00:12:08Z"
+        },
+        {
+          "name": "Promote staging Argo Rollouts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 52,
+          "started_at": "2026-10-28T00:12:08Z",
+          "completed_at": "2026-10-28T00:12:08Z"
+        },
+        {
+          "name": "Abort staging Argo Rollouts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 53,
+          "started_at": "2026-10-28T00:12:08Z",
+          "completed_at": "2026-10-28T00:12:08Z"
+        },
+        {
+          "name": "Verify staging preview wildcard certificate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 54,
+          "started_at": "2026-10-28T00:12:08Z",
+          "completed_at": "2026-10-28T00:12:08Z"
+        },
+        {
+          "name": "Activate Agent Grant revocation in staging",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 55,
+          "started_at": "2026-10-28T00:12:08Z",
+          "completed_at": "2026-10-28T00:12:08Z"
+        },
+        {
+          "name": "Upload staging Agent Grant revocation status",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 56,
+          "started_at": "2026-10-28T00:12:08Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Classify staging deployment failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 57,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Upload staging deployment root cause",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 58,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Mark staging applied",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 59,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Record staging completion",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 60,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Post Cache Playwright Chromium for staging critical flows",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 117,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:09Z"
+        },
+        {
+          "name": "Post Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 118,
+          "started_at": "2026-10-28T00:12:09Z",
+          "completed_at": "2026-10-28T00:12:10Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 119,
+          "started_at": "2026-10-28T00:12:10Z",
+          "completed_at": "2026-10-28T00:12:10Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 120,
+          "started_at": "2026-10-28T00:12:10Z",
+          "completed_at": "2026-10-28T00:12:10Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 121,
+          "started_at": "2026-10-28T00:12:10Z",
+          "completed_at": "2026-10-28T00:12:10Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122546722492",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217469,
+      "runner_name": "GitHub Actions 1000217469",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122549674800,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciIejMA",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122549674800",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122549674800",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:12:14Z",
+      "started_at": "2026-10-28T00:12:18Z",
+      "completed_at": "2026-10-28T00:19:59Z",
+      "name": "Deploy Production",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:12:19Z",
+          "completed_at": "2026-10-28T00:12:21Z"
+        },
+        {
+          "name": "Configure Git defaults",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:12:21Z",
+          "completed_at": "2026-10-28T00:12:21Z"
+        },
+        {
+          "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:12:21Z",
+          "completed_at": "2026-10-28T00:12:31Z"
+        },
+        {
+          "name": "Check out release commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-28T00:12:31Z",
+          "completed_at": "2026-10-28T00:12:31Z"
+        },
+        {
+          "name": "Record production start",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-28T00:12:31Z",
+          "completed_at": "2026-10-28T00:12:31Z"
+        },
+        {
+          "name": "Evaluate production release lock",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-28T00:12:31Z",
+          "completed_at": "2026-10-28T00:12:31Z"
+        },
+        {
+          "name": "Validate production configuration",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-28T00:12:31Z",
+          "completed_at": "2026-10-28T00:12:31Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-28T00:12:31Z",
+          "completed_at": "2026-10-28T00:12:38Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-28T00:12:38Z",
+          "completed_at": "2026-10-28T00:12:44Z"
+        },
+        {
+          "name": "Run hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-28T00:12:44Z",
+          "completed_at": "2026-10-28T00:12:45Z"
+        },
+        {
+          "name": "Download staged doctl binary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-28T00:12:45Z",
+          "completed_at": "2026-10-28T00:12:48Z"
+        },
+        {
+          "name": "Install staged doctl binary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-28T00:12:48Z",
+          "completed_at": "2026-10-28T00:12:49Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-28T00:12:49Z",
+          "completed_at": "2026-10-28T00:12:59Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-28T00:12:59Z",
+          "completed_at": "2026-10-28T00:12:59Z"
+        },
+        {
+          "name": "Verify promoted platform runtime image",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-28T00:12:59Z",
+          "completed_at": "2026-10-28T00:13:02Z"
+        },
+        {
+          "name": "Initialize production environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-28T00:13:02Z",
+          "completed_at": "2026-10-28T00:13:04Z"
+        },
+        {
+          "name": "Validate production environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-28T00:13:04Z",
+          "completed_at": "2026-10-28T00:13:04Z"
+        },
+        {
+          "name": "Plan production environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-28T00:13:04Z",
+          "completed_at": "2026-10-28T00:13:05Z"
+        },
+        {
+          "name": "Apply production environment DNS",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-28T00:13:05Z",
+          "completed_at": "2026-10-28T00:13:06Z"
+        },
+        {
+          "name": "Terraform init",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-28T00:13:06Z",
+          "completed_at": "2026-10-28T00:13:08Z"
+        },
+        {
+          "name": "Terraform format",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-28T00:13:08Z",
+          "completed_at": "2026-10-28T00:13:08Z"
+        },
+        {
+          "name": "Terraform plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-28T00:13:08Z",
+          "completed_at": "2026-10-28T00:13:16Z"
+        },
+        {
+          "name": "Upload production Terraform plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-28T00:13:16Z",
+          "completed_at": "2026-10-28T00:13:17Z"
+        },
+        {
+          "name": "Clean up expired restore-point forks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 24,
+          "started_at": "2026-10-28T00:13:17Z",
+          "completed_at": "2026-10-28T00:13:18Z"
+        },
+        {
+          "name": "Create production database restore point",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-10-28T00:13:18Z",
+          "completed_at": "2026-10-28T00:13:19Z"
+        },
+        {
+          "name": "Configure production marker recovery context",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 26,
+          "started_at": "2026-10-28T00:13:19Z",
+          "completed_at": "2026-10-28T00:13:35Z"
+        },
+        {
+          "name": "Install Argo Rollouts kubectl plugin for production",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 27,
+          "started_at": "2026-10-28T00:13:35Z",
+          "completed_at": "2026-10-28T00:13:35Z"
+        },
+        {
+          "name": "Install production DOKS ingress and certificate add-ons",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 28,
+          "started_at": "2026-10-28T00:13:35Z",
+          "completed_at": "2026-10-28T00:14:28Z"
+        },
+        {
+          "name": "Capture production rollback target",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 29,
+          "started_at": "2026-10-28T00:14:28Z",
+          "completed_at": "2026-10-28T00:14:37Z"
+        },
+        {
+          "name": "Terraform apply",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 30,
+          "started_at": "2026-10-28T00:14:37Z",
+          "completed_at": "2026-10-28T00:14:39Z"
+        },
+        {
+          "name": "Capture production Terraform errored state",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 31,
+          "started_at": "2026-10-28T00:14:39Z",
+          "completed_at": "2026-10-28T00:14:39Z"
+        },
+        {
+          "name": "Upload production Terraform errored state",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 32,
+          "started_at": "2026-10-28T00:14:39Z",
+          "completed_at": "2026-10-28T00:14:39Z"
+        },
+        {
+          "name": "Export production Kubernetes database URLs",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-28T00:14:39Z",
+          "completed_at": "2026-10-28T00:14:39Z"
+        },
+        {
+          "name": "Apply production Kubernetes runtime secrets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 34,
+          "started_at": "2026-10-28T00:14:39Z",
+          "completed_at": "2026-10-28T00:14:41Z"
+        },
+        {
+          "name": "Reconcile production managed Postgres CA trust",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 35,
+          "started_at": "2026-10-28T00:14:41Z",
+          "completed_at": "2026-10-28T00:14:44Z"
+        },
+        {
+          "name": "Evaluate production rollback readiness",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 36,
+          "started_at": "2026-10-28T00:14:44Z",
+          "completed_at": "2026-10-28T00:14:45Z"
+        },
+        {
+          "name": "Deploy production Kubernetes release",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 37,
+          "started_at": "2026-10-28T00:14:45Z",
+          "completed_at": "2026-10-28T00:18:34Z"
+        },
+        {
+          "name": "Capture production Kubernetes deploy diagnostics",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 38,
+          "started_at": "2026-10-28T00:18:34Z",
+          "completed_at": "2026-10-28T00:18:34Z"
+        },
+        {
+          "name": "Upload production Kubernetes deploy diagnostics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 39,
+          "started_at": "2026-10-28T00:18:34Z",
+          "completed_at": "2026-10-28T00:18:34Z"
+        },
+        {
+          "name": "Verify production DOKS live hosts and certificate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 40,
+          "started_at": "2026-10-28T00:18:34Z",
+          "completed_at": "2026-10-28T00:18:37Z"
+        },
+        {
+          "name": "Wait for production do***s",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 41,
+          "started_at": "2026-10-28T00:18:37Z",
+          "completed_at": "2026-10-28T00:18:41Z"
+        },
+        {
+          "name": "Smoke served marketplace invitation gate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 42,
+          "started_at": "2026-10-28T00:18:41Z",
+          "completed_at": "2026-10-28T00:18:42Z"
+        },
+        {
+          "name": "Export production readiness database URLs",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 43,
+          "started_at": "2026-10-28T00:18:42Z",
+          "completed_at": "2026-10-28T00:18:45Z"
+        },
+        {
+          "name": "Production post-deploy readiness gate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 44,
+          "started_at": "2026-10-28T00:18:45Z",
+          "completed_at": "2026-10-28T00:18:47Z"
+        },
+        {
+          "name": "Remove managed Postgres CA",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 45,
+          "started_at": "2026-10-28T00:18:47Z",
+          "completed_at": "2026-10-28T00:18:47Z"
+        },
+        {
+          "name": "Smoke check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 46,
+          "started_at": "2026-10-28T00:18:47Z",
+          "completed_at": "2026-10-28T00:19:14Z"
+        },
+        {
+          "name": "Stage 1 production canary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 47,
+          "started_at": "2026-10-28T00:19:14Z",
+          "completed_at": "2026-10-28T00:19:18Z"
+        },
+        {
+          "name": "Promote production Argo Rollouts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 48,
+          "started_at": "2026-10-28T00:19:18Z",
+          "completed_at": "2026-10-28T00:19:18Z"
+        },
+        {
+          "name": "Verify production Kubernetes deployment transition",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 49,
+          "started_at": "2026-10-28T00:19:18Z",
+          "completed_at": "2026-10-28T00:19:20Z"
+        },
+        {
+          "name": "Upload production Kubernetes deployment transition",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 50,
+          "started_at": "2026-10-28T00:19:20Z",
+          "completed_at": "2026-10-28T00:19:21Z"
+        },
+        {
+          "name": "Abort production Argo Rollouts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 51,
+          "started_at": "2026-10-28T00:19:21Z",
+          "completed_at": "2026-10-28T00:19:21Z"
+        },
+        {
+          "name": "Capture post-cutover production Kubernetes diagnostics",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 52,
+          "started_at": "2026-10-28T00:19:21Z",
+          "completed_at": "2026-10-28T00:19:21Z"
+        },
+        {
+          "name": "Roll back production Kubernetes release",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 53,
+          "started_at": "2026-10-28T00:19:21Z",
+          "completed_at": "2026-10-28T00:19:21Z"
+        },
+        {
+          "name": "Mark production release",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 54,
+          "started_at": "2026-10-28T00:19:21Z",
+          "completed_at": "2026-10-28T00:19:46Z"
+        },
+        {
+          "name": "Write promoted release handoff",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 55,
+          "started_at": "2026-10-28T00:19:46Z",
+          "completed_at": "2026-10-28T00:19:46Z"
+        },
+        {
+          "name": "Upload promoted release handoff",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 56,
+          "started_at": "2026-10-28T00:19:46Z",
+          "completed_at": "2026-10-28T00:19:47Z"
+        },
+        {
+          "name": "Activate Agent Grant revocation in production",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 57,
+          "started_at": "2026-10-28T00:19:47Z",
+          "completed_at": "2026-10-28T00:19:47Z"
+        },
+        {
+          "name": "Upload production Agent Grant revocation status",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 58,
+          "started_at": "2026-10-28T00:19:47Z",
+          "completed_at": "2026-10-28T00:19:49Z"
+        },
+        {
+          "name": "Resolve terminal release state",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 59,
+          "started_at": "2026-10-28T00:19:49Z",
+          "completed_at": "2026-10-28T00:19:49Z"
+        },
+        {
+          "name": "Resolve release health metadata",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 60,
+          "started_at": "2026-10-28T00:19:49Z",
+          "completed_at": "2026-10-28T00:19:51Z"
+        },
+        {
+          "name": "Resolve CI retry metadata",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 61,
+          "started_at": "2026-10-28T00:19:51Z",
+          "completed_at": "2026-10-28T00:19:51Z"
+        },
+        {
+          "name": "Classify production deployment failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 62,
+          "started_at": "2026-10-28T00:19:51Z",
+          "completed_at": "2026-10-28T00:19:51Z"
+        },
+        {
+          "name": "Write release health summary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 63,
+          "started_at": "2026-10-28T00:19:51Z",
+          "completed_at": "2026-10-28T00:19:51Z"
+        },
+        {
+          "name": "Upload release health summary",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 64,
+          "started_at": "2026-10-28T00:19:51Z",
+          "completed_at": "2026-10-28T00:19:53Z"
+        },
+        {
+          "name": "Upload served marketplace smoke evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 65,
+          "started_at": "2026-10-28T00:19:53Z",
+          "completed_at": "2026-10-28T00:19:55Z"
+        },
+        {
+          "name": "Post Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 128,
+          "started_at": "2026-10-28T00:19:55Z",
+          "completed_at": "2026-10-28T00:19:55Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 129,
+          "started_at": "2026-10-28T00:19:55Z",
+          "completed_at": "2026-10-28T00:19:55Z"
+        },
+        {
+          "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 130,
+          "started_at": "2026-10-28T00:19:55Z",
+          "completed_at": "2026-10-28T00:19:56Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 131,
+          "started_at": "2026-10-28T00:19:56Z",
+          "completed_at": "2026-10-28T00:19:56Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122549674800",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217478,
+      "runner_name": "GitHub Actions 1000217478",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122549675360,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciIelYA",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122549675360",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122549675360",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:12:14Z",
+      "started_at": "2026-10-28T00:12:14Z",
+      "completed_at": "2026-10-28T00:12:14Z",
+      "name": "Notify Staging Advisory Dispatch Failure",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122549675360",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122552495062,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciLKr1g",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122552495062",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122552495062",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-28T00:19:59Z",
+      "started_at": "2026-10-28T00:20:01Z",
+      "completed_at": "2026-10-28T00:20:05Z",
+      "name": "Close Resolved Production Deploy Incidents",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-28T00:20:02Z",
+          "completed_at": "2026-10-28T00:20:02Z"
+        },
+        {
+          "name": "Close resolved deploy incidents",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-28T00:20:02Z",
+          "completed_at": "2026-10-28T00:20:03Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-28T00:20:03Z",
+          "completed_at": "2026-10-28T00:20:03Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122552495062",
+      "labels": ["ubuntu-latest"],
+      "runner_id": 1000217506,
+      "runner_name": "GitHub Actions 1000217506",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 122552497036,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciLKzjA",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122552497036",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122552497036",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:19:59Z",
+      "started_at": "2026-10-28T00:19:59Z",
+      "completed_at": "2026-10-28T00:19:59Z",
+      "name": "Dispatch Ephemeral Verification",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122552497036",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122552497194,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciLK0Kg",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122552497194",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122552497194",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:19:59Z",
+      "started_at": "2026-10-28T00:19:59Z",
+      "completed_at": "2026-10-28T00:19:59Z",
+      "name": "Record Staging Release Health",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122552497194",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122552497347,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciLK0ww",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122552497347",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122552497347",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:19:59Z",
+      "started_at": "2026-10-28T00:19:59Z",
+      "completed_at": "2026-10-28T00:19:59Z",
+      "name": "Notify Production Rollback Incident",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122552497347",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 122552497563,
+      "run_id": 40605810706,
+      "workflow_name": "Platform Deploy",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/40605810706",
+      "run_attempt": 1,
+      "node_id": "CR_kwDORKgVcc8AAAAciLK1mw",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+      "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/122552497563",
+      "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122552497563",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-28T00:19:59Z",
+      "started_at": "2026-10-28T00:19:59Z",
+      "completed_at": "2026-10-28T00:19:59Z",
+      "name": "Notify Production Deploy Incident",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/122552497563",
+      "labels": ["ubuntu-latest"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    }
+  ]
+}

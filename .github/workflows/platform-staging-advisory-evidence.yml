@@ -568,6 +568,7 @@ jobs:
             appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value ?? "").replaceAll(/[\r\n]+/g, " ")}\n`);
           const activeRunStatuses = new Set(["requested", "pending", "queued", "in_progress", "waiting"]);
           const activeJobStatuses = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+          const nonExecutingTerminalConclusions = new Set(["skipped"]);
           const productionStagingJobs = new Set(["Reconcile Managed Postgres CA (staging)", "Deploy Staging"]);
           const members = [
             "platform-preview-wildcard-tls.yml",
@@ -696,7 +697,8 @@ jobs:
                 for (const job of jobs) {
                   const started = parseTime(job.started_at);
                   const completed = parseTime(job.completed_at);
-                  if (started === null || (completed !== null && completed < started)) throw new Error(`GitHub authority job census returned unsafe timestamps for ${workflow} run ${run.id}`);
+                  const nonExecuting = job.status === "completed" && nonExecutingTerminalConclusions.has(job.conclusion);
+                  if (!nonExecuting && (started === null || (completed !== null && completed < started))) throw new Error(`GitHub authority job census returned unsafe timestamps for ${workflow} run ${run.id}`);
                   const active = activeJobStatuses.has(job.status) || (activeRunStatuses.has(run.status) && completed === null && !job.conclusion);
                   const overlap = started < to && (completed === null || completed > from);
                   if (active && overlap) staleReason ||= `${workflow} run ${run.id} remained active at publication`;
