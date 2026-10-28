@@ -38,6 +38,7 @@ import {
   UnresolvedPostWriteTokenError,
 } from "./http";
 import { verifyPlatformInternalAuthSecret } from "./internal-auth";
+import { publicClientRequestKey } from "@chase-sets/http/rate-limit";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
 
 let unregisterPostWriteTelemetry: (() => void) | null = null;
@@ -245,6 +246,91 @@ describe("readOffsetPageParams", () => {
 });
 
 describe("createForwardedAuthHeaders", () => {
+  it("trusted forwarded client identity matrix", async () => {
+    const nowMs = Date.now();
+    const receipt = {
+      observedAtMs: nowMs,
+      sources: [{ sourceContextName: "auth", maxGlobalPosition: "7", eventIds: ["evt_auth_7"] }],
+    };
+    const cases: Array<{ trust: boolean; incoming: Record<string, string>; expected: string | null }> = [
+      {
+        trust: true,
+        incoming: {
+          "x-forwarded-for": "203.0.113.250, 198.51.100.10, 10.0.0.2",
+          "x-real-ip": "203.0.113.251",
+          "cf-connecting-ip": "203.0.113.252",
+        },
+        expected: "198.51.100.10",
+      },
+      { trust: true, incoming: { "x-real-ip": "198.51.100.11" }, expected: "198.51.100.11" },
+      { trust: true, incoming: { "cf-connecting-ip": "203.0.113.252" }, expected: null },
+      { trust: true, incoming: {}, expected: null },
+      {
+        trust: false,
+        incoming: {
+          "x-forwarded-for": "203.0.113.250",
+          "x-real-ip": "203.0.113.251",
+          "cf-connecting-ip": "203.0.113.252",
+        },
+        expected: null,
+      },
+    ];
+    for (const row of cases) {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, String(row.trust));
+      const request = new Request("http://web.internal/sign-in", {
+        headers: new Headers({
+          ...row.incoming,
+          cookie: "session=synthetic",
+          authorization: "Bearer synthetic",
+          [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt),
+          "x-forwarded-host": "marketplace.chasesets.test",
+          "x-forwarded-proto": "https",
+        }),
+      });
+      const initHeaders = {
+        "x-forwarded-for": "192.0.2.200",
+        "x-real-ip": "192.0.2.201",
+        "cf-connecting-ip": "192.0.2.202",
+        "x-caller-header": "preserved",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt),
+      };
+      const options = { nowMs, readTargetContextName: "auth" };
+      let captured: RequestInit | undefined;
+      const fetchImpl: typeof globalThis.fetch = async (_input, init) => {
+        captured = init;
+        return new Response();
+      };
+      await createForwardedAuthFetch(
+        request,
+        fetchImpl,
+        options,
+      )("http://api.internal/api/auth", { headers: initHeaders });
+      const variants = [
+        createForwardedAuthHeaders(request, initHeaders, options),
+        await createForwardedAuthHeadersAsync(request, initHeaders, options),
+        new Headers(captured?.headers),
+      ];
+      for (const headers of variants) {
+        expect(headers.get("x-forwarded-for")).toBe(row.expected);
+        expect(headers.has("x-real-ip")).toBe(false);
+        expect(headers.has("cf-connecting-ip")).toBe(false);
+        // Missing or untrusted identity deliberately retains the shared local fallback.
+        expect(publicClientRequestKey(new Request("http://api.internal", { headers }))).toBe(row.expected ?? "local");
+        expect(headers.get("cookie")).toBe("session=synthetic");
+        expect(headers.get("authorization")).toBe("Bearer synthetic");
+        expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), nowMs)).toEqual(receipt);
+        expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("auth");
+        expect(headers.get("x-forwarded-host")).toBe(row.trust ? "marketplace.chasesets.test" : "web.internal");
+        expect(headers.get("x-forwarded-proto")).toBe("https");
+        expect(headers.get("x-caller-header")).toBe("preserved");
+      }
+      expect(captured?.credentials).toBe("include");
+      expect(
+        createForwardedAuthHeaders(request, initHeaders, { trustForwardedHeaders: false }).has("x-forwarded-for"),
+      ).toBe(false);
+    }
+  });
+
   it("forwards auth and read-after-write headers for route API clients", () => {
     const observedAtMs = Date.now();
     const href = appendFreshWriteToken(

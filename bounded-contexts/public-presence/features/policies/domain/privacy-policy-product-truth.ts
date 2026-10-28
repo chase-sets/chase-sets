@@ -172,8 +172,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-session",
     "chase_sets_session",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:62-65",
-      "bounded-contexts/auth/support/auth-support/http.ts:69-72",
+      "bounded-contexts/auth/support/auth-support/http.ts:63-66",
+      "bounded-contexts/auth/support/auth-support/http.ts:70-73",
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ],
@@ -183,8 +183,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-account-selection",
     "chase_sets_account_selection",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:81-84",
-      "bounded-contexts/auth/support/auth-support/http.ts:88-91",
+      "bounded-contexts/auth/support/auth-support/http.ts:82-85",
+      "bounded-contexts/auth/support/auth-support/http.ts:89-92",
       "bounded-contexts/auth/support/request-support/cookies.ts:2",
     ],
     "Auth sets and clears a first-party cookie named chase_sets_account_selection that carries the selected-account token.",
@@ -193,7 +193,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-guest-checkout",
     "chase_sets_guest_checkout",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:95-98",
+      "bounded-contexts/auth/support/auth-support/http.ts:96-99",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:80-83",
       "contracts/auth-context/index.ts:4",
     ],
