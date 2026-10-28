@@ -109,6 +109,10 @@
   "account_home": {
     "pending": "Your profile is still updating. This page reads it again in a moment."
   },
+  "security": {
+    "pending": "Your security details are still updating. This page reads them again in a moment.",
+    "pending_secret": "Your API keys are still updating. Reload this page after you have stored the secret."
+  },
   "listing_new": {
     "find": "Find",
     "choose": "Choose",

@@ -66,6 +66,10 @@
 //   .accountBadges.* as badges.*, the account types, statuses and membership roles Identity's value labels
 //   use, their unrecognized words, Identity's account-management states, identity.accountManagement.*, as
 //   manage.*, identity.support.routeSupport.accountActionErrors.* as action.*, and the route's title).
+// - marketplace/locales/security.en.json: the security page's English catalog
+//   (identity.features.apiKeys.ui.accountSecurityPage.* as page.*, .apiKeySecretReveal.* as reveal.*, the API
+//   key statuses' words as key_status.*, the user name labels, the authentication methods, their families,
+//   the unrecognized words, identity.accountManagement.* as manage.*, the action errors, and the route's title).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -560,6 +564,29 @@ const outputs = [
         ["identity.accountManagement.", "manage"],
         ["identity.support.routeSupport.accountActionErrors.", "action"],
         ["identity.routes.marketplace.account.account.marketplace", "route.title"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/security.en.json",
+    json(
+      await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.features.apiKeys.ui.accountSecurityPage.", "page"],
+        ["identity.features.apiKeys.ui.apiKeySecretReveal.", "reveal"],
+        ["identity.features.apiKeys.ui.apiKeyListPage.status.filter.active", "key_status.active"],
+        ["identity.features.apiKeys.ui.apiKeyListPage.status.filter.revoked", "key_status.revoked"],
+        ["identity.features.users.ui.userDetailPage.display.name", "user.display_name"],
+        ["identity.features.users.ui.userDetailPage.given.name", "user.given_name"],
+        ["identity.features.users.ui.userDetailPage.family.name", "user.family_name"],
+        ["identity.values.authenticationMethod.", "method"],
+        ["identity.values.family.apiKeyStatus", "family.api_key_status"],
+        ["identity.values.family.authenticationMethod", "family.authentication_method"],
+        ["identity.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["identity.values.unrecognized", "value.unrecognized"],
+        ["identity.values.date.unavailable", "value.date_unavailable"],
+        ["identity.accountManagement.", "manage"],
+        ["identity.support.routeSupport.accountActionErrors.", "action"],
+        ["identity.routes.marketplace.accountSecurity.security.marketplace", "route.title"],
       ]),
     ),
   ],

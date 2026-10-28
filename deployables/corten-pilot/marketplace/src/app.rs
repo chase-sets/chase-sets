@@ -27,6 +27,7 @@
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /account?<place>`, `POST /account` | the account's own page and its profile's update (see `account_home`) |
+//! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -79,6 +80,9 @@ pub const PRICING_MANAGE: &str = "pricing.manage";
 /// The seller's offer matches: to see them, and to add one to the sell list or decline it.
 pub const OFFERS_VIEW: &str = "offers.view";
 pub const OFFERS_MANAGE: &str = "offers.manage";
+/// The user's security page: to see it, update the user's names, and create, rotate or revoke its
+/// API keys (Identity's `account-security` loader and action).
+pub const SECURITY_MANAGE: &str = "security.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
 pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
@@ -136,6 +140,7 @@ pub mod url {
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
+    pub use security::Security;
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
@@ -495,6 +500,21 @@ pub mod url {
         #[route("/account/notifications/product-alerts/{id}", post = crate::notifications::change_alert)]
         pub struct ProductAlertChange<'a> {
             pub id: &'a str,
+        }
+    }
+
+    /// The user's security page (Identity's `account-security`): its names and its API keys. Every
+    /// write posts to the page itself, which answers a key's create or rotate with its secret, so
+    /// a reload asks the API again (which then says the secret cannot be shown) instead of
+    /// loading another address. Every handler takes a `SecurityOwner` (`security.manage`).
+    #[corten::routes(state = crate::app::Shared, area = Security, caller = crate::auth::SecurityOwner)]
+    pub mod security {
+        /// The page, read after the write whose receipt it carries, and its writes.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/security", get = crate::security::page, post = crate::security::write)]
+        pub struct Security {
+            #[route(query)]
+            pub place: crate::security::Place,
         }
     }
 
@@ -895,6 +915,7 @@ const AREAS: &[&str] = &[
     <url::inventory::Inventory as corten::route::Prefix>::PREFIX,
     <url::notifications::Notifications as corten::route::Prefix>::PREFIX,
     <url::addresses::ShippingAddresses as corten::route::Prefix>::PREFIX,
+    <url::security::Security as corten::route::Prefix>::PREFIX,
     <url::new_listing::NewListing as corten::route::Prefix>::PREFIX,
     <url::seller_listings::SellerListings as corten::route::Prefix>::PREFIX,
     <url::desk::Desk as corten::route::Prefix>::PREFIX,
@@ -960,6 +981,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
+        .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
         .area(|area| {

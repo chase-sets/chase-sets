@@ -17,8 +17,8 @@ use crate::{
     api::Identity,
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE, PRICING_VIEW, Shared, VIEW, sign_in_at,
-        sign_in_back_to,
+        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE, PRICING_VIEW, SECURITY_MANAGE, Shared,
+        VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -223,6 +223,23 @@ impl Identify<Shared> for AccountOwner {
         let permission = if parts.method.is_safe() { ACCOUNTS_VIEW } else { ACCOUNTS_MANAGE };
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(AccountOwner(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A user on its security page (`/account/security`): reading and every write need
+/// `security.manage`, as Identity's loader and action require (the API checks it again). Anyone
+/// not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct SecurityOwner(pub Viewer);
+
+impl Identify<Shared> for SecurityOwner {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(SECURITY_MANAGE) => Ok(SecurityOwner(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

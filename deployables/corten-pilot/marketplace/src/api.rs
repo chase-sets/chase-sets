@@ -3276,7 +3276,7 @@ pub struct SuggestedAddress {
 }
 
 /// An Identity account-management write the pilot sends (`MutationAction`): the address book's
-/// four, and the account's profile.
+/// four, the account's profile, and the security page's user profile and API key writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountAction {
@@ -3285,6 +3285,10 @@ pub enum AccountAction {
     Default,
     Archive,
     UpdateProfile,
+    UpdateUser,
+    CreateApiKey,
+    RotateApiKey,
+    RevokeApiKey,
 }
 
 impl AccountAction {
@@ -3295,6 +3299,10 @@ impl AccountAction {
             AccountAction::Default => "default",
             AccountAction::Archive => "archive",
             AccountAction::UpdateProfile => "update-profile",
+            AccountAction::UpdateUser => "update-user",
+            AccountAction::CreateApiKey => "create-api-key",
+            AccountAction::RotateApiKey => "rotate-api-key",
+            AccountAction::RevokeApiKey => "revoke-api-key",
         }
     }
 }
@@ -3436,7 +3444,13 @@ impl Addresses for Caller<'_> {
             AccountAction::Update => (Method::PUT, format!("{book}/{target}")),
             AccountAction::Default => (Method::POST, format!("{book}/{target}/default")),
             AccountAction::Archive => (Method::POST, format!("{book}/{target}/archive")),
-            AccountAction::UpdateProfile => unreachable!("a profile is not in the address book: AccountCalls::update_profile"),
+            AccountAction::UpdateProfile
+            | AccountAction::UpdateUser
+            | AccountAction::CreateApiKey
+            | AccountAction::RotateApiKey
+            | AccountAction::RevokeApiKey => {
+                unreachable!("not in the address book: AccountCalls::update_profile, SecurityCalls")
+            }
         };
         let req = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt);
         let req = match command {
@@ -3548,6 +3562,247 @@ impl AccountCalls for Caller<'_> {
         let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
         let body = res.text().await?;
         AccountAnswer::read(status, &body, receipt)
+    }
+}
+
+/// The signed-in user (Identity's `User`), the fields the security page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SecurityUser {
+    pub user_id: String,
+    pub display_name: String,
+    pub given_name: String,
+    pub family_name: String,
+    pub auth_methods: Vec<String>,
+    pub updated_at: String,
+}
+
+/// An API key (Identity's `ApiKey`), never its secret.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ApiKey {
+    pub api_key_id: String,
+    pub user_id: String,
+    pub name: String,
+    pub key_prefix: String,
+    pub status: String,
+    pub last_used_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Deserialize)]
+struct ApiKeyList {
+    #[serde(default)]
+    items: Vec<ApiKey>,
+}
+
+/// What a user profile update sends (the `update-user` action's three fields, as typed).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserCommand {
+    pub display_name: String,
+    pub given_name: String,
+    pub family_name: String,
+}
+
+/// What a key's create or rotate said about its secret. The secret is in this answer only: the
+/// API keeps its hash, and its attempt lookup never returns it.
+#[derive(Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum KeySecret {
+    /// Nothing to show (any other write, or no secret in the answer).
+    #[default]
+    None,
+    /// The new secret of `key`, this once.
+    Issued { key: String, secret: String },
+    /// The write was recorded before (a repeated attempt): its secret cannot be shown again.
+    Unrecoverable,
+}
+
+/// Never the secret, so a log line cannot carry it.
+impl std::fmt::Debug for KeySecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KeySecret::None => f.write_str("None"),
+            KeySecret::Issued { key, .. } => f.debug_struct("Issued").field("key", key).finish_non_exhaustive(),
+            KeySecret::Unrecoverable => f.write_str("Unrecoverable"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SecretBody {
+    newly_committed: Option<bool>,
+    secret: Option<String>,
+    secret_state: Option<String>,
+    current: Option<SecretOwner>,
+}
+
+#[derive(Deserialize)]
+struct SecretOwner {
+    id: Option<String>,
+}
+
+/// The longest secret marketplace takes (`validateCommittedResult`).
+const SECRET_MAX: usize = 200;
+
+/// `answer` and the secret its `body` carries, as marketplace's `clientResult` reads them: a
+/// secret only on a newly committed create or rotate, at most 200 characters, with the key's id;
+/// anything else carrying one cannot be trusted, and is `Indeterminate`. A lookup (`lookup`)
+/// never carries the secret, so one that does is `Indeterminate` too.
+fn key_secret(action: AccountAction, answer: AccountAnswer, body: &str, lookup: bool) -> (AccountAnswer, KeySecret) {
+    if !matches!(answer, AccountAnswer::Committed(_)) {
+        return (answer, KeySecret::None);
+    }
+    let Ok(body) = serde_json::from_str::<SecretBody>(body) else { return (answer, KeySecret::None) };
+    let issues = matches!(action, AccountAction::CreateApiKey | AccountAction::RotateApiKey);
+    match (body.secret, body.secret_state.as_deref()) {
+        (Some(secret), None)
+            if !lookup && issues && body.newly_committed == Some(true) && !secret.is_empty() && secret.len() <= SECRET_MAX =>
+        {
+            match body.current.and_then(|c| c.id).filter(|id| !id.is_empty()) {
+                Some(key) => (answer, KeySecret::Issued { key, secret }),
+                None => (AccountAnswer::Indeterminate, KeySecret::None),
+            }
+        }
+        (Some(_), _) => (AccountAnswer::Indeterminate, KeySecret::None),
+        (None, Some("committed-secret-unrecoverable")) if issues && body.newly_committed != Some(true) => {
+            (answer, KeySecret::Unrecoverable)
+        }
+        (None, Some(_)) => (AccountAnswer::Indeterminate, KeySecret::None),
+        (None, None) => (answer, KeySecret::None),
+    }
+}
+
+/// The security page (Identity's `users/{user}` and `api-keys`), as the signed-in user, and its
+/// writes, account-management attempts like the address book's.
+pub trait SecurityCalls {
+    async fn user(&self, user: &str) -> Result<SecurityUser, ApiError>;
+    /// The user's keys. Identity filters the list by `search`, which it matches against the key's
+    /// name too, so only the keys whose `user_id` is `user` are kept (chase-sets/chase-sets#10695).
+    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError>;
+    /// Send the user's profile as `attempt`. A call with no answer is `Err(ApiError::Transport)`.
+    async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError>;
+    /// Create a key named `name` for `user` (`target` none), or rotate or revoke `target`, as
+    /// `attempt`; with the secret a create or rotate issued.
+    async fn write_key(
+        &self,
+        user: &str,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+        name: Option<&str>,
+    ) -> Result<(AccountAnswer, KeySecret), ApiError>;
+    /// What came of a security write's `attempt`: never its secret, but whether it is lost.
+    async fn security_attempt(
+        &self,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+    ) -> Result<(AccountAnswer, KeySecret), ApiError>;
+}
+
+impl SecurityCalls for Caller<'_> {
+    async fn user(&self, user: &str) -> Result<SecurityUser, ApiError> {
+        self.read(&format!("/api/identity/users/{}", segment(user)), IDENTITY).await
+    }
+
+    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError> {
+        let list: ApiKeyList = self.read(&format!("/api/identity/api-keys?search={}", segment(user)), IDENTITY).await?;
+        Ok(list.items.into_iter().filter(|key| key.user_id == user).collect())
+    }
+
+    async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError> {
+        let path = format!("/api/identity/users/{}", segment(user));
+        let res = self.request(Method::PUT, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).json(command).send().await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let body = res.text().await?;
+        AccountAnswer::read(status, &body, receipt)
+    }
+
+    async fn write_key(
+        &self,
+        user: &str,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+        name: Option<&str>,
+    ) -> Result<(AccountAnswer, KeySecret), ApiError> {
+        let key = target.map(segment).unwrap_or_default();
+        let (path, body) = match action {
+            AccountAction::CreateApiKey => {
+                ("/api/identity/api-keys".to_owned(), serde_json::json!({ "userId": user, "name": name.unwrap_or_default() }))
+            }
+            AccountAction::RotateApiKey => (format!("/api/identity/api-keys/{key}/rotate"), serde_json::json!({})),
+            AccountAction::RevokeApiKey => (format!("/api/identity/api-keys/{key}/revoke"), serde_json::json!({})),
+            _ => unreachable!("not a key write: {}", action.as_str()),
+        };
+        let res = self.request(Method::POST, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).json(&body).send().await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let text = res.text().await?;
+        let answer = AccountAnswer::read(status, &text, receipt)?;
+        Ok(key_secret(action, answer, &text, false))
+    }
+
+    async fn security_attempt(
+        &self,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+    ) -> Result<(AccountAnswer, KeySecret), ApiError> {
+        let mut path = format!("{ACCOUNT_ATTEMPTS}?action={}", action.as_str());
+        if let Some(target) = target {
+            path.push_str(&format!("&target={}", segment(target)));
+        }
+        let res = self.request(Method::GET, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).send().await?;
+        let status = res.status().as_u16();
+        let text = res.text().await?;
+        let answer = AccountAnswer::read(status, &text, None)?;
+        Ok(key_secret(action, answer, &text, true))
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    const ISSUED: &str = r#"{"outcome":"committed","newlyCommitted":true,"current":{"id":"key_1","version":1,"status":"active"},"secret":"key_live_abcdefghijklmnop"}"#;
+
+    #[test]
+    fn a_new_secret_is_read_once_and_never_from_a_lookup() {
+        let committed = AccountAnswer::Committed(None);
+        let (answer, secret) = key_secret(AccountAction::CreateApiKey, committed.clone(), ISSUED, false);
+        assert_eq!(answer, committed);
+        assert_eq!(secret, KeySecret::Issued { key: "key_1".into(), secret: "key_live_abcdefghijklmnop".into() });
+        assert!(!format!("{secret:?}").contains("abcdef"), "Debug never prints the secret");
+        let (answer, secret) = key_secret(AccountAction::CreateApiKey, committed.clone(), ISSUED, true);
+        assert_eq!((answer, secret), (AccountAnswer::Indeterminate, KeySecret::None), "a lookup with a secret is ambiguous");
+        let (answer, _) = key_secret(AccountAction::RevokeApiKey, committed.clone(), ISSUED, false);
+        assert_eq!(answer, AccountAnswer::Indeterminate, "a revoke never issues one");
+        let replayed = ISSUED.replace(r#""newlyCommitted":true"#, r#""newlyCommitted":false"#);
+        let (answer, _) = key_secret(AccountAction::RotateApiKey, committed.clone(), &replayed, false);
+        assert_eq!(answer, AccountAnswer::Indeterminate, "only a new commit carries one");
+        let long = ISSUED.replace("key_live_abcdefghijklmnop", &"k".repeat(201));
+        assert_eq!(key_secret(AccountAction::CreateApiKey, committed.clone(), &long, false).0, AccountAnswer::Indeterminate);
+        let lost = r#"{"outcome":"committed","newlyCommitted":false,"secretState":"committed-secret-unrecoverable"}"#;
+        assert_eq!(
+            key_secret(AccountAction::CreateApiKey, committed.clone(), lost, true),
+            (committed.clone(), KeySecret::Unrecoverable)
+        );
+        let plain = r#"{"outcome":"committed","newlyCommitted":true}"#;
+        assert_eq!(key_secret(AccountAction::RevokeApiKey, committed.clone(), plain, false), (committed, KeySecret::None));
+        let refused = AccountAnswer::Conflict;
+        assert_eq!(key_secret(AccountAction::CreateApiKey, refused.clone(), ISSUED, false), (refused, KeySecret::None));
+    }
+
+    #[test]
+    fn a_user_profile_is_sent_as_typed() {
+        let command = UserCommand { display_name: " Ada ".into(), given_name: "Ada".into(), family_name: String::new() };
+        assert_eq!(
+            serde_json::to_value(command).unwrap(),
+            serde_json::json!({ "displayName": " Ada ", "givenName": "Ada", "familyName": "" })
+        );
     }
 }
 

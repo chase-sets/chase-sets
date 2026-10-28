@@ -43,6 +43,7 @@ mod page_actions;
 mod recovery;
 mod repricing_page;
 mod search_page;
+mod security_page;
 mod seller_listing_page;
 mod seller_listings_page;
 mod set_page;
@@ -75,6 +76,7 @@ pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, repricing_dry_run_part};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
+pub use security_page::SecurityPage;
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use set_page::SetPage;
@@ -134,6 +136,11 @@ pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
 /// The account's shipping addresses (`/account/shipping-addresses`): its stylesheet, and corten-ui's
 /// handler that makes a refused update's dialog modal.
 pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT];
+
+/// The user's security page (`/account/security`): its stylesheet and the script that copies a new
+/// secret (corten-ui has no copy control, todd-skelton/corten#244). Revoke's dialog opens with
+/// `command="show-modal"`, which needs no script.
+pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMPONENT];
 
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];

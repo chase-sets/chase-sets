@@ -24,24 +24,29 @@ pub struct ProfileFormId;
 /// Identity's `formatMachineValue`: the word for a known value, else "Unrecognized {family}"
 /// with the value humanized when it is a plain token.
 fn machine(known: Option<&'static str>, t: AccountHomeMsg, family: &str, value: &str) -> String {
-    if let Some(word) = known {
-        return word.to_owned();
+    match (known, humanized(value)) {
+        (Some(word), _) => word.to_owned(),
+        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, None) => t.value_unrecognized(family).to_string(),
     }
+}
+
+/// An unknown machine value as Identity shows it (`humanizeMachineToken`), when it is a plain
+/// token (`safeMachineToken`): `new-thing` is "New Thing".
+pub(super) fn humanized(value: &str) -> Option<String> {
     let token = !value.is_empty()
         && value.len() <= 40
         && value.split('-').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
-    if token {
-        let human: Vec<String> = value
+    token.then(|| {
+        value
             .split('-')
             .map(|part| {
                 let mut chars = part.chars();
                 chars.next().map(|c| c.to_ascii_uppercase().to_string() + chars.as_str()).unwrap_or_default()
             })
-            .collect();
-        t.value_unrecognized_with_value(family, &human.join(" ")).to_string()
-    } else {
-        t.value_unrecognized(family).to_string()
-    }
+            .collect::<Vec<_>>()
+            .join(" ")
+    })
 }
 
 pub fn account_type(t: AccountHomeMsg, value: &str) -> String {

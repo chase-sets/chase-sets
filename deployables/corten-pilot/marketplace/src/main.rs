@@ -34,6 +34,7 @@ mod repricing;
 mod restock;
 mod saving;
 mod search;
+mod security;
 mod seller_listing;
 mod seller_listings;
 mod selling;

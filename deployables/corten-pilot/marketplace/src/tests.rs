@@ -390,6 +390,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "tracker" => actor(&["fulfillment.view"]),
             // An account that may change its shipping addresses (`watcher` may only read them).
             "addresser" => actor(&["accounts.view", "accounts.manage"]),
+            // A user on its security page: its names and API keys.
+            "guard" => actor(&["security.manage"]),
             // The Seller Desk's repricing: `pricer` may change policies, `price_reader` may only
             // read them (and its halt is engaged).
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
@@ -5783,6 +5785,9 @@ fn identity(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     let indeterminate = || {
         (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
     };
+    if let Some(answer) = identity_security(method, uri, headers, attempt, body) {
+        return Some(answer);
+    }
     if let Some(answer) = identity_account(method, path, headers, attempt, body) {
         return Some(answer);
     }
@@ -6045,6 +6050,283 @@ async fn a_profile_update_without_an_answer_is_asked_about_and_one_that_cannot_b
     );
     let form = html.find(r#"action="/account""#).unwrap();
     assert!(html[form..].split("</form>").next().unwrap().contains("disabled"), "Update Profile is held: {html}");
+}
+
+const USER_API: &str = "/api/identity/users/usr_seller";
+const KEYS_API: &str = "/api/identity/api-keys";
+const SECURITY: &str = "/account/security";
+/// The stand-in's one-time secret: never a real one.
+const STAND_IN_SECRET: &str = "key_stand_in_secret_0001";
+
+/// An Identity key write's committed answer for `id`, with a receipt at 42 and, for a create or
+/// rotate, the secret.
+fn key_committed(id: &str, secret: bool) -> Response {
+    let mut body =
+        json!({ "outcome": "committed", "newlyCommitted": true, "current": { "id": id, "version": 2, "status": "active" } });
+    if secret {
+        body["secret"] = json!(STAND_IN_SECRET);
+    }
+    committed(StatusCode::OK, "identity", "42", body)
+}
+
+/// The stand-in Identity user `usr_seller` and the API keys: Shop sync (active), Old feed
+/// (revoked), and another user's key whose name holds `usr_seller`, which Identity's `search`
+/// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
+/// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
+/// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
+/// cannot say. A display name `Refused` is refused; a key named `Taken` is a conflict.
+fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
+    let path = uri.path();
+    let indeterminate = || {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
+    };
+    let catching_up = || {
+        refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        )
+    };
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if path == "/api/identity/account-management/attempts" {
+        let action = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("action=")).unwrap_or_default();
+        if !matches!(action, "update-user" | "create-api-key" | "rotate-api-key" | "revoke-api-key") {
+            return None;
+        }
+        return Some(match attempt {
+            APPLIED_BEFORE if matches!(action, "create-api-key" | "rotate-api-key") => Json(json!({
+                "outcome": "committed", "newlyCommitted": false, "current": { "id": "key_live", "version": 2, "status": "active" },
+                "destination": "/account/security", "secretState": "committed-secret-unrecoverable",
+            }))
+            .into_response(),
+            APPLIED_BEFORE => Json(json!({ "outcome": "committed", "newlyCommitted": false, "destination": "/account/security" })).into_response(),
+            CHECK_DOWN => Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })).into_response(),
+            _ => Json(json!({ "outcome": "not-recorded", "code": "not-recorded" })).into_response(),
+        });
+    }
+    if path == USER_API {
+        return Some(match method.as_str() {
+            "GET" if waits_for(headers).as_deref() == Some("45") => catching_up(),
+            "GET" => Json(json!({
+                "user_id": "usr_seller", "display_name": "Synthetic Seller", "given_name": "Syn", "family_name": "Seller",
+                "primary_email": "seller@chasesets.test", "status": "active", "contact_methods": [],
+                "auth_methods": ["password", "passkey", "hardware-token"], "updated_at": "2026-10-24T03:53:46.180Z",
+            }))
+            .into_response(),
+            "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            "PUT" if sent["displayName"] == "Refused" => {
+                (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
+            }
+            "PUT" => committed(
+                StatusCode::OK,
+                "identity",
+                "42",
+                json!({ "outcome": "committed", "newlyCommitted": true, "current": { "id": "usr_seller", "version": 2, "status": "active" } }),
+            ),
+            _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        });
+    }
+    let rest = path.strip_prefix(KEYS_API)?;
+    let key = |id: &str, user: &str, name: &str, status: &str| json!({ "api_key_id": id, "user_id": user, "name": name, "key_prefix": "key_abcdefgh", "status": status, "last_used_at": null, "updated_at": "2026-10-24T03:53:46.180Z" });
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
+        ("GET", "") => {
+            let items = [
+                key("key_live", "usr_seller", "Shop sync", "active"),
+                key("key_old", "usr_seller", "Old feed", "revoked"),
+                key("key_else", "usr_other", "usr_seller backup", "active"),
+            ];
+            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+        }
+        _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+        ("POST", "") if sent["name"] == "Taken" => {
+            (StatusCode::CONFLICT, Json(json!({ "outcome": "conflict", "code": "attempt-hash-conflict" }))).into_response()
+        }
+        ("POST", "") => key_committed("key_new", true),
+        ("POST", "/key_live/rotate") => key_committed("key_live", true),
+        ("POST", "/key_live/revoke") => key_committed("key_live", false),
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// The security writes the pilot sent: method, path, attempt and body.
+fn security_writes(pilot: &Pilot) -> Vec<(Method, String, String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| (c.path.starts_with(KEYS_API) || c.path == USER_API) && c.method != Method::GET)
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.method.clone(), c.path.clone(), attempt, serde_json::from_str(&c.body).unwrap_or_default())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_security_page_needs_security_manage() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(SECURITY, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "accounts.manage is not security.manage");
+    let (status, headers, _) = pilot.send(get(SECURITY, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fsecurity"), "{headers:?}");
+    let body = format!("intent=create-api-key&attempt={ATTEMPT}&name=CI&purpose=integration");
+    let (status, _, _) = pilot.send(post(SECURITY, "addresser", &body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(security_writes(&pilot).is_empty(), "nothing is sent for who may not write");
+}
+
+#[tokio::test]
+async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SECURITY, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(html.contains("<title>Security | Marketplace</title>"), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="given_name" value="Syn""#) && html.contains(r#"name="family_name" value="Seller""#), "{html}");
+    assert!(
+        shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
+        "an unknown method is named as Identity names it: {shown}"
+    );
+    assert!(shown.contains("API Keys 1 2 total keys tracked"), "another user's key is not counted: {shown}");
+    assert!(!shown.contains("usr_seller backup"), "another user's key is not shown: {shown}");
+    assert!(shown.contains("Shop sync (Active), Old feed (Revoked)"), "{shown}");
+    assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
+    assert_eq!(html.matches(r#"value="rotate-api-key""#).count(), 1, "only an active key rotates: {html}");
+    assert_eq!(html.matches(r#"value="revoke-api-key""#).count(), 1, "{html}");
+    assert!(html.contains(r#"command="show-modal""#), "Revoke asks first: {html}");
+    assert!(shown.contains("Revoke Shop sync?"), "{shown}");
+    assert!(html.contains("/account/sessions\""), "Manage sessions is marketplace's: {html}");
+    assert!(!html.contains("data-value"), "nothing to copy without a secret: {html}");
+}
+
+#[tokio::test]
+async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=create-api-key&attempt={ATTEMPT}&name=+CI+feed&purpose=integration");
+    let (status, headers, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::OK, "answered by the page, not a redirect: {html}");
+    assert!(headers["cache-control"].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert!(text(&html).contains("API key secret created"), "{}", text(&html));
+    assert!(html.contains(&format!("<code>{STAND_IN_SECRET}</code>")), "{html}");
+    assert!(
+        html.contains(&format!(r#"data-value="{STAND_IN_SECRET}""#)) && html.contains("hidden"),
+        "Copy is the script's: {html}"
+    );
+    assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
+    let writes = security_writes(&pilot);
+    assert_eq!(writes.len(), 1);
+    assert_eq!((writes[0].0.as_str(), writes[0].1.as_str(), writes[0].2.as_str()), ("POST", KEYS_API, ATTEMPT));
+    assert_eq!(writes[0].3, json!({ "userId": "usr_seller", "name": " CI feed" }), "the name as typed");
+
+    let body = format!("intent=rotate-api-key&attempt={ATTEMPT}&api_key_id=key_live");
+    let (status, headers, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers["cache-control"].to_str().unwrap().contains("no-store"));
+    assert!(text(&html).contains("API key secret rotated"), "{}", text(&html));
+    assert_eq!(security_writes(&pilot)[1].1, "/api/identity/api-keys/key_live/rotate");
+
+    let (status, headers, _) = pilot.send(get(SECURITY, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!headers["cache-control"].to_str().unwrap().contains("no-store"), "the page itself is the default's");
+}
+
+#[tokio::test]
+async fn a_profile_update_or_a_revoke_is_read_after_its_write() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=New+Name&given_name=&family_name=Seller");
+    let (status, headers, _) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/security?"), "{to}");
+    assert_eq!(query(&to)["saved"], ATTEMPT);
+    assert!(query(&to)["after_write"].contains("\"commitPosition\":\"42\""), "{to}");
+    let writes = security_writes(&pilot);
+    assert_eq!((writes[0].0.as_str(), writes[0].1.as_str()), ("PUT", USER_API));
+    assert_eq!(writes[0].3, json!({ "displayName": "New Name", "givenName": "", "familyName": "Seller" }));
+    let (status, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
+
+    let body = format!("intent=revoke-api-key&attempt={ATTEMPT}&api_key_id=key_live");
+    let (status, headers, _) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a revoke has no secret to show");
+    assert!(headers["location"].to_str().unwrap().starts_with("/account/security?"));
+    assert_eq!(security_writes(&pilot)[1].1, "/api/identity/api-keys/key_live/revoke");
+
+    let to = format!("{SECURITY}?after_write={}&saved={ATTEMPT}", receipt_at("45"));
+    let (status, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your security details are still updating."), "{}", text(&html));
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_security_write_says_so_and_sends_nothing_it_cannot_name() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=Refused&given_name=&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Some details are invalid."), "{}", text(&html));
+    assert!(html.contains(r#"value="Refused""#), "what was sent is kept: {html}");
+
+    let body = format!("intent=create-api-key&attempt={ATTEMPT}&name=Taken&purpose=integration");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+
+    let sent = security_writes(&pilot).len();
+    for body in [
+        format!("intent=archive&attempt={ATTEMPT}"),
+        format!("intent=rotate-api-key&attempt={ATTEMPT}&api_key_id="),
+        "intent=create-api-key&attempt=not-an-attempt&name=CI".to_owned(),
+    ] {
+        let (status, _, _) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    }
+    assert_eq!(security_writes(&pilot).len(), sent, "none of them is sent");
+}
+
+#[tokio::test]
+async fn a_key_write_without_an_answer_is_asked_about_and_its_lost_secret_is_said() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=create-api-key&attempt={APPLIED_BEFORE}&name=CI&purpose=integration");
+    let (status, headers, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::OK, "the lookup says it was recorded: {html}");
+    assert!(headers["cache-control"].to_str().unwrap().contains("no-store"));
+    let shown = text(&html);
+    assert!(shown.contains("its secret cannot be recovered. Explicitly rotate it"), "{shown}");
+    assert!(!html.contains("<code>"), "a lookup never shows a secret: {html}");
+    let lookup = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.contains("/account-management/attempts"))
+        .cloned()
+        .unwrap();
+    assert_eq!(lookup.path, "/api/identity/account-management/attempts?action=create-api-key");
+
+    let body = format!("intent=rotate-api-key&attempt={CHECK_DOWN}&api_key_id=key_live");
+    let (status, headers, _) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(to, format!("/account/security?check={CHECK_DOWN}&action=rotate-api-key&target=key_live"));
+    let (status, _, html) = pilot.send(get(&to, Some("guard"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result. Do not repeat this action yet."), "{}", text(&html));
+    let rotate = html.find(r#"value="rotate-api-key""#).unwrap();
+    assert!(html[rotate..].split("</form>").next().unwrap().contains("disabled"), "Rotate is held: {html}");
+
+    let body = format!("intent=update-user&attempt={NO_RECORD}&display_name=A&given_name=&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("No change was recorded."), "{}", text(&html));
 }
 
 /// The address writes the pilot sent: method, path under the book, attempt and body.
