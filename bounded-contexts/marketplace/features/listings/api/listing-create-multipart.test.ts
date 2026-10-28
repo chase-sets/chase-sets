@@ -3,11 +3,17 @@ import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { action } from "../../../routes/account-listings-new";
-import { configureMarketplacePostWriteTokenStoreForTests } from "../../../support/route-support/post-write-tokens";
 import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { createAccountListingRoutes } from "./route";
 import type { MarketplaceListingServices } from "./runtime";
+
+vi.mock("@chase-sets/platform-runtime/post-write-token-store", () => ({
+  getDefaultPostWriteTokenStore: () => ({
+    storePostWriteToken: async () => "pwt_photo00000000000000000001",
+    resolvePostWriteToken: async () => null,
+  }),
+}));
 
 const actor: NonNullable<MarketplaceApiEnv["Variables"]["actor"]> = {
   sessionId: "ses_1",
@@ -58,10 +64,8 @@ const supplyItem = {
   acquisition_cost_amount: snapshot.acquisitionCostAmount,
 };
 type StockPath = "existing inventory" | "Listing stock" | "supply fallback";
-let restoreStore: (() => void) | undefined;
 
 afterEach(() => {
-  restoreStore?.();
   vi.unstubAllGlobals();
 });
 
@@ -106,10 +110,6 @@ async function submitPhotoCreate(stockPath: StockPath, intent: string, limits: P
       publishListing,
     } as unknown as MarketplaceListingServices),
   );
-  restoreStore = configureMarketplacePostWriteTokenStoreForTests({
-    storePostWriteToken: async () => "pwt_photo00000000000000000001",
-    resolvePostWriteToken: async () => null,
-  });
   const requests: FormData[] = [];
   const responses: Array<{ status: number; body: unknown }> = [];
   const ensureListingStock = vi.fn(() => Response.json({ snapshot }));

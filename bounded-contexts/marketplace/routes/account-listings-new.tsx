@@ -28,7 +28,9 @@ import {
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
 import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import { MarketplaceListingCreatePage } from "../features/listings/ui/listing-create-page";
-import type { MarketplaceListingPurchaseLimits } from "../features/listings/domain/domain";
+import type { MarketplaceCreateListingInput } from "../features/listings/api/contracts";
+
+type MarketplaceListingPurchaseLimits = NonNullable<MarketplaceCreateListingInput["purchaseLimits"]>;
 
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
