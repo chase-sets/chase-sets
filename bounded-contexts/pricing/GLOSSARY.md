@@ -92,11 +92,9 @@ A **Cash Target** is the `cash-target` goal's amount and window. It prices a por
 
 ## Repricing Preset
 
-A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
-at most two seller knobs and a floor prompt. Saved, versioned authoring intent binds the exact compiler
-and semantic body so a recognized preset reopens with simple controls, including a multi-rule preset's
-trailing default. Without matching intent the policy remains custom; advanced semantic edits remove
-the association without changing the authored rules.
+A **Repricing Preset** compiles a complete Repricing Policy body from at most two seller knobs and a floor prompt.
+Versioned authoring intent binds the exact compiler and semantic body so recognized presets reopen simply, retaining every rule.
+Missing or mismatched intent stays custom; advanced semantic edits remove the association without changing authored rules.
 
 ## Authoring Prerequisites
 
