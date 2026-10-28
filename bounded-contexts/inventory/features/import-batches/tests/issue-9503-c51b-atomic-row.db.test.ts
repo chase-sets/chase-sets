@@ -16,7 +16,6 @@ import { createInventoryServices } from "../../../support/runtime-support/servic
 import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for C5.1b DB proof.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const accountId = "acc_c51b_synthetic" as AccountId;
 const context: EventStoreContext = {

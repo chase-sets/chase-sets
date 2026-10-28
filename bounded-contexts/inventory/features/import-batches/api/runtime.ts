@@ -2658,6 +2658,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     claimTtlMs: number;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
+    jobId?: string;
   }): Promise<number> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
@@ -2665,6 +2666,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       workflowMaxActiveClaims: 1,
       jobMaxActiveClaims: 1,
       jobKinds: [IMPORT_BATCH_JOB_KIND_COMMIT],
+      jobId: input.jobId,
       laneName: "commit-row",
     });
     const claim = claimResult.claim;
@@ -2738,7 +2740,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       });
       if (!isDurableJobWorkUnitTerminalAccepted(outcome))
         throw new InventoryDomainError("Import row terminal fence was lost.");
-      return 1;
+      return 1 + (await processNextCommitBatchWorkUnit({ ...input, jobId: claim.job.jobId }));
     } catch (error) {
       if (input.signal?.aborted) {
         await workUnitStore.releaseClaim(fence);
@@ -2748,7 +2750,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         ...fence,
         state: "failed",
         unitResult: { rowId: claim.unit.unitId, status: "rejected" },
-        errorMessage: error instanceof Error ? error.message : "import_commit_row_failed_reconciliation_required",
+        errorMessage: "import_job_failed_reconciliation_required",
         parentProgress: {
           ...claim.job.progress,
           phase: "failed",
