@@ -15,7 +15,9 @@ use super::{cart_item::options, on_marketplace, order_page::display_reference};
 use crate::{
     api::{FulfillmentPreview, SessionLine},
     app::url,
-    checkout::{CheckoutForm, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature, support_reference},
+    checkout::{
+        CheckoutForm, ConfirmationScreen, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature, support_reference,
+    },
     text::CheckoutMsg,
 };
 
@@ -321,6 +323,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             <input type="hidden" name={f.reviewed_shipping_option} value={option}>
             <input type="hidden" name={f.reviewed_shipping_address_signature} value={signature(a)}>
             <input type="hidden" name={f.acknowledged_material_changes} value={if screen.acknowledged { "true" } else { "" }}>
+            <input type="hidden" name={f.accelerated_saved_payment} value={if screen.accelerated { "true" } else { "" }}>
             if steps.rows() {
                 <SavedRows t={t} screen={screen} />
             }
@@ -831,6 +834,120 @@ fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> imp
                 </a>
             </p>
         </section>
+    }
+}
+
+/// A payment's status in Checkout received's words (`paymentStatusLabel`).
+fn payment_status(t: CheckoutMsg, status: &str) -> &'static str {
+    match status {
+        "pending-confirmation" => t.confirmation_payment_status_ready(),
+        "captured" => t.confirmation_payment_status_paid(),
+        "failed" => t.confirmation_payment_status_failed(),
+        "cancelled" => t.confirmation_payment_status_cancelled(),
+        _ => t.confirmation_payment_status_pending(),
+    }
+}
+
+/// Checkout received (`BuyCheckoutConfirmationPage`): the header, then the payment's panel (its
+/// reference, the support reference, its total, the next steps and Continue to payment), the
+/// order's status, the protections, and Secure payment. One column.
+#[component(css = CheckoutPage)]
+pub fn BuyConfirmationPage<'a>(t: CheckoutMsg, screen: &'a ConfirmationScreen) -> impl Render {
+    let orders = if screen.order_ids.is_empty() {
+        t.page_pending().to_owned()
+    } else {
+        screen.order_ids.iter().map(|id| display_reference(id)).collect::<Vec<_>>().join(", ")
+    };
+    // Payments borrow the order's reference when the checkout made one order (`buyCheckoutPaymentReference`).
+    let reference = match screen.order_ids.as_slice() {
+        [one] => display_reference(one),
+        _ => screen.payment_id.clone(),
+    };
+    let support = screen.support_reference.clone().unwrap_or_else(|| t.page_pending().to_owned());
+    let total = screen.payment.as_ref().map_or_else(
+        || t.confirmation_payment_total_pending().to_owned(),
+        |p| match (platform::money::decimal(&p.amount), Currency::parse(p.currency_code.trim())) {
+            (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
+            _ => format!("{} {}", p.amount, p.currency_code.to_ascii_uppercase()),
+        },
+    );
+    let status = screen.payment.as_ref().map_or(t.confirmation_payment_status_preparing(), |p| payment_status(t, &p.status));
+    let order_status =
+        if screen.order_ids.is_empty() { t.confirmation_order_status_pending() } else { t.confirmation_order_status_created() };
+    let steps = [
+        (t.page_payment_handoff_title(), t.page_payment_handoff_description()),
+        (t.page_account_fulfillment_pending_title(), t.page_account_fulfillment_pending_description()),
+        (t.page_support_reference_ready_title(), t.page_support_reference_ready_description()),
+    ];
+    html! {
+        <div class={Checkout} data-confirmation={&screen.session_id}>
+            <header class={Header}>
+                <div class={HeaderText}>
+                    <p class={Eyebrow}>{t.confirmation_eyebrow()}</p>
+                    <h1 class={Title}>{t.confirmation_title()}</h1>
+                    <p class={Muted}>{t.confirmation_description()}</p>
+                </div>
+            </header>
+            <h2 class={PartTitle}>{t.confirmation_summary()}</h2>
+            <section class={(Panel, Confirmed)} aria-labelledby="checkout-received" data-payment={&screen.payment_id}>
+                <h3 class={PartTitle} id="checkout-received">{t.page_payment_ready_2()}</h3>
+                <p class={Muted}>{t.page_purchases_have_been_created_and_payment()}</p>
+                <dl class={Facts}>
+                    <div>
+                        <dt>{t.confirmation_payment_reference()}</dt>
+                        <dd>{&reference}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.page_support_reference()}</dt>
+                        <dd>{&support}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.confirmation_payment_total()}</dt>
+                        <dd>{&total}</dd>
+                    </div>
+                </dl>
+                <ul class={NextSteps}>
+                    for (title, description) in steps {
+                        <li>
+                            <p class={Strong}>{title}</p>
+                            <p class={Muted}>{description}</p>
+                        </li>
+                    }
+                </ul>
+                <p><a class={(Button, Wide)} href={&screen.payment_href}>{t.page_continue_to_payment()}</a></p>
+            </section>
+            <section class={Panel} aria-labelledby="checkout-order-status">
+                <h3 class={PartTitle} id="checkout-order-status">{t.confirmation_order_status()}</h3>
+                <dl class={Facts}>
+                    <div>
+                        <dt>{t.page_order_reference()}</dt>
+                        <dd data-orders>{&orders}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.confirmation_order_status()}</dt>
+                        <dd>{order_status}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.confirmation_payment_status()}</dt>
+                        <dd>{status}</dd>
+                    </div>
+                </dl>
+                <ul class={Protections}>
+                    <li>
+                        <p class={Strong}>{t.page_buyer_protection()}</p>
+                        <p class={Muted}>
+                            {t.page_order_protection_terms_summary()} " "
+                            <a href={on_marketplace("/help/buying/order-protection")}>{t.page_order_protection_terms_link()}</a>
+                        </p>
+                    </li>
+                    <li>
+                        <p class={Strong}>{t.page_payment_ready()}</p>
+                        <p class={Muted}>{t.page_purchases_have_been_created_and_payment()}</p>
+                    </li>
+                </ul>
+                <p class={(Muted, Small)}>{t.confirmation_payment_handoff()}</p>
+            </section>
+        </div>
     }
 }
 

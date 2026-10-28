@@ -684,6 +684,7 @@ fn checkout_session(id: &str) -> Value {
     match id {
         "chk_offer" => session["source_type"] = json!("offer-intent"),
         "chk_paid" => session["payment_id"] = json!("pay_1"),
+        "chk_paydown" => session["payment_id"] = json!("pay_down"),
         _ => {}
     }
     session
@@ -698,7 +699,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 /// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
 /// starts `pay_1`, but `chk_stale`'s quote is stale. Payments quotes $620.00 as the sandbox
-/// does; the wallet holds $25.00.
+/// does; the wallet holds $25.00. `pay_1`'s summary is $638.83 ready for payment; `pay_down`'s
+/// read fails (`chk_paydown` started it).
 fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     if path == "/api/settlement/wallet" {
@@ -714,6 +716,16 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
         }] }))
             .into_response(),
         );
+    }
+    if let Some(payment) = path.strip_prefix("/api/marketplace/account/checkout-payment-summaries/") {
+        return Some(match payment {
+            "pay_1" => Json(json!({
+                "payment_id": "pay_1", "amount": "638.83", "currency_code": "usd", "status": "pending-confirmation",
+            }))
+            .into_response(),
+            "pay_down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => refusal(StatusCode::NOT_FOUND, "not_found", "Payment summary not found."),
+        });
     }
     if path == "/api/marketplace/account/checkout-payment-affordances" {
         return Some(Json(json!({ "items": [] })).into_response());
@@ -9577,6 +9589,68 @@ async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
         (status, headers[header::LOCATION].to_str().unwrap()),
         (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1")
     );
+}
+
+#[tokio::test]
+async fn checkout_received_shows_the_started_payment_and_continues_to_marketplaces_payment_page() {
+    let pilot = Pilot::new().await;
+    let receipt = receipt_at("15");
+    let (status, _, html) =
+        pilot.send(get(&format!("/checkout/buy/session/chk_paid/confirmation?afterWrite={receipt}"), Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Secure checkout Checkout received"), "{page}");
+    assert!(page.contains("Payment reference pay_1"), "no order yet, so the payment's own id: {page}");
+    assert!(page.contains("Payment total $638.83"), "Payments' summary: {page}");
+    assert!(page.contains("Order status Pending Payment status Payment ready"), "{page}");
+    assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
+    assert!(
+        html.contains(&format!(r#"href="http://localhost:7753/account/payments/pay_1?afterWrite={receipt}""#)),
+        "Continue to payment carries the receipt: {html}"
+    );
+    assert!(html.contains("<title>Checkout received | Marketplace</title>"), "{html}");
+    let asked: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(asked.iter().any(|p| p == "/api/marketplace/account/checkout-payment-summaries/pay_1"), "{asked:?}");
+
+    // Payments' summary is best effort: a failed read says the payment is being prepared.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_paydown/confirmation", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Payment total Pending") && page.contains("Payment status Preparing payment"), "{page}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/payments/pay_down""#), "{html}");
+}
+
+#[tokio::test]
+async fn checkout_received_without_a_payment_is_the_checkout_and_recovers_as_the_checkout_does() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_1/confirmation", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, CHECKOUT_SCREEN));
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_gone/confirmation", Some("payer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    let (status, _, html) = pilot
+        .send(get(&format!("/checkout/buy/session/chk_slow/confirmation?afterWrite={}", receipt_at("43")), Some("payer")))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(text(&html).contains("Preparing checkout"), "{html}");
+    let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_paid/confirmation", None)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_paid%2Fconfirmation")
+    );
+}
+
+#[tokio::test]
+async fn pay_now_with_a_saved_card_that_needs_no_secure_step_lands_on_checkout_received() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert!(html.contains(r#"name="acceleratedSavedPayment" value="""#), "no saved card here: {html}");
+    let body = checkout_body("intent=confirm-checkout&acceleratedSavedPayment=true");
+    let (status, headers, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_1/confirmation?afterWrite="), "{to}");
+    assert!(to.contains("15"), "Pay now's receipt: {to}");
+    assert_eq!(checkout_writes(&pilot).last().map(|(p, _)| p.as_str()), Some("confirm"));
 }
 
 /// A sign-in form posted from the page, with the browser's cookies (none when signed out) and its

@@ -10,6 +10,12 @@
 //! submits Pay now itself, chase-sets/chase-sets#10581). Payments quotes the fee
 //! (`/account/checkout/preview-status`), where marketplace's loader quotes the compiled default
 //! policy (chase-sets/chase-sets#10683).
+//!
+//! Checkout received (`/checkout/buy/session/{id}/confirmation`, marketplace's
+//! `buy-checkout-confirmation.tsx`) is where Pay now with a saved card that needs no secure step
+//! lands, as marketplace's action sends it there (`acceleratedSavedPayment`); any other Pay now
+//! comes back to the checkout page. It shows the started payment's references, total and status,
+//! and Continue to payment, marketplace's payment page (not ported).
 use std::time::SystemTime;
 
 use corten::{
@@ -18,12 +24,12 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, SavedAddress,
-        SavedInstrument, SellerGroup, SessionAddress, Wallet, segment,
+        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentSummary,
+        SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet, segment,
     },
     app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
@@ -139,6 +145,9 @@ pub struct CheckoutForm {
     pub acknowledged_material_changes: String,
     pub reviewed_shipping_option: String,
     pub reviewed_shipping_address_signature: String,
+    /// `true` when Pay now uses a saved card that needs no secure step: it lands on Checkout
+    /// received.
+    pub accelerated_saved_payment: String,
 }
 
 fn text(value: &str) -> Option<String> {
@@ -648,6 +657,83 @@ async fn render(
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
+/// Checkout received's address: the receipt of the Pay now it reads after.
+#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[route(query)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmationPlace {
+    pub after_write: Option<String>,
+}
+
+/// Checkout received: the session's orders and support reference, the started payment, its
+/// summary when Payments has one, and marketplace's payment page for it.
+#[derive(Serialize, ToJson)]
+pub struct ConfirmationScreen {
+    pub session_id: String,
+    pub order_ids: Vec<String>,
+    pub payment_id: String,
+    pub support_reference: Option<String>,
+    pub payment: Option<PaymentSummary>,
+    #[serde(skip)]
+    pub payment_href: String,
+}
+
+/// Checkout received (marketplace's confirmation loader): the session read after Pay now's
+/// receipt, a submitted offer's page for an offer's checkout, the checkout page while no payment
+/// has started, else the payment's references and Continue to payment.
+pub(crate) async fn confirmation(
+    req: Req,
+    Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(place): Query<ConfirmationPlace>,
+) -> HtmlResult {
+    let receipt = Receipt::from_param(place.after_write.as_deref());
+    let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    let session = match waiting.checkout_session(&id).await {
+        Ok(session) => session,
+        Err(error) if ended(&error) => return sign_in(&req),
+        Err(error) if receipt.is_some() && error.catching_up() => return recovery(&req, &viewer, Recovery::Preparing).await,
+        Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => return recovery(&req, &viewer, Recovery::NotFound).await,
+        Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
+            return recovery(&req, &viewer, Recovery::WrongAccount).await;
+        }
+        Err(error) => {
+            tracing::warn!("the checkout session could not be read: {error}");
+            return recovery(&req, &viewer, Recovery::Unavailable).await;
+        }
+    };
+    if let Some(offer) = &session.submitted_offer_id {
+        return marketplace(&req, &format!("/account/offers/submitted/{}", segment(offer)));
+    }
+    let Some(payment_id) = session.payment_id.clone() else {
+        return req.redirect(&url::BuyCheckout { id: &id, place: Place::default() });
+    };
+    // Best effort, as marketplace's: a failed summary is Pending and Preparing payment.
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let payment = caller.checkout_payment_summary(&payment_id).await.ok();
+    let mut path = format!("/account/payments/{}", segment(&payment_id));
+    if let Some(after) = place.after_write.as_deref().filter(|a| !a.is_empty()) {
+        path.push_str(&format!("?afterWrite={}", segment(after)));
+    }
+    let screen = ConfirmationScreen {
+        support_reference: support_reference(&session),
+        session_id: session.session_id,
+        order_ids: session.order_ids,
+        payment_id,
+        payment,
+        payment_href: views::on_marketplace(&path),
+    };
+    let t: CheckoutMsg = req.t();
+    let view = html! { <views::BuyConfirmationPage t={t} screen={&screen} /> };
+    let head = html! { <meta name="description" content={t.confirmation_route_description()}> };
+    req.screen(
+        &screen,
+        html! { <Layout req={&req} viewer={Some(&viewer)} title={t.confirmation_route_title()} head={head}>{view}</Layout> },
+    )
+}
+
 /// Marketplace's own page at `path`.
 fn marketplace(req: &Req, path: &str) -> HtmlResult {
     match views::marketplace(path) {
@@ -806,6 +892,10 @@ pub(crate) async fn write(
                     receipts.push(receipt);
                     match (confirmed.offer_id, confirmed.payment_id) {
                         (Some(offer), _) => marketplace(&req, &format!("/account/offers/submitted/{}", segment(&offer))),
+                        (None, Some(_)) if form.accelerated_saved_payment == "true" => {
+                            let place = ConfirmationPlace { after_write: latest(receipts).as_ref().map(Receipt::param) };
+                            req.redirect(&url::BuyConfirmation { id: &id, place })
+                        }
                         (None, Some(_)) => back(Place::after(latest(receipts).as_ref(), &visible)),
                         (None, None) => {
                             tracing::warn!("Pay now answered without a payment or an offer");

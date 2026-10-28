@@ -456,6 +456,8 @@ const outputs = [
         ["checkout.routes.checkoutSession.", "route"],
         ["checkout.routes.checkoutRecovery.", "recovery"],
         ["checkout.shared.policyLinks.", "policy"],
+        ["checkout.features.sessions.ui.buyCheckoutConfirmationPage.", "confirmation"],
+        ["checkout.routes.buyCheckoutConfirmation.", "confirmation_route"],
       ]),
     ),
   ],

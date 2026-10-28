@@ -1297,6 +1297,19 @@ pub trait CheckoutSessions {
         address: &SessionAddress,
     ) -> Result<Option<Receipt>, ApiError>;
     async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError>;
+    /// A started payment's amount and status (`GET /account/checkout-payment-summaries/{id}`).
+    async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError>;
+}
+
+/// A started payment as the checkout shows it (`CheckoutPaymentSummaryRow`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PaymentSummary {
+    pub payment_id: String,
+    pub amount: String,
+    pub currency_code: String,
+    /// `pending-confirmation`, `captured`, `failed`, `cancelled` or another (pending).
+    pub status: String,
 }
 
 /// One of the session's review writes, and its receipt.
@@ -1309,6 +1322,10 @@ async fn session_write(caller: &Caller<'_>, id: &str, path: &str, body: serde_js
 impl CheckoutSessions for Caller<'_> {
     async fn checkout_session(&self, id: &str) -> Result<CheckoutSession, ApiError> {
         self.read(&format!("{CHECKOUT_SESSIONS}/{}", segment(id)), CHECKOUT).await
+    }
+
+    async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError> {
+        self.read(&format!("/api/marketplace/account/checkout-payment-summaries/{}", segment(payment)), CHECKOUT).await
     }
 
     async fn wallet(&self) -> Result<Wallet, ApiError> {

@@ -144,7 +144,7 @@ pub mod url {
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
-    pub use checkout::BuyCheckout;
+    pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use consents::Consents;
     pub use desk::Desk;
     pub use home::Home;
@@ -1056,6 +1056,15 @@ pub mod url {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::checkout::Place,
+        }
+
+        /// Checkout received (marketplace's `checkout/buy/session/:sessionId/confirmation`): a
+        /// started payment's references and Continue to payment, read after Pay now's receipt.
+        #[route("/checkout/buy/session/{id}/confirmation", get = crate::checkout::confirmation)]
+        pub struct BuyConfirmation<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::checkout::ConfirmationPlace,
         }
     }
 
