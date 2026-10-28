@@ -714,6 +714,11 @@ describe("checkout sell list page", () => {
 
       expect(screen.getByText("Your Sell List is updating.")).toBeTruthy();
       expect(screen.getByText(isAutoRevalidating ? "Updating Sell List" : "Refreshing Sell List")).toBeTruthy();
+      expect(screen.getByText("Pending, non-authoritative")).toBeTruthy();
+      expect(screen.getAllByText("Charizard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Base Set 4/102 Holo Rare").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Raw / Near Mint").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Quantity").length).toBeGreaterThan(0);
       expect(screen.getByRole("link", { name: "Refresh Sell List" }).getAttribute("href")).toBe(
         "/account/sell-list?afterWrite=synthetic-pending-review",
       );

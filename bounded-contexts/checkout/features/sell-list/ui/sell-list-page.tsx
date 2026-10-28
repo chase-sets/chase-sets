@@ -6,6 +6,7 @@ import {
   CheckoutLayout,
   Form,
   Inline,
+  KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -213,6 +214,37 @@ export function CheckoutSellListPage({
                 </Text>
                 <Text tone="secondary">{recoveryState.message}</Text>
               </Stack>
+              <Badge tone="neutral">Pending, non-authoritative</Badge>
+              {sellListLines.length > 0 ? (
+                <Stack gap={3}>
+                  {sellListLines.map((line) => (
+                    <Surface key={line.line_id} element="article" tone="default" padding={3} elevation="outlined">
+                      <Stack gap={2}>
+                        <Text weight="semibold" wrap="anywhere">
+                          {line.item_title}
+                        </Text>
+                        {line.item_subtitle ? (
+                          <Text size="sm" tone="secondary" wrap="anywhere">
+                            {line.item_subtitle}
+                          </Text>
+                        ) : null}
+                        {line.product_summary ? (
+                          <Text size="sm" tone="secondary" wrap="anywhere">
+                            {line.product_summary}
+                          </Text>
+                        ) : null}
+                        <KeyValueList
+                          density="compact"
+                          variant="plain"
+                          items={[
+                            { key: t("checkout.features.sellList.ui.sellListPage.quantity"), value: line.quantity },
+                          ]}
+                        />
+                      </Stack>
+                    </Surface>
+                  ))}
+                </Stack>
+              ) : null}
               <LinkButton href={recoveryState.refreshHref} tone="secondary">
                 {t("checkout.features.sellList.ui.sellListPage.refresh.sell.list")}
               </LinkButton>
