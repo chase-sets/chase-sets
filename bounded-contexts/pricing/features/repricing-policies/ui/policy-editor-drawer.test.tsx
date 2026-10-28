@@ -3,6 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createRepricingPolicyRuntime } from "../api/runtime";
+import { createRepricingPolicyRoutes } from "../api/route";
+import { bindAuthoringIntent, bindGoalAuthoringIntent, compilePresetBody } from "../domain/authoring-intent";
+import { resolvePricingGoal, type RepricingPolicyState } from "../domain/domain";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import { createPricingApiClient, PricingApiError } from "../../../support/request-support/api-client";
 import type { PricingApiEnv } from "../../../api";
@@ -42,10 +47,20 @@ const completed: RepricingDryRun = {
 type EditorApi = NonNullable<Parameters<typeof PolicyEditorDrawer>[0]["api"]>;
 function apiFixture(): EditorApi {
   return {
-    getRepricingAuthoringPrerequisites: vi.fn(async () => ({
+    getRepricingAuthoringPrerequisites: vi.fn<EditorApi["getRepricingAuthoringPrerequisites"]>(async () => ({
       listingCurrencyCodes: ["CAD"],
       hasCostBasis: false,
-      goalAdoption: [],
+      goalAdoption: [
+        {
+          goalId: "fixed-percentile",
+          goalVersion: 1,
+          lifecycle: "selectable",
+          incumbentVersion: null,
+          selectable: true,
+          promotable: false,
+          reason: null,
+        },
+      ],
     })),
     listRepricingCategories: vi.fn(async () => [
       { id: "cat_synthetic", name: "Trading cards", status: "active", listingCount: 1 },
@@ -67,6 +82,278 @@ function fill(label: string, value: string) {
 }
 
 describe("policy editor prerequisites and gates", () => {
+  it.each(["track-market", "slow-stock", "goal"] as const)(
+    "saves, reloads, revises and previews %s with simple controls through the real API client",
+    async (kind) => {
+      const compiled = compilePresetBody({
+        preset: kind === "goal" ? "track-market" : kind,
+        name: "Saved simple",
+        currencyCode: "USD",
+        floor: { mode: "absolute", amount: "4.00" },
+        knob: 12,
+        ageDays: 60,
+        scope: { kind: "all-listings" },
+      });
+      const authored =
+        kind === "goal"
+          ? bindGoalAuthoringIntent(
+              {
+                ...compiled,
+                rules: [
+                  {
+                    ...compiled.rules[0]!,
+                    directive: {
+                      ...compiled.rules[0]!.directive,
+                      anchorChain: [
+                        {
+                          source: "curve-objective" as const,
+                          goalId: "fixed-percentile",
+                          goalVersion: 1,
+                          parameters: { percentile: 65 },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              resolvePricingGoal,
+            )
+          : compiled;
+      const { eventStore } = createInMemoryEventStore();
+      const runtime = createRepricingPolicyRuntime({
+        eventStore,
+        db: { query: async () => ({ rows: [] }) },
+        goalAdoptions: async () => [],
+      });
+      let previewBody = validateRepricingDryRunBody(authored, "acc_7910");
+      const previewed: (typeof previewBody)[] = [];
+      const record = {
+        ...compiled,
+        policyId: "rpp_8340",
+        sellerAccountId: "acc_7910",
+        status: "active" as const,
+        createdAt: "2026-10-28",
+        updatedAt: "2026-10-28",
+      };
+      const app = new Hono<PricingApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", {
+          sessionId: "ses_synthetic",
+          tenantId: "tnt_identity",
+          userId: "usr_synthetic",
+          accountId: "acc_7910",
+          membershipId: "mbr_synthetic",
+          roleKey: "owner",
+          permissions: ["pricing.view", "pricing.manage"],
+        });
+        c.set("context", dryRunContext);
+        return next();
+      });
+      app.route(
+        "/account/repricing-policies/dry-runs",
+        createRepricingDryRunRoutes({
+          enqueueDryRun: async (input) => {
+            previewBody = validateRepricingDryRunBody(input.body, input.sellerAccountId);
+            previewed.push(previewBody);
+            return { ...completed, body: previewBody };
+          },
+          getDryRun: async () => ({ ...completed, body: previewBody }),
+          listDryRuns: async () => [],
+          listDryRunTraces: async () => [],
+          listDryRunEvents: async () => [],
+          waitForDryRunEvents: async () => undefined,
+        }),
+      );
+      app.route(
+        "/account/repricing-policies",
+        createRepricingPolicyRoutes({
+          ...runtime,
+          getAccountRepricingPolicy: async ({ accountId }) => (accountId === "acc_7910" ? record : null),
+          activateRepricingPolicy: async ({ name }, context) =>
+            (
+              await runtime.commandHandler({
+                streamId: runtime.streamIdForPolicy("rpp_8340"),
+                context,
+                command: {
+                  ...previewBody,
+                  type: "CreateRepricingPolicy",
+                  policyId: "rpp_8340",
+                  accountId: "acc_7910",
+                  name,
+                  createdAt: "2026-10-28T00:00:00Z",
+                },
+              })
+            ).state,
+        }),
+      );
+      const client = createPricingApiClient({
+        baseUrl: "https://synthetic.test",
+        fetch: async (input, init) => app.request(String(input), init),
+      });
+      const api = {
+        ...apiFixture(),
+        startRepricingDryRun: client.startRepricingDryRun,
+        getRepricingDryRun: client.getRepricingDryRun,
+      };
+      let saved: RepricingPolicyState | null = null;
+      const first = render(
+        <PolicyEditorDrawer
+          api={api}
+          initialBody={authored}
+          onClose={vi.fn()}
+          onSave={async ({ body: next, dryRunId }) => {
+            saved = await client.createRepricingPolicy({ name: next.name, dryRunId: dryRunId! });
+          }}
+        />,
+      );
+      await screen.findByLabelText("Policy name");
+      expect(screen.queryByText("Advanced rule editor", { exact: true })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Preview policy" }));
+      await waitFor(() =>
+        expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(false),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Activate policy" }));
+      await waitFor(() => expect(saved).not.toBeNull());
+      first.unmount();
+      const reopened = await client.getRepricingPolicy("rpp_8340");
+      expect(reopened.rules).toEqual(authored.rules);
+      const second = render(
+        <PolicyEditorDrawer
+          api={api}
+          policyId="rpp_8340"
+          initialBody={{
+            ...reopened,
+            name: reopened.name!,
+            scope: reopened.scope!,
+            maxChangesPerDay: reopened.maxChangesPerDay!,
+          }}
+          onClose={vi.fn()}
+          onSave={async ({ body: next }) => {
+            saved = await client.reviseRepricingPolicy("rpp_8340", next);
+          }}
+        />,
+      );
+      await screen.findByLabelText("Policy name");
+      expect(screen.queryByLabelText("Adjustment (%)")).toBeNull();
+      expect((screen.getByLabelText("Minimum price", { exact: true }) as HTMLInputElement).value).toBe("4.00");
+      expect(screen.getByRole("combobox", { name: "Policy scope" })).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Preview policy" }) as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByRole("button", { name: "Save policy" }) as HTMLButtonElement).disabled).toBe(false);
+      if (kind !== "goal") {
+        expect(screen.getByRole("combobox", { name: "Strategy" }).textContent).toContain(
+          kind === "slow-stock" ? "Move slow stock" : "Track the market",
+        );
+        expect(
+          screen
+            .getByRole("slider", { name: kind === "slow-stock" ? "Markdown (%)" : "Market adjustment (%)" })
+            .getAttribute("aria-valuenow"),
+        ).toBe("12");
+      }
+      fill("Policy name", "Renamed simple");
+      fireEvent.click(screen.getByRole("button", { name: "Preview policy" }));
+      await waitFor(() => expect(previewed).toHaveLength(2));
+      expect(previewed[1]!.rules).toEqual(authored.rules);
+      fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+      await waitFor(() => expect(saved?.name).toBe("Renamed simple"));
+      second.unmount();
+      const revised = await client.getRepricingPolicy("rpp_8340");
+      expect(revised.authoringIntent).toEqual(authored.authoringIntent);
+      render(
+        <PolicyEditorDrawer
+          api={api}
+          policyId="rpp_8340"
+          initialBody={{
+            ...revised,
+            name: revised.name!,
+            scope: revised.scope!,
+            maxChangesPerDay: revised.maxChangesPerDay!,
+          }}
+          onClose={vi.fn()}
+          onSave={vi.fn()}
+        />,
+      );
+      await screen.findByLabelText("Policy name");
+      expect(screen.queryByText("Custom policy. Advanced changes are kept; no preset is inferred.")).toBeNull();
+      expect(screen.queryByLabelText("Adjustment (%)")).toBeNull();
+    },
+  );
+
+  it("an advanced trailing-default edit removes the simple toggle and survives save and reload", async () => {
+    const authored = compilePresetBody({
+      preset: "slow-stock",
+      name: "Slow stock",
+      currencyCode: "USD",
+      floor: { mode: "absolute", amount: "4.00" },
+      knob: 12,
+      scope: { kind: "all-listings" },
+    });
+    const save = vi.fn();
+    const view = render(
+      <PolicyEditorDrawer
+        api={apiFixture()}
+        initialBody={authored}
+        policyId="rpp_8340"
+        onClose={vi.fn()}
+        onSave={save}
+      />,
+    );
+    await screen.findByLabelText("Policy name");
+    fireEvent.click(screen.getByRole("button", { name: "Open up this preset" }));
+    expect(screen.getByRole("button", { name: "Return to simple controls" })).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText("Adjustment (%)")[1]!, { target: { value: "-7" } });
+    expect(screen.queryByRole("button", { name: "Return to simple controls" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+    const next = save.mock.calls[0]![0].body;
+    expect(next.rules[1].directive.offset.percent).toBe(-7);
+    view.unmount();
+    render(
+      <PolicyEditorDrawer
+        api={apiFixture()}
+        initialBody={JSON.parse(JSON.stringify(next))}
+        policyId="rpp_8340"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("Policy name");
+    expect(screen.queryByRole("button", { name: "Return to simple controls" })).toBeNull();
+    expect((screen.getAllByLabelText("Adjustment (%)")[1] as HTMLInputElement).value).toBe("-7");
+  });
+
+  it("explains unsupported goal versions without a preview or live write", async () => {
+    const initialBody = {
+      ...body,
+      rules: [
+        {
+          ...body.rules[0]!,
+          directive: {
+            ...body.rules[0]!.directive,
+            anchorChain: [
+              {
+                source: "curve-objective" as const,
+                goalId: "fixed-percentile",
+                goalVersion: 999,
+                parameters: { percentile: 65 },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const api = apiFixture();
+    const onSave = vi.fn();
+    const stale = bindAuthoringIntent(initialBody, {
+      kind: "goal",
+      goalId: "fixed-percentile",
+      goalVersion: 999,
+      parameters: { percentile: 65 },
+    });
+    render(<PolicyEditorDrawer api={api} initialBody={stale} policyId="rpp_8340" onClose={vi.fn()} onSave={onSave} />);
+    expect(await screen.findByText(/This Pricing Goal version is not selectable/)).toBeTruthy();
+    expect(api.startRepricingDryRun).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Return to simple controls" })).toBeNull();
+  });
   it("opens an explicitly advanced conditional policy intact", async () => {
     const api = apiFixture();
     const conditional = {

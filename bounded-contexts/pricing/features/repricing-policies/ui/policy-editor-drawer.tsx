@@ -23,6 +23,8 @@ import type { RepricingDryRun } from "../../repricing-engine/api/dry-run";
 import type { RepricingPolicyListingTrace } from "../../repricing-engine/domain/fact";
 import type { RepricingAuthoringPrerequisites } from "../read-model/controls";
 import type { RepricingFloor, RepricingPolicyScope, RepricingRuleCondition } from "../domain/domain";
+import { bindAuthoringIntent, recognizeAuthoringIntent } from "../domain/authoring-intent";
+import { repricingGoalLabel } from "./policy-copy";
 import {
   compileRepricingPreset,
   openRepricingPreset,
@@ -75,19 +77,23 @@ export function PolicyEditorDrawer({
   onSave: (submission: PolicyEditorSubmission) => void;
   onClose: () => void;
 }) {
+  const initialIntent = initialBody ? recognizeAuthoringIntent(initialBody) : null;
+  const initialPreset = initialIntent?.source.kind === "preset" ? initialIntent.source : null;
+  const initialGoal = initialIntent?.source.kind === "goal" ? initialIntent.source : null;
+  const initialDirective = initialBody?.rules[0]?.directive;
   const [facts, setFacts] = useState<RepricingAuthoringPrerequisites | null>(null);
   const [categories, setCategories] = useState<readonly PolicyCategory[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [preset, setPreset] = useState<RepricingPreset>("track-market");
+  const [preset, setPreset] = useState<RepricingPreset>(initialPreset?.preset ?? "track-market");
   const [name, setName] = useState(initialBody?.name ?? t(repricingPresets["track-market"].titleKey));
-  const [currency, setCurrency] = useState("");
-  const [floor, setFloor] = useState<RepricingFloor>({ mode: "absolute", amount: "" });
-  const [knob, setKnob] = useState(0);
-  const [age, setAge] = useState(45);
+  const [currency, setCurrency] = useState(initialDirective?.currencyCode ?? "");
+  const [floor, setFloor] = useState<RepricingFloor>(initialDirective?.floor ?? { mode: "absolute", amount: "" });
+  const [knob, setKnob] = useState(initialPreset?.knob ?? 0);
+  const [age, setAge] = useState(initialPreset?.ageDays ?? 45);
   const [scope, setScope] = useState<RepricingPolicyScope>(initialBody?.scope ?? { kind: "all-listings" });
   const [body, setBody] = useState<PolicyEditorBody | null>(initialBody ?? null);
-  const [tier, setTier] = useState<"preset" | "structured" | "advanced">(
+  const [tier, setTier] = useState<"preset" | "goal" | "structured" | "advanced">(
     initialBody ? (initialTier ?? openRepricingPreset(initialBody).tier) : "preset",
   );
   const [errors, setErrors] = useState<readonly string[]>([]);
@@ -114,15 +120,26 @@ export function PolicyEditorDrawer({
       ([nextFacts, nextCategories]) => {
         if (cancelled) return;
         setFacts(nextFacts);
+        if (
+          initialGoal &&
+          !nextFacts.goalAdoption.some(
+            (goal) =>
+              goal.goalId === initialGoal.goalId && goal.goalVersion === initialGoal.goalVersion && goal.selectable,
+          )
+        ) {
+          setTier(initialTier ?? "structured");
+        }
         setCategories(nextCategories);
         if (!initialized.current) {
           initialized.current = true;
-          setCurrency(nextFacts.listingCurrencyCodes.length === 1 ? nextFacts.listingCurrencyCodes[0]! : "");
-          setFloor(
-            nextFacts.hasCostBasis
-              ? { mode: "cost-basis-plus-margin", marginPercent: 10, absoluteFallbackAmount: "" }
-              : { mode: "absolute", amount: "" },
-          );
+          if (!initialBody) {
+            setCurrency(nextFacts.listingCurrencyCodes.length === 1 ? nextFacts.listingCurrencyCodes[0]! : "");
+            setFloor(
+              nextFacts.hasCostBasis
+                ? { mode: "cost-basis-plus-margin", marginPercent: 10, absoluteFallbackAmount: "" }
+                : { mode: "absolute", amount: "" },
+            );
+          }
         }
       },
       () => {
@@ -198,9 +215,12 @@ export function PolicyEditorDrawer({
     change();
   }
   const candidate =
-    body ?? compileRepricingPreset({ preset, name, currencyCode: currency, floor, knob, ageDays: age, scope });
+    tier === "preset" || !body
+      ? compileRepricingPreset({ preset, name, currencyCode: currency, floor, knob, ageDays: age, scope })
+      : body;
   const promptComplete =
-    body !== null || Boolean(currency && (floor.mode === "absolute" ? floor.amount : floor.absoluteFallbackAmount));
+    (tier !== "preset" && body !== null) ||
+    Boolean(currency && (floor.mode === "absolute" ? floor.amount : floor.absoluteFallbackAmount));
   async function preview() {
     const captured = revision.current;
     setPreviewing(true);
@@ -223,7 +243,25 @@ export function PolicyEditorDrawer({
   }
   const canActivate =
     binding?.run.status === "completed" && binding.revision === revision.current && !binding.run.consumedAt;
-  const changeBody = (next: PolicyEditorBody) => edit(() => setBody(next));
+  const changeBody = (next: PolicyEditorBody) => edit(() => setBody({ ...next, authoringIntent: null }));
+  const boundIntent = recognizeAuthoringIntent(candidate);
+  const goalAnchor = candidate.rules
+    .flatMap((rule) => rule.directive.anchorChain)
+    .find((anchor) => anchor.source === "curve-objective");
+  const unsupportedGoal =
+    goalAnchor?.source === "curve-objective" &&
+    facts &&
+    !facts.goalAdoption.some(
+      (goal) => goal.goalId === goalAnchor.goalId && goal.goalVersion === goalAnchor.goalVersion && goal.selectable,
+    );
+  const intent = unsupportedGoal ? null : boundIntent;
+  function changeSimpleGoal(next: PolicyEditorBody) {
+    edit(() => setBody(intent ? bindAuthoringIntent(next, intent.source) : next));
+  }
+  function openAdvanced() {
+    setBody(candidate);
+    setTier(tier === "preset" && candidate.rules.length === 1 ? "structured" : "advanced");
+  }
 
   return (
     <SideSheet
@@ -271,6 +309,7 @@ export function PolicyEditorDrawer({
           title={editorCopy("validationTitle")}
           errors={[...errors, ...saveErrors].map((message) => ({ message }))}
         />
+        {unsupportedGoal ? <Banner tone="warning" title={editorCopy("intent.unsupportedGoal")} /> : null}
         {facts ? (
           <Fieldset legend={editorCopy(tier === "preset" ? "presets" : tier)} inert={saving}>
             <Stack gap={4}>
@@ -280,13 +319,19 @@ export function PolicyEditorDrawer({
                 value={candidate.name}
                 onChange={(e) => {
                   const next = e.currentTarget.value;
-                  edit(() => (body ? setBody({ ...body, name: next }) : setName(next)));
+                  edit(() => (tier === "preset" ? setName(next) : setBody({ ...candidate, name: next })));
                 }}
               />
               <PolicyScopeFields
                 value={candidate.scope}
                 categories={categories}
-                onChange={(next) => edit(() => (body ? setBody({ ...body, scope: next }) : setScope(next)))}
+                onChange={(next) =>
+                  tier === "preset"
+                    ? edit(() => setScope(next))
+                    : tier === "goal"
+                      ? changeSimpleGoal({ ...candidate, scope: next })
+                      : changeBody({ ...candidate, scope: next })
+                }
               />
               {tier === "preset" ? (
                 <>
@@ -344,20 +389,59 @@ export function PolicyEditorDrawer({
                     />
                   )}
                   <PolicyFloorFields value={floor} onChange={(next) => edit(() => setFloor(next))} />
+                  <Text>
+                    {editorCopy("cap")}: {candidate.maxChangesPerDay}
+                  </Text>
                   <Button
                     tone="secondary"
                     disabled={!promptComplete}
                     onClick={() => {
-                      const opened = openRepricingPreset(candidate);
-                      setBody(opened.body);
-                      setTier(opened.tier);
+                      openAdvanced();
                     }}
                   >
                     {editorCopy("openUp")}
                   </Button>
                 </>
+              ) : tier === "goal" ? (
+                <>
+                  <Text>{goalAnchor?.source === "curve-objective" ? repricingGoalLabel(goalAnchor) : ""}</Text>
+                  <Text>{candidate.rules[0]?.directive.currencyCode}</Text>
+                  <PolicyFloorFields
+                    value={candidate.rules[0]!.directive.floor}
+                    onChange={(next) =>
+                      changeSimpleGoal({
+                        ...candidate,
+                        rules: candidate.rules.map((rule) => ({
+                          ...rule,
+                          directive: { ...rule.directive, floor: next },
+                        })),
+                      })
+                    }
+                  />
+                  <PolicyNumber
+                    label={editorCopy("cap")}
+                    value={candidate.maxChangesPerDay}
+                    onChange={(maxChangesPerDay) => changeSimpleGoal({ ...candidate, maxChangesPerDay })}
+                  />
+                  <Button tone="secondary" onClick={openAdvanced}>
+                    {editorCopy("openAdvanced")}
+                  </Button>
+                </>
               ) : (
                 <>
+                  {intent ? (
+                    <Button
+                      tone="secondary"
+                      onClick={() => {
+                        setName(candidate.name);
+                        setTier(intent.source.kind === "preset" ? "preset" : "goal");
+                      }}
+                    >
+                      {editorCopy("intent.simple")}
+                    </Button>
+                  ) : (
+                    <Text>{editorCopy("intent.custom")}</Text>
+                  )}
                   <TextInput
                     label={editorCopy("excluded")}
                     value={candidate.excludedListingIds?.join(",") ?? ""}
