@@ -223,6 +223,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
   }
 
   const isDefaultWrite = (sql: string) => /SET is_default = instrument_id/.test(sql);
+  const isTransactionBegin = (sql: string) => /^\s*BEGIN\b/i.test(sql);
   // The event store's first statement of every append, so it marks which stream a client appends to.
   const streamUpsert = (statement: Statement, streamId: string) =>
     /INSERT INTO event_store_streams/.test(statement.sql) && statement.params[0] === streamId;
@@ -788,8 +789,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         let duplicateHeld = false;
         // The copies' `started` appends reach `event_store_streams` in the forced order: the second
         // waits before its upsert, holding nothing, until the first's upsert has run. The duplicate
-        // (replica) is then admitted, and held before the attempt lock (or, without one, before its
-        // update) until its first copy and a later distinct default have both completed.
+        // (replica) is then admitted only after its transaction BEGIN has completed, and held there
+        // until its first copy and a later distinct default have both completed.
         intercept = async (statement, run) => {
           if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
             if (statement.runtime !== firstAppender) opened.order = await bounded(firstAppended.promise);
@@ -798,11 +799,12 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
             (statement.runtime === firstAppender ? firstAppended : secondAppended).resolve();
             return result;
           }
-          const step = isAttemptLock(statement) || isDefaultWrite(statement.sql);
-          if (statement.runtime === "replica" && step && !duplicateHeld) {
+          if (statement.runtime === "replica" && isTransactionBegin(statement.sql) && !duplicateHeld) {
             duplicateHeld = true;
+            const result = await run();
             duplicateAdmitted.resolve();
             opened.duplicate = await bounded(releaseDuplicate.promise);
+            return result;
           }
           if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
             firstHeld = true;
