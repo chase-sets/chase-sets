@@ -31,6 +31,7 @@ mod offer_matches;
 mod order_review;
 mod orders;
 mod packing;
+mod payment;
 mod public_listing;
 mod recovery;
 mod repricing;

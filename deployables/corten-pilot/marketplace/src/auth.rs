@@ -178,6 +178,27 @@ impl Identify<Shared> for CheckoutBuyer {
     }
 }
 
+/// A buyer on its payment's page (Payments' `account-payment`): an account with `orders.view`, as
+/// marketplace's loader requires (the API checks again and answers only the account's own
+/// payment). A guest's payment is marketplace's page at the same address (the guest payment page is
+/// not ported); anyone not signed in signs in and comes back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct PaymentBuyer(pub Viewer);
+
+impl Identify<Shared> for PaymentBuyer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(GUEST_CHECKOUT) => {
+                Err(sign_in(views::marketplace(parts.uri.path_and_query().map_or("/", |p| p.as_str()))))
+            }
+            Found::Account(viewer) if viewer.actor.can(ORDERS_VIEW) => Ok(PaymentBuyer(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// An account on its own pages (the notification center): `accounts.view`, as marketplace's
 /// loaders and actions require (the API checks again). Anyone not signed in is sent to
 /// the sign-in, back to the notification center.

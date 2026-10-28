@@ -106,6 +106,8 @@
 //   (settlement.features.moneyDashboard.ui.* as page.*, the payout words it shares as payout.*, a wallet
 //   adjustment's account-facing status, direction and reason as adjustment_status.*, adjustment_direction.*
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
+// - marketplace/locales/payment.en.json: a buyer's payment page's English catalog
+//   (payments.routes.marketplace.accountPayment.*, at the root).
 // - marketplace/locales/support.en.json: a Support Request participant page's English catalog
 //   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
 //   the support operations page's deadline words as deadline.* and not_applicable, and
@@ -786,6 +788,10 @@ const outputs = [
       ])),
       ...Object.fromEntries(Object.entries(moneyStatusLabels).map(([code, text]) => [`status.${code.replaceAll("-", "_")}`, text])),
     }),
+  ],
+  [
+    "marketplace/locales/payment.en.json",
+    json(await catalog("payments.ts", "paymentsEnglishTranslations", [["payments.routes.marketplace.accountPayment.", ""]])),
   ],
   [
     "marketplace/locales/support.en.json",

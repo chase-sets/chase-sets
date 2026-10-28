@@ -158,6 +158,7 @@ pub mod url {
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
+    pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
     pub use payout::DeskPayout;
     pub use purchases::{Purchase, PurchaseCancel, PurchaseReview, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
@@ -805,6 +806,38 @@ pub mod url {
         }
     }
 
+    /// A buyer's payment (Payments' `account-payment`, see `payment`): the page, its status part,
+    /// which the page reads again while the payment waits for the buyer, and starting a payment
+    /// again, which is marketplace's. Every handler takes a `PaymentBuyer`.
+    #[corten::routes(state = crate::app::Shared, area = PaymentsArea, caller = crate::auth::PaymentBuyer)]
+    pub mod payments {
+        /// The prefix, with no page: a payment is reached from its checkout or its purchase.
+        #[route("/account/payments")]
+        pub struct PaymentsArea;
+
+        /// Start a payment again (marketplace's `account-payment-new`, not ported).
+        #[route("/account/payments/new", get = crate::payment::start)]
+        pub struct BuyerPaymentNew;
+
+        /// The payment, read after the write whose receipt it carries.
+        #[derive(Clone, Debug)]
+        #[route("/account/payments/{id}", get = crate::payment::page)]
+        pub struct BuyerPayment<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::payment::Place,
+        }
+
+        /// The payment's status part, read again while the payment waits for the buyer.
+        #[derive(Clone, Debug)]
+        #[route("/account/payments/{id}/status", get = crate::payment::status)]
+        pub struct BuyerPaymentStatus<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub watch: crate::payment::Watch,
+        }
+    }
+
     /// The account's support: its cases and Report a problem (Platform Operations' marketplace
     /// `account-support`, see `support_list`), and a Support Request's participant page
     /// (`account-support-detail`): the case, what its buyer or seller is asked for, and their
@@ -1151,6 +1184,9 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
     url::SignIn { ask: crate::sign_in::Ask::back_to(page) }.href().parse().ok()
 }
 
+/// Where Stripe.js loads from, and the origin of the payment fields' frames.
+pub const STRIPE_JS: &str = "https://js.stripe.com";
+
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
@@ -1163,7 +1199,15 @@ pub fn app(config: Config) -> App {
             corten::security::Policy::new()
                 .img_src(marketplace_origin())
                 .img_src(shared.platform.origin())
-                .form_action(marketplace_origin()),
+                .form_action(marketplace_origin())
+                // Stripe.js and its fields, on the payment page only, but a policy is the whole
+                // app's (todd-skelton/corten#275): move these to the payments area once an
+                // area can add to it.
+                .script_src(STRIPE_JS)
+                .frame_src(STRIPE_JS)
+                .frame_src("https://hooks.stripe.com")
+                .connect_src("https://api.stripe.com")
+                .connect_src("https://merchant-ui-api.stripe.com"),
         )
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
@@ -1206,6 +1250,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))

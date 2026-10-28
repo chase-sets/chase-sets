@@ -20,6 +20,7 @@ pub use money::MoneyMsg;
 pub use notifications::NotificationsMsg;
 pub use offer_matches::OfferMatchesMsg;
 pub use orders::OrdersMsg;
+pub use payment::PaymentMsg;
 pub use pilot::Pilot;
 pub use repricing::RepricingMsg;
 pub use restock::Restock;
@@ -56,6 +57,12 @@ mod desk {
 mod money {
     corten::i18n::messages! {
         pub struct MoneyMsg { "en" => "locales/money.en.json" }
+    }
+}
+
+mod payment {
+    corten::i18n::messages! {
+        pub struct PaymentMsg { "en" => "locales/payment.en.json" }
     }
 }
 

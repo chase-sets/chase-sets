@@ -5662,6 +5662,114 @@ impl MoneyCalls for Caller<'_> {
     }
 }
 
+const PAYMENTS: &str = "payments";
+const ACCOUNT_PAYMENTS: &str = "/api/marketplace/account/payments";
+
+/// A payment as its buyer reads it (`PaymentsPaymentDetail`, `GET /account/payments/{id}`), the
+/// fields the payment page reads. Moments are ISO 8601 (`2026-10-28T13:05:00.123Z`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountPayment {
+    pub payment_id: String,
+    pub buyer_account_id: String,
+    pub order_ids: Vec<String>,
+    pub amount: String,
+    pub balance_credit_amount: String,
+    pub processor_amount: String,
+    pub marketplace_checkout_fee_amount: String,
+    pub payment_method_category: Option<String>,
+    pub currency_code: String,
+    pub processor_name: String,
+    pub processor_payment_reference: String,
+    /// The provider's client secret: `cs_..` for a Checkout Session (Stripe's Checkout Elements),
+    /// `pi_.._secret_..` for a Payment Intent (the Payment Element).
+    pub processor_client_secret: Option<String>,
+    pub processor_redirect_url: Option<String>,
+    pub processor_status: String,
+    pub processor_publishable_key: Option<String>,
+    pub source_context: Option<String>,
+    pub source_reference_id: Option<String>,
+    /// `pending-confirmation`, `captured`, `failed`, `cancelled` or another (in progress).
+    pub status: String,
+    pub failure_code: Option<String>,
+    pub failure_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub captured_at: Option<String>,
+    pub failed_at: Option<String>,
+    pub cancelled_at: Option<String>,
+    pub provider_events: Vec<ProviderEvent>,
+}
+
+/// What the provider told Payments about a payment (`paymentsProviderEventSchema`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ProviderEvent {
+    pub provider_event_id: String,
+    pub event_kind: String,
+    pub received_at: String,
+}
+
+/// A payment's order as Payments reads it for its buyer (`PaymentsAccountOrderInput`), the fields
+/// the payment page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PaymentOrder {
+    pub order_id: String,
+    pub buyer_email: Option<String>,
+    pub shipping_destination_snapshot: Option<PaymentDestination>,
+    pub total_amount: String,
+    pub status: String,
+    pub payment_deadline_at: Option<String>,
+}
+
+/// Where an order ships, as the order recorded it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PaymentDestination {
+    pub name: String,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PaymentOrders {
+    #[serde(default)]
+    orders: Vec<PaymentOrder>,
+}
+
+/// The payment page's reads.
+pub trait PaymentCalls {
+    /// The buyer's payment; `None` when the account has none by `id`.
+    async fn account_payment(&self, id: &str) -> Result<Option<AccountPayment>, ApiError>;
+    /// The payment's orders (`GET /account/order-inputs?orderIds=..`).
+    async fn payment_orders(&self, ids: &[String]) -> Result<Vec<PaymentOrder>, ApiError>;
+}
+
+impl PaymentCalls for Caller<'_> {
+    async fn account_payment(&self, id: &str) -> Result<Option<AccountPayment>, ApiError> {
+        match self.read(&format!("{ACCOUNT_PAYMENTS}/{}", segment(id)), PAYMENTS).await {
+            Ok(payment) => Ok(Some(payment)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn payment_orders(&self, ids: &[String]) -> Result<Vec<PaymentOrder>, ApiError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids = ids.iter().map(|id| segment(id)).collect::<Vec<_>>().join(",");
+        let orders: PaymentOrders = self.read(&format!("/api/marketplace/account/order-inputs?orderIds={ids}"), PAYMENTS).await?;
+        Ok(orders.orders)
+    }
+}
+
 const SUPPORT: &str = "platform-operations";
 const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 

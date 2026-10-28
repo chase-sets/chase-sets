@@ -15,7 +15,7 @@
 //! `buy-checkout-confirmation.tsx`) is where Pay now with a saved card that needs no secure step
 //! lands, as marketplace's action sends it there (`acceleratedSavedPayment`); any other Pay now
 //! comes back to the checkout page. It shows the started payment's references, total and status,
-//! and Continue to payment, marketplace's payment page (not ported).
+//! and Continue to payment, the pilot's payment page (`payment`).
 use std::time::SystemTime;
 
 use corten::{
@@ -713,17 +713,15 @@ pub(crate) async fn confirmation(
     // Best effort, as marketplace's: a failed summary is Pending and Preparing payment.
     let caller = config.platform.caller(&headers, config.proto, None);
     let payment = caller.checkout_payment_summary(&payment_id).await.ok();
-    let mut path = format!("/account/payments/{}", segment(&payment_id));
-    if let Some(after) = place.after_write.as_deref().filter(|a| !a.is_empty()) {
-        path.push_str(&format!("?afterWrite={}", segment(after)));
-    }
+    let after_write = place.after_write.clone().filter(|a| !a.is_empty());
+    let payment_href = url::BuyerPayment { id: &payment_id, place: crate::payment::Place { after_write } }.href();
     let screen = ConfirmationScreen {
         support_reference: support_reference(&session),
         session_id: session.session_id,
         order_ids: session.order_ids,
         payment_id,
         payment,
-        payment_href: views::on_marketplace(&path),
+        payment_href,
     };
     let t: CheckoutMsg = req.t();
     let view = html! { <views::BuyConfirmationPage t={t} screen={&screen} /> };

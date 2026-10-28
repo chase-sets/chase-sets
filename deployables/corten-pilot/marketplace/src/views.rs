@@ -43,6 +43,7 @@ mod order_page;
 mod order_review_page;
 mod packing_page;
 mod page_actions;
+mod payment_page;
 mod recovery;
 mod repricing_page;
 mod reviews_page;
@@ -84,6 +85,7 @@ pub use order_page::{OrderList, OrderPage};
 pub use order_review_page::OrderReviewPage;
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
 pub use page_actions::PageActions;
+pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
@@ -182,6 +184,8 @@ pub const DESK: &[Component] = &[DeskPage];
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
 /// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modal`).
 pub const MONEY: &[Component] = &[MoneyPage];
+/// A buyer's payment, with Stripe's step.
+pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::handlers::COMPONENT];
 
 /// The account's support (`/account/support`) and a Support Request's participant page
 /// (`/account/support/{id}`). No script: the intake's steps are GET forms, and the refund amount

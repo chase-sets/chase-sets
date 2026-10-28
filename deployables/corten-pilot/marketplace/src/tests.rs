@@ -352,6 +352,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
+    if uri.path() == "/api/auth/session" && session == "payment_staff" {
+        // Platform staff who may see a payment's provider details.
+        let permissions = ["orders.view", "support.manage"];
+        return Json(json!({ "actor": { "userId": "usr_staff", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
+            .into_response();
+    }
     if uri.path() == "/api/auth/session" && session == "keeper" {
         // An account owner, who may honor an offline sale over its orders.
         let permissions = ["inventory.view", "inventory.manage"];
@@ -418,7 +424,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
             "price_reader" => actor(&["pricing.view"]),
             // A buyer at checkout who may see the wallet and saved addresses and save a card.
-            "payer" => actor(&["accounts.view", "payouts.view", "orders.manage"]),
+            "payer" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
             // The Seller Desk's money page: `banker` may request, reconcile and set up payouts,
             // `payout_reader` may only see them.
             "banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
@@ -559,6 +565,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = checkout_sessions(&method, &uri, &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = account_payments(&method, &uri, &headers) {
         return answer;
     }
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
@@ -791,6 +800,82 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
         "confirm" => committed(StatusCode::OK, "checkout", "15", json!({ "payment_id": "pay_1" })),
         _ => return None,
     })
+}
+
+/// A buyer's payments, as Payments answers them. `pay_1` waits for the buyer with a Payment
+/// Intent's secret, `pay_cs` with a Checkout Session's; `pay_paid` is captured, `pay_failed`
+/// was declined, `pay_noemail`'s order has no email, `pay_slow` has not caught up with any
+/// write and `pay_broken` fails. Any other is not the account's. The orders: `ord_pay` ships to
+/// the checkout's address and is due 2026-10-29, `ord_noemail` has no email.
+fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    if *method != Method::GET {
+        return None;
+    }
+    if uri.path() == "/api/marketplace/account/order-inputs" {
+        let asked = uri.query().unwrap_or_default();
+        let order = |id: &str, email: Option<&str>| {
+            json!({
+                "order_id": id, "buyer_account_id": "acc_seller", "buyer_email": email,
+                "shipping_destination_snapshot": {
+                    "name": "Demo Collector", "line1": "42 Binder Lane", "line2": null, "city": "Evanston",
+                    "state": "IL", "postalCode": "60201", "country": "US", "email": null,
+                },
+                "total_amount": "638.83", "status": "pending-payment",
+                "payment_deadline_at": "2026-10-29T17:00:00.000Z",
+            })
+        };
+        let mut orders = Vec::new();
+        if asked.contains("ord_pay") {
+            orders.push(order("ord_pay", Some("collector@chasesets.test")));
+        }
+        if asked.contains("ord_noemail") {
+            orders.push(order("ord_noemail", None));
+        }
+        return Some(Json(json!({ "orders": orders })).into_response());
+    }
+    let id = uri.path().strip_prefix("/api/marketplace/account/payments/")?;
+    let mut payment = json!({
+        "payment_id": id, "buyer_account_id": "acc_seller", "order_ids": ["ord_pay"], "amount": "638.83",
+        "balance_credit_amount": "25.00", "processor_amount": "613.83", "marketplace_checkout_fee_amount": "18.83",
+        "payment_method_category": "card", "currency_code": "usd", "processor_name": "stripe",
+        "processor_payment_reference": "pi_1", "processor_client_secret": "pi_1_secret_abc",
+        "processor_redirect_url": null, "processor_status": "requires_payment_method",
+        "processor_publishable_key": "pk_test_1", "source_context": "checkout", "source_reference_id": "chk_paid",
+        "status": "pending-confirmation", "failure_code": null, "failure_message": null,
+        "created_at": "2026-10-28T17:00:00.000Z", "updated_at": "2026-10-28T17:00:00.000Z",
+        "captured_at": null, "failed_at": null, "cancelled_at": null, "provider_events": [],
+    });
+    match id {
+        "pay_1" => {}
+        "pay_cs" => payment["processor_client_secret"] = json!("cs_test_1_secret"),
+        "pay_noemail" => payment["order_ids"] = json!(["ord_noemail"]),
+        "pay_paid" => {
+            payment["status"] = json!("captured");
+            payment["processor_status"] = json!("succeeded");
+            payment["processor_client_secret"] = json!(null);
+            payment["captured_at"] = json!("2026-10-28T17:05:00.000Z");
+            payment["provider_events"] = json!([{
+                "provider_event_id": "evt_1", "provider_name": "stripe", "event_kind": "payment-captured",
+                "provider_object_reference": "pi_1", "received_at": "2026-10-28T17:05:00.000Z",
+            }]);
+        }
+        "pay_failed" => {
+            payment["status"] = json!("failed");
+            payment["failure_code"] = json!("card_declined");
+            payment["failure_message"] = json!("Your card was declined.");
+            payment["failed_at"] = json!("2026-10-28T17:05:00.000Z");
+        }
+        "pay_slow" if waits_for(headers).is_some() => {
+            return Some(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            ));
+        }
+        "pay_broken" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Payment not found.")),
+    }
+    Some(Json(payment).into_response())
 }
 
 const CART_COMMANDS: &str = "/api/marketplace/account/cart/commands";
@@ -9528,7 +9613,7 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_paid", Some("payer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
-    assert!(html.contains("http://localhost:7753/account/payments/pay_1"), "the payment's page on marketplace: {html}");
+    assert!(html.contains(r#"href="/account/payments/pay_1""#), "the pilot's payment page: {html}");
     assert!(!html.contains(r#"value="confirm-checkout""#), "{html}");
 }
 
@@ -9604,10 +9689,7 @@ async fn checkout_received_shows_the_started_payment_and_continues_to_marketplac
     assert!(page.contains("Payment total $638.83"), "Payments' summary: {page}");
     assert!(page.contains("Order status Pending Payment status Payment ready"), "{page}");
     assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
-    assert!(
-        html.contains(&format!(r#"href="http://localhost:7753/account/payments/pay_1?afterWrite={receipt}""#)),
-        "Continue to payment carries the receipt: {html}"
-    );
+    assert!(html.contains(r#"href="/account/payments/pay_1?afterWrite="#), "Continue to payment carries the receipt: {html}");
     assert!(html.contains("<title>Checkout received | Marketplace</title>"), "{html}");
     let asked: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
     assert!(asked.iter().any(|p| p == "/api/marketplace/account/checkout-payment-summaries/pay_1"), "{asked:?}");
@@ -9617,7 +9699,7 @@ async fn checkout_received_shows_the_started_payment_and_continues_to_marketplac
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("Payment total Pending") && page.contains("Payment status Preparing payment"), "{page}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/payments/pay_down""#), "{html}");
+    assert!(html.contains(r#"href="/account/payments/pay_down""#), "{html}");
 }
 
 #[tokio::test]
@@ -9651,6 +9733,144 @@ async fn pay_now_with_a_saved_card_that_needs_no_secure_step_lands_on_checkout_r
     assert!(to.starts_with("/checkout/buy/session/chk_1/confirmation?afterWrite="), "{to}");
     assert!(to.contains("15"), "Pay now's receipt: {to}");
     assert_eq!(checkout_writes(&pilot).last().map(|(p, _)| p.as_str()), Some("confirm"));
+}
+
+/// A GET of a payment's status part as the runtime sends it (`corten: action`), for `session`.
+fn status_part(uri: &str, session: &str) -> Request<Body> {
+    let mut req = get(uri, Some(session));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    req
+}
+
+#[tokio::test]
+async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get("/account/payments/pay_1", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
+    assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
+    assert!(csp.contains("https://api.stripe.com"), "{csp}");
+    let page = text(&html);
+    assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
+    assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
+    assert!(
+        page.contains("Wallet balance used $25.00 External payment $613.83 Marketplace Checkout Fee $18.83 Payment method card Processor stripe Payment Summary $638.83"),
+        "{page}"
+    );
+    assert!(page.contains("Payment Status Ready for payment Your checkout is ready."), "{page}");
+    assert!(page.contains("Covers 1 purchase."), "{page}");
+    assert!(page.contains("Purchase ord_pay"), "{page}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "the pilot's purchase: {html}");
+    assert!(!page.contains("Support Details"), "a buyer is not staff: {page}");
+    // Stripe's step: the key, the secret and the buyer's details for the script, Confirm off until
+    // the fields are ready (in the step and in the phone's bar), and words for a browser without one.
+    assert!(html.contains("pk_test_1") && html.contains("pi_1_secret_abc"), "{html}");
+    assert!(html.contains("collector@chasesets.test") && html.contains("60201"), "the billing details: {html}");
+    assert_eq!(html.matches("data-payment-confirm").count(), 2, "{html}");
+    assert!(page.contains("Stripe can only load in the browser."), "{page}");
+    // The watch over its status.
+    assert!(html.contains("/account/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    // A Checkout Session's secret goes to the script as it is.
+    let (_, _, html) = pilot.send(get("/account/payments/pay_cs", Some("payer"))).await;
+    assert!(html.contains("cs_test_1_secret"), "{html}");
+}
+
+#[tokio::test]
+async fn the_status_part_waits_while_the_status_holds_and_redraws_the_page_once_it_changed() {
+    let pilot = Pilot::new().await;
+    let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
+    let (status, headers, html) = pilot
+        .send(status_part(&format!("/account/payments/pay_1/status?since=pending-confirmation&until={until}"), "payer"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"<p id="payment-watch" hidden></p>"#), "{html}");
+    assert!(
+        html.contains(&format!(
+            r#"<template data-corten-read-again="2" data-from="/account/payments/pay_1/status?since=pending-confirmation&amp;until={until}"></template>"#
+        )),
+        "{html}"
+    );
+    assert!(!html.contains("payment-content"), "the page is not drawn again: {html}");
+    // The watch's time is up: the part stops asking.
+    let (_, _, html) =
+        pilot.send(status_part("/account/payments/pay_1/status?since=pending-confirmation&until=1", "payer")).await;
+    assert!(html.contains(r#"id="payment-watch""#) && !html.contains("data-corten-read-again"), "{html}");
+    // The provider captured it: the page's content, with no secure step and no watch.
+    let (status, _, html) = pilot
+        .send(status_part(&format!("/account/payments/pay_paid/status?since=pending-confirmation&until={until}"), "payer"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="payment-content""#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Payment Status Paid") && page.contains("Provider captured payment"), "{page}");
+    assert!(!html.contains("data-payment-confirm") && !html.contains("payment-watch"), "{html}");
+    // Without a script, the page.
+    let (status, headers, _) =
+        pilot.send(get("/account/payments/pay_paid/status?since=pending-confirmation&until=1", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_paid"));
+}
+
+#[tokio::test]
+async fn a_closed_or_paid_payment_has_no_secure_step_and_staff_see_the_providers_details() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/pay_failed", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Payment issue Your card was declined."), "the provider's words: {page}");
+    assert!(html.contains(r#"href="http://localhost:7753/account/payments/new?orderIds=ord_pay""#), "Retry payment: {html}");
+    assert!(!html.contains("data-payment-confirm") && !html.contains("payment-watch"), "{html}");
+    assert!(!page.contains("Complete payment by deadline"), "{page}");
+    assert!(page.contains("Payment failed"), "the timeline's last step: {page}");
+    // Staff see the provider's side, open for a failed payment.
+    let (_, _, html) = pilot.send(get("/account/payments/pay_failed", Some("payment_staff"))).await;
+    let page = text(&html);
+    assert!(page.contains("Support Details") && page.contains("Failure code card_declined"), "{page}");
+    assert!(html.contains("<details") && html.contains(" open"), "{html}");
+    // Paid: the timeline's capture.
+    let (_, _, html) = pilot.send(get("/account/payments/pay_paid", Some("payer"))).await;
+    let page = text(&html);
+    assert!(page.contains("Payment captured") && !html.contains("data-payment-confirm"), "{page}");
+    // An order with no email: Stripe needs one, so the step says so and mounts nothing.
+    let (_, _, html) = pilot.send(get("/account/payments/pay_noemail", Some("payer"))).await;
+    assert!(text(&html).contains("A buyer email address is required to confirm this payment."), "{html}");
+    assert!(!html.contains("data-payment-confirm"), "{html}");
+}
+
+#[tokio::test]
+async fn a_payment_that_is_not_the_accounts_or_not_ready_says_so() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/pay_other", Some("payer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(text(&html).contains("Payment not found."), "{html}");
+    let (status, _, html) =
+        pilot.send(get(&format!("/account/payments/pay_slow?afterWrite={}", receipt_at("43")), Some("payer"))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(text(&html).contains("Preparing payment"), "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
+    let (status, _, html) = pilot.send(get("/account/payments/pay_broken", Some("payer"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    // Who may see it: a buyer without orders.view may not, a guest's is marketplace's, and signed
+    // out signs in and comes back.
+    let (status, _, _) = pilot.send(get("/account/payments/pay_1", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get("/account/payments/pay_1", Some("guest"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payments/pay_1")
+    );
+    let (status, headers, _) = pilot.send(get("/account/payments/pay_1", None)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Faccount%2Fpayments%2Fpay_1")
+    );
+    // Starting a payment again is marketplace's, with its orders.
+    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("payer"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payments/new?orderIds=ord_pay")
+    );
 }
 
 /// A sign-in form posted from the page, with the browser's cookies (none when signed out) and its

@@ -776,7 +776,7 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 <p class={StepDescription}>{t.page_secure_checkout_context()}</p>
             </div>
             if let Some(payment) = &screen.session.payment_id {
-                <a class={(Button, Wide)} href={on_marketplace(&format!("/account/payments/{payment}"))}>
+                <a class={(Button, Wide)} href={url::BuyerPayment { id: payment, place: Default::default() }}>
                     {t.page_continue_to_payment()}
                 </a>
             } else {
@@ -829,7 +829,7 @@ fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> imp
                 }
             </ul>
             <p>
-                <a class={Button} href={on_marketplace(&format!("/account/payments/{payment}"))}>
+                <a class={Button} href={url::BuyerPayment { id: payment, place: Default::default() }}>
                     {t.page_continue_to_payment()}
                 </a>
             </p>
