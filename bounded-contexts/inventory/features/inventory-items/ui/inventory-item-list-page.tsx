@@ -40,10 +40,7 @@ import type { InventoryStorageLocation } from "../../storage-locations/ui/contra
 import type { InventoryGradedCardDetails, InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
-import {
-  InventoryMutationForm as Form,
-  InventoryMutationRouterForm as CreateForm,
-} from "../../../support/request-support/mutation-form";
+import { InventoryMutationRouterForm as Form } from "../../../support/request-support/mutation-form";
 
 const CATALOG_ITEM_SUGGESTIONS_URL = "/api/marketplace/items/suggest";
 const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
@@ -587,7 +584,7 @@ export function InventoryItemListPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <CreateForm
+          <Form
             family="item-create"
             targetId="draft"
             spacing="none"
@@ -719,7 +716,7 @@ export function InventoryItemListPage({
                 )}
               </Inset>
             </Grid>
-          </CreateForm>
+          </Form>
         </Card>
       </PageSection>
 
