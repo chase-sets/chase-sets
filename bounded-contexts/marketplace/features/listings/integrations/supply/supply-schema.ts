@@ -220,6 +220,9 @@ CREATE INDEX IF NOT EXISTS marketplace_supply_holds_item_idx
 ALTER TABLE marketplace_supply_locations
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 
+ALTER TABLE marketplace_supply_items
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL;
+
 ALTER TABLE marketplace_supply_holds
   ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'manual',
   ADD COLUMN IF NOT EXISTS source_ref jsonb NULL,
