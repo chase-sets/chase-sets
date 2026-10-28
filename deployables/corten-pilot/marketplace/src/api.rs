@@ -3774,6 +3774,8 @@ pub struct ReviewItem {
     pub revealed_at: Option<String>,
     pub held: bool,
     pub withdrawn_by_actor_type: Option<String>,
+    pub feedback_redacted_at: Option<String>,
+    pub reply_id: Option<String>,
     pub reply_feedback: Option<String>,
     pub reply_status: Option<String>,
     pub scoring_disposition: Option<String>,
@@ -3803,6 +3805,11 @@ pub trait ReviewCalls {
     /// The reviews others left the account (`received`) or it left (`written`), the first 100, in
     /// one role or both.
     async fn review_list(&self, which: &str, role: Option<&str>) -> Result<Vec<ReviewItem>, ApiError>;
+    /// A review the account wrote or received (`GET /reviews/{id}`).
+    async fn review(&self, review: &str) -> Result<ReviewItem, ApiError>;
+    /// The account's one public response to a review it received (`POST /reviews/{id}/reply`). The
+    /// answer is the write's receipt.
+    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
 }
 
 impl ReviewCalls for Caller<'_> {
@@ -3821,6 +3828,16 @@ impl ReviewCalls for Caller<'_> {
             path.push_str(&format!("&role={}", segment(role)));
         }
         Ok(self.read::<TeamList<ReviewItem>>(&path, MARKETPLACE).await?.items)
+    }
+
+    async fn review(&self, review: &str) -> Result<ReviewItem, ApiError> {
+        self.read(&format!("/api/marketplace/reviews/{}", segment(review)), MARKETPLACE).await
+    }
+
+    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("/api/marketplace/reviews/{}/reply", segment(review));
+        let req = self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "feedback": feedback }));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 }
 

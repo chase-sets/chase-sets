@@ -7,11 +7,12 @@
 //! side and a review's head spreads across its card.
 use corten::prelude::*;
 
-use super::{account_page::Side, on_marketplace};
+use super::{account_page::Side, fragment, on_marketplace};
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice},
-    api::{ReviewItem, ReviewSummary, segment},
+    api::{ReviewItem, ReviewSummary},
     app::url,
+    review::{MOST_REPLY, ReviewPlace, ReviewScreen},
     reviews::{ReportInput, ReviewsScreen, Which},
     text::{Pilot, ReviewsMsg},
 };
@@ -23,6 +24,10 @@ pub struct ReviewAnchorId<'a>(pub &'a str);
 /// A review's Report review dialog.
 #[derive(Id)]
 pub struct ReportReviewDialogId<'a>(pub &'a str);
+
+/// The reply's words, which a refused reply's summary links to.
+#[derive(Id)]
+pub struct ReplyFeedbackId;
 
 /// A rating as the API writes it (`"4.50"`), when it is a number.
 fn rating(text: Option<&str>) -> Option<f64> {
@@ -233,10 +238,10 @@ fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Rende
 }
 
 /// A list's review: the words for a withdrawn, paused or pending one, else its card and Open
-/// review (marketplace's review page, which is not ported yet).
+/// review.
 #[component(css = ReviewsPage)]
 fn ListItem<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewsScreen, review: &'a ReviewItem) -> impl Render {
-    let open = on_marketplace(&format!("/account/reviews/{}", segment(&review.review_id)));
+    let open = url::Review { id: &review.review_id, place: ReviewPlace::default() }.href();
     html! {
         if review.status == "withdrawn" {
             <li id={ReviewAnchorId(&review.review_id)} class={Stack}>
@@ -323,7 +328,14 @@ fn ReviewCard<'a>(
             }
             <div class={ReviewActions} role="group" aria-label={p.account_review_actions()}>
                 if review.reportable() {
-                    <ReportAction t={t} p={p} screen={screen} review={&review.review_id} />
+                    <ReportAction
+                        t={t}
+                        p={p}
+                        action={&screen.href(screen.role, None)}
+                        review={&review.review_id}
+                        notice={screen.notice(&review.review_id)}
+                        intent={false}
+                    />
                 }
                 if let Some(open) = open {
                     <a class={Secondary} href={open}>{t.list_open_review()}</a>
@@ -386,11 +398,18 @@ fn Scoring<'a>(t: ReviewsMsg, review: &'a ReviewItem) -> impl Render {
 }
 
 /// Report review (`ReviewReportAction`): its button opens a dialog with the reason and an
-/// explanation, posting to the page it is on. Once sent it says so and the button is off. A refused
-/// report draws the dialog open again with what was sent, modal once it joins the page.
+/// explanation, posting to the page it is on (`action`, naming its `intent` where the page has
+/// another form). Once sent it says so and the button is off. A refused report draws the dialog
+/// open again with what was sent, modal once it joins the page.
 #[component(css = ReviewsPage)]
-fn ReportAction<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewsScreen, review: &'a str) -> impl Render {
-    let notice = screen.notice(review);
+fn ReportAction<'a>(
+    t: ReviewsMsg,
+    p: Pilot,
+    action: &'a str,
+    review: &'a str,
+    notice: Option<&'a ReviewNotice>,
+    intent: bool,
+) -> impl Render {
     let labels = [
         t.report_reason_harassment(),
         t.report_reason_hate(),
@@ -437,7 +456,10 @@ fn ReportAction<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewsScreen, review: 
                         </button>
                     </div>
                     <p class={Muted}>{t.report_description()}</p>
-                    <form class={Form} method="post" action={&screen.href(screen.role, None)}>
+                    <form class={Form} method="post" action={action}>
+                        if intent {
+                            <input type="hidden" name={f.intent} value="report-review">
+                        }
                         <input type="hidden" name={f.review_id} value={review}>
                         if let Some((message, _, _)) = refused {
                             <div class={Banner} data-tone="danger" role="alert">
@@ -473,6 +495,194 @@ fn ReportAction<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewsScreen, review: 
                     </form>
                 </dialog>
             }
+        </div>
+    }
+}
+
+/// A review's own page (`ReviewDetailPage`): the header with View order outcome and Back; the
+/// review, or the words for a withdrawn, paused or pending one; and Respond to this review for the
+/// account it reviews.
+#[component(css = ReviewsPage)]
+pub fn ReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen) -> impl Render {
+    let review = &screen.review;
+    let action = url::Review { id: &review.review_id, place: ReviewPlace::default() }.href();
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <p class={Eyebrow}>{t.detail_review()}</p>
+                <h1 class={Title}>{t.detail_review_details()}</h1>
+                <p class={Muted}>{t.detail_verified_order_feedback()}</p>
+                <nav class={Links} aria-label={t.detail_review()}>
+                    <a class={Primary} href={&screen.order_href()}>{t.detail_view_order_outcome()}</a>
+                    <a class={Secondary} href={&screen.back_href()}>{t.detail_back()}</a>
+                </nav>
+            </header>
+            <section class={Section} aria-labelledby="review-summary">
+                <h2 id="review-summary" class={SectionTitle}>{t.detail_summary()}</h2>
+                if review.status == "withdrawn" {
+                    <div class={Stack}>
+                        <Empty title={t.detail_review_withdrawn_title()} description={t.detail_review_withdrawn_description()} />
+                        if review.withdrawn_by_actor_type.as_deref() == Some("operator") {
+                            <p><span class={Badge} data-tone="danger">{t.detail_moderated_withdrawn()}</span></p>
+                        }
+                    </div>
+                } else if review.held && review.rating.is_none() {
+                    <Empty title={t.detail_feedback_on_hold_title()} description={t.detail_feedback_on_hold_description()} />
+                } else if review.rating.is_none() {
+                    <Empty title={t.detail_review_pending_title()} description={t.detail_review_pending_description()} />
+                } else {
+                    <DetailCard t={t} p={p} screen={screen} action={&action} />
+                }
+            </section>
+            if screen.can_reply() {
+                <section class={Section} aria-labelledby="review-reply">
+                    <h2 id="review-reply" class={SectionTitle}>{t.detail_reply_title()}</h2>
+                    <ReplyForm t={t} screen={screen} action={&action} />
+                </section>
+            }
+        </div>
+    }
+}
+
+/// The review's card on its own page: who wrote it in which role, whom it reviews, its badges
+/// (status, pending, paused, context only, redacted), how it counts, what it says, the reply, and
+/// Report review.
+#[component(css = ReviewsPage)]
+fn DetailCard<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen, action: &'a str) -> impl Render {
+    let review = &screen.review;
+    let author = review.author_display_name.as_deref().unwrap_or(&review.author_account_id);
+    let subject = review.subject_display_name.as_deref().unwrap_or(&review.subject_account_id);
+    html! {
+        <article id={ReviewAnchorId(&review.review_id)} class={Review}>
+            <div class={ReviewHead}>
+                <p class={Strong}>{t.detail_review_author()}{author}</p>
+                <div class={Inline}>
+                    <Stars value={f64::from(review.rating.unwrap_or(0))} />
+                    <span class={Badge} data-tone="success">{p.account_verified_purchase()}</span>
+                </div>
+            </div>
+            <div class={Stack}>
+                <p class={Muted}>{t.detail_author_role()}{&review.author_role}</p>
+                <p class={Muted}>{t.detail_reviewed_account()}{subject}</p>
+                <p class={Inline}>
+                    <span class={Badge} data-tone="success">{&review.status}</span>
+                    if review.revealed_at.is_none() {
+                        <span class={Badge} data-tone="warning">{t.detail_pending_reveal()}</span>
+                    }
+                    if review.held {
+                        <span class={Badge} data-tone="warning">{t.detail_feedback_on_hold_badge()}</span>
+                    }
+                    if review.scoring_disposition.as_deref() == Some("context-only") {
+                        <span class={Badge}>{t.context_only()}</span>
+                    }
+                    if review.feedback_redacted_at.is_some() {
+                        <span class={Badge} data-tone="danger">{t.detail_moderated_redacted()}</span>
+                    }
+                </p>
+            </div>
+            <Scoring t={t} review={review} />
+            <p class={Body}>{review.feedback.as_deref().unwrap_or(t.detail_no_written_feedback())}</p>
+            if let Some(reply) = screen.shown_reply() {
+                <p class={Reply}><span class={Strong}>{t.detail_reply_label()}</span>" "{reply}</p>
+            }
+            if screen.can_report() {
+                <div class={ReviewActions} role="group" aria-label={p.account_review_actions()}>
+                    <ReportAction
+                        t={t}
+                        p={p}
+                        action={action}
+                        review={&review.review_id}
+                        notice={screen.report.as_ref()}
+                        intent={true}
+                    />
+                </div>
+            }
+        </article>
+    }
+}
+
+/// Respond to this review: what a reply is, a refused reply's words (the closed authoring codes as
+/// `AuthoredTextRecoverySummary` with a link to the words, else a banner), the words as typed, and
+/// the community guidelines before Post response.
+#[component(css = ReviewsPage)]
+fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> impl Render {
+    let f = ReportInput::FIELDS;
+    let refused = screen.reply.as_ref();
+    let draft = refused.map_or("", |r| r.draft.as_str());
+    let invalid = refused.is_some_and(|r| r.field).then_some("true");
+    let max = MOST_REPLY.to_string();
+    html! {
+        <div class={Card}>
+            <p class={Muted}>{t.detail_reply_description()}</p>
+            if let Some(refused) = refused {
+                <div class={Banner} data-tone="danger" role="alert" tabindex="-1">
+                    if refused.recovery {
+                        <p class={Strong}>{t.recovery_title()}</p>
+                        <p>{&refused.message}</p>
+                        <p>{t.recovery_draft_kept()}</p>
+                        if refused.field {
+                            <p><a href={&fragment(ReplyFeedbackId)}>{t.detail_reply_feedback()}</a></p>
+                        }
+                    } else {
+                        <p class={Strong}>{t.detail_reply_title()}</p>
+                        <p>{&refused.message}</p>
+                    }
+                </div>
+            }
+            <form class={Form} method="post" action={action}>
+                <input type="hidden" name={f.intent} value="reply">
+                <label class={Field}>
+                    <span>{t.detail_reply_feedback()}<span class={Required} aria-hidden="true">" *"</span></span>
+                    <textarea
+                        id={ReplyFeedbackId}
+                        name={f.feedback}
+                        rows="4"
+                        required
+                        maxlength={&max}
+                        aria-invalid={invalid}
+                        aria-description={t.detail_reply_feedback_description()}
+                    >
+                        {draft}
+                    </textarea>
+                    <span class={Faint}>{t.detail_reply_feedback_description()}</span>
+                </label>
+                <div class={Stack}>
+                    <p class={Muted}>{t.guidance_description()}</p>
+                    <p class={Inline}>
+                        <a href={&on_marketplace("/help/buying/community-guidelines-and-enforcement")}>
+                            {t.guidance_community_guidelines()}
+                        </a>
+                        <a href={&on_marketplace("/contact")}>{t.guidance_contact_support()}</a>
+                    </p>
+                </div>
+                <p><button type="submit" class={Primary}>{t.detail_reply_submit()}</button></p>
+            </form>
+        </div>
+    }
+}
+
+/// A review not readable yet after its reply (`ReviewDetailRecoveryPage`): the words for it,
+/// Refresh review and Back.
+#[component(css = ReviewsPage)]
+pub fn ReviewPreparing<'a>(t: ReviewsMsg, again: &'a str) -> impl Render {
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <p class={Eyebrow}>{t.detail_review()}</p>
+                <h1 class={Title}>{t.route_detail_review_preparing()}</h1>
+                <p class={Muted}>{t.route_detail_review_preparing_description()}</p>
+            </header>
+            <section class={Section} aria-labelledby="review-recover">
+                <h2 id="review-recover" class={SectionTitle}>{t.recover_recover_review()}</h2>
+                <div class={Empty} role="status">
+                    <p class={Strong}>{t.route_detail_review_preparing()}</p>
+                    <p class={Muted}>{t.recover_review_submission_saved()}</p>
+                    <p class={Links}>
+                        <a class={Primary} href={again}>{t.recover_refresh_review()}</a>
+                        <a class={Secondary} href={url::Reviews::default()}>{t.detail_back()}</a>
+                    </p>
+                </div>
+            </section>
         </div>
     }
 }

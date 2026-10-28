@@ -80,7 +80,7 @@ pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, repricing_dry_run_part};
-pub use reviews_page::{ReviewAnchorId, ReviewsPage};
+pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
@@ -154,7 +154,8 @@ pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMP
 pub const TEAM: &[Component] = &[TeamPage];
 /// The user's consent history (`/account/consents`): its stylesheet.
 pub const CONSENTS: &[Component] = &[ConsentsPage];
-/// The account's reviews (`/account/reviews`, `/received`, `/written`): their stylesheet.
+/// The account's reviews (`/account/reviews`, `/received`, `/written` and a review's own page):
+/// their stylesheet.
 pub const REVIEWS: &[Component] = &[ReviewsPage];
 
 /// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
@@ -227,6 +228,14 @@ pub fn marketplace(path: &str) -> Option<Uri> {
 
 /// A site-relative address the API returns (a picture, a page) on marketplace's origin, where it
 /// resolves, with its fragment (`#feedback`; a `Uri` has none); an absolute one as it is.
+/// A link to an element on the same page: `#` and its id. Corten has `route.at(id)` for another
+/// page's element but no in-page form (todd-skelton/corten#254); remove this once it lands.
+pub fn fragment(id: impl corten::view::Id) -> String {
+    let mut out = String::from("#");
+    id.write_id(&mut out);
+    out
+}
+
 pub fn on_marketplace(path: &str) -> String {
     if !path.starts_with('/') {
         return path.to_owned();

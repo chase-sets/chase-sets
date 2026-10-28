@@ -33,6 +33,7 @@ mod public_listing;
 mod recovery;
 mod repricing;
 mod restock;
+mod review;
 mod reviews;
 mod saving;
 mod search;

@@ -8,7 +8,7 @@
 //! A sent report redirects to the page at the review, saying it was received (`?reported={id}`),
 //! where marketplace draws the page again from its action. A refused one is the page again with
 //! the dialog open and what was sent; a second report of the same review says it was sent before.
-//! A review's own page is not ported yet: Open review goes to marketplace's.
+//! Open review goes to the review's own page (`review`).
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -57,13 +57,16 @@ pub struct Place {
     pub reported: Option<String>,
 }
 
-/// Report review's fields: the review (marketplace's `reviewId`), the reason and the explanation.
+/// Report review's fields: what the form is for (the review's own page also posts its reply), the
+/// review (marketplace's `reviewId`), the reason and the explanation; and the reply's words.
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct ReportInput {
+    pub intent: String,
     pub review_id: String,
     pub reason: String,
     pub details: String,
+    pub feedback: String,
 }
 
 /// A page: which one, its role, the ratings (the summary's), the reviews, and the review a report
@@ -202,8 +205,8 @@ pub(crate) async fn report_on_written(
     report(&req, &viewer, &config, &headers, Which::Written, place, input).await
 }
 
-/// Report review: the reason must be one of the form's, the explanation at most 1,000 characters
-/// (as the form's `maxLength` counts them), and the API decides the rest.
+/// Report review from a list or the summary (`send_report`): a sent report goes back to the review
+/// on the page, a refused one draws the page again.
 #[allow(clippy::too_many_arguments)]
 async fn report(
     req: &Req,
@@ -214,32 +217,11 @@ async fn report(
     place: Place,
     input: ReportInput,
 ) -> HtmlResult {
-    let p: Pilot = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
     let role = role(which, &place);
     let review = input.review_id.trim().to_owned();
-    let (reason, details) = (input.reason.trim(), input.details.trim());
-    let refused = |message: &str| ReviewNotice::Refused {
-        message: message.to_owned(),
-        reason: reason.to_owned(),
-        details: details.to_owned(),
-    };
-    let again = async |notice: ReviewNotice, status: StatusCode| match read(&caller, viewer, which, role).await {
-        Ok(mut screen) => {
-            screen.notice = Some((review.clone(), notice));
-            render(req, viewer, &screen, status)
-        }
-        Err(error) => read_failed(req, Some(viewer), error, None),
-    };
-    if review.is_empty() || !REASONS.contains(&reason) {
-        return again(refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-    if details.encode_utf16().count() > MOST_DETAILS {
-        return again(refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: which.path() };
-    match caller.report_review(&review, &body).await {
-        Ok(()) => {
+    match send_report(req.t(), &caller, &review, &input, which.path()).await {
+        Reported::Sent => {
             let place = Place { role: role.map(|r| r.as_str().to_owned()), reported: Some(review.clone()) };
             let anchor = ReviewAnchorId(&review);
             match which {
@@ -248,17 +230,57 @@ async fn report(
                 Which::Written => req.redirect(&url::WrittenReviews { place }.at(anchor)),
             }
         }
+        Reported::Again(notice, status) => match read(&caller, viewer, which, role).await {
+            Ok(mut screen) => {
+                screen.notice = Some((review, notice));
+                render(req, viewer, &screen, status)
+            }
+            Err(error) => read_failed(req, Some(viewer), error, None),
+        },
+        Reported::SignIn => sign_in(req),
+        Reported::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    }
+}
+
+/// What came of a report: sent, refused (the page again with that notice and status), the session
+/// gone, or the API failing.
+pub(crate) enum Reported {
+    Sent,
+    Again(ReviewNotice, StatusCode),
+    SignIn,
+    Failed(ApiError),
+}
+
+/// Report review's checks and its send, from the page at `from`: the reason must be one of the
+/// form's, the explanation at most 1,000 characters (as the form's `maxLength` counts them), and the
+/// API decides the rest. A refusal keeps what was sent.
+pub(crate) async fn send_report(p: Pilot, caller: &ApiCaller<'_>, review: &str, input: &ReportInput, from: &str) -> Reported {
+    let (reason, details) = (input.reason.trim(), input.details.trim());
+    let refused = |message: &str| ReviewNotice::Refused {
+        message: message.to_owned(),
+        reason: reason.to_owned(),
+        details: details.to_owned(),
+    };
+    if review.is_empty() || !REASONS.contains(&reason) {
+        return Reported::Again(refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    if details.encode_utf16().count() > MOST_DETAILS {
+        return Reported::Again(refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: from };
+    match caller.report_review(review, &body).await {
+        Ok(()) => Reported::Sent,
         Err(error) => match (error.status(), error.code()) {
-            (_, Some("report_already_submitted")) => again(ReviewNotice::Already, StatusCode::CONFLICT).await,
-            (Some(StatusCode::UNAUTHORIZED), _) => sign_in(req),
+            (_, Some("report_already_submitted")) => Reported::Again(ReviewNotice::Already, StatusCode::CONFLICT),
+            (Some(StatusCode::UNAUTHORIZED), _) => Reported::SignIn,
             (Some(StatusCode::TOO_MANY_REQUESTS), _) => {
-                again(refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS).await
+                Reported::Again(refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS)
             }
             (Some(status), _) if status.is_client_error() => {
                 let message = error.refusal().map_or_else(|| p.account_report_refused().to_owned(), str::to_owned);
-                again(refused(&message), StatusCode::UNPROCESSABLE_ENTITY).await
+                Reported::Again(refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
             }
-            _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+            _ => Reported::Failed(error),
         },
     }
 }

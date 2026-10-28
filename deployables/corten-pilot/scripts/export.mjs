@@ -75,9 +75,11 @@
 //   the policy and status families, the version and date words and the unrecognized words as value.*,
 //   identity.accountManagement.* as manage.*, the action errors, and the route's words as route.*).
 // - marketplace/locales/reviews.en.json: the account's review pages' English catalog (Reputation's
-//   accountReviewSummaryPage.* as summary.*, reviewListPage.* as list.*, reviewReportAction.* as
-//   report.*, reviewScoringContext.* as scoring.*, the context-only explanation, and the three
-//   routes' words as route.summary.*, route.received.* and route.written.*).
+//   accountReviewSummaryPage.* as summary.*, reviewListPage.* as list.*, reviewDetailPage.* as
+//   detail.*, reviewDetailRecoveryPage.* as recover.*, reviewReportAction.* as report.*,
+//   reviewScoringContext.* as scoring.*, the context-only explanation, the four routes' words as
+//   route.summary.*, route.received.*, route.written.* and route.detail.*, and marketplace's
+//   authored-text guidance and recovery as guidance.* and recovery.*).
 // - marketplace/locales/team.en.json: the team page's English catalog
 //   (identity.features.memberships.ui.accountTeamPage.* as page.*, the membership roles as role.*, the
 //   membership and invitation statuses' words, their families and the unrecognized words as value.*,
@@ -612,18 +614,25 @@ const outputs = [
   ],
   [
     "marketplace/locales/reviews.en.json",
-    json(
-      await catalog("reputation.ts", "reputationEnglishTranslations", [
+    json({
+      ...(await catalog("reputation.ts", "reputationEnglishTranslations", [
         ["reputation.features.reviews.ui.accountReviewSummaryPage.", "summary"],
         ["reputation.features.reviews.ui.reviewListPage.", "list"],
+        ["reputation.features.reviews.ui.reviewDetailPage.", "detail"],
+        ["reputation.features.reviews.ui.reviewDetailRecoveryPage.", "recover"],
         ["reputation.features.reviews.ui.reviewReportAction.", "report"],
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
         ["reputation.features.reviews.ui.context.only.rating.explanation", "context_only"],
         ["reputation.routes.marketplace.accountReviewSummary.", "route.summary"],
         ["reputation.routes.marketplace.accountReceivedReviews.", "route.received"],
         ["reputation.routes.marketplace.accountWrittenReviews.", "route.written"],
-      ]),
-    ),
+        ["reputation.routes.marketplace.accountReview.", "route.detail"],
+      ])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
+        ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/consents.en.json",

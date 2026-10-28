@@ -32,6 +32,7 @@
 //! | `GET /account/team?<place>`, `POST ..` | the account's members and invitations, and their writes (see `team`) |
 //! | `GET /account/consents?<place>`, `POST ..` | the user's consent history, and withdrawing a consent (see `consents`) |
 //! | `GET /account/reviews`, `/received?<place>`, `/written?<place>`, `POST ..` | the account's review summary and lists, and reporting a review (see `reviews`) |
+//! | `GET /account/reviews/{id}?<place>`, `POST ..` | a review, reporting it and replying to it (see `review`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -149,7 +150,7 @@ pub mod url {
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
-    pub use reviews::{ReceivedReviews, Reviews, WrittenReviews};
+    pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
@@ -610,6 +611,16 @@ pub mod url {
         pub struct WrittenReviews {
             #[route(query)]
             pub place: crate::reviews::Place,
+        }
+
+        /// A review, read after the reply whose receipt its address carries; Report review and the
+        /// reply post to it.
+        #[derive(Clone, Debug)]
+        #[route("/account/reviews/{id}", get = crate::review::page, post = crate::review::write)]
+        pub struct Review<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::review::ReviewPlace,
         }
     }
 

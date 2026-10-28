@@ -13,7 +13,7 @@ use corten::{
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace};
+use super::{fragment, listing_page::options, on_marketplace};
 use crate::{
     api::{EvidenceReadiness, FeeHistoryEntry, GalleryImage, ListingPhoto, SellerListing, TermsPreview},
     app::url,
@@ -47,13 +47,6 @@ pub struct AltTextErrorId<'a>(pub &'a str);
 /// The page's own address, where its forms post.
 fn here(id: &str) -> url::SellerListing<'_> {
     url::SellerListing { id, place: Place::default() }
-}
-
-/// An id as text, for a link to it.
-fn fragment(id: impl corten::view::Id) -> String {
-    let mut out = String::from("#");
-    id.write_id(&mut out);
-    out
 }
 
 /// A label without the colon marketplace writes it with ("Price: "), for a list's term.

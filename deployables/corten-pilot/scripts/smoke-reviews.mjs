@@ -5,6 +5,10 @@
 // - Lists: each review Reputation lists, a card or the words for a withdrawn, paused or pending
 //   one; Report review only on an active, revealed review that is not held; the role filter keeps
 //   the role and marks it current.
+// - A review's own page, for each review listed: the review or its stand-in words, the order and
+//   back links, Report review only where it may be sent, and Respond to this review only for the
+//   account reviewed, once, on an active, revealed review not held; a review that is not the
+//   account's is not found. Open review leads there.
 // - Report review's dialog opens and closes without sending anything.
 // - At 390 px nothing scrolls sideways and every control is at least 44 px tall; without
 //   JavaScript the same pages; a visitor is sent to sign in; no console errors.
@@ -36,6 +40,29 @@ const lists = {
 };
 console.log(`Reputation: ${newest.length} newest, ${lists.received.length} received, ${lists.written.length} written`);
 const reportable = (r) => r.status === "active" && r.revealed_at !== null && !r.held;
+const details = {};
+for (const r of [...lists.received, ...lists.written]) details[r.review_id] = await read(`/api/marketplace/reviews/${r.review_id}`);
+
+async function detail(page, label, id) {
+  const r = details[id];
+  const res = await page.goto(`${base}/account/reviews/${id}`);
+  check(res?.status() === 200, `${label} ${id}: its page answers 200 (${res?.status()})`);
+  check((await text(page, "main h1")) === "Review details", `${label} ${id}: the heading is Review details`);
+  const owns = r.author_account_id === accountId;
+  const role = owns ? r.author_role : r.author_role === "buyer" ? "seller" : "buyer";
+  const order = `/account/${role === "buyer" ? "purchases" : "sales"}/${r.order_id}`;
+  const back = `/account/reviews/${owns ? "written" : "received"}?role=${role}`;
+  const links = await page.$$eval("main header a", (els) => els.map((e) => e.getAttribute("href")));
+  check(links.includes(order) && links.includes(back), `${label} ${id}: View order outcome and Back (${links.join(", ")})`);
+  const main = await text(page, "main");
+  if (r.status === "withdrawn") check(main.includes("Review withdrawn"), `${label} ${id}: says it was withdrawn`);
+  else if (r.rating === null) check(main.includes(r.held ? "Review paused" : "A review is pending"), `${label} ${id}: stands in`);
+  else check(main.includes(r.author_display_name ?? r.author_account_id), `${label} ${id}: names its author`);
+  const mayReport = r.rating !== null && reportable(r) && r.feedback_redacted_at === null;
+  check((await page.locator(`#report-review-dialog-${id}`).count()) === (mayReport ? 1 : 0), `${label} ${id}: Report review only where it may be sent (${mayReport})`);
+  const mayReply = r.subject_account_id === accountId && reportable(r) && r.reply_id === null;
+  check((await page.locator("#reply-feedback").count()) === (mayReply ? 1 : 0), `${label} ${id}: Respond only for the account reviewed, once (${mayReply})`);
+}
 
 const browser = await chromium.launch();
 async function context(options = {}) {
@@ -44,7 +71,8 @@ async function context(options = {}) {
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   const problems = [];
-  page.on("console", (m) => m.type() === "error" && problems.push(m.text()));
+  // The not-found check asks for a 404 on purpose; the browser logs that load as an error.
+  page.on("console", (m) => m.type() === "error" && !m.location().url.endsWith("/rev_not_this_accounts") && problems.push(m.text()));
   page.on("pageerror", (e) => problems.push(String(e)));
   return { ctx, page, problems };
 }
@@ -82,13 +110,17 @@ async function pages(page, label) {
     const current = await text(page, 'main a[aria-current="page"]');
     check(current === (which.includes("role=seller") ? "As seller" : "All"), `${label} ${which}: the current role is marked (${current})`);
   }
+  for (const id of Object.keys(details)) await detail(page, label, id);
+  const missing = await page.goto(`${base}/account/reviews/rev_not_this_accounts`);
+  check(missing?.status() === 404, `${label}: a review that is not the account's is not found (${missing?.status()})`);
 }
 
 try {
   {
     const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
     await pages(page, "390 px");
-    for (const path of ["/account/reviews", "/account/reviews/received"]) {
+    const opened = lists.received.find((r) => r.rating !== null) ?? lists.written.find((r) => r.rating !== null);
+    for (const path of ["/account/reviews", "/account/reviews/received", ...(opened ? [`/account/reviews/${opened.review_id}`] : [])]) {
       await page.goto(`${base}${path}`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       check(overflow <= 0, `${path}: nothing scrolls sideways at 390 px (${overflow})`);

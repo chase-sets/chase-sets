@@ -453,7 +453,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
         return answer;
     }
-    if let Some(answer) = reviews_api(&method, &uri) {
+    if let Some(answer) = reviews_api(&method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = public_accounts(&method, uri.path(), session) {
@@ -10007,11 +10007,17 @@ fn review_item(id: &str, author: &str, subject: &str, role: &str, rating: Option
 /// operator withdrew, one paused with no rating, one pending reveal, `rev_refused`, which the API
 /// will not take a report on, `rev_reported`, reported before, and `rev_flood`, one report too
 /// many; as a buyer, none. Written: one the account left.
-fn reviews_api(method: &Method, uri: &Uri) -> Option<Response> {
+fn reviews_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let (path, query) = (uri.path(), uri.query().unwrap_or_default());
+    if let Some(id) = path.strip_prefix("/api/marketplace/reviews/").and_then(|r| r.strip_suffix("/reply")) {
+        return (*method == Method::POST).then(|| reply_api(id, body));
+    }
     if *method != Method::GET {
         return None;
     }
-    let (path, query) = (uri.path(), uri.query().unwrap_or_default());
+    if let Some(id) = path.strip_prefix("/api/marketplace/reviews/").filter(|id| !matches!(*id, "received" | "written")) {
+        return Some(review_api(id, headers));
+    }
     let mut good = review_item("rev_good", "acc_buyer", "acc_seller", "buyer", Some(5));
     good["author_display_name"] = json!("Binder Bob");
     good["reply_feedback"] = json!("Thanks for the order!");
@@ -10059,6 +10065,142 @@ fn reviews_api(method: &Method, uri: &Uri) -> Option<Response> {
         }
         _ => return None,
     })
+}
+
+/// A review on its own page, as Reputation's `GET /reviews/{id}` answers `acc_seller`: `rev_good`, a
+/// buyer's review of it, which it may report and reply to (until a reply posted at position 47 is
+/// read, when the read is still catching up); `rev_mine`, its review of a seller; `rev_replied`,
+/// already answered; `rev_redacted`, whose feedback an operator redacted; `rev_withdrawn`; and no
+/// other.
+fn review_api(id: &str, headers: &HeaderMap) -> Response {
+    let mut review = match id {
+        "rev_good" | "rev_replied" | "rev_redacted" => review_item(id, "acc_buyer", "acc_seller", "buyer", Some(5)),
+        "rev_mine" => review_item(id, "acc_seller", "acc_maker", "buyer", Some(4)),
+        "rev_withdrawn" => review_item(id, "acc_troll", "acc_seller", "buyer", None),
+        _ => return refusal(StatusCode::NOT_FOUND, "not_found", "Review not found."),
+    };
+    if id == "rev_good" && waits_for(headers).as_deref() == Some("47") {
+        return refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        );
+    }
+    review["author_display_name"] = json!("Binder Bob");
+    review["reply_id"] = json!(null);
+    review["feedback_redacted_at"] = json!(null);
+    match id {
+        "rev_replied" => {
+            review["reply_id"] = json!("rpl_1");
+            review["reply_feedback"] = json!("Thanks for the order!");
+            review["reply_status"] = json!("active");
+        }
+        "rev_redacted" => review["feedback_redacted_at"] = json!("2026-10-12T15:00:00.000Z"),
+        "rev_withdrawn" => {
+            review["status"] = json!("withdrawn");
+            review["withdrawn_by_actor_type"] = json!("operator");
+        }
+        _ => {}
+    }
+    Json(review).into_response()
+}
+
+/// A reply, as Reputation answers it by what it says: a link that is not https is a closed authoring
+/// code, `slow` is one reply too many, `twice` is refused in the API's words, `down` fails, and
+/// anything else is committed at position 47.
+fn reply_api(id: &str, body: &str) -> Response {
+    let feedback = serde_json::from_str::<Value>(body).ok().and_then(|b| b["feedback"].as_str().map(str::to_owned));
+    match (id, feedback.as_deref().unwrap_or_default()) {
+        (_, f) if f.contains("http://") => refusal(StatusCode::BAD_REQUEST, "text_unsafe_link", "Unsafe link."),
+        (_, "slow") => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
+        (_, "twice") => refusal(StatusCode::CONFLICT, "reply_already_submitted", "This review already has a response."),
+        (_, "down") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("rev_good", _) => committed(StatusCode::CREATED, "reputation", "47", json!({ "id": "rpl_new" })),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Review not found."),
+    }
+}
+
+#[tokio::test]
+async fn a_review_page_offers_the_reply_only_to_the_account_reviewed_and_links_its_order() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{REVIEWS}/rev_good"), Some("review_reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Review details") && html.contains("Review author: Binder Bob"), "{html}");
+    assert!(html.contains("Author role: buyer") && html.contains("Reviewed account: acc_seller"), "{html}");
+    assert!(html.contains(r#"href="/account/sales/ord_rev_good""#), "the seller's order is a sale: {html}");
+    assert!(html.contains(r#"href="/account/reviews/received?role=seller""#), "back to where it was received: {html}");
+    assert!(html.contains("Respond to this review") && html.contains(r#"<textarea id="reply-feedback""#), "{html}");
+    assert!(html.contains(r#"name="intent" value="reply""#) && html.contains(r#"name="intent" value="report-review""#), "{html}");
+    assert!(html.contains("Community guidelines") && html.contains(r#"href="http://localhost:7753/contact""#), "{html}");
+
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/rev_mine"), Some("review_reader"))).await;
+    assert!(html.contains(r#"href="/account/purchases/ord_rev_mine""#), "the buyer's order is a purchase: {html}");
+    assert!(html.contains(r#"href="/account/reviews/written?role=buyer""#), "{html}");
+    assert!(!html.contains("Respond to this review"), "only the account reviewed replies: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/rev_replied"), Some("review_reader"))).await;
+    assert!(html.contains("Thanks for the order!") && !html.contains("Respond to this review"), "once: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/rev_redacted"), Some("review_reader"))).await;
+    assert!(html.contains("Feedback redacted by an operator"), "{html}");
+    assert!(!html.contains("report-review-dialog-rev_redacted"), "a redacted review is not reported: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/rev_withdrawn"), Some("review_reader"))).await;
+    assert!(html.contains("Review withdrawn") && html.contains("Withdrawn by an operator"), "{html}");
+    let (status, _, _) = pilot.send(get(&format!("{REVIEWS}/rev_nowhere"), Some("review_reader"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/received"), Some("review_reader"))).await;
+    assert!(html.contains(r#"href="/account/reviews/rev_good""#), "Open review stays on the pilot: {html}");
+}
+
+#[tokio::test]
+async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
+    let pilot = Pilot::new().await;
+    let at = format!("{REVIEWS}/rev_good");
+    let send = |body: &str| post(&at, "reviewer", body, false);
+    let (status, headers, _) = pilot.send(send("intent=reply&feedback=Thank+you%21")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/reviews/rev_good?after_write="), "{to}");
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/reply")).cloned().unwrap();
+    assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/reply");
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["feedback"], "Thank you!");
+    let (status, _, html) = pilot.send(get(&to, Some("reviewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Review is preparing") && html.contains("Refresh review"), "still catching up: {html}");
+
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=+++")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Write a response before posting it."), "{html}");
+    let long = "x".repeat(1001);
+    let (status, _, html) = pilot.send(send(&format!("intent=reply&feedback={long}"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Keep the response to 1,000 characters or fewer.") && html.contains(&long), "{html}");
+    let replies = |pilot: &Pilot| pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/reply")).count();
+    assert_eq!(replies(&pilot), 1, "nothing sent for words the page refuses");
+
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=See+http%3A%2F%2Fodd.example")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(html.contains("Your text was not posted") && html.contains("Links must start with https://"), "{html}");
+    assert!(html.contains(r##"href="#reply-feedback""##) && html.contains("See http://odd.example"), "the draft is kept: {html}");
+    assert!(html.contains(r#"aria-invalid="true""#), "{html}");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=slow")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(html.contains("Wait a few minutes") && !html.contains(r##"href="#reply-feedback""##), "no field at fault: {html}");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=twice")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This review already has a response."), "the API's words: {html}");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=down")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(html.contains("Response could not be posted.") && html.contains(">down</textarea>"), "{html}");
+
+    let (status, headers, _) = pilot.send(send("intent=report-review&review_id=rev_good&reason=other")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/reviews/rev_good?reported=rev_good");
+    let report = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/report")).cloned().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&report.body).unwrap()["sourceRoutePath"], "/account/reviews/rev_good");
+    let (_, _, html) = pilot.send(get("/account/reviews/rev_good?reported=rev_good", Some("reviewer"))).await;
+    assert!(html.contains("Report submitted"), "{html}");
+    let (status, _, _) = pilot.send(post(&at, "review_reader", "intent=reply&feedback=hi", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "replying needs reputation.manage");
 }
 
 #[tokio::test]
