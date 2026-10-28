@@ -316,6 +316,25 @@ describe("Mounted Pricing Health loader and action", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it.each([
+    ["malformed JSON", "{"],
+    ["non-array JSON", '{"goalId":"fixed-percentile"}'],
+  ] as const)("compare action rejects %s goals without a transport call", async (_, goals) => {
+    const calls = transport();
+    const form = new FormData();
+    form.set("intent", "compare");
+    form.set("policyId", "pol_explicit");
+    form.set("goals", goals);
+    await expect(
+      action({
+        request: new Request("http://localhost/account/desk/pricing-health", { method: "POST", body: form }),
+        params: {},
+        context: {},
+      } as never),
+    ).resolves.toEqual({ error: "Enter a value within the allowed range." });
+    expect(calls).toHaveLength(0);
+  });
+
   it("explicit Compute verdict POST redirects back to the same policy without doing a GET write", async () => {
     const calls = transport();
     const form = new FormData();

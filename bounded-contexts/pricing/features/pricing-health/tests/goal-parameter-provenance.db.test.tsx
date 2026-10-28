@@ -107,9 +107,10 @@ describeDb("Pricing Health goal parameter and Economics provenance", () => {
                 : name === "dailyReturnHurdle"
                   ? healthPercent(Number(fact.effectiveValue))
                   : healthNumber(Number(fact.effectiveValue));
-        expect(html).toContain(value);
-        expect(html).toContain(localizedEconomicsSource(fact.source.kind));
-        expect(html).toContain(formatDateTime(fact.observedAt));
+        const expectedRow = `${value} · ${localizedEconomicsSource(fact.source.kind)}${
+          fact.source.kind === "policy-default" ? ` · ${localizedEconomicsReason(fact.source.reason)}` : ""
+        }${fact.override ? " · Overridden" : ""} · ${formatDateTime(fact.observedAt)}`;
+        expect(html).toContain(expectedRow);
       }
     }
     const edited = data!.goals!.map((goal) => ({

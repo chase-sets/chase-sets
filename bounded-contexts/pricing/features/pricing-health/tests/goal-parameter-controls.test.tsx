@@ -84,7 +84,7 @@ describe("Pricing Health goal parameter controls", () => {
             observedAt: "2026-10-20T00:00:00.000Z",
             source: "commercial-terms",
             sourceReason: null,
-            override: null,
+            override: { value: 1075, revision: 1, setAt: "2026-10-19T00:00:00.000Z" },
           },
           platformFeeCapPerUnitAmount: {
             effectiveValue: null,
@@ -116,6 +116,8 @@ describe("Pricing Health goal parameter controls", () => {
     expect(screen.getByText(/1\.25%/)).toBeTruthy();
     expect(screen.getByText(/14/)).toBeTruthy();
     expect(screen.getByText(/Unavailable/)).toBeTruthy();
+    expect(screen.getAllByText(/Overridden/)).toHaveLength(1);
+    expect(screen.getByText(/Provider unavailable/)).toBeTruthy();
     expect(screen.queryByText(/null/)).toBeNull();
   });
 });
