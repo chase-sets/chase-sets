@@ -297,7 +297,11 @@ test("connector-pairing-drill-deployed composed staging command against the fake
       reservation: null,
       bodyCode: null,
     });
-  expect(receipt.claims).toContainEqual(expect.objectContaining({ phase: "unpaired", status: 401 }));
+  expect(receipt.claims.filter(({ phase }) => phase === "unpaired")).toEqual([
+    { phase: "unpaired", path: "/channel-connector/oauth/connections/<connectionId>/claim", status: 401 },
+  ]);
+  // The post-Unpair body is diagnostic-only and never enters the success receipt.
+  expect(receipt).not.toHaveProperty("claimResponses");
   expect(receipt.lifecycle).toContain("paired-idle");
   expect(receipt.lifecycle.indexOf("cleanup-pending")).toBeGreaterThanOrEqual(0);
   expect(receipt.lifecycle.indexOf("cleanup-pending")).toBeLessThan(receipt.lifecycle.lastIndexOf("revoked"));

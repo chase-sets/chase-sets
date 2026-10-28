@@ -193,7 +193,10 @@ describe("installed deployed response subscription", () => {
       await run.emit(response({ json }).value);
       await run.emit(response({ json }).value);
       expect(run.claims).toHaveLength(2);
-      expect(run.claims.map((claim) => claim.reservation)).toEqual([reservation, reservation]);
+      expect(run.claims.filter((claim) => claim.phase === "paused").map((claim) => claim.reservation)).toEqual([
+        reservation,
+        reservation,
+      ]);
       expect(deployedPausedClaimsValid(run.claims, storedPath)).toBe(false);
     } finally {
       run.close();
@@ -238,7 +241,7 @@ describe("installed deployed response subscription", () => {
     });
     try {
       await run.emit(response({ status: 401, json: () => body }).value);
-      const boundary = run.claims.length;
+      const boundary = run.responses.length;
       run.unpair();
       finish({ error: "invalid-credential" });
       await body;
@@ -246,10 +249,15 @@ describe("installed deployed response subscription", () => {
       expect(run.claims).toEqual([
         { phase: "paused", path: storedPath, status: 401, reservation: "unreadable", bodyCode: "invalid-credential" },
       ]);
-      expect(deployedUnpairedClaimObserved(run.claims, boundary)).toBe(false);
+      expect(deployedUnpairedClaimObserved(run.responses, boundary)).toBe(false);
       await run.emit(response({ status: 401, json: async () => ({ error: "invalid-credential" }) }).value);
       expect(run.context.listenerCount("response")).toBe(1);
-      expect(deployedUnpairedClaimObserved(run.claims, boundary)).toBe(true);
+      expect(deployedUnpairedClaimObserved(run.responses, boundary)).toBe(true);
+      expect(run.claims).toContainEqual({
+        phase: "unpaired",
+        path: storedPath,
+        status: 401,
+      });
     } finally {
       run.close();
     }
@@ -257,16 +265,25 @@ describe("installed deployed response subscription", () => {
   it("requires an actual post-boundary 401, not an earlier 401 or a later 200", async () => {
     const run = installed();
     try {
+      const boundary = run.responses.length;
+      await run.emit(response({ status: 401 }).value);
       run.unpair();
-      await run.emit(response({ status: 401 }).value);
-      const boundary = run.claims.length;
       await run.emit(response().value);
-      expect(deployedUnpairedClaimObserved(run.claims, boundary)).toBe(false);
+      expect(deployedUnpairedClaimObserved(run.responses, boundary)).toBe(false);
       await run.emit(response({ status: 401 }).value);
-      expect(deployedUnpairedClaimObserved(run.claims, boundary)).toBe(true);
+      expect(deployedUnpairedClaimObserved(run.responses, boundary)).toBe(true);
     } finally {
       run.close();
     }
+  });
+  it("applies the phase and response boundary to the status authority", () => {
+    expect(deployedUnpairedClaimObserved([{ phase: "paused", status: 401, body: "settled" }], 0)).toBe(false);
+    const rows = [
+      { phase: "unpaired", status: 401, body: "pending" },
+      { phase: "unpaired", status: 401, body: "pending" },
+    ] as const;
+    expect(deployedUnpairedClaimObserved(rows, 1)).toBe(true);
+    expect(deployedUnpairedClaimObserved(rows, 2)).toBe(false);
   });
   it("removes owned listeners and discards in-flight JSON on cleanup without retaining a second run", async () => {
     const first = installed();
@@ -333,6 +350,7 @@ describe("installed deployed response subscription", () => {
     expect(run.claims.map(({ phase, status }) => [phase, status])).toEqual([
       ["paused", 200],
       ["paused", 401],
+      ["unpaired", 401],
     ]);
   });
 
@@ -618,8 +636,6 @@ describe("installed deployed response subscription", () => {
     phase: "unpaired",
     path: storedPath,
     status: 401,
-    reservation: "unreadable",
-    bodyCode: "invalid-credential",
   };
   const pausedResponse = { phase: "paused", status: 200, body: "settled" };
   it.each([false, true])(
@@ -674,16 +690,10 @@ describe("installed deployed response subscription", () => {
       expectReleased(run);
     },
   );
-  it("refuses a post-Unpair body still pending at the deadline and keeps its late settlement out of the next run", async () => {
+  it("accepts a post-Unpair 401 event with a body still pending at the deadline", async () => {
     const first = await syntheticDrill({ postUnpair: "body-unresolved" });
-    expect(codeOf(first.outcome.error)).toBe("connector-drill-lifecycle-refused");
-    const { evidence } = first.outcome.error as PairingDrillRefusal;
-    expect(evidence.deployed?.claims).toEqual([pausedClaim, pausedClaim]);
-    expect(evidence.deployed?.claimResponses).toEqual([
-      pausedResponse,
-      pausedResponse,
-      { phase: "unpaired", status: 401, body: "pending" },
-    ]);
+    expect(codeOf(first.outcome.error)).toBeUndefined();
+    expect(first.outcome.receipt?.claims).toEqual([pausedClaim, pausedClaim, unpairedClaim]);
     expectReleased(first);
     // The first run's body settles while the second run's own post-Unpair claim is in flight.
     const second = await syntheticDrill({ onUnpairedFire: first.release });

@@ -271,13 +271,16 @@ export type DeployedPageRow = Readonly<{
     completed: "finish";
   }>;
 }>;
-export type DeployedClaimRow = Readonly<{
-  phase: "paused" | "unpaired";
-  path: string;
-  status: number;
-  reservation: null | "present" | "unreadable";
-  bodyCode: string | null;
-}>;
+export type DeployedClaimRow =
+  | Readonly<{
+      phase: "paused";
+      path: string;
+      status: number;
+      reservation: null | "present" | "unreadable";
+      bodyCode: string | null;
+    }>
+  /** A post-Unpair 401 is event authority; no body-derived fields enter the success receipt. */
+  | Readonly<{ phase: "unpaired"; path: string; status: number }>;
 /** Refusal evidence only: a stored-path worker claim response the installed listener saw, and its body's fate. */
 export type DeployedClaimResponseRow = Readonly<{
   phase: DeployedClaimRow["phase"];
@@ -1553,9 +1556,14 @@ export function installDeployedResponses(
     const status = response.status();
     // Seen before its body settles, so a refusal tells a late body from an absent response.
     const observed = input.responses.push({ phase, status, body: "pending" }) - 1;
+    // The product coordinator intentionally returns on a non-OK claim without
+    // reading its body. The browser event is therefore the post-Unpair
+    // authority; retain only the redacted phase/path/status row in a receipt.
+    if (phase === "unpaired" && status === 401) input.claims.push({ phase, path, status });
     const body: unknown = await response.json().catch(() => undefined);
     if (closed) return;
     input.responses[observed] = { phase, status, body: body === undefined ? "unreadable" : "settled" };
+    if (phase === "unpaired" && status === 401) return;
     input.claims.push({
       phase,
       path,
@@ -1597,8 +1605,13 @@ export function deployedPausedClaimsValid(claims: readonly DeployedClaimRow[], s
   );
 }
 
-export function deployedUnpairedClaimObserved(claims: readonly DeployedClaimRow[], claimsAtUnpair: number) {
-  return claims.slice(claimsAtUnpair).some((claim) => claim.phase === "unpaired" && claim.status === 401);
+export function deployedUnpairedClaimObserved(
+  responses: readonly DeployedClaimResponseRow[],
+  responsesAtUnpair: number,
+) {
+  return responses
+    .slice(responsesAtUnpair)
+    .some((response) => response.phase === "unpaired" && response.status === 401);
 }
 
 async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receipt: DeployedPairingDrillReceipt }> {
@@ -2146,12 +2159,13 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       const unpaired = await step(page, "pairing-unpaired", "GET", pairingApi);
       if (bodyCode(unpaired.body) !== "unpaired") fail("connector-drill-unpair-refused");
       claimPhase = "unpaired";
-      const claimsAtUnpair = claims.length;
+      const responsesAtUnpair = claimResponses.length;
       await fire();
       // Revocation and the browser's own collected 401 land in either order; the leg consumes both.
       const settled = await waitFor(
         async () =>
-          (await profileEntry(connector)) === "revoked" && deployedUnpairedClaimObserved(claims, claimsAtUnpair),
+          (await profileEntry(connector)) === "revoked" &&
+          deployedUnpairedClaimObserved(claimResponses, responsesAtUnpair),
       );
       lifecycle = await readLifecycle(connector);
       const cleanupAt = lifecycle.indexOf("cleanup-pending");
