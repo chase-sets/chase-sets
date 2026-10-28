@@ -49,6 +49,90 @@ test.describe("seller Listing Evidence readiness", () => {
     await signInWithPassword(page, new URL(page.url()).origin, seller);
   });
 
+  test.describe("listing hydration smoke", () => {
+    test.use({ trace: "on" });
+
+    test.afterEach(async ({ page }, testInfo) => {
+      await testInfo.attach("hydration-console-errors", {
+        body: JSON.stringify(hydrationErrors.get(page) ?? []),
+        contentType: "application/json",
+      });
+      expect(
+        (hydrationErrors.get(page) ?? []).filter((error) =>
+          /AsyncLocalStorage|node:async_hooks|externalized for browser compatibility/.test(error),
+        ),
+      ).toEqual([]);
+      expect((hydrationErrors.get(page) ?? []).filter((error) => error.startsWith("Blocked business write:"))).toEqual(
+        [],
+      );
+    });
+
+    const hydrationErrors = new WeakMap<import("@playwright/test").Page, string[]>();
+    test.beforeEach(async ({ page }) => {
+      const errors: string[] = [];
+      hydrationErrors.set(page, errors);
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      // The smoke permits only reads and the existing read-only fee preview action.
+      await page.route("**/*", async (route) => {
+        const request = route.request();
+        if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return route.continue();
+        const pathname = new URL(request.url()).pathname;
+        if (
+          pathname === "/api/marketplace/account/listings/evidence-readiness/preview" ||
+          (pathname === "/account/listings/new" && request.postData()?.includes("preview-listing"))
+        ) {
+          return route.continue();
+        }
+        errors.push(`Blocked business write: ${request.method()} ${pathname}`);
+        await route.abort();
+      });
+    });
+
+    test("Create listing catalog and fee preview respond @marketplace-seller @browser-e2e-seed", async ({ page }) => {
+      await page.goto("/account/listings/new", { waitUntil: "domcontentloaded" });
+      const catalog = page.getByRole("combobox", { name: "Search catalog" });
+      await catalog.fill("cat_seed_surging_sparks_booster_box");
+      await page.getByRole("option", { name: /Surging Sparks Booster Box/ }).click();
+      await expect(catalog).toHaveValue("Surging Sparks Booster Box");
+      await page.getByLabel("Price", { exact: true }).fill("25.00");
+      await page.getByLabel("Price currency code", { exact: true }).fill("USD");
+      await page.getByRole("button", { name: "Preview fees", exact: true }).click();
+      await expect(page.getByText("Listing fee preview", { exact: true })).toBeVisible();
+    });
+
+    test("seller detail withdraw dialog and evidence controls respond @marketplace-seller @browser-e2e-seed", async ({
+      page,
+    }) => {
+      await page.goto("/account/listings/lst_seed_lugia_neo_genesis_draft", { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: "Withdraw listing", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Withdraw listing", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      const evidence = page.getByLabel("Add seller-supplied evidence", { exact: true });
+      const dropzone = page.locator("label").filter({ has: evidence });
+      await dropzone.dispatchEvent("dragenter");
+      await expect(dropzone).toHaveClass(/border-accent/);
+      await dropzone.dispatchEvent("dragleave");
+      await expect(dropzone).toHaveClass(/border-muted/);
+    });
+
+    test("Seller Desk Sell menu responds @marketplace-seller @browser-e2e-seed", async ({ page }) => {
+      await page.goto("/account/desk", { waitUntil: "domcontentloaded" });
+      const sell = page
+        .getByRole("navigation", { name: "Primary navigation" })
+        .getByRole("button", { name: "Sell", exact: true });
+      await sell.click();
+      await expect(sell).toHaveAttribute("aria-expanded", "true");
+      const popup = page.locator(`[id="${await sell.getAttribute("aria-controls")}"]`);
+      await expect(popup.getByRole("link", { name: "Inventory", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(sell).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
   test("shows active compliance from server-owned slots @marketplace-seller @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
