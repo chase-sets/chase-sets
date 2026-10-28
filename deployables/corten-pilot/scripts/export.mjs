@@ -70,6 +70,10 @@
 //   (identity.features.apiKeys.ui.accountSecurityPage.* as page.*, .apiKeySecretReveal.* as reveal.*, the API
 //   key statuses' words as key_status.*, the user name labels, the authentication methods, their families,
 //   the unrecognized words, identity.accountManagement.* as manage.*, the action errors, and the route's title).
+// - marketplace/locales/team.en.json: the team page's English catalog
+//   (identity.features.memberships.ui.accountTeamPage.* as page.*, the membership roles as role.*, the
+//   membership and invitation statuses' words, their families and the unrecognized words as value.*,
+//   identity.accountManagement.* as manage.*, the action errors, and the route's title).
 // - marketplace/locales/sessions.en.json: the sessions pages' English catalog
 //   (auth.features.sessions.ui.sessionListPage.* as list.*, .sessionDetailPage.* as detail.*, Auth's
 //   session status family and unrecognized words as value.*, and Identity's authentication methods
@@ -595,6 +599,31 @@ const outputs = [
         ["identity.accountManagement.", "manage"],
         ["identity.support.routeSupport.accountActionErrors.", "action"],
         ["identity.routes.marketplace.accountSecurity.security.marketplace", "route.title"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/team.en.json",
+    json(
+      await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.features.memberships.ui.accountTeamPage.", "page"],
+        ["identity.features.memberships.ui.role.", "role"],
+        ["identity.values.role.platformAdmin", "role.platform_admin"],
+        ["identity.features.memberships.ui.membershipListPage.status.filter.active", "membership_status.active"],
+        ["identity.features.memberships.ui.membershipListPage.status.filter.revoked", "membership_status.revoked"],
+        ["identity.features.invitations.ui.invitationListPage.status.filter.pending", "invitation_status.pending"],
+        ["identity.features.invitations.ui.invitationListPage.status.filter.accepted", "invitation_status.accepted"],
+        ["identity.features.invitations.ui.invitationListPage.status.filter.declined", "invitation_status.declined"],
+        ["identity.features.invitations.ui.invitationListPage.status.filter.cancelled", "invitation_status.cancelled"],
+        ["identity.features.invitations.ui.invitationListPage.status.filter.expired", "invitation_status.expired"],
+        ["identity.values.family.membershipRole", "family.membership_role"],
+        ["identity.values.family.membershipStatus", "family.membership_status"],
+        ["identity.values.family.invitationStatus", "family.invitation_status"],
+        ["identity.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["identity.values.unrecognized", "value.unrecognized"],
+        ["identity.accountManagement.", "manage"],
+        ["identity.support.routeSupport.accountActionErrors.", "action"],
+        ["identity.routes.marketplace.accountTeam.team.marketplace", "route.title"],
       ]),
     ),
   ],

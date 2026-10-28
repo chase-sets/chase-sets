@@ -3276,7 +3276,8 @@ pub struct SuggestedAddress {
 }
 
 /// An Identity account-management write the pilot sends (`MutationAction`): the address book's
-/// four, the account's profile, and the security page's user profile and API key writes.
+/// four, the account's profile, the security page's user profile and API key writes, and the team
+/// page's invitation and membership writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountAction {
@@ -3289,6 +3290,12 @@ pub enum AccountAction {
     CreateApiKey,
     RotateApiKey,
     RevokeApiKey,
+    CreateInvitation,
+    CancelInvitation,
+    ChangeRole,
+    /// A membership's revoke.
+    Revoke,
+    Reinstate,
 }
 
 impl AccountAction {
@@ -3303,6 +3310,11 @@ impl AccountAction {
             AccountAction::CreateApiKey => "create-api-key",
             AccountAction::RotateApiKey => "rotate-api-key",
             AccountAction::RevokeApiKey => "revoke-api-key",
+            AccountAction::CreateInvitation => "create-invitation",
+            AccountAction::CancelInvitation => "cancel-invitation",
+            AccountAction::ChangeRole => "change-role",
+            AccountAction::Revoke => "revoke",
+            AccountAction::Reinstate => "reinstate",
         }
     }
 }
@@ -3448,8 +3460,13 @@ impl Addresses for Caller<'_> {
             | AccountAction::UpdateUser
             | AccountAction::CreateApiKey
             | AccountAction::RotateApiKey
-            | AccountAction::RevokeApiKey => {
-                unreachable!("not in the address book: AccountCalls::update_profile, SecurityCalls")
+            | AccountAction::RevokeApiKey
+            | AccountAction::CreateInvitation
+            | AccountAction::CancelInvitation
+            | AccountAction::ChangeRole
+            | AccountAction::Revoke
+            | AccountAction::Reinstate => {
+                unreachable!("not in the address book: AccountCalls::update_profile, SecurityCalls, TeamCalls")
             }
         };
         let req = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt);
@@ -3575,6 +3592,147 @@ pub struct SecurityUser {
     pub family_name: String,
     pub auth_methods: Vec<String>,
     pub updated_at: String,
+}
+
+/// A member of an account (Identity's `Membership`), the fields the team page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Membership {
+    pub membership_id: String,
+    pub user_id: String,
+    pub user_display_name: Option<String>,
+    pub user_primary_email: Option<String>,
+    pub account_id: String,
+    pub account_display_name: Option<String>,
+    pub account_name: Option<String>,
+    pub role_key: String,
+    pub status: String,
+}
+
+/// An invitation to an account (Identity's `Invitation`), the fields the team page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Invitation {
+    pub invitation_id: String,
+    pub email: String,
+    pub account_id: String,
+    pub account_display_name: Option<String>,
+    pub account_name: Option<String>,
+    pub role_key: String,
+    pub status: String,
+}
+
+#[derive(Deserialize)]
+struct TeamList<T> {
+    #[serde(default = "Vec::new")]
+    items: Vec<T>,
+}
+
+/// A committed create-invitation's answer: the invitation it recorded, and whether this call
+/// recorded it (`false` for an attempt the API had already recorded).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Invited {
+    pub invitation_id: String,
+    pub newly: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommittedBody {
+    #[serde(default)]
+    newly_committed: bool,
+    receipt: Option<CommittedReceipt>,
+    current: Option<CommittedOwner>,
+}
+
+#[derive(Deserialize)]
+struct CommittedReceipt {
+    result: Option<CommittedOwner>,
+}
+
+#[derive(Deserialize)]
+struct CommittedOwner {
+    id: Option<String>,
+}
+
+/// The account's team (Identity's `memberships` and `invitations`), as the signed-in member. Each
+/// write is an account-management attempt, as the address book's are.
+pub trait TeamCalls {
+    /// The account's members and invitations. Workaround for chase-sets/chase-sets#10704: Identity
+    /// scopes these lists by a substring match on the account's id, so only the rows whose
+    /// `account_id` is `account` are kept.
+    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
+    /// Send `action` on `target` as `attempt` with `body` (a create's fields, or a role); with
+    /// the invitation a committed create recorded.
+    async fn write_team(
+        &self,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+        body: &serde_json::Value,
+    ) -> Result<(AccountAnswer, Option<Invited>), ApiError>;
+    /// Ask Auth to email a new invitation's acceptance link, after the receipt the caller carries,
+    /// from the browser's address (Auth limits these by address, as it does sign-ins).
+    async fn invitation_link(&self, invitation: &str, client: Option<corten::ClientIp>) -> Result<(), ApiError>;
+}
+
+impl TeamCalls for Caller<'_> {
+    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
+        let scope = segment(account);
+        let (members_at, invitations_at) =
+            (format!("/api/identity/memberships?search={scope}"), format!("/api/identity/invitations?search={scope}"));
+        let (members, invitations) = tokio::join!(
+            self.read::<TeamList<Membership>>(&members_at, IDENTITY),
+            self.read::<TeamList<Invitation>>(&invitations_at, IDENTITY),
+        );
+        let members = members?.items.into_iter().filter(|m| m.account_id == account).collect();
+        let invitations = invitations?.items.into_iter().filter(|i| i.account_id == account).collect();
+        Ok((members, invitations))
+    }
+
+    async fn write_team(
+        &self,
+        action: AccountAction,
+        target: Option<&str>,
+        attempt: &str,
+        body: &serde_json::Value,
+    ) -> Result<(AccountAnswer, Option<Invited>), ApiError> {
+        let id = target.map(segment).unwrap_or_default();
+        let (method, path) = match action {
+            AccountAction::CreateInvitation => (Method::POST, "/api/identity/invitations".to_owned()),
+            AccountAction::CancelInvitation => (Method::POST, format!("/api/identity/invitations/{id}/cancel")),
+            AccountAction::ChangeRole => (Method::PUT, format!("/api/identity/memberships/{id}/role")),
+            AccountAction::Revoke => (Method::POST, format!("/api/identity/memberships/{id}/revoke")),
+            AccountAction::Reinstate => (Method::POST, format!("/api/identity/memberships/{id}/reinstate")),
+            _ => unreachable!("not a team write: {}", action.as_str()),
+        };
+        let res = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).json(body).send().await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let text = res.text().await?;
+        let answer = AccountAnswer::read(status, &text, receipt)?;
+        let invited = match (&answer, action) {
+            (AccountAnswer::Committed(_), AccountAction::CreateInvitation) => invited(&text),
+            _ => None,
+        };
+        Ok((answer, invited))
+    }
+
+    async fn invitation_link(&self, invitation: &str, client: Option<corten::ClientIp>) -> Result<(), ApiError> {
+        let landing = format!("/invite/{}", segment(invitation));
+        let body = serde_json::json!({ "invitationId": invitation, "landingPath": landing });
+        let mut req = self.request(Method::POST, "/api/auth/invitations/acceptance-link/request", AUTH).json(&body);
+        if let Some(corten::ClientIp(ip)) = client {
+            req = req.header("x-forwarded-for", ip.to_string());
+        }
+        self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+}
+
+/// The invitation a committed create's body names (`receipt.result.id`, else `current.id`).
+fn invited(body: &str) -> Option<Invited> {
+    let parsed: CommittedBody = serde_json::from_str(body).ok()?;
+    let id = parsed.receipt.and_then(|r| r.result).and_then(|o| o.id).or_else(|| parsed.current.and_then(|o| o.id))?;
+    Some(Invited { invitation_id: id, newly: parsed.newly_committed })
 }
 
 /// An API key (Identity's `ApiKey`), never its secret.

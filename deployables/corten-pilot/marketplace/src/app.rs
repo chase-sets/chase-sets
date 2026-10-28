@@ -29,6 +29,7 @@
 //! | `GET /account?<place>`, `POST /account` | the account's own page and its profile's update (see `account_home`) |
 //! | `GET /account/sessions?<filters>`, `../{id}?<place>`, `POST ../{id}/revoke`, `../{id}/switch` | the user's sessions (see `sessions`) |
 //! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
+//! | `GET /account/team?<place>`, `POST ..` | the account's members and invitations, and their writes (see `team`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -84,6 +85,10 @@ pub const OFFERS_MANAGE: &str = "offers.manage";
 /// The user's security page: to see it, update the user's names, and create, rotate or revoke its
 /// API keys (Identity's `account-security` loader and action).
 pub const SECURITY_MANAGE: &str = "security.manage";
+/// The account's team: to see its members and invitations, and to invite, cancel an invitation,
+/// change a role, revoke or reinstate a membership (Identity's `account-team` loader and action).
+pub const MEMBERSHIPS_VIEW: &str = "memberships.view";
+pub const MEMBERSHIPS_MANAGE: &str = "memberships.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
 pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
@@ -148,6 +153,7 @@ pub mod url {
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, SignIn};
     pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
+    pub use team::Team;
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
     /// at `/` (with nothing asked, the landing and its shelf). It is in no area: an area's prefix
@@ -552,6 +558,20 @@ pub mod url {
         pub struct Security {
             #[route(query)]
             pub place: crate::security::Place,
+        }
+    }
+
+    /// The account's team (Identity's `account-team`): its members and invitations. Every write posts
+    /// to the page itself, as marketplace's form action does. Every handler takes a `TeamOwner`
+    /// (`memberships.view` to read, `memberships.manage` to write).
+    #[corten::routes(state = crate::app::Shared, area = Team, caller = crate::auth::TeamOwner)]
+    pub mod team {
+        /// The page, read after the write whose receipt it carries, and its writes.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/team", get = crate::team::page, post = crate::team::write)]
+        pub struct Team {
+            #[route(query)]
+            pub place: crate::team::Place,
         }
     }
 
@@ -980,6 +1000,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
+        .area(|area| url::team::area(area, shared.clone()).components(views::TEAM))
         .area(|area| url::sessions::area(area, shared.clone()).components(views::SESSIONS))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.

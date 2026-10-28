@@ -51,6 +51,7 @@ mod set_page;
 mod shipment_page;
 mod sign_in_page;
 mod submitted_offers_page;
+mod team_page;
 
 pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
@@ -85,6 +86,7 @@ pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts};
+pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
@@ -143,6 +145,9 @@ pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT]
 /// secret (corten-ui has no copy control, todd-skelton/corten#244). Revoke's dialog opens with
 /// `command="show-modal"`, which needs no script.
 pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMPONENT];
+
+/// The account's team (`/account/team`): its stylesheet.
+pub const TEAM: &[Component] = &[TeamPage];
 
 /// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
 /// dialog opens with `command="show-modal"`, which needs no script.

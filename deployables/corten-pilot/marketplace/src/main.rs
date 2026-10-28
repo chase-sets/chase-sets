@@ -43,6 +43,7 @@ mod sets;
 mod shipments;
 mod sign_in;
 mod submitted_offers;
+mod team;
 mod text;
 mod uploads;
 mod views;

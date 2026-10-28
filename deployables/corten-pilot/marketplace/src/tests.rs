@@ -392,6 +392,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "addresser" => actor(&["accounts.view", "accounts.manage"]),
             // A user on its security page: its names and API keys.
             "guard" => actor(&["security.manage"]),
+            // A member on its account's team: `teamer` may change it, `team_reader` may only see it.
+            "teamer" => actor(&["memberships.view", "memberships.manage"]),
+            "team_reader" => actor(&["memberships.view"]),
             // The Seller Desk's repricing: `pricer` may change policies, `price_reader` may only
             // read them (and its halt is engaged).
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
@@ -415,6 +418,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if method == Method::GET && uri.path() == "/api/identity/preferences" {
         let zone = if session == "lister" { "America/New_York" } else { "UTC" };
         return Json(json!({ "userId": "usr_1", "locale": "en", "timeZone": zone })).into_response();
+    }
+    if let Some(answer) = team_api(&method, &uri, &headers, &body) {
+        return answer;
     }
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
         return answer;
@@ -9778,4 +9784,317 @@ async fn signing_out_ends_the_session_and_clears_the_cookies() {
     assert_eq!(ended.len(), 1);
     assert!(ended[0].headers[header::COOKIE].to_str().unwrap().contains("chase_sets_session=seller"), "the session it ends");
     assert_eq!(auth_calls(&pilot, "/api/auth/guest-checkout/exit").len(), 1, "a guest checkout ends too");
+}
+
+const TEAM: &str = "/account/team";
+const LINK_API: &str = "/api/auth/invitations/acceptance-link/request";
+/// An attempt the API had recorded before: its create answers `newlyCommitted: false`.
+const REPLAYED: &str = "55555555-5555-4555-8555-555555555555";
+
+/// The account `acc_seller`'s team, as Identity's lists answer a `search` of its id: its owner, a
+/// revoked packer with no display name, and another account's member whose name holds
+/// `acc_seller` (chase-sets/chase-sets#10704); a pending and a cancelled invitation, and another
+/// account's. A read that waits for 45 is still catching up. A write's attempt decides an answer as
+/// a security write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN` are `indeterminate`;
+/// `REPLAYED` was recorded before). An invite to `taken@` is a conflict, to `bad@` is refused; a
+/// role change of the owner to `viewer` is refused as the last owner. The acceptance link answers
+/// 503 for `ivt_linkdown`.
+fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let indeterminate = || {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
+    };
+    let catching_up = || {
+        refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        )
+    };
+    let done = |id: &str, newly: bool| {
+        committed(
+            StatusCode::OK,
+            "identity",
+            "42",
+            json!({ "outcome": "committed", "newlyCommitted": newly, "receipt": { "result": { "id": id, "changed": true } },
+                    "current": { "id": id, "version": 2 } }),
+        )
+    };
+    if path == LINK_API {
+        return Some(match sent["invitationId"].as_str() {
+            Some("ivt_linkdown") => refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Unavailable."),
+            _ => Json(json!({ "ok": true })).into_response(),
+        });
+    }
+    if path == "/api/identity/account-management/attempts" {
+        let action = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("action=")).unwrap_or_default();
+        if !matches!(action, "create-invitation" | "cancel-invitation" | "change-role" | "revoke" | "reinstate") {
+            return None;
+        }
+        return Some(match attempt {
+            APPLIED_BEFORE => {
+                Json(json!({ "outcome": "committed", "newlyCommitted": false, "destination": "/account/team" })).into_response()
+            }
+            CHECK_DOWN => Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })).into_response(),
+            _ => Json(json!({ "outcome": "not-recorded", "code": "not-recorded" })).into_response(),
+        });
+    }
+    let member = |id: &str, user: &str, name: Option<&str>, email: &str, account: &str, role: &str, status: &str| {
+        json!({ "membership_id": id, "user_id": user, "user_display_name": name, "user_primary_email": email,
+                "account_id": account, "account_display_name": "Synthetic Shop", "account_name": "synthetic-shop",
+                "role_key": role, "role_permissions": [], "status": status, "updated_at": "2026-10-24T03:53:46.180Z" })
+    };
+    let invitation = |id: &str, email: &str, account: &str, role: &str, status: &str| {
+        json!({ "invitation_id": id, "email": email, "account_id": account, "account_display_name": "Synthetic Shop",
+                "account_name": "synthetic-shop", "role_key": role, "status": status, "expires_at": "2026-11-04T00:00:00.000Z" })
+    };
+    if let Some(rest) = path.strip_prefix("/api/identity/memberships") {
+        return Some(match (method.as_str(), rest) {
+            ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
+            ("GET", "") => {
+                let items = [
+                    member(
+                        "mbr_owner",
+                        "usr_seller",
+                        Some("Synthetic Seller"),
+                        "seller@chasesets.test",
+                        "acc_seller",
+                        "owner",
+                        "active",
+                    ),
+                    member("mbr_packer", "usr_packer", None, "packer@chasesets.test", "acc_seller", "fulfillment", "revoked"),
+                    member("mbr_else", "usr_else", Some("acc_seller fan"), "else@chasesets.test", "acc_other", "owner", "active"),
+                ];
+                Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            }
+            _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            ("PUT", "/mbr_owner/role") if sent["roleKey"] == "viewer" => {
+                refusal(StatusCode::CONFLICT, "last_owner", "An account must keep at least one active owner.")
+            }
+            ("PUT", "/mbr_owner/role" | "/mbr_packer/role") | ("POST", "/mbr_owner/revoke" | "/mbr_packer/reinstate") => {
+                done(rest.split('/').nth(1).unwrap_or_default(), true)
+            }
+            _ => StatusCode::NOT_FOUND.into_response(),
+        });
+    }
+    let rest = path.strip_prefix("/api/identity/invitations")?;
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => {
+            let items = [
+                invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
+                invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
+                invitation("ivt_else", "acc_seller@elsewhere.test", "acc_other", "viewer", "pending"),
+            ];
+            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+        }
+        _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+        ("POST", "") if sent["email"] == "taken@chasesets.test" => {
+            (StatusCode::CONFLICT, Json(json!({ "outcome": "conflict", "code": "attempt-hash-conflict" }))).into_response()
+        }
+        ("POST", "") if sent["email"] == "bad@chasesets.test" => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
+        }
+        ("POST", "") if sent["email"] == "linkdown@chasesets.test" => done("ivt_linkdown", true),
+        ("POST", "") => done(sent["invitationId"].as_str().unwrap_or_default(), attempt != REPLAYED),
+        ("POST", "/ivt_pending/cancel") => done("ivt_pending", true),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
+/// The team writes the pilot sent: method, path, attempt and body.
+fn team_writes(pilot: &Pilot) -> Vec<(Method, String, String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| {
+            (c.path.starts_with("/api/identity/memberships")
+                || c.path.starts_with("/api/identity/invitations")
+                || c.path == LINK_API)
+                && c.method != Method::GET
+        })
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.method.clone(), c.path.clone(), attempt, serde_json::from_str(&c.body).unwrap_or_default())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_team_page_needs_memberships_view_and_its_writes_memberships_manage() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(TEAM, Some("guard"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "security.manage is not memberships.view");
+    let (status, headers, _) = pilot.send(get(TEAM, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fteam"), "{headers:?}");
+    let (status, _, _) = pilot.send(get(TEAM, Some("team_reader"))).await;
+    assert_eq!(status, StatusCode::OK, "memberships.view reads it");
+    let body = format!("intent=revoke&attempt={ATTEMPT}&membership_id=mbr_owner");
+    let (status, _, _) = pilot.send(post(TEAM, "team_reader", &body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs memberships.manage");
+    assert!(team_writes(&pilot).is_empty(), "nothing is sent for who may not write");
+}
+
+#[tokio::test]
+async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(TEAM, Some("teamer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().any(|c| c == "/api/identity/memberships?search=acc_seller"), "{calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/invitations?search=acc_seller"), "{calls:?}");
+    assert!(html.contains("Synthetic Seller") && html.contains("Owner · Active"), "{html}");
+    assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
+    assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
+    assert!(html.contains("Manager invitation · Cancelled"), "{html}");
+    assert!(!html.contains("mbr_else") && !html.contains("acc_seller fan"), "another account's member (#10704): {html}");
+    assert!(!html.contains("ivt_else") && !html.contains("elsewhere.test"), "another account's invitation (#10704): {html}");
+    // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
+    assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
+    assert!(
+        html.contains(r#"commandfor="cancel-invitation-dialog-ivt_pending""#)
+            && !html.contains("cancel-invitation-dialog-ivt_gone"),
+        "{html}"
+    );
+    assert!(
+        html.contains("Revoke Synthetic Seller&#39;s membership?") || html.contains("Revoke Synthetic Seller's membership?"),
+        "{html}"
+    );
+    let mut req = get(TEAM, Some("teamer"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["memberships"].as_array().map(Vec::len), Some(2), "{body}");
+    assert_eq!(body["data"]["invitations"].as_array().map(Vec::len), Some(2), "{body}");
+}
+
+#[tokio::test]
+async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_does_not() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=fresh%40chasesets.test&role_key=manager");
+    let mut req = post(TEAM, "teamer", &body, false);
+    let peer: std::net::SocketAddr = "203.0.113.9:50000".parse().unwrap();
+    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    let (status, headers, _) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/team?after_write=") && to.ends_with(&format!("&saved={ATTEMPT}")), "{to}");
+    let writes = team_writes(&pilot);
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    let (method, path, attempt, sent) = &writes[0];
+    assert_eq!((method, path.as_str(), attempt.as_str()), (&Method::POST, "/api/identity/invitations", ATTEMPT));
+    assert_eq!(
+        (sent["accountId"].as_str(), sent["email"].as_str(), sent["roleKey"].as_str()),
+        (Some("acc_seller"), Some("fresh@chasesets.test"), Some("manager"))
+    );
+    let invitation = sent["invitationId"].as_str().unwrap().to_owned();
+    assert!(invitation.starts_with("ivt_") && invitation.len() == 36, "{invitation}");
+    assert!(sent["expiresAt"].as_str().is_some_and(|at| at.ends_with('Z')), "{sent}");
+    let (_, path, _, link) = &writes[1];
+    assert_eq!(path, LINK_API);
+    assert_eq!(link, &json!({ "invitationId": invitation, "landingPath": format!("/invite/{invitation}") }));
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let asked = calls.iter().find(|c| c.path == LINK_API).unwrap();
+    assert_eq!(waits_for(&asked.headers).as_deref(), Some("42"), "after the invitation's receipt");
+    assert_eq!(asked.headers["x-forwarded-for"], "203.0.113.9", "the browser's address, for Auth's limit");
+    let (_, _, html) = pilot.send(get(&to, Some("teamer"))).await;
+    assert!(html.contains("Your change was saved"), "{html}");
+
+    let body = format!("intent=create-invitation&attempt={REPLAYED}&email=fresh%40chasesets.test&role_key=manager");
+    let (status, _, _) = pilot.send(post(TEAM, "teamer", &body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(team_writes(&pilot).iter().filter(|w| w.1 == LINK_API).count(), 1, "a replayed invitation is not emailed again");
+
+    let body = format!("intent=create-invitation&attempt={NO_RECORD}&email=linkdown%40chasesets.test&role_key=viewer");
+    pilot.send(post(TEAM, "teamer", &body, true)).await;
+    let body = "intent=create-invitation&attempt=0b6f3c1e-4d2a-4b8e-9f00-aaaaaaaaaaaa&email=linkdown%40chasesets.test";
+    let (status, headers, _) = pilot.send(post(TEAM, "teamer", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "a link Auth cannot send leaves the invitation saved");
+    assert!(headers["corten-location"].to_str().unwrap().contains("saved="), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_member_and_invitation_write_sends_its_command_and_redirects() {
+    let pilot = Pilot::new().await;
+    let send = |body: String| post(TEAM, "teamer", &body, true);
+    pilot.send(send(format!("intent=change-role&attempt={ATTEMPT}&membership_id=mbr_packer&role_key=manager"))).await;
+    pilot.send(send(format!("intent=revoke&attempt={ATTEMPT}&membership_id=mbr_owner"))).await;
+    pilot.send(send(format!("intent=reinstate&attempt={ATTEMPT}&membership_id=mbr_packer"))).await;
+    pilot.send(send(format!("intent=cancel-invitation&attempt={ATTEMPT}&invitation_id=ivt_pending"))).await;
+    let sent: Vec<(String, String, Value)> =
+        team_writes(&pilot).into_iter().map(|(method, path, _, body)| (method.to_string(), path, body)).collect();
+    assert_eq!(
+        sent,
+        [
+            ("PUT".to_owned(), "/api/identity/memberships/mbr_packer/role".to_owned(), json!({ "roleKey": "manager" })),
+            ("POST".to_owned(), "/api/identity/memberships/mbr_owner/revoke".to_owned(), json!({})),
+            ("POST".to_owned(), "/api/identity/memberships/mbr_packer/reinstate".to_owned(), json!({})),
+            ("POST".to_owned(), "/api/identity/invitations/ivt_pending/cancel".to_owned(), json!({})),
+        ]
+    );
+    assert!(sent.iter().all(|(_, path, _)| path != LINK_API), "only a new invitation is emailed");
+}
+
+#[tokio::test]
+async fn a_refused_team_write_says_so_and_a_lost_answer_is_asked_about() {
+    let pilot = Pilot::new().await;
+    // The last owner: Identity's rule, answered as a refusal the page says nothing was recorded for.
+    let body = format!("intent=change-role&attempt={ATTEMPT}&membership_id=mbr_owner&role_key=viewer");
+    let (status, _, html) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("No change was recorded"), "{html}");
+    // A refused invite is drawn again with what was typed.
+    let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=bad%40chasesets.test&role_key=fulfillment");
+    let (status, _, html) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Some details are invalid") && html.contains(r#"value="bad@chasesets.test""#), "{html}");
+    assert!(html.contains(r#"<option value="fulfillment" selected>"#), "the role it chose: {html}");
+    // A conflict.
+    let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=taken%40chasesets.test");
+    let (status, _, html) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("The account changed"), "{html}");
+    // An out-of-date form and an intent the page does not offer send nothing.
+    let before = team_writes(&pilot).len();
+    let (status, _, html) = pilot.send(post(TEAM, "teamer", "intent=revoke&attempt=nope&membership_id=mbr_owner", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("out of date"), "{html}");
+    let (status, _, _) = pilot.send(post(TEAM, "teamer", &format!("intent=revoke-api-key&attempt={ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(team_writes(&pilot).len(), before, "nothing sent");
+
+    // No answer that says what happened: the lookup settles it, or the page asks again with the form off.
+    let body = format!("intent=revoke&attempt={APPLIED_BEFORE}&membership_id=mbr_owner");
+    let (status, headers, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().contains(&format!("saved={APPLIED_BEFORE}")), "{headers:?}");
+    let body = format!("intent=revoke&attempt={CHECK_DOWN}&membership_id=mbr_owner");
+    let (_, headers, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(to, format!("/account/team?check={CHECK_DOWN}&action=revoke&target=mbr_owner"));
+    let (_, _, html) = pilot.send(get(&to, Some("teamer"))).await;
+    assert!(html.contains("We could not confirm the result") && html.contains("Check again"), "{html}");
+    let dialog = html.find(r#"id="revoke-member-dialog-mbr_owner""#).unwrap();
+    assert!(
+        html[dialog..].split("</dialog>").next().unwrap().contains(" disabled>"),
+        "the revoke it would repeat is off: {html}"
+    );
+    let body = format!("intent=revoke&attempt={NO_RECORD}&membership_id=mbr_owner");
+    let (status, _, html) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the lookup says nothing was recorded, as a refusal does");
+    assert!(html.contains("No change was recorded"), "{html}");
+}
+
+#[tokio::test]
+async fn a_team_read_that_has_not_caught_up_shows_the_team_as_it_was_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{TEAM}?after_write={}", receipt_at("45")), Some("teamer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Synthetic Seller") && html.contains("Your team is still updating"), "{html}");
 }

@@ -17,8 +17,8 @@ use crate::{
     api::Identity,
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE, PRICING_VIEW, SECURITY_MANAGE, Shared,
-        VIEW, sign_in_at, sign_in_back_to,
+        MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE,
+        PRICING_VIEW, SECURITY_MANAGE, Shared, VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -240,6 +240,24 @@ impl Identify<Shared> for SecurityOwner {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(SECURITY_MANAGE) => Ok(SecurityOwner(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A member on its account's team (`/account/team`): reading needs `memberships.view`, every write
+/// `memberships.manage`, as Identity's loader and action require (the API checks both again). Anyone
+/// not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct TeamOwner(pub Viewer);
+
+impl Identify<Shared> for TeamOwner {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { MEMBERSHIPS_VIEW } else { MEMBERSHIPS_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(TeamOwner(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
