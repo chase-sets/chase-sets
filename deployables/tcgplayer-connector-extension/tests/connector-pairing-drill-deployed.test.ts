@@ -68,7 +68,10 @@ describe("deployed popup target-scoped document controls", () => {
       beforeAction?: boolean;
       tabWaiting?: boolean;
       tabContext?: string;
-      parentSession?: string;
+      parentSession?: string | null;
+      responseUrl?: string;
+      targetUrl?: string;
+      mainUrl?: string;
       responseRequestId?: string;
       requestFrame?: string;
       responseFrame?: string;
@@ -142,7 +145,7 @@ describe("deployed popup target-scoped document controls", () => {
     });
     emit({
       method: "Target.attachedToTarget",
-      sessionId: overrides.parentSession ?? "synthetic-tab-session",
+      sessionId: overrides.parentSession === null ? undefined : (overrides.parentSession ?? "synthetic-tab-session"),
       params: {
         sessionId: "synthetic-child-session",
         waitingForDebugger: false,
@@ -161,7 +164,7 @@ describe("deployed popup target-scoped document controls", () => {
       params: {
         targetInfo: {
           targetId: overrides.targetId ?? "synthetic-popup",
-          url: navigationUrl,
+          url: overrides.targetUrl ?? navigationUrl,
         },
       },
     });
@@ -186,7 +189,11 @@ describe("deployed popup target-scoped document controls", () => {
           frameId: overrides.responseFrame ?? overrides.requestFrame ?? "synthetic-main-frame",
           loaderId: overrides.responseLoader ?? "synthetic-loader",
           type: overrides.resourceType ?? "Document",
-          response: { url: navigationUrl, status: overrides.status ?? 200, mimeType: "text/html" },
+          response: {
+            url: overrides.responseUrl ?? navigationUrl,
+            status: overrides.status ?? 200,
+            mimeType: "text/html",
+          },
         },
       });
     if (overrides.mainFrame !== null)
@@ -197,7 +204,7 @@ describe("deployed popup target-scoped document controls", () => {
           frame: {
             id: overrides.mainFrame ?? "synthetic-main-frame",
             loaderId: overrides.mainLoader ?? "synthetic-loader",
-            url: navigationUrl,
+            url: overrides.mainUrl ?? navigationUrl,
           },
         },
       });
@@ -381,6 +388,18 @@ describe("deployed popup target-scoped document controls", () => {
     expect(observer.document()).toBeUndefined();
     expect(commands.some((command) => command.method === "Network.enable")).toBe(false);
   });
+  it("refuses the superseded direct-root page topology", async () => {
+    expect((await scenario({ parentSession: null })).observer.document()).toBeUndefined();
+  });
+  it("refuses a mismatched response URL", async () => {
+    expect((await scenario({ responseUrl: `${url}?synthetic-other-response` })).observer.document()).toBeUndefined();
+  });
+  it("refuses a mismatched target URL", async () => {
+    expect((await scenario({ targetUrl: `${url}?synthetic-other-target` })).observer.document()).toBeUndefined();
+  });
+  it("refuses a mismatched main-frame URL", async () => {
+    expect((await scenario({ mainUrl: `${url}?synthetic-other-frame` })).observer.document()).toBeUndefined();
+  });
   it("refuses a response without its request", async () => {
     expect((await scenario({ request: false })).observer.document()).toBeUndefined();
   });
@@ -429,7 +448,12 @@ describe("deployed popup target-scoped document controls", () => {
     const { observer, commands, listeners, transport } = await scenario({ failCommand: "Network.enable" });
     expect(observer.failure).toBe("Network.enable:command-error");
     expect(observer.document()).toBeUndefined();
+    const setupCount = commands.length;
     await observer.close();
+    expect(commands.slice(setupCount, setupCount + 2)).toEqual([
+      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-tab-session" },
+      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-child-session" },
+    ]);
     expect(commands).toEqual(
       expect.arrayContaining([
         {
