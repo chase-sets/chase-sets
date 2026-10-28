@@ -50,8 +50,6 @@ test.describe("seller Listing Evidence readiness", () => {
   });
 
   test.describe("listing hydration smoke", () => {
-    test.use({ trace: "off" });
-
     const routeKeys = new WeakMap<import("@playwright/test").Page, string>();
     const hydrationErrors = new WeakMap<import("@playwright/test").Page, string[]>();
 
