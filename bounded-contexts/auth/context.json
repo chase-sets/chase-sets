@@ -799,6 +799,11 @@
       "purpose": "Own registration feature behavior, read models, and UI contracts for the auth context.",
       "expectedConsumers": ["Internal auth module composition"]
     },
+    "service-actors": {
+      "classification": "slice",
+      "purpose": "Own staging service-actor credential parsing and receipt-lookup actor resolution for the auth context.",
+      "expectedConsumers": ["Auth server composition", "Channels eBay receipt actor client"]
+    },
     "sessions": {
       "classification": "slice",
       "purpose": "Own sessions feature behavior, read models, and UI contracts for the auth context.",

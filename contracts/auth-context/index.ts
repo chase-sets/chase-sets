@@ -4,6 +4,7 @@ export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
 export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
 export const STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID = "staging-ebay-receipt-lookup";
 export const EBAY_RECEIPT_LOOKUP_PERMISSION = "channels.receipt.lookup";
+export type ReceiptLookupCredential = Readonly<{ version: 1; token: string; expiresAt: string }>;
 export type ReceiptLookupServiceActor = Readonly<{
   kind: "service";
   serviceId: typeof STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID;

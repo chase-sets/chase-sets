@@ -1,5 +1,5 @@
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
-import type { ReceiptLookupCredential } from "@chase-sets/auth/server";
+import type { ReceiptLookupCredential } from "@chase-sets/auth-context";
 import {
   decodeEbayReceiptMatches,
   ebayReceiptLookupLimits,

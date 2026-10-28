@@ -9,7 +9,7 @@ import { lookupEbayReceiptsAsService } from "../api/receipt-actor-client";
 import { decodeEbayReceiptMatches, ebayReceiptLookupLimits, serializeEbayReceiptMatches } from "../domain/responses";
 
 const largest: unknown = JSON.parse(
-  readFileSync(new URL("../../../../../tests/fixtures/largest-valid-receipt-lookup.json", import.meta.url), "utf8"),
+  readFileSync(new URL("./fixtures/largest-valid-receipt-lookup.json", import.meta.url), "utf8"),
 );
 const row = {
   notificationId: "synthetic-notice",

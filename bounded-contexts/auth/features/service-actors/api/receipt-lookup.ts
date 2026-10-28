@@ -3,10 +3,11 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
   EBAY_RECEIPT_LOOKUP_PERMISSION,
   STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID,
+  type ReceiptLookupCredential,
   type ReceiptLookupServiceActor,
 } from "@chase-sets/auth-context";
 
-export type ReceiptLookupCredential = Readonly<{ version: 1; token: string; expiresAt: string }>;
+export type { ReceiptLookupCredential } from "@chase-sets/auth-context";
 export type ReceiptLookupActorOptions = Readonly<{
   deploymentEnvironment?: string;
   canonicalAdminOrigin: string;
