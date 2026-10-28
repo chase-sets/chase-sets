@@ -5,7 +5,7 @@ import { request as httpsRequest } from "node:https";
 import type { LookupFunction } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { BrowserContext } from "@playwright/test";
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
@@ -41,7 +41,13 @@ const stagingHost = new URL(staging).host;
 describe("deployed popup target-scoped document controls", () => {
   const path = "/account/channels/synthetic-popup-connection";
   const url = `${staging}${path}`;
-  function scenario(
+  type Transport = Parameters<typeof createDeployedPopupObserver>[1];
+  type Event = Parameters<Parameters<Transport["on"]>[0]>[0];
+  const observers: ReturnType<typeof createDeployedPopupObserver>[] = [];
+  afterEach(async () => {
+    for (const observer of observers.splice(0)) await observer.close();
+  });
+  async function scenario(
     overrides: {
       openerId?: string | null;
       browserContextId?: string;
@@ -60,60 +66,151 @@ describe("deployed popup target-scoped document controls", () => {
       targetId?: string;
       existingTargetIds?: readonly string[];
       beforeAction?: boolean;
+      tabWaiting?: boolean;
+      tabContext?: string;
+      parentSession?: string;
+      responseRequestId?: string;
+      requestFrame?: string;
+      responseFrame?: string;
+      responseLoader?: string;
+      mainFrame?: string | null;
+      mainLoader?: string;
+      request?: boolean;
+      failCommand?: string;
+      holdNetworkAck?: boolean;
+      holdCommand?: { method: string; sessionId?: string };
     } = {},
   ) {
     // Keep all URL signals consistent so only the declared origin/path guard
     // can reject these controls, not an unrelated page-binding mismatch.
     const navigationUrl = overrides.navigationUrl ?? url;
-    const observer = createDeployedPopupObserver({
-      sourceTargetId: "synthetic-source",
-      browserContextId: "synthetic-context",
-      origin: staging,
-      path,
-    });
+    const commands: { method: string; params: Record<string, unknown>; sessionId?: string }[] = [];
+    const listeners = new Set<Parameters<Transport["on"]>[0]>();
+    let networkAck: (() => void) | undefined;
+    let held = false;
+    const transport: Transport = {
+      send(method, params = {}, sessionId) {
+        commands.push({ method, params, sessionId });
+        if (method === overrides.failCommand) return Promise.reject(new Error("synthetic-command-error"));
+        if (
+          !held &&
+          ((method === "Network.enable" && overrides.holdNetworkAck) ||
+            (overrides.holdCommand?.method === method && overrides.holdCommand.sessionId === sessionId))
+        ) {
+          held = true;
+          return new Promise<void>((resolve) => {
+            networkAck = resolve;
+          });
+        }
+        return Promise.resolve({});
+      },
+      on(listener) {
+        listeners.add(listener);
+      },
+      off(listener) {
+        listeners.delete(listener);
+      },
+      close: vi.fn(async () => undefined),
+    };
+    const emit = (event: Event) => {
+      for (const listener of listeners) listener(event);
+    };
+    const observer = createDeployedPopupObserver(
+      {
+        sourceTargetId: "synthetic-source",
+        browserContextId: "synthetic-context",
+        origin: staging,
+        path,
+      },
+      transport,
+    );
+    observers.push(observer);
+    await observer.start();
     if (!overrides.beforeAction) observer.startAction(overrides.existingTargetIds ?? ["synthetic-source"]);
-    observer.observe({
+    emit({
       method: "Target.attachedToTarget",
       params: {
+        sessionId: "synthetic-tab-session",
+        waitingForDebugger: overrides.tabWaiting ?? true,
+        targetInfo: {
+          targetId: "synthetic-tab",
+          type: "tab",
+          url: "",
+          browserContextId: overrides.tabContext ?? "synthetic-context",
+        },
+      },
+    });
+    emit({
+      method: "Target.attachedToTarget",
+      sessionId: overrides.parentSession ?? "synthetic-tab-session",
+      params: {
         sessionId: "synthetic-child-session",
+        waitingForDebugger: false,
         targetInfo: {
           targetId: overrides.targetId ?? "synthetic-popup",
           type: overrides.targetType ?? "page",
           openerId: overrides.openerId === undefined ? "synthetic-source" : overrides.openerId,
           ...(overrides.omitContext ? {} : { browserContextId: overrides.browserContextId ?? "synthetic-context" }),
-          url: navigationUrl,
+          url: "",
         },
       },
     });
     if (overrides.beforeAction) observer.startAction(["synthetic-source", "synthetic-popup"]);
-    observer.observe({
-      method: "Network.requestWillBeSent",
-      sessionId: overrides.requestSession ?? "synthetic-child-session",
+    emit({
+      method: "Target.targetInfoChanged",
       params: {
-        requestId: "synthetic-request",
-        type: "Document",
-        request: { method: overrides.method ?? "GET", url: navigationUrl },
+        targetInfo: {
+          targetId: overrides.targetId ?? "synthetic-popup",
+          url: navigationUrl,
+        },
       },
     });
+    if (overrides.request !== false)
+      emit({
+        method: "Network.requestWillBeSent",
+        sessionId: overrides.requestSession ?? "synthetic-child-session",
+        params: {
+          requestId: "synthetic-request",
+          frameId: overrides.requestFrame ?? "synthetic-main-frame",
+          loaderId: "synthetic-loader",
+          type: "Document",
+          request: { method: overrides.method ?? "GET", url: navigationUrl },
+        },
+      });
     if (overrides.response !== false)
-      observer.observe({
+      emit({
         method: "Network.responseReceived",
         sessionId: overrides.responseSession ?? "synthetic-child-session",
         params: {
-          requestId: "synthetic-request",
+          requestId: overrides.responseRequestId ?? "synthetic-request",
+          frameId: overrides.responseFrame ?? overrides.requestFrame ?? "synthetic-main-frame",
+          loaderId: overrides.responseLoader ?? "synthetic-loader",
           type: overrides.resourceType ?? "Document",
           response: { url: navigationUrl, status: overrides.status ?? 200, mimeType: "text/html" },
+        },
+      });
+    if (overrides.mainFrame !== null)
+      emit({
+        method: "Page.frameNavigated",
+        sessionId: "synthetic-child-session",
+        params: {
+          frame: {
+            id: overrides.mainFrame ?? "synthetic-main-frame",
+            loaderId: overrides.mainLoader ?? "synthetic-loader",
+            url: navigationUrl,
+          },
         },
       });
     // The actual observer must retain a response arriving before Playwright's page.
     expect(observer.document()).toBeUndefined();
     if (overrides.bind !== false)
       observer.bindPage(overrides.pageTargetId ?? "synthetic-popup", overrides.pageUrl ?? navigationUrl);
-    return observer;
+    await Promise.resolve();
+    return { observer, commands, emit, transport, listeners, acknowledgeNetwork: () => networkAck?.() };
   }
 
-  it("retains response-before-page ordering", () => {
-    expect(scenario().document()).toMatchObject({
+  it("retains response-before-page ordering", async () => {
+    expect((await scenario()).observer.document()).toMatchObject({
       targetId: "synthetic-popup",
       sessionId: "synthetic-child-session",
       method: "GET",
@@ -121,76 +218,260 @@ describe("deployed popup target-scoped document controls", () => {
       url,
     });
   });
-  it("accepts null opener only for a newly attached action target", () => {
-    expect(scenario({ openerId: null }).document()).toMatchObject({ targetId: "synthetic-popup", status: 200 });
+  it("accepts null opener only for a newly attached action target", async () => {
+    expect((await scenario({ openerId: null })).observer.document()).toMatchObject({
+      targetId: "synthetic-popup",
+      status: 200,
+    });
   });
-  it("refuses null opener on a pre-existing target", () => {
+  it("refuses null opener on a pre-existing target", async () => {
     expect(
-      scenario({ openerId: null, existingTargetIds: ["synthetic-source", "synthetic-popup"] }).document(),
+      (
+        await scenario({ openerId: null, existingTargetIds: ["synthetic-source", "synthetic-popup"] })
+      ).observer.document(),
     ).toBeUndefined();
   });
-  it("refuses a target attached before the action", () => {
-    expect(scenario({ beforeAction: true }).document()).toBeUndefined();
+  it("refuses a target attached before the action", async () => {
+    expect((await scenario({ beforeAction: true })).observer.document()).toBeUndefined();
   });
-  it("refuses the source target as the surfaced page", () => {
+  it("refuses the source target as the surfaced page", async () => {
     expect(
-      scenario({ targetId: "synthetic-source", pageTargetId: "synthetic-source", existingTargetIds: [] }).document(),
+      (
+        await scenario({ targetId: "synthetic-source", pageTargetId: "synthetic-source", existingTargetIds: [] })
+      ).observer.document(),
     ).toBeUndefined();
   });
-  it("refuses wrong target session", () => {
-    expect(scenario({ responseSession: "synthetic-unrelated-session" }).document()).toBeUndefined();
+  it("refuses wrong target session", async () => {
+    expect((await scenario({ responseSession: "synthetic-unrelated-session" })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong request session", () => {
-    expect(scenario({ requestSession: "synthetic-unrelated-session" }).document()).toBeUndefined();
+  it("refuses wrong request session", async () => {
+    expect((await scenario({ requestSession: "synthetic-unrelated-session" })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong opener", () => {
-    expect(scenario({ openerId: "synthetic-other-opener" }).document()).toBeUndefined();
+  it("refuses wrong opener", async () => {
+    expect((await scenario({ openerId: "synthetic-other-opener" })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong browser context", () => {
-    expect(scenario({ browserContextId: "synthetic-other-context" }).document()).toBeUndefined();
+  it("refuses wrong browser context", async () => {
+    expect((await scenario({ browserContextId: "synthetic-other-context" })).observer.document()).toBeUndefined();
   });
-  it("refuses a missing browser context binding", () => {
-    expect(scenario({ openerId: null, omitContext: true }).document()).toBeUndefined();
+  it("refuses a missing browser context binding", async () => {
+    expect((await scenario({ openerId: null, omitContext: true })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong origin", () => {
-    expect(scenario({ navigationUrl: `https://unrelated.example${path}` }).document()).toBeUndefined();
+  it("refuses wrong origin", async () => {
+    expect((await scenario({ navigationUrl: `https://unrelated.example${path}` })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong stored path", () => {
+  it("refuses wrong stored path", async () => {
     expect(
-      scenario({ navigationUrl: `${staging}/account/channels/synthetic-wrong-connection` }).document(),
+      (await scenario({ navigationUrl: `${staging}/account/channels/synthetic-wrong-connection` })).observer.document(),
     ).toBeUndefined();
   });
-  it("refuses non-Document resource", () => {
-    expect(scenario({ resourceType: "Stylesheet" }).document()).toBeUndefined();
+  it("refuses non-Document resource", async () => {
+    expect((await scenario({ resourceType: "Stylesheet" })).observer.document()).toBeUndefined();
   });
-  it("refuses non-200 response", () => {
-    expect(scenario({ status: 404 }).document()).toBeUndefined();
+  it("refuses non-200 response", async () => {
+    expect((await scenario({ status: 404 })).observer.document()).toBeUndefined();
   });
-  it("refuses non-GET request", () => {
-    expect(scenario({ method: "POST" }).document()).toBeUndefined();
+  it("refuses non-GET request", async () => {
+    expect((await scenario({ method: "POST" })).observer.document()).toBeUndefined();
   });
-  it("refuses missing target-page binding", () => {
-    expect(scenario({ bind: false }).document()).toBeUndefined();
+  it("refuses missing target-page binding", async () => {
+    expect((await scenario({ bind: false })).observer.document()).toBeUndefined();
   });
-  it("refuses same-URL wrong page target", () => {
-    expect(scenario({ pageTargetId: "synthetic-unrelated-page" }).document()).toBeUndefined();
+  it("refuses same-URL wrong page target", async () => {
+    expect((await scenario({ pageTargetId: "synthetic-unrelated-page" })).observer.document()).toBeUndefined();
   });
-  it("refuses wrong surfaced page URL", () => {
-    expect(scenario({ pageUrl: `${staging}/account/channels/synthetic-other-page` }).document()).toBeUndefined();
+  it("refuses wrong surfaced page URL", async () => {
+    expect(
+      (await scenario({ pageUrl: `${staging}/account/channels/synthetic-other-page` })).observer.document(),
+    ).toBeUndefined();
   });
-  it("refuses same-path different page URL", () => {
-    expect(scenario({ pageUrl: `${url}?synthetic-different-document` }).document()).toBeUndefined();
+  it("refuses same-path different page URL", async () => {
+    expect((await scenario({ pageUrl: `${url}?synthetic-different-document` })).observer.document()).toBeUndefined();
   });
-  it("refuses fake-server receipt with no target response", () => {
+  it("refuses fake-server receipt with no target response", async () => {
     const fakeServerReceipt = { method: "GET", url, status: 200 };
     expect(fakeServerReceipt.status).toBe(200);
-    expect(scenario({ response: false }).document()).toBeUndefined();
+    expect((await scenario({ response: false })).observer.document()).toBeUndefined();
   });
-  it("refuses service-worker-only evidence", () => {
-    expect(scenario({ targetType: "service_worker" }).document()).toBeUndefined();
+  it("refuses service-worker-only evidence", async () => {
+    expect((await scenario({ targetType: "service_worker" })).observer.document()).toBeUndefined();
   });
-  it("refuses URL-only evidence", () => {
-    expect(scenario({ response: false }).document()).toBeUndefined();
+  it("refuses URL-only evidence", async () => {
+    expect((await scenario({ response: false })).observer.document()).toBeUndefined();
+  });
+  it("holds a root tab and instruments its parent-scoped page before resuming", async () => {
+    const { observer, commands } = await scenario();
+    expect(commands).toEqual([
+      {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: "tab" }] },
+        sessionId: undefined,
+      },
+      {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: "page" }] },
+        sessionId: "synthetic-tab-session",
+      },
+      { method: "Network.enable", params: {}, sessionId: "synthetic-child-session" },
+      { method: "Page.enable", params: {}, sessionId: "synthetic-child-session" },
+      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-child-session" },
+      { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "synthetic-tab-session" },
+    ]);
+    expect(
+      observer.diagnostic().targets.map(({ type, waitingForDebugger, parentSessionId }) => ({
+        type,
+        waitingForDebugger,
+        parentSessionId,
+      })),
+    ).toEqual([
+      { type: "tab", waitingForDebugger: true, parentSessionId: null },
+      { type: "page", waitingForDebugger: false, parentSessionId: "synthetic-tab-session" },
+    ]);
+    expect(observer.document()).toMatchObject({
+      tabSessionId: "synthetic-tab-session",
+      frameId: "synthetic-main-frame",
+      loaderId: "synthetic-loader",
+    });
+  });
+  it("buffers early events until Network acknowledgement after tab resume", async () => {
+    const { observer, acknowledgeNetwork } = await scenario({ holdNetworkAck: true });
+    expect(observer.document()).toBeUndefined();
+    expect(observer.diagnostic().targets[1]).toMatchObject({ rawDocumentRequests: 1, rawDocumentResponses: 1 });
+    acknowledgeNetwork();
+    await Promise.resolve();
+    expect(observer.document()).toMatchObject({ status: 200 });
+    const rows = observer.diagnostic().chronology;
+    expect(rows.findIndex((row) => row.event === "send" && row.method === "Network.enable")).toBeLessThan(
+      rows.findIndex(
+        (row) =>
+          row.event === "send" &&
+          row.sessionId === "synthetic-tab-session" &&
+          row.method === "Runtime.runIfWaitingForDebugger",
+      ),
+    );
+    expect(rows.findIndex((row) => row.event === "ack" && row.method === "Network.enable")).toBeGreaterThan(
+      rows.findIndex((row) => row.event === "Network.responseReceived"),
+    );
+  });
+  it("refuses an unheld tab", async () => {
+    expect((await scenario({ tabWaiting: false })).observer.document()).toBeUndefined();
+  });
+  it.each([
+    { method: "Page.enable", sessionId: "synthetic-child-session" },
+    { method: "Runtime.runIfWaitingForDebugger", sessionId: "synthetic-child-session" },
+    { method: "Target.setAutoAttach", sessionId: "synthetic-tab-session" },
+    { method: "Runtime.runIfWaitingForDebugger", sessionId: "synthetic-tab-session" },
+  ])("requires acknowledgement of $method on $sessionId", async (holdCommand) => {
+    expect((await scenario({ holdCommand })).observer.document()).toBeUndefined();
+  });
+  it("refuses a root setup command error", async () => {
+    const { observer } = await scenario({ failCommand: "Target.setAutoAttach" });
+    expect(observer.failure).toBe("Target.setAutoAttach:command-error");
+    expect(observer.document()).toBeUndefined();
+  });
+  it("refuses a pre-existing tab with a new child page", async () => {
+    expect(
+      (await scenario({ existingTargetIds: ["synthetic-source", "synthetic-tab"] })).observer.document(),
+    ).toBeUndefined();
+  });
+  it("refuses wrong tab context", async () => {
+    expect((await scenario({ tabContext: "synthetic-other-context" })).observer.document()).toBeUndefined();
+  });
+  it("refuses an unowned parent session", async () => {
+    const { observer, commands } = await scenario({ parentSession: "synthetic-unowned-parent" });
+    expect(observer.document()).toBeUndefined();
+    expect(commands.some((command) => command.method === "Network.enable")).toBe(false);
+  });
+  it("refuses a response without its request", async () => {
+    expect((await scenario({ request: false })).observer.document()).toBeUndefined();
+  });
+  it("refuses wrong request identity", async () => {
+    expect((await scenario({ responseRequestId: "synthetic-other-request" })).observer.document()).toBeUndefined();
+  });
+  it("refuses request-response frame mismatch", async () => {
+    expect((await scenario({ responseFrame: "synthetic-subframe" })).observer.document()).toBeUndefined();
+  });
+  it("refuses request-response loader mismatch", async () => {
+    expect((await scenario({ responseLoader: "synthetic-other-loader" })).observer.document()).toBeUndefined();
+  });
+  it("refuses same-URL subframe Document evidence", async () => {
+    const { observer, emit } = await scenario({ requestFrame: "synthetic-subframe" });
+    emit({
+      method: "Page.frameNavigated",
+      sessionId: "synthetic-child-session",
+      params: {
+        frame: {
+          id: "synthetic-subframe",
+          parentId: "synthetic-main-frame",
+          loaderId: "synthetic-loader",
+          url,
+        },
+      },
+    });
+    expect(observer.document()).toBeUndefined();
+  });
+  it("requires top-level frame identity even with a complete response", async () => {
+    expect((await scenario({ mainFrame: null })).observer.document()).toBeUndefined();
+  });
+  it("refuses a stale main-frame loader", async () => {
+    expect((await scenario({ mainLoader: "synthetic-new-loader" })).observer.document()).toBeUndefined();
+  });
+  it("refuses load-only evidence", async () => {
+    const { observer, emit } = await scenario({ response: false });
+    emit({ method: "Page.lifecycleEvent", sessionId: "synthetic-child-session", params: { name: "load" } });
+    emit({
+      method: "Network.loadingFinished",
+      sessionId: "synthetic-child-session",
+      params: { requestId: "synthetic-request" },
+    });
+    expect(observer.document()).toBeUndefined();
+  });
+  it("refuses command failure and cleans up every owned session through its parent", async () => {
+    const { observer, commands, listeners, transport } = await scenario({ failCommand: "Network.enable" });
+    expect(observer.failure).toBe("Network.enable:command-error");
+    expect(observer.document()).toBeUndefined();
+    await observer.close();
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        {
+          method: "Target.detachFromTarget",
+          params: { sessionId: "synthetic-child-session" },
+          sessionId: "synthetic-tab-session",
+        },
+        { method: "Target.detachFromTarget", params: { sessionId: "synthetic-tab-session" }, sessionId: undefined },
+        {
+          method: "Target.setAutoAttach",
+          params: { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+          sessionId: undefined,
+        },
+        {
+          method: "Target.setAutoAttach",
+          params: { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+          sessionId: "synthetic-tab-session",
+        },
+      ]),
+    );
+    expect(listeners.size).toBe(0);
+    expect(transport.close).toHaveBeenCalledOnce();
+    observers.splice(observers.indexOf(observer), 1);
+  });
+  it("sanitizes chronology without losing raw event counts and correlation failures", async () => {
+    const { observer } = await scenario({
+      navigationUrl: `${url}?token=synthetic-secret`,
+      responseFrame: "synthetic-other-frame",
+    });
+    const diagnostic = observer.diagnostic();
+    expect(diagnostic.targets[1]).toMatchObject({
+      rawDocumentRequests: 1,
+      rawDocumentResponses: 1,
+      rejections: { "request-response-identity": 1 },
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain("synthetic-secret");
+    expect(JSON.stringify(diagnostic)).not.toContain("synthetic-popup-connection");
+    expect(diagnostic.chronology).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "request", host: stagingHost, path: "/account/channels/<connectionId>" }),
+      ]),
+    );
   });
 });
 
