@@ -431,7 +431,27 @@ export function buildPlatformHelmStagingValues(options = {}) {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
       marketplace: {
-        rollout: rolloutValues(true, true, "/health/ready"),
+        replicas: 1,
+        strategy: {
+          type: "RollingUpdate",
+          rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+        },
+        resources: {
+          // Retained staging eviction evidence observed 1091900Ki usage with
+          // a zero request. Keep the request above that peak and the limit
+          // below the node's pressure cliff while live recurrence metrics are
+          // unavailable on this seat.
+          requests: { cpu: "200m", memory: "1280Mi" },
+          limits: { cpu: "1", memory: "1536Mi" },
+        },
+        rollout: {
+          ...rolloutValues(true, true, "/health/ready"),
+          canary: {
+            ...rolloutValues(true, true, "/health/ready").canary,
+            maxSurge: 1,
+            maxUnavailable: 0,
+          },
+        },
       },
       "platform-api": doksStagingApiOverrides,
       "platform-worker": {
