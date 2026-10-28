@@ -18,7 +18,7 @@ use crate::{
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
         MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE,
-        PRICING_VIEW, SECURITY_MANAGE, Shared, VIEW, sign_in_at, sign_in_back_to,
+        PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, Shared, VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -258,6 +258,24 @@ impl Identify<Shared> for TeamOwner {
         let permission = if parts.method.is_safe() { MEMBERSHIPS_VIEW } else { MEMBERSHIPS_MANAGE };
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(TeamOwner(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// An account on its reviews (`/account/reviews`, `/received`, `/written`): reading needs
+/// `reputation.view`, reporting a review `reputation.manage`, as Reputation's loaders and action
+/// require (the API checks both again). Anyone not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ReviewMember(pub Viewer);
+
+impl Identify<Shared> for ReviewMember {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { REPUTATION_VIEW } else { REPUTATION_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(ReviewMember(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

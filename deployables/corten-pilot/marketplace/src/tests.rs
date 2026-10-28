@@ -395,6 +395,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // A member on its account's team: `teamer` may change it, `team_reader` may only see it.
             "teamer" => actor(&["memberships.view", "memberships.manage"]),
             "team_reader" => actor(&["memberships.view"]),
+            // The account's reviews: one who may read and report them, and one who may only read.
+            "reviewer" => actor(&["reputation.view", "reputation.manage"]),
+            "review_reader" => actor(&["reputation.view"]),
             // The Seller Desk's repricing: `pricer` may change policies, `price_reader` may only
             // read them (and its halt is engaged).
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
@@ -448,6 +451,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
+        return answer;
+    }
+    if let Some(answer) = reviews_api(&method, &uri) {
         return answer;
     }
     if let Some(answer) = public_accounts(&method, uri.path(), session) {
@@ -1142,6 +1148,10 @@ fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Respons
             }
             ("stale", _) => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
             (_, "rev_refused") => refusal(StatusCode::BAD_REQUEST, "validation_failed", "This review cannot be reported."),
+            (_, "rev_reported") => {
+                refusal(StatusCode::CONFLICT, "report_already_submitted", "This reporter has already reported this content.")
+            }
+            (_, "rev_flood") => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
             _ => (StatusCode::CREATED, Json(json!({ "id": "rpt_review", "status": "submitted" }))).into_response(),
         });
     }
@@ -9976,6 +9986,186 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
     let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={NO_RECORD}&consent_id=cns_terms"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the lookup says nothing was recorded");
     assert!(html.contains("No change was recorded"), "{html}");
+}
+
+const REVIEWS: &str = "/account/reviews";
+
+/// A review as Reputation's lists write it: active and revealed with a rating unless the caller
+/// changes it.
+fn review_item(id: &str, author: &str, subject: &str, role: &str, rating: Option<u8>) -> Value {
+    json!({ "review_id": id, "order_id": format!("ord_{id}"), "author_account_id": author, "author_display_name": null,
+            "subject_account_id": subject, "subject_display_name": null, "author_role": role, "rating": rating,
+            "feedback": rating.map(|_| "Fast shipping, card as described."), "status": "active",
+            "revealed_at": rating.map(|_| "2026-10-10T15:00:00.000Z"), "held": false, "withdrawn_by_actor_type": null,
+            "reply_feedback": null, "reply_status": null, "scoring_disposition": "included",
+            "disposition_reason_code": "normal-completion", "resolution_context": null, "remedy_kind": null })
+}
+
+/// Reputation's reads of `acc_seller`'s reviews. The summary: two seller ratings (a 5 and a 4,
+/// average 4.50) and, as a buyer, one review whose rating is context only. Its ten newest: one
+/// with the account's reply, one context only after a refund. Received: that first one, one an
+/// operator withdrew, one paused with no rating, one pending reveal, `rev_refused`, which the API
+/// will not take a report on, `rev_reported`, reported before, and `rev_flood`, one report too
+/// many; as a buyer, none. Written: one the account left.
+fn reviews_api(method: &Method, uri: &Uri) -> Option<Response> {
+    if *method != Method::GET {
+        return None;
+    }
+    let (path, query) = (uri.path(), uri.query().unwrap_or_default());
+    let mut good = review_item("rev_good", "acc_buyer", "acc_seller", "buyer", Some(5));
+    good["author_display_name"] = json!("Binder Bob");
+    good["reply_feedback"] = json!("Thanks for the order!");
+    good["reply_status"] = json!("active");
+    let list = |items: Vec<Value>| Json(json!({ "items": items, "total": items.len(), "count": items.len() })).into_response();
+    Some(match path {
+        "/api/marketplace/accounts/acc_seller/review-summary" => Json(json!({
+            "account_id": "acc_seller", "account_display_name": "Chase Seller",
+            "average_rating_as_seller": "4.50", "review_count_as_seller": 2, "rating_count_as_seller": 2,
+            "rating_1_count_as_seller": 0, "rating_2_count_as_seller": 0, "rating_3_count_as_seller": 0,
+            "rating_4_count_as_seller": 1, "rating_5_count_as_seller": 1,
+            "average_rating_as_buyer": null, "review_count_as_buyer": 1, "rating_count_as_buyer": 0,
+            "rating_1_count_as_buyer": 0, "rating_2_count_as_buyer": 0, "rating_3_count_as_buyer": 0,
+            "rating_4_count_as_buyer": 0, "rating_5_count_as_buyer": 0,
+        }))
+        .into_response(),
+        "/api/marketplace/accounts/acc_seller/reviews" if query == "limit=10&offset=0" => {
+            let mut context = review_item("rev_context", "acc_seller2", "acc_seller", "seller", Some(3));
+            context["scoring_disposition"] = json!("context-only");
+            context["resolution_context"] = json!("carrier");
+            context["remedy_kind"] = json!("refund");
+            list(vec![good, context])
+        }
+        "/api/marketplace/reviews/received" if query.ends_with("&role=buyer") => list(vec![]),
+        "/api/marketplace/reviews/received" if query.starts_with("limit=100&offset=0") => {
+            let mut withdrawn = review_item("rev_withdrawn", "acc_troll", "acc_seller", "buyer", None);
+            withdrawn["status"] = json!("withdrawn");
+            withdrawn["withdrawn_by_actor_type"] = json!("operator");
+            let mut held = review_item("rev_held", "acc_buyer3", "acc_seller", "buyer", None);
+            held["held"] = json!(true);
+            let pending = review_item("rev_pending", "acc_buyer4", "acc_seller", "buyer", None);
+            let refused = review_item("rev_refused", "acc_buyer5", "acc_seller", "buyer", Some(1));
+            let reported = review_item("rev_reported", "acc_buyer6", "acc_seller", "buyer", Some(2));
+            let flood = review_item("rev_flood", "acc_buyer7", "acc_seller", "buyer", Some(2));
+            if query.ends_with("&role=seller") {
+                list(vec![good])
+            } else {
+                list(vec![good, withdrawn, held, pending, refused, reported, flood])
+            }
+        }
+        "/api/marketplace/reviews/written" if query.starts_with("limit=100&offset=0") => {
+            let mut mine = review_item("rev_mine", "acc_seller", "acc_maker", "buyer", Some(4));
+            mine["subject_display_name"] = json!("Card Maker");
+            list(vec![mine])
+        }
+        _ => return None,
+    })
+}
+
+#[tokio::test]
+async fn the_review_summary_shows_both_ratings_and_the_newest_reviews() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(REVIEWS, Some("reviewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<h1") && html.contains("Chase Seller"), "the account's name: {html}");
+    assert!(html.contains("4.5") && html.contains("(2)"), "as a seller: {html}");
+    assert!(html.contains("0 ratings included · 1 reviews"), "as a buyer, context only: {html}");
+    assert!(html.contains("Binder Bob") && html.contains("Thanks for the order!"), "the reply: {html}");
+    assert!(html.contains("Shared for context · rating not included"), "{html}");
+    assert!(html.contains("Carrier-related issue") && html.contains("Refund issued"), "the scoring context: {html}");
+    assert!(html.contains(r#"<li id="review-anchor-rev_good""#), "{html}");
+    assert!(html.contains(r#"commandfor="report-review-dialog-rev_good""#), "{html}");
+    assert!(html.contains(r#"action="/account/reviews""#), "a report posts to the summary: {html}");
+    assert!(
+        html.contains(r#"href="/account/reviews/received""#) && html.contains(r#"href="/account/reviews/written""#),
+        "{html}"
+    );
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().any(|c| c == "/api/marketplace/accounts/acc_seller/reviews?limit=10&offset=0"), "{calls:?}");
+
+    let mut req = get(REVIEWS, Some("reviewer"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["reviews"].as_array().map(Vec::len), Some(2), "{body}");
+    assert_eq!(body["data"]["summary"]["average_rating_as_seller"], "4.50", "{body}");
+
+    let (status, headers, _) = pilot.send(get(REVIEWS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Freviews"), "{headers:?}");
+    let (status, _, _) = pilot.send(get(REVIEWS, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "without reputation.view");
+}
+
+#[tokio::test]
+async fn a_review_list_stands_in_for_reviews_it_cannot_show_and_filters_by_role() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{REVIEWS}/received"), Some("review_reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Received Reviews") && html.contains("Filter by role"), "{html}");
+    assert!(html.contains("Review author: Binder Bob") && html.contains("Reviewed account: acc_seller"), "{html}");
+    assert!(html.contains("Review withdrawn") && html.contains("Withdrawn by an operator"), "{html}");
+    assert!(html.contains("This review is paused while support reviews the order."), "held: {html}");
+    assert!(html.contains("A review is pending"), "{html}");
+    assert!(html.contains("Open review") && html.contains("/account/reviews/rev_good"), "{html}");
+    assert!(!html.contains("report-review-dialog-rev_withdrawn") && !html.contains("report-review-dialog-rev_pending"));
+    assert!(
+        html.contains(r#"aria-current="page""#) && html.contains(r#"href="/account/reviews/received?role=seller""#),
+        "{html}"
+    );
+
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/received?role=seller"), Some("review_reader"))).await;
+    assert!(html.contains("Binder Bob") && !html.contains("Review withdrawn"), "{html}");
+    assert!(html.contains(r#"action="/account/reviews/received?role=seller""#), "a report stays on the role: {html}");
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().any(|c| c == "/api/marketplace/reviews/received?limit=100&offset=0&role=seller"), "{calls:?}");
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/received?role=buyer"), Some("review_reader"))).await;
+    assert!(html.contains("No received reviews yet"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{REVIEWS}/written?role=anyone"), Some("review_reader"))).await;
+    assert!(html.contains("Written Reviews") && html.contains("Reviewed account: Card Maker"), "{html}");
+}
+
+#[tokio::test]
+async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
+    let pilot = Pilot::new().await;
+    let at = format!("{REVIEWS}/received?role=seller");
+    let send = |session: &str, body: &str| post(&at, session, body, false);
+    let (status, headers, _) = pilot.send(send("reviewer", "review_id=rev_good&reason=spam-or-manipulation&details=Fake")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/account/reviews/received?role=seller&reported=rev_good#review-anchor-rev_good");
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/report")).cloned().unwrap();
+    assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/report");
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body["reason"], "spam-or-manipulation", "{body}");
+    assert_eq!(body["sourceRoutePath"], "/account/reviews/received", "{body}");
+    let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("reviewer"))).await;
+    assert!(html.contains("Report submitted") && html.contains("Moderation received your report."), "{html}");
+    assert!(!html.contains(r#"<dialog id="report-review-dialog-rev_good""#), "{html}");
+
+    let (status, _, html) = pilot.send(send("reviewer", "review_id=rev_good&reason=because")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a reason for the report.") && html.contains("Report not submitted"), "{html}");
+    let dialog = html.find(r#"<dialog id="report-review-dialog-rev_good""#).unwrap();
+    assert!(html[dialog..].split('>').next().unwrap().contains(" open"), "the dialog opens again: {html}");
+    let long = "x".repeat(1001);
+    let (status, _, html) = pilot.send(send("reviewer", &format!("review_id=rev_good&reason=other&details={long}"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Keep the explanation to 1,000 characters or fewer.") && html.contains(&long), "{html}");
+    let all = format!("{REVIEWS}/received");
+    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_refused&reason=other", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This review cannot be reported."), "the API's words: {html}");
+    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_reported&reason=other", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("Report already submitted") && html.contains("already reported this review"), "{html}");
+    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_flood&reason=other", false)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    assert!(html.contains("several reports in a short time"), "{html}");
+
+    let (status, _, _) = pilot.send(send("review_reader", "review_id=rev_good&reason=other")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reporting needs reputation.manage");
+    let reports = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count();
+    assert_eq!(reports, 4, "only the forms the page could send");
 }
 
 const TEAM: &str = "/account/team";

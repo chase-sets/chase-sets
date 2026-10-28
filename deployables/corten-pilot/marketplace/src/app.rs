@@ -31,6 +31,7 @@
 //! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
 //! | `GET /account/team?<place>`, `POST ..` | the account's members and invitations, and their writes (see `team`) |
 //! | `GET /account/consents?<place>`, `POST ..` | the user's consent history, and withdrawing a consent (see `consents`) |
+//! | `GET /account/reviews`, `/received?<place>`, `/written?<place>`, `POST ..` | the account's review summary and lists, and reporting a review (see `reviews`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -89,6 +90,9 @@ pub const SECURITY_MANAGE: &str = "security.manage";
 /// The account's team: to see its members and invitations, and to invite, cancel an invitation,
 /// change a role, revoke or reinstate a membership (Identity's `account-team` loader and action).
 pub const MEMBERSHIPS_VIEW: &str = "memberships.view";
+/// The account's reviews: to read them, and to report one (Reputation's review loaders and action).
+pub const REPUTATION_VIEW: &str = "reputation.view";
+pub const REPUTATION_MANAGE: &str = "reputation.manage";
 pub const MEMBERSHIPS_MANAGE: &str = "memberships.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
@@ -145,6 +149,7 @@ pub mod url {
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
+    pub use reviews::{ReceivedReviews, Reviews, WrittenReviews};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
@@ -574,6 +579,37 @@ pub mod url {
         pub struct Team {
             #[route(query)]
             pub place: crate::team::Place,
+        }
+    }
+
+    /// The account's reviews (Reputation's `account-review-summary`, `account-received-reviews` and
+    /// `account-written-reviews`). Report review posts to the page it is on, as marketplace's form
+    /// action does. Every handler takes a `ReviewMember` (`reputation.view` to read,
+    /// `reputation.manage` to report).
+    #[corten::routes(state = crate::app::Shared, area = Reviews, caller = crate::auth::ReviewMember)]
+    pub mod reviews {
+        /// The account's ratings and its newest reviews.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/reviews", get = crate::reviews::summary, post = crate::reviews::report_on_summary)]
+        pub struct Reviews {
+            #[route(query)]
+            pub place: crate::reviews::Place,
+        }
+
+        /// The reviews others left the account, by role.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/reviews/received", get = crate::reviews::received, post = crate::reviews::report_on_received)]
+        pub struct ReceivedReviews {
+            #[route(query)]
+            pub place: crate::reviews::Place,
+        }
+
+        /// The reviews the account left, by role.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/reviews/written", get = crate::reviews::written, post = crate::reviews::report_on_written)]
+        pub struct WrittenReviews {
+            #[route(query)]
+            pub place: crate::reviews::Place,
         }
     }
 
@@ -1018,6 +1054,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
         .area(|area| url::team::area(area, shared.clone()).components(views::TEAM))
         .area(|area| url::consents::area(area, shared.clone()).components(views::CONSENTS))
+        .area(|area| url::reviews::area(area, shared.clone()).components(views::REVIEWS))
         .area(|area| url::sessions::area(area, shared.clone()).components(views::SESSIONS))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.

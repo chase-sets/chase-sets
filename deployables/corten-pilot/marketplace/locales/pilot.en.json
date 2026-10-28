@@ -217,5 +217,7 @@
   "team": {
     "pending": "Your team is still updating. This page reads it again in a moment."
   },
-  "consents.none": "No consents are recorded for you yet."
+  "consents": {
+    "none": "No consents are recorded for you yet."
+  }
 }

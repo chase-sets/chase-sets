@@ -43,6 +43,7 @@ mod packing_page;
 mod page_actions;
 mod recovery;
 mod repricing_page;
+mod reviews_page;
 mod search_page;
 mod security_page;
 mod seller_listing_page;
@@ -79,6 +80,7 @@ pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, repricing_dry_run_part};
+pub use reviews_page::{ReviewAnchorId, ReviewsPage};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
@@ -152,6 +154,8 @@ pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMP
 pub const TEAM: &[Component] = &[TeamPage];
 /// The user's consent history (`/account/consents`): its stylesheet.
 pub const CONSENTS: &[Component] = &[ConsentsPage];
+/// The account's reviews (`/account/reviews`, `/received`, `/written`): their stylesheet.
+pub const REVIEWS: &[Component] = &[ReviewsPage];
 
 /// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
 /// dialog opens with `command="show-modal"`, which needs no script.

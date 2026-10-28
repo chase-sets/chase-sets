@@ -3732,6 +3732,98 @@ impl TeamCalls for Caller<'_> {
     }
 }
 
+/// An account's ratings as a seller and as a buyer (Reputation's `ReviewSummary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReviewSummary {
+    pub account_id: String,
+    pub account_display_name: Option<String>,
+    pub average_rating_as_seller: Option<String>,
+    pub review_count_as_seller: u64,
+    pub rating_count_as_seller: u64,
+    pub rating_1_count_as_seller: u64,
+    pub rating_2_count_as_seller: u64,
+    pub rating_3_count_as_seller: u64,
+    pub rating_4_count_as_seller: u64,
+    pub rating_5_count_as_seller: u64,
+    pub average_rating_as_buyer: Option<String>,
+    pub review_count_as_buyer: u64,
+    pub rating_count_as_buyer: u64,
+    pub rating_1_count_as_buyer: u64,
+    pub rating_2_count_as_buyer: u64,
+    pub rating_3_count_as_buyer: u64,
+    pub rating_4_count_as_buyer: u64,
+    pub rating_5_count_as_buyer: u64,
+}
+
+/// A review on the account's review pages (Reputation's `ReviewListItem`), the fields they show.
+/// `rating` and `feedback` are none while a received review is not revealed yet (double blind).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReviewItem {
+    pub review_id: String,
+    pub order_id: String,
+    pub author_account_id: String,
+    pub author_display_name: Option<String>,
+    pub subject_account_id: String,
+    pub subject_display_name: Option<String>,
+    pub author_role: String,
+    pub rating: Option<u8>,
+    pub feedback: Option<String>,
+    pub status: String,
+    pub revealed_at: Option<String>,
+    pub held: bool,
+    pub withdrawn_by_actor_type: Option<String>,
+    pub reply_feedback: Option<String>,
+    pub reply_status: Option<String>,
+    pub scoring_disposition: Option<String>,
+    pub disposition_reason_code: Option<String>,
+    pub resolution_context: Option<String>,
+    pub remedy_kind: Option<String>,
+}
+
+impl ReviewItem {
+    /// Whether it may be reported: active, revealed and not held.
+    pub fn reportable(&self) -> bool {
+        self.status == "active" && self.revealed_at.is_some() && !self.held
+    }
+
+    /// The account's reply, while the review and the reply are both shown.
+    pub fn reply(&self) -> Option<&str> {
+        self.reply_feedback.as_deref().filter(|_| self.reportable() && self.reply_status.as_deref() == Some("active"))
+    }
+}
+
+/// The account's reviews (Reputation's `/api/marketplace/reviews` reads), as the account signed in.
+pub trait ReviewCalls {
+    /// The account's ratings (`GET /accounts/{id}/review-summary`).
+    async fn review_summary(&self, account: &str) -> Result<ReviewSummary, ApiError>;
+    /// Its ten newest revealed reviews (`GET /accounts/{id}/reviews`), as the summary shows them.
+    async fn account_reviews(&self, account: &str) -> Result<Vec<ReviewItem>, ApiError>;
+    /// The reviews others left the account (`received`) or it left (`written`), the first 100, in
+    /// one role or both.
+    async fn review_list(&self, which: &str, role: Option<&str>) -> Result<Vec<ReviewItem>, ApiError>;
+}
+
+impl ReviewCalls for Caller<'_> {
+    async fn review_summary(&self, account: &str) -> Result<ReviewSummary, ApiError> {
+        self.read(&format!("/api/marketplace/accounts/{}/review-summary", segment(account)), MARKETPLACE).await
+    }
+
+    async fn account_reviews(&self, account: &str) -> Result<Vec<ReviewItem>, ApiError> {
+        let path = format!("/api/marketplace/accounts/{}/reviews?limit=10&offset=0", segment(account));
+        Ok(self.read::<TeamList<ReviewItem>>(&path, MARKETPLACE).await?.items)
+    }
+
+    async fn review_list(&self, which: &str, role: Option<&str>) -> Result<Vec<ReviewItem>, ApiError> {
+        let mut path = format!("/api/marketplace/reviews/{which}?limit=100&offset=0");
+        if let Some(role) = role {
+            path.push_str(&format!("&role={}", segment(role)));
+        }
+        Ok(self.read::<TeamList<ReviewItem>>(&path, MARKETPLACE).await?.items)
+    }
+}
+
 /// A consent the user or its account gave (Identity's `Consent`), the fields the history shows.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
