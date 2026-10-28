@@ -99,9 +99,25 @@ export function createSellerComplianceCohortRuntime(
     );
     const historical = await deps.db.query<{ seller_account_id: string }>(
       `SELECT DISTINCT s.seller_account_id FROM platform_operations_seller_compliance_sales s LEFT JOIN platform_operations_seller_compliance_cohorts c ON c.seller_account_id = s.seller_account_id WHERE s.recorded_at IS NOT NULL AND s.occurred_at >= $1 AND s.occurred_at < $2 AND c.seller_account_id IS NULL LIMIT $3`,
-      [new Date(Date.UTC(new Date(Date.parse(now)).getUTCFullYear(), new Date(Date.parse(now)).getUTCMonth() - (policy.lookbackMonths ?? 60), new Date(Date.parse(now)).getUTCDate())).toISOString(), now, params.limit ?? 100],
+      [
+        new Date(
+          Date.UTC(
+            new Date(Date.parse(now)).getUTCFullYear(),
+            new Date(Date.parse(now)).getUTCMonth() - (policy.lookbackMonths ?? 60),
+            new Date(Date.parse(now)).getUTCDate(),
+          ),
+        ).toISOString(),
+        now,
+        params.limit ?? 100,
+      ],
     );
-    const sellers = [...new Set([...page.sellerAccountIds, ...due.rows.map((row) => row.seller_account_id), ...historical.rows.map((row) => row.seller_account_id)])].slice(0, params.limit ?? 100);
+    const sellers = [
+      ...new Set([
+        ...page.sellerAccountIds,
+        ...due.rows.map((row) => row.seller_account_id),
+        ...historical.rows.map((row) => row.seller_account_id),
+      ]),
+    ].slice(0, params.limit ?? 100);
     let processed = 0;
     for (const seller of sellers) {
       await evaluateSeller(seller, now);
