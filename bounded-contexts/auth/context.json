@@ -817,7 +817,7 @@
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "request-support": {
       "classification": "support",
