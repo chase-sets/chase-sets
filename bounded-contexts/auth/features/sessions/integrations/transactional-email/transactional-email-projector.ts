@@ -39,11 +39,11 @@ function safeOrigin(value: unknown) {
 }
 
 function safeLandingPath(value: unknown) {
-  return getSafeSameSitePath(value) ?? "/sign-in/magic";
+  return getSafeSameSitePath(value, { trim: true }) ?? "/sign-in/magic";
 }
 
 function safeReturnTo(value: unknown) {
-  return getSafeSameSitePath(value);
+  return getSafeSameSitePath(value, { trim: true });
 }
 
 export function buildMagicLinkUrl(

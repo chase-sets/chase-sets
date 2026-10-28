@@ -72,6 +72,14 @@ describe("Auth same-site path caller matrix", () => {
       "/%5Chost",
     );
   });
+
+  it("preserves untrimmed browser Return Paths without accepting leading spaces", () => {
+    const url = new URL("/sign-in", SAME_SITE_TEST_ORIGIN);
+    url.searchParams.set("returnTo", "/account ");
+    expect(getSafeReturnTo(new Request(url), "/fallback")).toBe("/account ");
+    url.searchParams.set("returnTo", " /account");
+    expect(getSafeReturnTo(new Request(url), "/fallback")).toBe("/fallback");
+  });
 });
 
 function setCookieHeaders(write: (headers: Headers, request?: Request) => void) {

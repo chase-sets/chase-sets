@@ -1,6 +1,6 @@
 const PATH_VALIDATION_ORIGIN = "https://auth.chasesets.invalid";
 
-export function getSafeSameSitePath(value: unknown): string | null {
+export function getSafeSameSitePath(value: unknown, options: Readonly<{ trim?: boolean }> = {}): string | null {
   if (
     typeof value !== "string" ||
     [...value].some((character) => {
@@ -11,7 +11,7 @@ export function getSafeSameSitePath(value: unknown): string | null {
     return null;
   }
 
-  const path = value.trim();
+  const path = options.trim ? value.trim() : value;
   if (!path.startsWith("/") || path.startsWith("//")) {
     return null;
   }

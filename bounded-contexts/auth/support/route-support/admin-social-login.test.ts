@@ -16,6 +16,9 @@ describe("admin social login route support", () => {
     expect(getSafeAdminReturnTo(new URLSearchParams("returnTo=//evil.example/path"), "/access/accounts")).toBe(
       "/access/accounts",
     );
+    expect(getSafeAdminReturnTo(new URLSearchParams("returnTo=%2F%5Cevil.example%2Fpath"), "/access/accounts")).toBe(
+      "/access/accounts",
+    );
     expect(getSafeAdminReturnTo(new URLSearchParams("returnTo=https://evil.example/path"), "/access/accounts")).toBe(
       "/access/accounts",
     );

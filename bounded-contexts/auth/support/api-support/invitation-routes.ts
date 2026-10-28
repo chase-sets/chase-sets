@@ -65,7 +65,7 @@ function identityMutationStatus(error: unknown) {
 }
 
 function safeLandingPath(value: unknown, fallback: string) {
-  return getSafeSameSitePath(value) ?? fallback;
+  return getSafeSameSitePath(value, { trim: true }) ?? fallback;
 }
 
 function invitationTokenExpiresAt(invitationExpiresAt: string, magicLinkTtlMs: number) {
