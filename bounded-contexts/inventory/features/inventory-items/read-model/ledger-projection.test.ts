@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryItemLedgerProjectionHandlers } from "./ledger-projection";
+import { buildInventoryItemProjectionHandlers } from "./projection";
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -24,6 +25,36 @@ const orderSourceRef = {
 };
 
 describe("inventory item ledger projection", () => {
+  it("consumed hold remains outside sale repair with its unchanged stock mismatch", async () => {
+    const hold = { hold_id: "hld_1", account_id: "acc_seller", item_id: "inv_1",
+      quantity: 1, reason: "Order commitment", purpose: "order", source_ref: orderSourceRef };
+    const db = { query: vi.fn(async (sql: string, _values: readonly unknown[] = []) =>
+      sql.includes("FROM inventory_holds") ? { rows: [hold] } : { rows: [] }) };
+    const itemHandlers = buildInventoryItemProjectionHandlers(db);
+    const ledgerHandlers = buildInventoryItemLedgerProjectionHandlers(db);
+    const history = [
+      event("inventory.item.created", { itemId: "inv_1", accountId: "acc_seller", totalQuantity: 5,
+        catalogItemId: "cat_1", productId: "prd_1", selectedOptions: [], gradedCard: null,
+        storageLocationId: "loc_1", acquisitionCostAmount: null }),
+      event("inventory.hold.placed", { holdId: "hld_1", accountId: "acc_seller", itemId: "inv_1",
+        quantity: 1, reason: "Order commitment", purpose: "order", sourceRef: orderSourceRef }),
+      event("inventory.hold.consumed", { holdId: "hld_1", consumedAt: "2026-07-06T01:00:00.000Z",
+        consumptionReason: "Order fulfilled", sourceRef: orderSourceRef }, 2),
+    ];
+    for (const entry of history) {
+      await itemHandlers[entry.type]?.(entry);
+      await ledgerHandlers[entry.type]?.(entry);
+    }
+    const stockWrites = db.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO inventory_items"));
+    const adjustments = db.query.mock.calls.filter(([sql]) => sql.includes("SET total_quantity = total_quantity +"));
+    const onHand = Number(stockWrites[0]![1]![7]) + adjustments.reduce((sum, [, values]) => sum + Number(values[1]), 0);
+    const movements = db.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO inventory_item_ledger"));
+    const ledgerQuantity = movements.reduce((sum, [, values]) => sum + Number(values[5]), 0);
+    expect(movements.at(-1)?.[1]?.[4]).toBe("hold-consumed");
+    expect(movements.at(-1)?.[1]?.[5]).toBe(-1);
+    expect({ ledgerQuantity, onHand }).toEqual({ ledgerQuantity: 4, onHand: 5 });
+  });
+
   it("projects item creation and adjustment rows with on-hand deltas", async () => {
     const db = {
       query: vi.fn(async (_sql: string, _values: readonly unknown[] = []) => ({ rows: [] })),
@@ -168,7 +199,7 @@ describe("inventory item ledger projection", () => {
     ]);
   });
 
-  it("retains the adjusted row and adds one deterministic offline-sale row", async () => {
+  it("retains one movement and one audit row for an offline sale", async () => {
     const db = {
       query: vi.fn(async (_sql: string, _values: readonly unknown[] = []) => ({ rows: [] })),
     };
@@ -190,6 +221,7 @@ describe("inventory item ledger projection", () => {
     );
 
     expect(db.query.mock.calls.map(([, values]) => values?.[4])).toEqual(["adjusted", "offline-sale"]);
+    expect(db.query.mock.calls.map(([, values]) => values?.[5])).toEqual([-3, null]);
     expect(db.query.mock.calls[0]?.[1]?.[9]).toBe("sold-offline");
     expect(db.query.mock.calls[1]?.[1]).toEqual([
       "inventory.item-inv_1:3",
@@ -197,7 +229,7 @@ describe("inventory item ledger projection", () => {
       "acc_seller",
       "2026-07-06T01:00:00.000Z",
       "offline-sale",
-      -3,
+      null,
       null,
       null,
       "Offline sale",
