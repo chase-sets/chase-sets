@@ -147,6 +147,7 @@
 // - public/locales/compare.en.json: the compare pages' and Contact's English catalog
 //   (publicPresence.compare.*, each compare route's meta as meta.tcgplayer.* and meta.ebay.*,
 //   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
+// - public/favicon.svg: the design system's logo (chaseSetsLogoSvg), public-web's favicon.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -1073,6 +1074,10 @@ const outputs = [
         ["publicPresence.routes.contact.meta.", "meta.contact"],
       ]),
     ),
+  ],
+  [
+    "public/favicon.svg",
+    (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href)).chaseSetsLogoSvg,
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

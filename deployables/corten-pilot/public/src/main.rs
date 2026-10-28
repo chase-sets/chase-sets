@@ -11,6 +11,7 @@ mod kept;
 mod market;
 mod policy;
 mod presence;
+mod site;
 mod text;
 mod views;
 mod welcome;

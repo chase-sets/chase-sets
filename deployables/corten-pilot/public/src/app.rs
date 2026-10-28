@@ -16,6 +16,10 @@
 //! | `GET /market/{slug}` | an item's price history, market stats and links to buy or sell it on marketplace |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap when the site may be indexed |
 //! | `GET /sitemap.xml` | the market pages, when the site may be indexed |
+//! | `GET /manifest.webmanifest` | the web app manifest (`Public`, an hour) |
+//! | `GET /favicon.svg`, `/favicon.ico` | the design system's logo (`Public`, a day) |
+//! | `GET /.well-known/appspecific/com.chrome.devtools.json` | nothing (204, `no-store`), so Chrome stops asking |
+//! | `GET /health/ready`, `/health/live` | Corten's own |
 use std::sync::Arc;
 
 use corten::prelude::*;
@@ -155,6 +159,20 @@ pub mod url {
 
         #[route("/sitemap.xml", get = crate::market::sitemap)]
         pub struct Sitemap;
+
+        /// The site's own files (`crate::site`): the web app manifest, the favicon at both of
+        /// public-web's addresses, and Chrome's devtools probe.
+        #[route("/manifest.webmanifest", get = crate::site::web_manifest)]
+        pub struct WebManifest;
+
+        #[route("/favicon.svg", get = crate::site::favicon)]
+        pub struct FaviconSvg;
+
+        #[route("/favicon.ico", get = crate::site::favicon)]
+        pub struct FaviconIco;
+
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        pub struct ChromeDevtools;
     }
 
     /// The help center (`crate::help`), an area so its stylesheet is linked from its pages only.

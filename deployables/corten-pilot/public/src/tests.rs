@@ -1037,3 +1037,49 @@ async fn the_developer_manifest_is_compressed_with_its_robots_header() {
     let sent = res.into_body().collect().await.unwrap().to_bytes().len();
     assert!(sent < 40_000, "{sent} bytes");
 }
+
+/// public-web's own files (`app/routes.ts`): the manifest, the favicon at both addresses and
+/// Chrome's probe, each with public-web's caching, and every page links the first two.
+#[tokio::test]
+async fn the_site_files_are_public_webs_manifest_favicon_and_devtools_probe() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    let (status, headers, body) = site.get("/manifest.webmanifest", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "application/manifest+json; charset=utf-8");
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=3600");
+    let manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(manifest["name"], "Chase Sets");
+    assert_eq!(manifest["start_url"], "/");
+    assert_eq!(manifest["display"], "standalone");
+    assert_eq!(manifest["theme_color"], "#4845c6");
+    assert_eq!(manifest["background_color"], "#f7f5f1");
+    assert_eq!(manifest["icons"], json!([]));
+    assert!(manifest["description"].as_str().unwrap().starts_with("Request early access"), "{manifest}");
+
+    for path in ["/favicon.svg", "/favicon.ico"] {
+        let (status, headers, body) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml; charset=utf-8", "{path}");
+        assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400", "{path}");
+        assert_eq!(headers["x-content-type-options"], "nosniff", "{path}");
+        assert!(body.starts_with("<?xml") && body.contains("<svg"), "{path}: {body}");
+    }
+
+    let (status, headers, body) = site.get("/.well-known/appspecific/com.chrome.devtools.json", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.is_empty());
+
+    // public-web's health routes are Corten's here.
+    for path in ["/health/live", "/health/ready"] {
+        let (status, _, body) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+
+    for path in ["/", "/terms"] {
+        let (_, _, page) = site.get(path, None).await;
+        assert!(page.contains(r#"<link rel="manifest" href="/manifest.webmanifest">"#), "{path}: {page}");
+        assert!(page.contains(r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml">"#), "{path}: {page}");
+        assert!(page.contains(r#"<link rel="alternate icon" href="/favicon.ico" sizes="any">"#), "{path}: {page}");
+    }
+}

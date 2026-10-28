@@ -3,7 +3,7 @@
 use corten::{Component, prelude::*};
 use platform::{chart::TimeSeries, theme};
 
-use crate::text::MarketMsg;
+use crate::{app::url, text::MarketMsg};
 
 /// The page's main content, where the skip link goes.
 #[derive(Id)]
@@ -43,7 +43,8 @@ pub const COMPARE: &[Component] = &[ComparePage];
 /// The market pages' components (`/market`): the page and its chart.
 pub const MARKET: &[Component] = &[MarketPage, TimeSeries];
 
-/// The document around every page (public-web's root `Layout`): the theme color, `title`, the
+/// The document around every page (public-web's root `Layout`): the theme color, the manifest and
+/// the favicon, `title`, the
 /// page's own `head` tags (description, social, canonical, robots, JSON-LD) and the page. No
 /// shell: public-web's pages draw their own. A client navigation gets only the title, the head
 /// tags and `<main>`'s children.
@@ -56,6 +57,9 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <meta name="theme-color" content="#0e0c15">
+                <link rel="manifest" href={url::files::WebManifest}>
+                <link rel="icon" href={url::files::FaviconSvg} type="image/svg+xml">
+                <link rel="alternate icon" href={url::files::FaviconIco} sizes="any">
                 <link
                     rel="preload"
                     as="font"
@@ -98,6 +102,9 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <meta name="theme-color" content="#0e0c15">
+                <link rel="manifest" href={url::files::WebManifest}>
+                <link rel="icon" href={url::files::FaviconSvg} type="image/svg+xml">
+                <link rel="alternate icon" href={url::files::FaviconIco} sizes="any">
                 <link
                     rel="preload"
                     as="font"
