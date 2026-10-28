@@ -612,11 +612,10 @@ fn Outcome<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
     let order = facts.order;
     // marketplace's link adds `role`, which its support page does not read.
     let track = support_for(&order.order_id, None);
-    let base = match facts.side {
-        Side::Buyer => "/account/purchases",
-        Side::Seller => "/account/sales",
+    let review_href = match facts.side {
+        Side::Buyer => crate::app::url::PurchaseReview { id: &order.order_id, ask: Default::default() }.href(),
+        Side::Seller => crate::app::url::SaleReview { id: &order.order_id, ask: Default::default() }.href(),
     };
-    let review_href = market_href(&format!("{base}/{}/review", crate::api::segment(&order.order_id)));
     html! {
         <div class={(Card, Tinted)}>
             <p class={Strong}>{t.outcome_title()}</p>
@@ -686,7 +685,7 @@ fn Callout<'a>(t: OrdersMsg, facts: &'a Known<'a>, opportunity: &'a ReviewOpport
     };
     let active = opportunity.active_review_id.as_deref();
     let href = match active {
-        Some(id) => market_href(&format!("/account/reviews/{}", crate::api::segment(id))),
+        Some(id) => crate::app::url::Review { id, place: Default::default() }.href(),
         None => href.to_owned(),
     };
     let published = opportunity.revealed && opportunity.active_review_revealed_at.is_some();

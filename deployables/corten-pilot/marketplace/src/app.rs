@@ -159,11 +159,11 @@ pub mod url {
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use payout::DeskPayout;
-    pub use purchases::{Purchase, PurchaseCancel, Purchases};
+    pub use purchases::{Purchase, PurchaseCancel, PurchaseReview, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
-    pub use sales::{Sale, SaleCancel, Sales};
+    pub use sales::{Sale, SaleCancel, SaleReview, Sales};
     pub use search::Search;
     pub use security::Security;
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
@@ -925,6 +925,15 @@ pub mod url {
         pub struct PurchaseCancel<'a> {
             pub id: &'a str,
         }
+
+        /// Review the seller (Reputation's `account-purchase-review`, see `order_review`); the
+        /// form posts to it. It needs `reputation.manage`, not the purchases' permissions.
+        #[route("/account/purchases/{id}/review", get = crate::order_review::purchase, post = crate::order_review::submit_purchase)]
+        pub struct PurchaseReview<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub ask: crate::order_review::ReviewAsk,
+        }
     }
 
     /// The account's sales (Ordering's `account-sales` and `account-sale`): the list is the area's
@@ -952,6 +961,15 @@ pub mod url {
         #[route("/account/sales/{id}/cancel", post = crate::orders::cancel_sale)]
         pub struct SaleCancel<'a> {
             pub id: &'a str,
+        }
+
+        /// Review the buyer (Reputation's `account-sale-review`, see `order_review`); the form
+        /// posts to it. It needs `reputation.manage`, not the sales' permissions.
+        #[route("/account/sales/{id}/review", get = crate::order_review::sale, post = crate::order_review::submit_sale)]
+        pub struct SaleReview<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub ask: crate::order_review::ReviewAsk,
         }
     }
 

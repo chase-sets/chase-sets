@@ -641,6 +641,9 @@ const outputs = [
         ["reputation.routes.marketplace.accountReceivedReviews.", "route.received"],
         ["reputation.routes.marketplace.accountWrittenReviews.", "route.written"],
         ["reputation.routes.marketplace.accountReview.", "route.detail"],
+        ["reputation.features.reviews.ui.reviewSubmissionPage.", "write"],
+        ["reputation.routes.marketplace.accountPurchaseReview.", "route.purchase_review"],
+        ["reputation.routes.marketplace.accountSaleReview.", "route.sale_review"],
       ])),
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],

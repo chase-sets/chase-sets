@@ -262,7 +262,7 @@ async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, fee
 }
 
 /// The closed authoring codes a reply is refused with, and their words (`authoredTextRecoveryCopy`).
-fn recovery(t: ReviewsMsg, code: &str) -> Option<&'static str> {
+pub(crate) fn recovery(t: ReviewsMsg, code: &str) -> Option<&'static str> {
     Some(match code {
         "text_control_character" => t.recovery_control_character(),
         "text_direction_override" => t.recovery_direction_override(),

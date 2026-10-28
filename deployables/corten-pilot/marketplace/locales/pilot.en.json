@@ -222,7 +222,9 @@
   },
   "reviews": {
     "reply_required": "Write a response before posting it.",
-    "reply_too_long": "Keep the response to 1,000 characters or fewer."
+    "reply_too_long": "Keep the response to 1,000 characters or fewer.",
+    "submit_failed": "Review could not be submitted.",
+    "rating_star": "{rating} of 5"
   },
   "support": {
     "not_sent": "This support action was not sent.",

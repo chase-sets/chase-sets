@@ -345,7 +345,11 @@ pub struct OrderBuyer(pub Viewer);
 
 impl Identify<Shared> for OrderBuyer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
-        let permission = if parts.method.is_safe() { ORDERS_VIEW } else { ORDERS_MANAGE };
+        let permission = match (reviewing(parts), parts.method.is_safe()) {
+            (true, _) => REPUTATION_MANAGE,
+            (false, true) => ORDERS_VIEW,
+            (false, false) => ORDERS_MANAGE,
+        };
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(permission) => Ok(OrderBuyer(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
@@ -355,6 +359,14 @@ impl Identify<Shared> for OrderBuyer {
     }
 }
 
+/// An order's review form (`/account/purchases/{id}/review`, `/account/sales/{id}/review`), which
+/// needs `reputation.manage` and nothing else, as Reputation's loader and action require. It is in
+/// the order's area, whose caller is the order's; a route cannot name its own caller yet
+/// (todd-skelton/corten#273), so the area's caller looks at the path. Remove this once it can.
+fn reviewing(parts: &Parts) -> bool {
+    parts.uri.path().ends_with("/review")
+}
+
 /// A seller on its sales: reading needs `orders.view` and `listings.view`, cancelling
 /// `orders.manage`, as marketplace's loaders and action require.
 #[derive(Clone, Debug, Hash)]
@@ -362,9 +374,10 @@ pub struct OrderSeller(pub Viewer);
 
 impl Identify<Shared> for OrderSeller {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
-        let may = |actor: &Actor| match parts.method.is_safe() {
-            true => actor.can(ORDERS_VIEW) && actor.can(LISTINGS_VIEW),
-            false => actor.can(ORDERS_MANAGE),
+        let may = |actor: &Actor| match (reviewing(parts), parts.method.is_safe()) {
+            (true, _) => actor.can(REPUTATION_MANAGE),
+            (false, true) => actor.can(ORDERS_VIEW) && actor.can(LISTINGS_VIEW),
+            (false, false) => actor.can(ORDERS_MANAGE),
         };
         match find(parts, config).await {
             Found::Account(viewer) if may(&viewer.actor) => Ok(OrderSeller(viewer)),

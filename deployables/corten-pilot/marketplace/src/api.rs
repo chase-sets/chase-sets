@@ -2928,6 +2928,10 @@ pub struct ReviewOutcome {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ReviewOpportunity {
+    pub order_id: String,
+    /// The account the review is about, and its name when it has one.
+    pub subject_account_id: String,
+    pub subject_display_name: Option<String>,
     /// `buyer` or `seller`: who writes the review.
     pub author_role: String,
     pub active_review_id: Option<String>,
@@ -3813,6 +3817,18 @@ pub trait ReviewCalls {
     /// The account's one public response to a review it received (`POST /reviews/{id}/reply`). The
     /// answer is the write's receipt.
     async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
+    /// Whether the account may review the other side of `order`
+    /// (`GET /reviews/opportunities/orders/{id}`); `None` when it has no such order.
+    async fn review_opportunity(&self, order: &str) -> Result<Option<ReviewOpportunity>, ApiError>;
+    /// Submit a review of the order's other side (`POST /reviews`): the review's id and the
+    /// write's receipt.
+    async fn submit_review(
+        &self,
+        order: &str,
+        subject: &str,
+        rating: i64,
+        feedback: &str,
+    ) -> Result<(String, Option<Receipt>), ApiError>;
 }
 
 impl ReviewCalls for Caller<'_> {
@@ -3841,6 +3857,32 @@ impl ReviewCalls for Caller<'_> {
         let path = format!("/api/marketplace/reviews/{}/reply", segment(review));
         let req = self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "feedback": feedback }));
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn review_opportunity(&self, order: &str) -> Result<Option<ReviewOpportunity>, ApiError> {
+        let path = format!("/api/marketplace/reviews/opportunities/orders/{}", segment(order));
+        match self.read(&path, MARKETPLACE).await {
+            Ok(opportunity) => Ok(Some(opportunity)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn submit_review(
+        &self,
+        order: &str,
+        subject: &str,
+        rating: i64,
+        feedback: &str,
+    ) -> Result<(String, Option<Receipt>), ApiError> {
+        #[derive(Deserialize)]
+        struct Submitted {
+            id: String,
+        }
+        let body = serde_json::json!({ "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback });
+        let req = self.request(Method::POST, "/api/marketplace/reviews", MARKETPLACE).json(&body);
+        let (submitted, receipt) = self.write::<Submitted>(req).await?;
+        Ok((submitted.id, receipt))
     }
 }
 

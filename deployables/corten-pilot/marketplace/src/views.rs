@@ -40,6 +40,7 @@ mod money_page;
 mod notification_page;
 mod offer_matches_page;
 mod order_page;
+mod order_review_page;
 mod packing_page;
 mod page_actions;
 mod recovery;
@@ -80,6 +81,7 @@ pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
 pub use order_page::{OrderList, OrderPage};
+pub use order_review_page::OrderReviewPage;
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
 pub use page_actions::PageActions;
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
@@ -195,7 +197,7 @@ pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
 pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
-pub const ORDERS: &[Component] = &[OrderPage];
+pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
 /// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 /// The seller's: a shipment's page, and the packing page with its script, which the shipment

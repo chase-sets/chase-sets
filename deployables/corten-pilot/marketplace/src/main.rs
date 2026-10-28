@@ -28,6 +28,7 @@ mod locations;
 mod money;
 mod notifications;
 mod offer_matches;
+mod order_review;
 mod orders;
 mod packing;
 mod public_listing;

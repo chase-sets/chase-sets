@@ -481,6 +481,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = public_listings(&method, uri.path(), &headers) {
         return answer;
     }
+    if let Some(answer) = review_opportunity_api(&method, uri.path(), &body) {
+        return answer;
+    }
     if let Some(answer) = reviews_api(&method, &uri, &headers, &body) {
         return answer;
     }
@@ -5189,7 +5192,7 @@ async fn a_purchase_pending_payment_can_be_paid_or_cancelled() {
     assert!(!shown.contains("Seller payout") && !shown.contains("Marketplace sales fee"), "{shown}");
     assert!(shown.contains("Raw Near Mint Quantity 1 Line total 1 x $44.50 = $44.50"), "{shown}");
     assert!(shown.contains("Your account review is already active. Published Open your review"), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/reviews/rev_1""#), "{html}");
+    assert!(html.contains(r#"href="/account/reviews/rev_1""#), "the pilot's review page: {html}");
     assert!(!shown.contains("Inventory Holds"), "a buyer sees no holds: {shown}");
 }
 
@@ -10376,6 +10379,144 @@ fn review_item(id: &str, author: &str, subject: &str, role: &str, rating: Option
 /// operator withdrew, one paused with no rating, one pending reveal, `rev_refused`, which the API
 /// will not take a report on, `rev_reported`, reported before, and `rev_flood`, one report too
 /// many; as a buyer, none. Written: one the account left.
+fn review_opportunity_api(method: &Method, path: &str, body: &str) -> Option<Response> {
+    if let Some(order) = path.strip_prefix("/api/marketplace/reviews/opportunities/orders/") {
+        let opportunity = |author: &str, subject: &str, name: Option<&str>| {
+            json!({ "order_id": order, "subject_account_id": subject, "subject_display_name": name, "author_role": author,
+                    "eligible_at": "2026-10-20T00:00:00.000Z", "active_review_id": null, "active_review_revealed_at": null,
+                    "window_expired": false, "window_expires_at": "2026-11-20T00:00:00.000Z", "submission_state": "allowed",
+                    "hold_reason": null })
+        };
+        let mut one = match order {
+            "ord_rev" | "ord_done" | "ord_held" | "ord_closed" => opportunity("buyer", "acc_seller", Some("Card Shop")),
+            "ord_sold" => opportunity("seller", "acc_buyer", None),
+            _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Review opportunity not found.")),
+        };
+        match order {
+            "ord_done" => one["active_review_id"] = json!("rev_good"),
+            "ord_held" => {
+                one["submission_state"] = json!("held");
+                one["hold_reason"] = json!("feedback-on-hold");
+            }
+            "ord_closed" => {
+                one["submission_state"] = json!("expired");
+                one["window_expired"] = json!(true);
+            }
+            _ => {}
+        }
+        return Some(Json(one).into_response());
+    }
+    if path != "/api/marketplace/reviews" || *method != Method::POST {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match sent["feedback"].as_str().unwrap_or_default() {
+        "see ftp://x" => refusal(StatusCode::UNPROCESSABLE_ENTITY, "text_unsafe_link", "Unsafe link."),
+        "boom" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
+        _ => committed(StatusCode::CREATED, "marketplace", "51", json!({ "id": "rev_new" })),
+    })
+}
+
+/// The review writes the order review form sent: their bodies.
+fn reviews_sent(pilot: &Pilot) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path == "/api/marketplace/reviews")
+        .map(|c| serde_json::from_str(&c.body).unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resolve_first() {
+    let pilot = Pilot::new().await;
+    const FORM: &str = "/account/purchases/ord_rev/review";
+    // `reviewer` may not read orders: the form needs reputation.manage alone.
+    let (status, _, html) = pilot.send(get(FORM, Some("reviewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(
+        words.contains("Review Card Shop") && words.contains("Leave account feedback for this seller on order ord_rev."),
+        "{words}"
+    );
+    assert!(html.contains(r#"value="5" checked"#), "five stars to start: {html}");
+    assert!(words.contains("Item not received") && words.contains("Problem with this order?"), "{words}");
+    assert!(html.contains(r#"href="/account/purchases/ord_rev""#), "Back: {html}");
+    let (status, _, _) = pilot.send(get(FORM, Some("shopper"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "orders.view is not reputation.manage");
+    let (status, headers, _) = pilot.send(get(FORM, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
+
+    // Two stars asks first, with nothing sent.
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=2&feedback=meh", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Resolve this order first?"), "{html}");
+    assert!(html.contains(r#"href="/account/support?orderId=ord_rev""#), "Open an order issue: {html}");
+    assert!(html.contains(r#"value="2" checked"#) && html.contains(">meh</textarea>"), "kept: {html}");
+    // A problem ticked asks too, and opens its flow.
+    let (_, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=&problemCategories=damaged", false)).await;
+    assert!(html.contains(r#"href="/account/support?orderId=ord_rev&amp;flow=product-damaged""#), "{html}");
+    assert!(html.contains(r#"value="damaged" checked"#), "{html}");
+    // Feedback only needs its acknowledgement; Go back is the form again.
+    let (status, _, _) = pilot.send(post(FORM, "reviewer", "intent=feedback-only&rating=2&feedback=meh", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (_, _, html) = pilot.send(post(FORM, "reviewer", "intent=edit&rating=2&feedback=meh", false)).await;
+    assert!(!text(&html).contains("Resolve this order first?") && html.contains(">meh</textarea>"), "{html}");
+    assert!(reviews_sent(&pilot).is_empty(), "nothing sent yet");
+
+    let body = "intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh";
+    let (status, headers, _) = pilot.send(post(FORM, "reviewer", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/reviews/rev_new?after_write="), "the review, read after it: {to}");
+    assert_eq!(
+        reviews_sent(&pilot),
+        [json!({ "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
+    );
+
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=see+ftp%3A%2F%2Fx", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Links must start with https://."), "{html}");
+    assert!(html.contains(r##"href="#review-feedback""##) && html.contains(r#"aria-invalid="true""#), "{html}");
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=boom", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(text(&html).contains("Review could not be submitted.") && html.contains(">boom</textarea>"), "{html}");
+}
+
+#[tokio::test]
+async fn a_sellers_review_is_sent_as_rated_and_each_state_says_where_the_review_is() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/ord_sold/review", Some("reviewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Review acc_buyer") && !text(&html).contains("Item not received"), "a seller's: {html}");
+    let (status, headers, _) =
+        pilot.send(post("/account/sales/ord_sold/review", "reviewer", "rating=1&feedback=late", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a seller is not asked first");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/reviews/rev_new"));
+
+    let (status, headers, _) = pilot.send(get("/account/purchases/ord_done/review", Some("reviewer"))).await;
+    assert!(status.is_redirection());
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/reviews/rev_good", "the review written");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_held/review", Some("reviewer"))).await;
+    assert!(text(&html).contains("Review paused") && html.contains(r#"href="/account/support?orderId=ord_held""#), "{html}");
+    assert!(!html.contains("<textarea"), "{html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_closed/review", Some("reviewer"))).await;
+    assert!(text(&html).contains("Review window closed") && !html.contains("<textarea"), "{html}");
+    let (status, _, _) = pilot.send(get("/account/purchases/ord_none/review", Some("reviewer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, _, html) = pilot
+        .send(post(
+            "/account/purchases/ord_rev/review?resolution=intake-unavailable",
+            "reviewer",
+            "intent=resolve&rating=5",
+            false,
+        ))
+        .await;
+    assert!(text(&html).contains("An order issue can&#39;t be opened"), "{html}");
+    assert!(html.contains(r#"action="/account/purchases/ord_rev/review?resolution=intake-unavailable""#), "{html}");
+}
+
 fn reviews_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let (path, query) = (uri.path(), uri.query().unwrap_or_default());
     if let Some(id) = path.strip_prefix("/api/marketplace/reviews/").and_then(|r| r.strip_suffix("/reply")) {
