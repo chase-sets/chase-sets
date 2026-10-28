@@ -630,13 +630,7 @@ export function createPlatformApiHost(
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as
-      | {
-          listings?: {
-            createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-          };
-        }
-      | undefined;
+    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
     const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
     if (!createDraft) {
       throw new Error("Marketplace draft listing service is unavailable.");

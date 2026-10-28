@@ -285,6 +285,7 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
       shipFromAddress: true,
       totalQuantity: true,
       acquisitionCostAmount: true,
+      acquisitionCostCurrencyCode: true,
       priceAmount: true,
       priceCurrencyCode: true,
       quantityCap: true,

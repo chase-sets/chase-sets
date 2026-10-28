@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS marketplace_supply_items (
   storage_location_id text NOT NULL,
   total_quantity integer NOT NULL,
   acquisition_cost_amount numeric(12,2) NULL,
+  acquisition_cost_currency_code text NULL,
   last_stream_version integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -227,6 +228,13 @@ ALTER TABLE marketplace_supply_holds
 `;
 
 export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261028_marketplace_supply_acquisition_cost_currency",
+    description: "Preserve Inventory acquisition cost denomination without inferring historical currency.",
+    statements: [
+      `ALTER TABLE marketplace_supply_items ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20261017_marketplace_account_status_stream_version",
     description: "Add stream-fenced account lifecycle status to Marketplace account mirrors.",
