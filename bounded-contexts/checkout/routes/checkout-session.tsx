@@ -802,7 +802,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
-    autoResumePaymentStart: !session.payment_id && paymentPreview !== null,
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
     preparedPayment,
     paymentElementDefaultValues,
@@ -1121,7 +1120,6 @@ export default function CheckoutSessionRoute() {
       }
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
-      autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}
       preparedPaymentEntry={
         data.preparedPayment?.status === "pending-confirmation" ? (
           <StripeConfirmationCard payment={data.preparedPayment} defaultValues={data.paymentElementDefaultValues} />
