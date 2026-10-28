@@ -10,6 +10,7 @@ import {
   PricingHealthCandidateRefusedError,
   type PricingHealthServices,
 } from "../api/services";
+import { GoalComparisonValidationError } from "../api/goal-comparison";
 import contextManifest from "../../../context.json";
 import { SELLER_DESK_SURFACES } from "../../../../../contracts/seller-desk";
 import PricingHealthRoute, { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
@@ -66,6 +67,8 @@ describe("Pricing Health route", () => {
   it.each([
     ["non-empty body", JSON.stringify({})],
     ["text body", "compare"],
+    ["non-array goals", JSON.stringify({ goals: {} })],
+    ["unknown body key", JSON.stringify({ goals: [], extra: true })],
   ] as const)("rejects closed compare schema: %s", async (_, body) => {
     const { app, services } = setup();
     const response = await app.request("/health/rpp_owned/compare", {
@@ -75,6 +78,16 @@ describe("Pricing Health route", () => {
     });
     expect(response.status).toBe(400);
     expect(services.compare).not.toHaveBeenCalled();
+  });
+  it("maps service validation failures from GET goals to 400", async () => {
+    const { app, services } = setup();
+    services.getHealth.mockRejectedValue(new GoalComparisonValidationError(["goal-parameter-out-of-bounds"]));
+    const goals = encodeURIComponent(
+      JSON.stringify([{ goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 101 } }]),
+    );
+    const response = await app.request(`/health?goals=${goals}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
   });
   it("accepts an absent compare body as defaults and forwards a closed parameter payload", async () => {
     const { app, services } = setup();
@@ -274,6 +287,33 @@ describe("Mounted Pricing Health loader and action", () => {
       action({ request: new Request(request.url, { method: "POST", body: form }), params: {}, context: {} } as never),
     ).rejects.toMatchObject({ status: 403 });
     expect(calls).toEqual([]);
+  });
+
+  it("keeps loader validation visible and recovers without the malformed goals query", async () => {
+    const calls = transport();
+    const loaderData = await loader({
+      request: new Request("http://localhost/account/desk/pricing-health?policyId=pol_explicit&goals=%7B"),
+      params: {},
+      context: {},
+    } as never);
+    expect(loaderData).toMatchObject({
+      data: null,
+      loadFailed: false,
+      error: "Enter a value within the allowed range.",
+    });
+    const Stub = createRoutesStub([
+      { path: "/account/desk/pricing-health", Component: PricingHealthRoute, loader: () => null },
+    ]);
+    const html = renderToStaticMarkup(
+      <Stub
+        initialEntries={["/account/desk/pricing-health?policyId=pol_explicit&goals=%7B"]}
+        hydrationData={{ loaderData: { "0": loaderData } }}
+      />,
+    );
+    expect(html).toContain("Enter a value within the allowed range.");
+    expect(html).toContain('href="/account/desk/pricing-health?policyId=pol_explicit"');
+    expect(html).not.toContain("goals=%7B");
+    expect(calls).toHaveLength(0);
   });
 
   it("explicit Compute verdict POST redirects back to the same policy without doing a GET write", async () => {

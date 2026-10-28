@@ -3,21 +3,29 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
 import type { RepricingEngineServices } from "../../repricing-engine/api/runtime";
-import { initialRepricingPolicyState } from "../../repricing-policies/domain/domain";
+import { initialRepricingPolicyState, type RepricingPolicyScope } from "../../repricing-policies/domain/domain";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../forecast-ledger/domain/policy";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
 import { createPricingHealthServices } from "../api/services";
 
 describe("Pricing Health current revision authority", () => {
-  function setup(status: "active" | "paused" = "active", whatIfFails = false, corruptGrade = false) {
+  function setup(
+    status: "active" | "paused" = "active",
+    whatIfFails = false,
+    corruptGrade = false,
+    scope: RepricingPolicyScope = { kind: "all-listings" },
+    excludedListingIds: readonly string[] = [],
+    goalAdoptions: readonly unknown[] = [],
+  ) {
     const calls: { sql: string; values?: readonly unknown[] }[] = [];
     const state = {
       ...initialRepricingPolicyState,
       policyId: "rpp_owned",
       accountId: "acc_owned",
       name: "Current policy",
-      scope: { kind: "all-listings" as const },
+      scope,
+      excludedListingIds,
       maxChangesPerDay: 101,
       status,
       rules: corruptGrade
@@ -37,7 +45,7 @@ describe("Pricing Health current revision authority", () => {
               },
             },
           ]
-        : [],
+        : dryRunBody.rules,
     };
     const db: PgQueryable = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
@@ -66,8 +74,8 @@ describe("Pricing Health current revision authority", () => {
                 scope_kind: "all-listings",
                 scope_category_ids: null,
                 scope_listing_ids: null,
-                excluded_listing_ids: [],
-                rules: [],
+                excluded_listing_ids: excludedListingIds,
+                rules: state.rules,
                 max_changes_per_day: 100,
                 created_at: "2026-10-18",
                 updated_at: "2026-10-18",
@@ -89,11 +97,11 @@ describe("Pricing Health current revision authority", () => {
       policies: { resolvePolicy: resolvePolicy as never },
       repricingPolicies: {
         loadOwnedRepricingPolicy,
-        getHalt: vi.fn<RepricingPolicyServices["getHalt"]>(),
+        getHalt: vi.fn<RepricingPolicyServices["getHalt"]>().mockResolvedValue({ engaged: false } as never),
         executeOwnedRepricingPolicy: vi.fn<RepricingPolicyServices["executeOwnedRepricingPolicy"]>(),
       },
       repricingEngine: { enqueueDryRun, getDryRun: vi.fn<RepricingEngineServices["getDryRun"]>() },
-      forecastLedger: { listGoalAdoptions: async () => [] },
+      forecastLedger: { listGoalAdoptions: async () => goalAdoptions as never },
       economics: {
         resolve: async () => {
           if (whatIfFails) throw new Error("must not reach Economics");
@@ -153,4 +161,30 @@ describe("Pricing Health current revision authority", () => {
       await expect(services.getHealth("acc_owned", selector, "2026-10-19T00:00:00.000Z")).rejects.toThrow();
     },
   );
+
+  it("passes catalog categories and policy exclusions to the provenance listing query", async () => {
+    const { services, calls } = setup(
+      "active",
+      false,
+      false,
+      { kind: "catalog-filter", categoryIds: ["cat_synthetic_a"] },
+      ["lst_excluded"],
+      [
+        {
+          goalId: "profit-per-day",
+          goalVersion: 1,
+          lifecycle: "selectable",
+          incumbentVersion: null,
+          selectable: true,
+          promotable: true,
+          reason: null,
+          grades: null,
+        },
+      ],
+    );
+    await services.getHealth("acc_owned", "rpp_owned", "2026-10-19T00:00:00.000Z");
+    const provenanceQuery = calls.find(({ sql }) => sql.includes("category_ids && $4::text[]"));
+    expect(provenanceQuery?.sql).toContain("AND NOT (listing_id = ANY($5::text[]))");
+    expect(provenanceQuery?.values).toEqual(["acc_owned", "catalog-filter", [], ["cat_synthetic_a"], ["lst_excluded"]]);
+  });
 });

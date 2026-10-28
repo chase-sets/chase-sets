@@ -101,6 +101,16 @@ describe("Pricing Health goal comparison", () => {
         { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 71 } },
       ]),
     ).toThrow(/duplicate goal/);
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 70 }, extra: true } as never,
+      ]),
+    ).toThrow(/unknown keys/);
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "target-horizon", goalVersion: 1, parameters: { horizonDays: 14 } },
+      ]),
+    ).toThrow(/goal is not selectable/);
   });
 
   it("returns one deterministic recommendation and refuses incomplete comparisons", () => {

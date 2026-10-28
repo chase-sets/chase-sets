@@ -106,7 +106,6 @@ export function createPricingHealthServices({
     now: string,
     resolve: PricingHealthEconomicsResolver,
   ): Promise<PricingHealthWhatIfResult | null> => {
-    if (!economics) return null;
     const whatIf = createPricingHealthWhatIfAdapter({ db, economics, resolve });
     try {
       return await whatIf.get(accountId, now);
@@ -151,7 +150,6 @@ export function createPricingHealthServices({
     const adoptions = await forecastLedger.listGoalAdoptions();
     const selected = selectableGoalChoices(pricingGoalDefinitions(), adoptions);
     if (!accountId || !target || !now || !selected.some((goal) => goal.requiresEconomics)) return selected;
-    if (!resolve) return selected;
     const listing = await db.query<{
       inventory_item_id: string | null;
       catalog_catalog_item_id: string;
@@ -168,16 +166,23 @@ export function createPricingHealthServices({
            OR ($2::text = 'catalog-filter' AND EXISTS (
              SELECT 1 FROM pricing_catalog_item_inputs AS catalog_item
              WHERE catalog_item.catalog_item_id = pricing_market_listing_inputs.catalog_catalog_item_id
-               AND catalog_item.category_ids && $3::text[]
+               AND catalog_item.category_ids && $4::text[]
            ))
          )
+         AND NOT (listing_id = ANY($5::text[]))
        ORDER BY catalog_catalog_item_id, product_id, listing_id LIMIT 1`,
-      [accountId, target.scope.kind, target.scope.kind === "listing-set" ? target.scope.listingIds : []],
+      [
+        accountId,
+        target.scope.kind,
+        target.scope.kind === "listing-set" ? target.scope.listingIds : [],
+        target.scope.kind === "catalog-filter" ? target.scope.categoryIds : [],
+        target.excludedListingIds,
+      ],
     );
     const row = listing.rows[0];
     const resolution =
       row?.inventory_item_id && row.price_currency_code
-        ? await resolve({
+        ? await resolve!({
             accountId,
             scope: { kind: "native-marketplace" },
             catalogItemId: row.catalog_catalog_item_id,

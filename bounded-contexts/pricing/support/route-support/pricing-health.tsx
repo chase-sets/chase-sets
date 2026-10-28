@@ -1,6 +1,14 @@
 import { useEffect, useRef } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation, useNavigate, useRevalidator } from "react-router";
+import {
+  redirect,
+  useActionData,
+  useLoaderData,
+  useLocation,
+  useNavigation,
+  useNavigate,
+  useRevalidator,
+} from "react-router";
 import { AlertDialog, Button, NativeSelect, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
@@ -190,11 +198,16 @@ function GoalApplyConfirmation({
 }
 
 export default function PricingHealthRoute() {
-  const { data, loadFailed } = useLoaderData<typeof loader>();
+  const { data, loadFailed, error: loaderError } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as { error?: string; applyResult?: ApplyGoalResult } | undefined;
   const navigation = useNavigation();
   const navigate = useNavigate();
+  const location = useLocation();
   const revalidator = useRevalidator();
+  const policyId = new URLSearchParams(location.search).get("policyId");
+  const errorRecoveryHref = policyId
+    ? `${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId }).toString()}`
+    : PRICING_HEALTH_HREF;
   useEffect(() => {
     if (!data?.computing || revalidator.state !== "idle") return;
     const timer = setTimeout(() => void revalidator.revalidate(), 2000);
@@ -204,9 +217,10 @@ export default function PricingHealthRoute() {
     <PricingHealthPage
       data={data}
       loading={navigation.state === "loading" && navigation.formMethod?.toLowerCase() === "get"}
-      error={loadFailed ? copy("error.description") : actionData?.error}
+      error={loadFailed ? copy("error.description") : (loaderError ?? actionData?.error)}
       applyResult={actionData?.applyResult}
       goalNavigate={navigate}
+      errorRecoveryHref={errorRecoveryHref}
       policySelector={
         data && data.policies.length > 1 ? (
           <RouterForm method="get" action={PRICING_HEALTH_HREF}>

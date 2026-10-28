@@ -133,12 +133,14 @@ export async function createComparisonPolicy(
   db: PgTransactionalPool,
   services: ReturnType<typeof comparisonTestServices>,
   rules = dryRunBody.rules,
+  overrides: Partial<RepricingDryRunBody> = {},
 ) {
   await services.policies.commandHandler({
     streamId: services.policies.streamIdForPolicy(comparisonPolicyId),
     context: dryRunContext,
     command: {
       ...dryRunBody,
+      ...overrides,
       rules,
       type: "CreateRepricingPolicy",
       policyId: comparisonPolicyId,

@@ -18,6 +18,7 @@ export function PricingHealthPage({
   applyAction,
   applyResult,
   goalNavigate,
+  errorRecoveryHref,
 }: Readonly<{
   data: PricingHealthData | null;
   loading?: boolean;
@@ -28,6 +29,7 @@ export function PricingHealthPage({
   applyAction?: (candidate: NonNullable<PricingHealthData["comparison"]>[number]) => ReactNode;
   applyResult?: ApplyGoalResult | null;
   goalNavigate?: NavigateFunction;
+  errorRecoveryHref?: string;
 }>) {
   return (
     <Page>
@@ -48,7 +50,7 @@ export function PricingHealthPage({
             title={copy("error")}
             description={error}
             actions={
-              <LinkButton href="" tone="secondary">
+              <LinkButton href={errorRecoveryHref ?? ""} tone="secondary">
                 {copy("retry")}
               </LinkButton>
             }

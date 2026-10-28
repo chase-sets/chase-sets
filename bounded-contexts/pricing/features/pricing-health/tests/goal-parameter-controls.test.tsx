@@ -5,7 +5,7 @@ import { createRoutesStub, useLocation, useNavigate } from "react-router";
 import { describe, expect, it } from "vitest";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 import { GoalPicker } from "../ui/goal-comparison";
-import { selectableGoalChoices } from "../api/goal-comparison";
+import { selectableGoalChoices, type GoalChoice } from "../api/goal-comparison";
 
 const goals = selectableGoalChoices(pricingGoalDefinitions(), [
   {
@@ -66,5 +66,56 @@ describe("Pricing Health goal parameter controls", () => {
     expect(new Set(regions.map((region) => region.getAttribute("aria-label"))).size).toBe(regions.length);
     expect(regions.every((region) => !region.getAttribute("aria-label")?.includes("fixed-percentile@"))).toBe(true);
     expect(disclosures.every((trigger) => trigger.getAttribute("aria-expanded") === "true")).toBe(true);
+  });
+
+  it("shows the localized unavailable reason and formats resolved Economics facts", () => {
+    const economicsGoal: GoalChoice = {
+      ...goals[0]!,
+      goalId: "profit-per-day",
+      requiresEconomics: true,
+      economics: {
+        availability: "unavailable",
+        currency: "USD",
+        effectiveAt: "2026-10-20T00:00:00.000Z",
+        reason: "terms-unavailable",
+        facts: {
+          platformFeeRelativeBps: {
+            effectiveValue: 1075,
+            observedAt: "2026-10-20T00:00:00.000Z",
+            source: "commercial-terms",
+            sourceReason: null,
+            override: null,
+          },
+          platformFeeCapPerUnitAmount: {
+            effectiveValue: null,
+            observedAt: "2026-10-20T00:00:00.000Z",
+            source: "commercial-terms",
+            sourceReason: null,
+            override: null,
+          },
+          dailyReturnHurdle: {
+            effectiveValue: 0.0125,
+            observedAt: "2026-10-20T00:00:00.000Z",
+            source: "policy-default",
+            sourceReason: "provider-unavailable",
+            override: null,
+          },
+          turnaroundDays: {
+            effectiveValue: 14,
+            observedAt: "2026-10-20T00:00:00.000Z",
+            source: "pricing-observation",
+            sourceReason: null,
+            override: null,
+          },
+        },
+      },
+    };
+    render(<GoalPicker goals={[economicsGoal]} />);
+    expect(screen.getByText(/Terms unavailable/)).toBeTruthy();
+    expect(screen.getByText(/10\.75%/)).toBeTruthy();
+    expect(screen.getByText(/1\.25%/)).toBeTruthy();
+    expect(screen.getByText(/14/)).toBeTruthy();
+    expect(screen.getByText(/Unavailable/)).toBeTruthy();
+    expect(screen.queryByText(/null/)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { formatDateTime, formatMoney } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, hasTranslation } from "@chase-sets/localization";
 import {
   Banner,
   Card,
@@ -119,13 +119,17 @@ export function GoalPicker({
                         <Text size="sm">
                           {goal.economics?.availability === "resolved"
                             ? copy("goals.economics.provenance")
-                            : copy("goals.economics.unavailable")}
+                            : goal.economics?.availability === "unavailable"
+                              ? `${copy("goals.economics.unavailable")} ${localizedEconomicsReason(
+                                  goal.economics.reason ?? "unknown",
+                                )}`
+                              : copy("goals.economics.unavailable")}
                         </Text>
                         {goal.economics?.facts ? (
                           <KeyValueList
                             items={Object.entries(goal.economics.facts).map(([name, fact]) => ({
                               key: localizedEconomicsFact(name),
-                              value: `${formatFactValue(fact.effectiveValue)} · ${localizedEconomicsSource(
+                              value: `${formatFactValue(name, fact.effectiveValue)} · ${localizedEconomicsSource(
                                 fact.source,
                               )}${fact.sourceReason ? ` · ${localizedEconomicsReason(fact.sourceReason)}` : ""}${
                                 fact.override ? ` · ${copy("goals.economics.override")}` : ""
@@ -149,13 +153,20 @@ export function GoalPicker({
 }
 
 function healthCopyParameterLabel(goal: GoalChoice, parameter: string): string {
-  return copy(`goals.parameter.${goal.goalId}.${parameter}`) || parameter;
+  const key = `pricing.features.pricingHealth.goals.parameter.${goal.goalId}.${parameter}`;
+  return hasTranslation(key) ? copy(`goals.parameter.${goal.goalId}.${parameter}`) : copy("goals.label.generic");
 }
 
-function formatFactValue(value: unknown): string {
+function formatFactValue(name: string, value: unknown): string {
+  if (value === null) return copy("unavailable");
   if (value && typeof value === "object" && "amount" in value && "currency" in value) {
     const money = value as { amount: string; currency: string };
     return formatMoney(money.amount, money.currency);
+  }
+  if (typeof value === "number") {
+    if (name.endsWith("Bps")) return healthPercent(value / 10_000);
+    if (name === "dailyReturnHurdle") return healthPercent(value);
+    return healthNumber(value);
   }
   return String(value);
 }
