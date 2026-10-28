@@ -13,7 +13,7 @@ use corten::{
     prelude::*,
 };
 
-use super::{fragment, listing_page::options, on_marketplace};
+use super::{listing_page::options, on_marketplace};
 use crate::{
     api::{EvidenceReadiness, FeeHistoryEntry, GalleryImage, ListingPhoto, SellerListing, TermsPreview},
     app::url,
@@ -169,7 +169,7 @@ pub fn SellerListingPage<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen:
     let l = &screen.listing;
     let title = l.item_title.as_deref().unwrap_or(&l.catalog_catalog_item_id);
     let back = url::SellerListings::default().href();
-    let update = fragment(UpdateListingId);
+    let update = UpdateListingId.fragment();
     html! {
         <header class={Header}>
             <div class={Heading}>
@@ -247,7 +247,7 @@ pub fn SellerListingPage<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen:
                             <dd>{percent(t, l.shipping_allowance_percentage_bps)}</dd>
                         </div>
                     </dl>
-                    <a class={(Button, Secondary)} href={&update}>{t.page_update_listing()}</a>
+                    <a class={(Button, Secondary)} href={update}>{t.page_update_listing()}</a>
                 </div>
                 <div class={Card}>
                     <dl class={Lines}>
@@ -355,7 +355,7 @@ fn Notices<'a>(t: SellerListingMsg, p: Pilot, screen: &'a ListingScreen) -> impl
                     <p class={Strong}>{t.recovery_title()}</p>
                     <p>{&refused.message}</p>
                     <p>{t.recovery_draft_kept()}</p>
-                    <p><a href={&fragment(AltTextId(&refused.photo))}>{t.evidence_alt_text()}</a></p>
+                    <p><a href={AltTextId(&refused.photo).fragment()}>{t.evidence_alt_text()}</a></p>
                 </div>
             } else if let Some(message) = e.errors.form() {
                 <div class={Banner} data-tone="danger" tabindex="-1">

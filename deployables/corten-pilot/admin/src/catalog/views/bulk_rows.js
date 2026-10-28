@@ -3,7 +3,7 @@
 // belong to the bulk form (`form=`), so the form posts the checked ids and Clear Selection resets
 // them without this script. With it, the count, the select-all box and the buttons follow the
 // boxes, as admin-web's bulk bar does.
-import { state } from "corten";
+import { keep } from "corten";
 /** @import { Message } from "corten" */
 
 /**
@@ -23,8 +23,8 @@ import { state } from "corten";
  * @typedef {{ matching: string, entity: string, selected: Message<"count" | "entityName"> }} Count
  */
 
-/** The count's text the rows were drawn with. @param {Selection} sel @param {Count} [text] */
-const counts = (sel, text) => state(sel.form, () => text ?? null);
+/** The count's text the rows were last drawn with, kept by this BulkRows. */
+const drawnWith = () => keep(() => ({ text: /** @type {Count | null} */ (null) }));
 
 /** The rows' boxes. @param {Selection} sel */
 function boxes(sel) {
@@ -44,7 +44,7 @@ function all(sel) {
  * @param {Selection} sel @param {Count} text
  */
 export function drawn(sel, text) {
-  counts(sel, text);
+  drawnWith().text = text;
   tally(sel);
 }
 
@@ -77,7 +77,7 @@ export function cleared(event, sel) {
 function tally(sel) {
   const rows = boxes(sel);
   const n = rows.filter((row) => row.checked).length;
-  const text = counts(sel);
+  const text = drawnWith().text;
   if (text) sel.count.value = n === 0 ? text.matching : text.selected({ count: n, entityName: text.entity });
   const box = all(sel);
   if (box) {

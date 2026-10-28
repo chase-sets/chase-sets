@@ -23,6 +23,10 @@ use crate::{
     watching::{self, Side},
 };
 
+/// The product selector, where Select options and the rail's choose-options link go.
+#[derive(Id)]
+pub struct SelectOptionsId;
+
 /// The host Chase Sets' production marketplace answers on: only its pages get structured data
 /// (`isProductionMarketplaceUrl`).
 const PRODUCTION_HOST: &str = "marketplace.chasesets.com";
@@ -453,7 +457,7 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
                         <a class={Button} href={&to_rail(Market::Watch)}>{t.route_watch()}</a>
                     </div>
                 } else {
-                    <a class={(Button, Primary, Wide)} href="#select-options">{t.page_select_options()}</a>
+                    <a class={(Button, Primary, Wide)} href={SelectOptionsId.fragment()}>{t.page_select_options()}</a>
                 }
             </nav>
         </div>
@@ -899,7 +903,7 @@ fn Selector<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
     };
     html! {
         if let Some(schema) = schema {
-            <section class={Card} id="select-options" aria-labelledby="choose-options">
+            <section class={Card} id={SelectOptionsId} aria-labelledby="choose-options">
                 <h2 class={CardTitle} id="choose-options">{t.page_choose_options()}</h2>
                 for dimension in active_dimensions(schema, picks) {
                     <DimensionChoice t={t} screen={screen} address={address} slug={slug} dimension={dimension} />
@@ -2130,7 +2134,7 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
                     <p class={Muted}>
                         {if screen.all_listings > 0 { t.page_no_active_listings_match_these_filters() } else { t.page_sellers_have_not_published_inventory_for() }}
                     </p>
-                    <p><a href="#select-options">{t.page_choose_options_2()}</a></p>
+                    <p><a href={SelectOptionsId.fragment()}>{t.page_choose_options_2()}</a></p>
                 </div>
             } else {
                 <ul class={Rows}>

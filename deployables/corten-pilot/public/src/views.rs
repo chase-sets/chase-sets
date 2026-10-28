@@ -5,6 +5,10 @@ use platform::{chart::TimeSeries, theme};
 
 use crate::text::MarketMsg;
 
+/// The page's main content, where the skip link goes.
+#[derive(Id)]
+pub struct MainContentId;
+
 mod home_page;
 mod market_page;
 
@@ -88,13 +92,13 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                 <script type="module" src={req.asset("app.js")}></script>
             </head>
             <body>
-                <a class={Skip} href="#main-content">{p.shell_skip()}</a>
+                <a class={Skip} href={MainContentId.fragment()}>{p.shell_skip()}</a>
                 <div class={Shell}>
                     if !promos.is_empty() {
                         <home_page::PromoBar p={p} promos={promos} web={web} />
                     }
                     <home_page::HomeNav t={t} />
-                    <main class={Main} id="main-content">{children}</main>
+                    <main class={Main} id={MainContentId}>{children}</main>
                     <home_page::HomeFooter t={t} web={web} />
                 </div>
             </body>

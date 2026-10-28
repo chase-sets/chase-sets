@@ -7,7 +7,7 @@
 //! side and a review's head spreads across its card.
 use corten::prelude::*;
 
-use super::{account_page::Side, fragment, on_marketplace};
+use super::{account_page::Side, on_marketplace};
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice},
     api::{ReviewItem, ReviewSummary},
@@ -621,7 +621,7 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                         <p>{&refused.message}</p>
                         <p>{t.recovery_draft_kept()}</p>
                         if refused.field {
-                            <p><a href={&fragment(ReplyFeedbackId)}>{t.detail_reply_feedback()}</a></p>
+                            <p><a href={ReplyFeedbackId.fragment()}>{t.detail_reply_feedback()}</a></p>
                         }
                     } else {
                         <p class={Strong}>{t.detail_reply_title()}</p>

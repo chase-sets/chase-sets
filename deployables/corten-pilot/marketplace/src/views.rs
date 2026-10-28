@@ -240,14 +240,6 @@ pub fn marketplace(path: &str) -> Option<Uri> {
 
 /// A site-relative address the API returns (a picture, a page) on marketplace's origin, where it
 /// resolves, with its fragment (`#feedback`; a `Uri` has none); an absolute one as it is.
-/// A link to an element on the same page: `#` and its id. Corten has `route.at(id)` for another
-/// page's element but no in-page form (todd-skelton/corten#254); remove this once it lands.
-pub fn fragment(id: impl corten::view::Id) -> String {
-    let mut out = String::from("#");
-    id.write_id(&mut out);
-    out
-}
-
 pub fn on_marketplace(path: &str) -> String {
     if !path.starts_with('/') {
         return path.to_owned();
