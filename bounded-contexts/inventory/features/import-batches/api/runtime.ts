@@ -114,6 +114,7 @@ export type InventoryDraftListingCreator = (
     shipFromAddress: AddressSnapshot;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
+    acquisitionCostCurrencyCode?: string | null;
     priceAmount: string;
     priceCurrencyCode: string;
     quantityCap: number;
