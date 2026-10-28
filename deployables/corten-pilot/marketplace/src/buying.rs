@@ -552,19 +552,16 @@ pub(crate) async fn buy(
     }
 }
 
-/// A price as marketplace takes one (`normalizeMoneyAmount`): digits with at most two after the
-/// point, more than zero, written with two.
-pub fn price(text: &str) -> Option<String> {
-    let text = text.trim();
-    let (whole, cents) = text.split_once('.').unwrap_or((text, ""));
-    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
-    if whole.is_empty() || !digits(whole) || !digits(cents) || cents.len() > 2 || (text.contains('.') && cents.is_empty()) {
-        return None;
-    }
-    let cents = format!("{cents:0<2}");
-    let whole = whole.trim_start_matches('0');
-    let whole = if whole.is_empty() { "0" } else { whole };
-    (whole != "0" || cents != "00").then(|| format!("{whole}.{cents}"))
+/// Marketplace's one currency.
+const USD: corten::i18n::Currency = corten::i18n::Currency::new("USD");
+
+/// A price typed in the page's locale (`t.parse_money`, in US dollars, the only currency
+/// marketplace sells in): `24.5`, `$1,299.50` in en. More than zero, written as marketplace's API
+/// takes an amount (`normalizeMoneyAmount`: two fraction digits). Before todd-skelton/corten#208 the
+/// pilot read only a plain decimal, as marketplace's form does.
+pub fn price(t: ItemMsg, text: &str) -> Option<String> {
+    let cents = t.parse_money(text.trim(), USD).map(|c| c.0).filter(|c| *c > 0)?;
+    Some(format!("{}.{:02}", cents / 100, cents % 100))
 }
 
 /// Make an offer (the action's `submit-offer`): checked as marketplace checks it, then
@@ -584,7 +581,7 @@ pub(crate) async fn offer(
     input.intent = Intent::Offer;
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
-    let Some(amount) = price(&input.price) else {
+    let Some(amount) = price(t, &input.price) else {
         return refused(&req, session, item, input, t.route_validation_price_required().to_owned());
     };
     let Some(quantity) = quantity(&input.quantity) else {

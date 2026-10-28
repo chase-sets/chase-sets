@@ -861,9 +861,7 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
     }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     if path == STANDARD_TERMS {
-        let cents = crate::buying::price(sent["priceAmount"].as_str().unwrap_or_default())
-            .and_then(|p| platform::money::cents(&p))
-            .unwrap_or_default();
+        let cents = platform::money::cents(sent["priceAmount"].as_str().unwrap_or_default()).unwrap_or_default();
         let amount = |c: i64| format!("{}.{:02}", c / 100, c % 100);
         return Some(
             Json(json!({
@@ -3122,13 +3120,16 @@ async fn make_offer_is_checked_then_marketplaces_offer_checkout() {
 }
 
 #[test]
-fn a_price_is_marketplaces_money_amount() {
-    use crate::buying::price;
+fn a_price_is_money_as_the_page_writes_it() {
+    use corten::i18n::Messages as _;
+    let t = crate::text::ItemMsg::for_locale("en");
+    let price = |text: &str| crate::buying::price(t, text);
     assert_eq!(price("24.5").as_deref(), Some("24.50"));
     assert_eq!(price(" 7 ").as_deref(), Some("7.00"));
-    assert_eq!(price("007.10").as_deref(), Some("7.10"));
     assert_eq!(price("0.01").as_deref(), Some("0.01"));
-    for bad in ["", "0", "0.00", "1.", ".5", "1.234", "-1", "1e3", "1,5"] {
+    assert_eq!(price("$1,299.50").as_deref(), Some("1299.50"), "as t.money writes it");
+    assert_eq!(price("1299.50").as_deref(), Some("1299.50"));
+    for bad in ["", "0", "0.00", "1.234", "-1", "1e3", "1,5", "12,50"] {
         assert_eq!(price(bad), None, "{bad:?}");
     }
 }

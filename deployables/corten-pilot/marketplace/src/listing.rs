@@ -241,7 +241,7 @@ pub(crate) async fn list(
         let notice = refuse(t.route_choose_options_to_list_matching_inventory().to_owned(), input, None);
         return refused(&req, session, &caller, item, &address, notice).await;
     }
-    let Some(amount) = buying::price(&input.price) else {
+    let Some(amount) = buying::price(t, &input.price) else {
         let notice = refuse(t.route_validation_price_required().to_owned(), input, None);
         return refused(&req, session, &caller, item, &address, notice).await;
     };

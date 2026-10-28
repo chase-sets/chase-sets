@@ -53,7 +53,8 @@ async fn read(config: &Shared, slug: &str) -> Result<MarketPage, corten::Error> 
     }
 }
 
-fn render(req: Req, config: &Shared, page: MarketPage) -> HtmlResult {
+/// The page, made for everyone (the handler's `Public`).
+fn render(req: Req, config: &Shared, page: MarketPage) -> corten::Result<corten::HtmlResponse<corten::ForAll>> {
     let t: MarketMsg = req.t();
     let p: Pilot = req.t();
     let canonical = format!("{}{}", config.origin, url::MarketPage { slug: &page.slug }.href());

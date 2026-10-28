@@ -535,6 +535,7 @@ pub(crate) async fn page(
     let t: ListingNewMsg = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut draft = Draft::read(&raw);
+    draft.price_amount = typed_money(req.t(), &draft.price_amount);
     // A guest's listing draft, claimed after registering (`claimAnonymousListingDraftIntent`).
     let mut claim_failed = None;
     if !draft.claim.is_empty() {
@@ -574,6 +575,16 @@ fn failed(error: ApiError) -> Failed {
         (Some(StatusCode::FORBIDDEN), _) => Failed::Error(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
         (_, Some(message)) => Failed::Refused(message.to_owned()),
         _ => Failed::Error(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    }
+}
+
+/// A price as the page writes money (`t.parse_money`, todd-skelton/corten#208: `$1,299.50` in en) as
+/// the API takes an amount (`1299.50`); text that is not money is sent as typed, for the API to
+/// refuse in its own words.
+fn typed_money(p: Pilot, text: &str) -> String {
+    match p.parse_money(text.trim(), corten::i18n::Currency::new("USD")) {
+        Some(cents) => format!("{}.{:02}", cents.0 / 100, cents.0 % 100),
+        None => text.to_owned(),
     }
 }
 
@@ -625,7 +636,8 @@ pub(crate) async fn create(
     let mut posted = posted;
     posted.files.retain(|upload| upload.field == f.evidence.as_str());
     let raw = &posted.fields;
-    let draft = Draft { redraw: false, preview: false, ..Draft::read(raw) };
+    let mut draft = Draft { redraw: false, preview: false, ..Draft::read(raw) };
+    draft.price_amount = typed_money(p, &draft.price_amount);
     let Some(intent) = Intent::read(&first(raw, f.intent.as_str())) else {
         return Err(corten::Error::status(StatusCode::BAD_REQUEST));
     };

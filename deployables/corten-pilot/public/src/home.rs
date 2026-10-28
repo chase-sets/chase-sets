@@ -704,7 +704,16 @@ pub(crate) async fn join(
     }
 }
 
-fn render(req: &Req, config: &Shared, landing: Landing, reads: Reads, sent: Option<Sent>, status: StatusCode) -> HtmlResult {
+/// The page, for whoever the caller says it is for: everyone (the home page, `Public`) or the
+/// visitor who joined (`join`'s answer).
+fn render<For>(
+    req: &Req,
+    config: &Shared,
+    landing: Landing,
+    reads: Reads,
+    sent: Option<Sent>,
+    status: StatusCode,
+) -> corten::Result<corten::HtmlResponse<For>> {
     let t: HomeMsg = req.t();
     let p: Pilot = req.t();
     let role = sent.as_ref().map_or(landing.role, |s| s.role);

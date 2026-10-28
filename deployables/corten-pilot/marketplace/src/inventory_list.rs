@@ -209,11 +209,12 @@ impl SaleInput {
         if quantity.is_none() {
             errors.add(f.quantity, p.inventory_quantity());
         }
+        // Money as the page writes it (`t.parse_money`, todd-skelton/corten#208): `12.5` or `$1,299.50` in en.
         let price = self.sale_price_amount.trim();
-        let price = match platform::money::cents(price) {
+        let price = match p.parse_money(price, corten::i18n::Currency::new("USD")) {
             _ if price.is_empty() => None,
-            Some(cents) if cents >= 0 => Some(format!("{}.{:02}", cents / 100, cents % 100)),
-            _ => {
+            Some(cents) => Some(format!("{}.{:02}", cents.0 / 100, cents.0 % 100)),
+            None => {
                 errors.add(f.sale_price_amount, p.inventory_price());
                 None
             }
@@ -571,6 +572,27 @@ fn sold(req: &Req, place: &Place, result: &SaleResult, receipt: Option<Receipt>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sale_price_is_money_as_the_page_writes_it() {
+        use corten::i18n::Messages as _;
+        let p = Pilot::for_locale("en");
+        let sale = |price: &str| SaleInput {
+            idempotency_key: "8f14e45f-ceea-467a-9b8e-1c2d3e4f5a6b".into(),
+            quantity: "1".into(),
+            sale_price_amount: price.into(),
+            channel: CHANNELS[0].into(),
+            ..SaleInput::default()
+        };
+        let price = |text: &str| sale(text).command(p, false).map(|c| c.sale_price_amount);
+        assert_eq!(price("$1,299.50").ok().flatten().as_deref(), Some("1299.50"));
+        assert_eq!(price("12.5").ok().flatten().as_deref(), Some("12.50"));
+        assert_eq!(price("0").ok().flatten().as_deref(), Some("0.00"), "a gift is a sale");
+        assert_eq!(price("").ok().flatten(), None, "no price is allowed");
+        for bad in ["-1", "1.234", "12,50", "abc"] {
+            assert!(price(bad).is_err(), "{bad:?}");
+        }
+    }
 
     #[test]
     fn a_page_is_read_as_marketplace_reads_it() {
