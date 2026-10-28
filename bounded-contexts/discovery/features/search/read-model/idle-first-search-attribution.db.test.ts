@@ -19,6 +19,7 @@ import {
   discoverySearchHybridEnabled,
   discoverySearchRescueEnabled,
 } from "../domain/embedding-rollout";
+import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const correlationPrefix = "idle-first-search-10609";
@@ -37,6 +38,46 @@ type ActiveRequest = Readonly<{
   correlationId: string;
   request: "blank" | "named" | "category";
 }>;
+
+type ObservedResource = Readonly<{
+  correlationId: string;
+  request: ActiveRequest["request"] | "unknown";
+  resource: string;
+  operation: string;
+}>;
+
+const localEmbeddingResource = "discovery-local-embedding-provider";
+
+function createLocalDiscoveryEmbeddingProvider(
+  observe: (observation: ObservedResource) => void,
+  getActiveRequest: () => ActiveRequest | undefined,
+): DiscoveryEmbeddingProvider {
+  return {
+    model: "local-diagnostic-embedding",
+    dimensions: 1_024,
+    embed: async (texts, inputType, options) => {
+      const request = getActiveRequest();
+      observe({
+        correlationId: request?.correlationId ?? "unattributed",
+        request: request?.request ?? "unknown",
+        resource: localEmbeddingResource,
+        operation: `embed-${inputType}`,
+      });
+      if (options?.signal?.aborted) throw options.signal.reason ?? new Error("Local embedding was aborted.");
+      return {
+        vectors: texts.map((text) => {
+          let hash = 2_166_136_261;
+          for (const character of text) {
+            hash ^= character.codePointAt(0) ?? 0;
+            hash = Math.imul(hash, 16_777_619) >>> 0;
+          }
+          return Array.from({ length: 1_024 }, (_, index) => ((hash + index * 31) % 1_000) / 1_000);
+        }),
+        totalTokens: texts.reduce((total, text) => total + text.length, 0),
+      };
+    },
+  };
+}
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -112,6 +153,7 @@ describe("idle-first-search dependency attribution (#10609)", () => {
   let pool: PgTransactionalPool;
   let app: Hono;
   const failures: ObservedFailure[] = [];
+  const trace: ObservedResource[] = [];
   let activeRequest: ActiveRequest | undefined;
   const effectiveFlags = {
     embeddings: discoverySearchEmbeddingEnrichmentEnabled({
@@ -148,21 +190,6 @@ describe("idle-first-search dependency attribution (#10609)", () => {
   }
 
   beforeAll(async () => {
-    const externalProviderRequired = effectiveFlags.embeddings || effectiveFlags.rescue || effectiveFlags.hybrid;
-    if (externalProviderRequired) {
-      console.info(
-        "idle-first-search-attribution",
-        JSON.stringify({
-          cycles: 0,
-          idleIntervalMs,
-          effectiveFlags,
-          fixture: "idle-charizard",
-          failures: [],
-          outcome: "UNKNOWN_EXTERNAL_PROVIDER_REQUIRED",
-        }),
-      );
-      throw new Error("Configured retrieval flags require an external provider; attribution probe stopped as unknown.");
-    }
     const urls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), ["discovery"], "idle_first_search");
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), urls);
     const rawPool = createPgPool(urls.discovery, {
@@ -173,9 +200,19 @@ describe("idle-first-search dependency attribution (#10609)", () => {
     await resetMultiContextTestSchemas({ discovery: rawPool });
     await bootstrapContextDatabase(discoveryModule, rawPool);
     await seedFixture(rawPool);
+    trace.push({
+      correlationId: "setup",
+      request: "unknown",
+      resource: localEmbeddingResource,
+      operation: "configured",
+    });
     const services = createDiscoveryServices(
       withFailureCapture(rawPool, failures, () => activeRequest),
       {
+        searchEmbeddingProvider: createLocalDiscoveryEmbeddingProvider(
+          (observation) => trace.push(observation),
+          () => activeRequest,
+        ),
         searchEmbeddingConfig: {
           rolloutValue: process.env[DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR],
           rescueValue: process.env[DISCOVERY_SEARCH_RESCUE_ENV_VAR],
@@ -237,6 +274,7 @@ describe("idle-first-search dependency attribution (#10609)", () => {
             effectiveFlags,
             fixture: "idle-charizard",
             failures,
+            trace,
             outcome: failures.length === 0 ? "UNKNOWN_NO_EXCEPTION_OBSERVED" : "FAILURE_CLASSIFIED",
           }),
         );
