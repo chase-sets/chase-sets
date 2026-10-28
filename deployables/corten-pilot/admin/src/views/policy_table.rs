@@ -7,18 +7,19 @@ use crate::{
     text::{Msg, Pilot},
 };
 
-/// `Parcel: ..; Signature: ..; Insurance: ..`, as admin-web's list writes it.
+/// `Parcel: ..; Signature: ..; Insurance: ..`, as admin-web's list writes it: a value threshold is
+/// the amount as JavaScript writes the number (`500`, `1000.5`), with no grouping.
 fn summary(t: Msg, policy: &Payload) -> String {
     let none = t.common_none();
     let join = |items: Vec<String>| if items.is_empty() { none.to_owned() } else { items.join(", ") };
     let parcel = join(policy.parcel_required_shipping_options.clone());
     let mut signature = policy.signature_required_shipping_options.clone();
     if let Some(value) = policy.signature_required_declared_value_amount {
-        signature.push(t.list_signature_value_threshold(value).to_string());
+        signature.push(t.list_signature_value_threshold(value.to_string()).to_string());
     }
     signature.extend(policy.signature_required_physical_flags.iter().cloned());
     let insurance = match policy.insurance_required_declared_value_amount {
-        Some(value) => t.list_insurance_value_threshold(value).to_string(),
+        Some(value) => t.list_insurance_value_threshold(value.to_string()).to_string(),
         None => none.to_owned(),
     };
     t.list_requirement_summary(parcel, join(signature), insurance).to_string()
