@@ -92,27 +92,41 @@ describe("resolveSellerAttentionDeepLink", () => {
   });
 
   it("keeps the three temporary destinations bound to tracked owner route declarations", () => {
+    const ownerManifests = {
+      "listing-action": "../../bounded-contexts/marketplace/context.json",
+      "dispute-response": "../../bounded-contexts/ordering/context.json",
+      "fulfillment-ship-by": "../../bounded-contexts/fulfillment/context.json",
+    } as const satisfies Record<string, string>;
+
     const routePaths = (manifestPath: string): string[] => {
-      const manifest = JSON.parse(readFileSync(new URL(manifestPath, import.meta.url), "utf8")) as unknown;
-      const paths: string[] = [];
-      const visit = (value: unknown): void => {
-        if (Array.isArray(value)) {
-          value.forEach(visit);
-          return;
-        }
-        if (value === null || typeof value !== "object") return;
-        for (const [key, child] of Object.entries(value)) {
-          if (key === "routePath" && typeof child === "string") paths.push(child);
-          visit(child);
-        }
+      const manifest = JSON.parse(readFileSync(new URL(manifestPath, import.meta.url), "utf8")) as {
+        deployableContributions?: Array<{
+          deployable?: unknown;
+          routes?: Array<{ routePath?: unknown }>;
+        }>;
       };
-      visit(manifest);
-      return paths;
+      const marketplaceWeb = manifest.deployableContributions?.find(
+        (contribution) => contribution.deployable === "marketplace-web",
+      );
+      return (
+        marketplaceWeb?.routes?.flatMap((route) => (typeof route.routePath === "string" ? [route.routePath] : [])) ?? []
+      );
     };
 
-    expect(routePaths("../../bounded-contexts/marketplace/context.json")).toContain("/account/listings/:id");
-    expect(routePaths("../../bounded-contexts/ordering/context.json")).toContain("/account/sales/:id");
-    expect(routePaths("../../bounded-contexts/fulfillment/context.json")).toContain("/account/sales/shipments/:id");
+    const escapeRegex = (segment: string): string => segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const routePattern = (routePath: string): RegExp =>
+      new RegExp(
+        `^/${routePath
+          .split("/")
+          .map((segment) => (segment.startsWith(":") ? "[^/]+" : escapeRegex(segment)))
+          .join("/")}$`,
+      );
+
+    for (const [source, manifestPath] of Object.entries(ownerManifests)) {
+      const href = resolveSellerAttentionDeepLink(source as SellerAttentionSourceId, "probe-id").href;
+      const matches = routePaths(manifestPath).filter((routePath) => routePattern(routePath).test(href));
+      expect(matches, `${source} resolver href ${href} must match exactly one marketplace-web route`).toHaveLength(1);
+    }
   });
 });
 
