@@ -72,8 +72,6 @@ describe("staging marketplace memory evidence", () => {
 
   it.each([
     ["truncated", { truncated: true }],
-    ["pod list continuation", { marketplacePods: { metadata: { continue: "next" }, items: [pod("one")] } }],
-    ["pod list remaining count", { marketplacePods: { metadata: { remainingItemCount: 1 }, items: [pod("one")] } }],
     ["node metrics continuation", { nodeMetrics: { metadata: { continue: "next" }, items: [{ name: "node" }] } }],
     ["missing node describe", { nodeDescribe: undefined }],
     ["empty node events", { nodeEvents: [] }],
@@ -88,6 +86,34 @@ describe("staging marketplace memory evidence", () => {
     ],
   ])("classifies %s evidence as INCONCLUSIVE", (_name, change) => {
     expect(classifyMarketplaceMemoryEvidence(validPackage(change)).verdict).toBe("INCONCLUSIVE");
+  });
+
+  it("reports pod list continuation as truncated before pod-state checks", () => {
+    const result = classifyMarketplaceMemoryEvidence(
+      validPackage({
+        marketplacePods: { metadata: { continue: "next" }, items: [readyPod("marketplace-ready")] },
+      }),
+    );
+    expect(result).toEqual({
+      verdict: "INCONCLUSIVE",
+      recurrence: "unknown",
+      metrics: "unknown",
+      reasons: ["capture is truncated"],
+    });
+  });
+
+  it("reports pod list remaining count as truncated before pod-state checks", () => {
+    const result = classifyMarketplaceMemoryEvidence(
+      validPackage({
+        marketplacePods: { metadata: { remainingItemCount: 1 }, items: [readyPod("marketplace-ready")] },
+      }),
+    );
+    expect(result).toEqual({
+      verdict: "INCONCLUSIVE",
+      recurrence: "unknown",
+      metrics: "unknown",
+      reasons: ["capture is truncated"],
+    });
   });
 
   it("returns every pod evidence issue instead of only the first", () => {
@@ -108,6 +134,25 @@ describe("staging marketplace memory evidence", () => {
     expect(result.reasons).toEqual(
       expect.arrayContaining(["missing namespace", "missing ownerReferences", "namespace mismatch"]),
     );
+  });
+
+  it("rejects a Failed pod that claims Ready", () => {
+    const result = classifyMarketplaceMemoryEvidence(
+      validPackage({
+        marketplacePods: {
+          items: [
+            pod("failed-ready", {
+              status: {
+                conditions: [{ type: "Ready", status: "True" }],
+              },
+            }),
+            readyPod("marketplace-ready"),
+          ],
+        },
+      }),
+    );
+    expect(result.verdict).toBe("INCONCLUSIVE");
+    expect(result.reasons).toEqual(["deployment or pod evidence is contradictory"]);
   });
 
   it("selects only Failed/Evicted marketplace pods in the required namespace", () => {
@@ -140,5 +185,9 @@ describe("staging marketplace memory evidence", () => {
     expect(command).toContain("-n $ns delete pod $_ --wait=false");
     expect(command).not.toContain("delete pods --all");
     expect(() => buildMarketplaceEvictionCleanupCommand({ context: "staging" })).toThrow("expectedCount");
+    expect(() => buildMarketplaceEvictionCleanupCommand({ expectedCount: 96 })).toThrow("context");
+    expect(() => buildMarketplaceEvictionCleanupCommand({ context: "staging", expectedCount: -1 })).toThrow(
+      "non-negative integer",
+    );
   });
 });

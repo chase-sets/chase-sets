@@ -724,6 +724,11 @@ describe("render platform Helm values", () => {
     const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxSurge"');
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxUnavailable"');
+    const deploymentTemplate = readChartFiles(["templates/deployment.yaml"])[0];
+    expect(deploymentTemplate).toContain(`{{- with $component.strategy }}
+  strategy:
+{{ toYaml . | nindent 4 }}
+{{- end }}`);
 
     // Pinned offline Helm v4.2.3 capture for the rollouts-disabled staging
     // Deployment path (the exact command is recorded in the fixture text).
