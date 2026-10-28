@@ -72,7 +72,8 @@ describeDb("issue-9503-c51a frozen commit input", () => {
 
   it("A1/A3 mutant new-job-on-replay and attempt-identity-dropped stay red", async () => {
     const inventory = createInventoryServices(pools.inventory);
-    const attempt = withInventoryMutationAttempt(context, randomUUID());
+    const attemptId = randomUUID();
+    const attempt = withInventoryMutationAttempt(context, attemptId);
     const jobs = await Promise.all(
       Array.from({ length: 4 }, () =>
         inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, attempt),
@@ -80,15 +81,38 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     );
     expect(new Set(jobs.map((job) => job.jobId)).size).toBe(1);
     expect(new Set(jobs.map((job) => job.payload.commit?.inputId)).size).toBe(1);
+    const beforeMismatch = await pools.inventory.query(
+      `SELECT * FROM inventory_import_batch_rows
+       WHERE row_id = 'imr_c51a_1'`,
+    );
     await expect(
       inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_other" }, attempt),
     ).rejects.toThrow("conflicts");
+    const foreignAccountId = "acc_c51a_foreign" as AccountId;
+    const foreignAccountContext = withInventoryMutationAttempt(
+      {
+        ...context,
+        audit: { ...context.audit, forAccountId: foreignAccountId },
+      },
+      attemptId,
+    );
+    await expect(
+      inventory.importBatches.enqueueCommitBatchJob(
+        { accountId: foreignAccountId, batchId: "imb_c51a" },
+        foreignAccountContext,
+      ),
+    ).rejects.toThrow(/not found|not authorized/i);
     const counts = await pools.inventory.query(
       `SELECT (SELECT count(*)::integer FROM inventory_import_batch_jobs) AS jobs,
               (SELECT count(*)::integer FROM inventory_import_commit_inputs) AS inputs,
               (SELECT count(*)::integer FROM inventory_mutation_attempts) AS receipts`,
     );
     expect(counts.rows).toEqual([{ jobs: 1, inputs: 1, receipts: 1 }]);
+    const afterMismatch = await pools.inventory.query(
+      `SELECT * FROM inventory_import_batch_rows
+       WHERE row_id = 'imr_c51a_1'`,
+    );
+    expect(afterMismatch.rows).toEqual(beforeMismatch.rows);
   });
 
   it("A2 mutant snapshot-reread stays red after the source row changes", async () => {
@@ -150,19 +174,6 @@ describeDb("issue-9503-c51a frozen commit input", () => {
     const inventory = createInventoryServices(pools.inventory);
     const firstAttempt = withInventoryMutationAttempt(context, randomUUID());
     const secondAttempt = withInventoryMutationAttempt(context, randomUUID());
-    const first = await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, firstAttempt);
-    const second = await inventory.importBatches.enqueueCommitBatchJob(
-      { accountId, batchId: "imb_c51a" },
-      secondAttempt,
-    );
-
-    expect(
-      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-1", claimTtlMs: 30_000 }),
-    ).toBe(1);
-    expect(
-      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
-    ).toBe(1);
-
     const projectionRuntime = {
       subscriptionRunners: resolveModuleSubscriptions([
         {
@@ -174,6 +185,19 @@ describeDb("issue-9503-c51a frozen commit input", () => {
         },
       ]),
     };
+    const first = await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, firstAttempt);
+    const second = await inventory.importBatches.enqueueCommitBatchJob(
+      { accountId, batchId: "imb_c51a" },
+      secondAttempt,
+    );
+
+    expect(
+      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-1", claimTtlMs: 30_000 }),
+    ).toBe(1);
+    await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
+    expect(
+      await inventory.importBatches.processNextImportBatchJob({ claimOwnerId: "c51a-replay-2", claimTtlMs: 30_000 }),
+    ).toBe(1);
     await drainContextRuntime(projectionRuntime, { settleIdleCheckpoints: true });
 
     const stock = await pools.inventory.query(
@@ -181,6 +205,15 @@ describeDb("issue-9503-c51a frozen commit input", () => {
       [accountId],
     );
     expect(stock.rows).toEqual([{ total_quantity: 2 }]);
+    expect(
+      (
+        await pools.inventory.query(
+          `SELECT count(*)::integer AS count
+           FROM inventory_item_adjustment_idempotency
+           WHERE idempotency_key = 'inventory-import-row:imr_c51a_1:adjustment'`,
+        )
+      ).rows,
+    ).toEqual([{ count: 0 }]);
     expect((await inventory.importBatches.getImportBatchJob(first.jobId))?.status).toBe("completed");
     expect((await inventory.importBatches.getImportBatchJob(second.jobId))?.status).toBe("completed");
   });
