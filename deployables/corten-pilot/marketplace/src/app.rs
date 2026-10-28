@@ -171,7 +171,7 @@ pub mod url {
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, SignIn};
     pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
-    pub use support::SupportCase;
+    pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
@@ -754,15 +754,21 @@ pub mod url {
         }
     }
 
-    /// A Support Request's participant page (Platform Operations' marketplace
-    /// `account-support-detail`): the case, what its buyer or seller is asked for, and their writes
-    /// (see `support`). Every handler takes a `SupportMember`.
-    #[corten::routes(state = crate::app::Shared, area = SupportArea, caller = crate::auth::SupportMember)]
+    /// The account's support: its cases and Report a problem (Platform Operations' marketplace
+    /// `account-support`, see `support_list`), and a Support Request's participant page
+    /// (`account-support-detail`): the case, what its buyer or seller is asked for, and their
+    /// writes (see `support`). Every handler takes a `SupportMember`.
+    #[corten::routes(state = crate::app::Shared, area = SupportList, caller = crate::auth::SupportMember)]
     pub mod support {
-        /// The area's prefix: only the start of its paths. The list of cases at `/account/support`
-        /// is marketplace's (not ported), so it names no handler.
-        #[route("/account/support")]
-        pub struct SupportArea;
+        /// The account's cases and Report a problem (marketplace's `account-support`, see
+        /// `support_list`): the intake's order, step and choices are the address, and its last
+        /// step posts to it with the photos.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/support", get = crate::support_list::page, post = crate::support_list::write)]
+        pub struct SupportList {
+            #[route(query)]
+            pub ask: crate::support_list::Ask,
+        }
 
         /// The case, with what the last write did and its receipt; every write posts to it.
         #[derive(Clone, Debug)]

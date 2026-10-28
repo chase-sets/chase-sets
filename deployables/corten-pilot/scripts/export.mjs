@@ -109,7 +109,10 @@
 // - marketplace/locales/support.en.json: a Support Request participant page's English catalog
 //   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
 //   the support operations page's deadline words as deadline.* and not_applicable, and
-//   support.participantAttempt.* as attempt.*; the evidence and response types' dashes as underscores).
+//   support.participantAttempt.* as attempt.*; the evidence and response types' dashes as underscores),
+//   and the list page's: supportRequestListPage.* as list.*, customerRemedyStatus.* as remedy.*,
+//   returnShipping.* as shipping.*, attachments.* as attachments.*, the support operations page's
+//   resolution words as resolution.*, and support.routes.marketplace.accountSupport.* as list_route.*.
 // - marketplace/locales/repricing.en.json: the Seller Desk repricing page's English catalog
 //   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
 //   editor.* and activity.*, the route's words as route.*, and the two links' labels).
@@ -786,6 +789,12 @@ const outputs = [
             ["support.routes.marketplace.accountSupportDetail.", "route"],
             ["support.features.supportRequests.ui.supportOperationsPage.deadline.", "deadline"],
             ["support.features.supportRequests.ui.supportOperationsPage.not.applicable", "not_applicable"],
+            ["support.features.supportRequests.ui.supportRequestListPage.", "list"],
+            ["support.features.supportRequests.ui.customerRemedyStatus.", "remedy"],
+            ["support.features.supportRequests.ui.returnShipping.", "shipping"],
+            ["support.features.supportRequests.ui.attachments.", "attachments"],
+            ["support.features.supportRequests.ui.supportOperationsPage.resolution.", "resolution"],
+            ["support.routes.marketplace.accountSupport.", "list_route"],
           ])),
           ...(await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
             ["support.participantAttempt.", "attempt"],

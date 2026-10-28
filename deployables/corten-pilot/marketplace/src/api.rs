@@ -5773,3 +5773,270 @@ impl SupportCalls for Caller<'_> {
         Ok((lookup, Receipt::from_response(&headers)))
     }
 }
+
+/// A flow a case can be opened in (`SupportFlowSummary`, Platform Operations' flow catalog), the
+/// fields the list page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportFlowSummary {
+    pub flow_type: String,
+    pub title: String,
+    /// Who may open it: `buyer`, `seller`.
+    pub opened_by: Vec<String>,
+    pub post_delivery_open_window_days: Option<u32>,
+    /// `None` when support owns the response.
+    pub seller_response_hours: Option<u32>,
+    pub checklist: Vec<SupportChecklistItem>,
+    pub default_resolution: String,
+    pub automation_summary: String,
+}
+
+/// An order a case can be opened for (`SupportOrderLookup`): the viewer's part in it, its lines,
+/// and the case already open for it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportOrderLookup {
+    pub order_id: String,
+    /// `buyer` or `seller`.
+    pub opened_by_role: String,
+    pub status: String,
+    pub total_amount: String,
+    pub lines: Vec<SupportOrderLine>,
+    pub existing_open_request: Option<ExistingCase>,
+}
+
+/// An order's line, as the intake lists it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportOrderLine {
+    pub line_id: String,
+    pub item_title: String,
+    pub product_summary: Option<String>,
+    pub quantity: u32,
+    pub amount: String,
+    pub currency_code: String,
+}
+
+/// The case already open for an order.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExistingCase {
+    pub support_request_id: String,
+    pub display_reference: String,
+    pub flow_type: String,
+    pub status: String,
+}
+
+/// A case in the buyer's or the seller's list (`SupportRequestListRow`), the fields the list draws.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SupportCaseRow {
+    pub support_request_id: String,
+    pub display_reference: String,
+    pub order_id: String,
+    pub flow_type: String,
+    pub status: String,
+    pub priority: String,
+    pub seller_response_due_at: Option<String>,
+    pub support_review_due_at: Option<String>,
+    pub seller_condition_attestation_due_at: Option<String>,
+    pub checklist: Vec<SupportChecklistItem>,
+    pub remedy: Option<RemedyExecution>,
+    pub remedy_approval: Option<RemedyApproval>,
+    pub return_shipping: Option<ReturnShipping>,
+}
+
+/// What a remedy gives (`SupportRequestRemedyAuthorizedV1Payload`'s terms), the fields the list reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyTerms {
+    pub remedy: RemedyAmount,
+    pub allocation: RemedyAllocation,
+    /// `return-to-platform`, `return-to-seller` or none.
+    pub return_directive: String,
+    /// `carrier-accepted`, `delivered`, `facility-intake`, `operator-release` or immediate.
+    pub refund_trigger: String,
+}
+
+/// The remedy's kind and amount (a decimal, `12.50`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyAmount {
+    /// `full-refund` or `partial-refund`.
+    pub kind: String,
+    pub amount: String,
+    pub currency_code: String,
+}
+
+/// Who pays for the remedy (`LiabilityAllocationFactV1`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyAllocation {
+    /// `seller-funded`, `platform-funded` or `split`.
+    pub funding_kind: String,
+    pub seller_funded_amount: String,
+    pub platform_funded_amount: String,
+    pub currency_code: String,
+}
+
+/// A remedy running (`RemedyExecution`): its terms, status and effects.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyExecution {
+    pub remedy: RemedyAmount,
+    pub allocation: RemedyAllocation,
+    pub return_directive: String,
+    pub refund_trigger: String,
+    /// `completed` once done.
+    pub status: String,
+    pub effects: Vec<RemedyEffect>,
+    pub refund_released_at: Option<String>,
+}
+
+impl RemedyExecution {
+    /// Its terms, as an approval carries them.
+    pub fn terms(&self) -> RemedyTerms {
+        RemedyTerms {
+            remedy: self.remedy.clone(),
+            allocation: self.allocation.clone(),
+            return_directive: self.return_directive.clone(),
+            refund_trigger: self.refund_trigger.clone(),
+        }
+    }
+}
+
+/// One of a remedy's effects (`RemedyEffect`): `return-label-available`, `carrier-accepted`,
+/// `return-delivered`, `facility-intake`, `refund-completion`, ...
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyEffect {
+    pub effect: String,
+    /// `pending`, `satisfied`, `waived`, `failed-retryable` or `failed-terminal`.
+    pub status: String,
+}
+
+/// A remedy proposed and waiting for approval (`RemedyApprovalWorkflow`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemedyApproval {
+    /// `reservation-pending`, `expired`, `reservation-rejected`, `correction-requested`, ...
+    pub status: String,
+    pub terms: RemedyTerms,
+}
+
+/// A case's return shipment (`return_shipping`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ReturnShipping {
+    pub status: String,
+    /// `pending`, `ready`, `failed` or `voided`.
+    pub label_status: String,
+    /// `buyer` or `seller`.
+    pub cost_payer: String,
+    pub tracking_identifier: Option<String>,
+    pub label_document_url: Option<String>,
+    pub postage_amount_cents: Option<i64>,
+    pub postage_currency: Option<String>,
+}
+
+/// Which of the account's cases a list reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaseSide {
+    /// The cases on its purchases (it is the buyer).
+    Purchases,
+    /// The cases on its sales.
+    Sales,
+}
+
+#[derive(Deserialize)]
+struct CaseItems<T> {
+    #[serde(default = "Vec::new")]
+    items: Vec<T>,
+}
+
+#[derive(Deserialize)]
+struct Opened {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct UploadedPhotos {
+    #[serde(default)]
+    attachments: Vec<UploadedPhoto>,
+}
+
+#[derive(Deserialize)]
+struct UploadedPhoto {
+    reference: String,
+}
+
+/// The support list page's calls (Platform Operations', as marketplace's `account-support` route
+/// makes them).
+pub trait SupportListCalls {
+    async fn support_flows(&self) -> Result<Vec<SupportFlowSummary>, ApiError>;
+    async fn support_cases(&self, side: CaseSide) -> Result<Vec<SupportCaseRow>, ApiError>;
+    async fn support_order(&self, order_id: &str) -> Result<SupportOrderLookup, ApiError>;
+    /// Opens a case (`open-support-request`) as `attempt` with its request hash: the case's id
+    /// and the receipt the next read waits for.
+    async fn open_case(&self, body: &serde_json::Value, attempt: &str, hash: &str)
+    -> Result<(String, Option<Receipt>), ApiError>;
+    /// What the API recorded for an open's `attempt`, which names no case.
+    async fn open_attempt(&self, attempt: &str, hash: &str) -> Result<(ParticipantLookup, Option<Receipt>), ApiError>;
+    /// Uploads a case's photos as one batch (`x-support-attachment-operation-id`): their references.
+    async fn upload_case_photos(&self, id: &str, operation: &str, photos: &[Photo]) -> Result<Vec<String>, ApiError>;
+}
+
+impl SupportListCalls for Caller<'_> {
+    async fn support_flows(&self) -> Result<Vec<SupportFlowSummary>, ApiError> {
+        let body: CaseItems<SupportFlowSummary> = self.read(&format!("{SUPPORT_REQUESTS}/flows"), SUPPORT).await?;
+        Ok(body.items)
+    }
+
+    async fn support_cases(&self, side: CaseSide) -> Result<Vec<SupportCaseRow>, ApiError> {
+        let side = match side {
+            CaseSide::Purchases => "purchases",
+            CaseSide::Sales => "sales",
+        };
+        let body: CaseItems<SupportCaseRow> = self.read(&format!("{SUPPORT_REQUESTS}/{side}"), SUPPORT).await?;
+        Ok(body.items)
+    }
+
+    async fn support_order(&self, order_id: &str) -> Result<SupportOrderLookup, ApiError> {
+        self.read(&format!("{SUPPORT_REQUESTS}/orders/{}", segment(order_id)), SUPPORT).await
+    }
+
+    async fn open_case(
+        &self,
+        body: &serde_json::Value,
+        attempt: &str,
+        hash: &str,
+    ) -> Result<(String, Option<Receipt>), ApiError> {
+        let req = self
+            .request(Method::POST, SUPPORT_REQUESTS, SUPPORT)
+            .header("idempotency-key", attempt)
+            .header("x-support-request-hash", hash)
+            .json(body);
+        let (opened, receipt): (Opened, _) = self.write(req).await?;
+        Ok((opened.id, receipt))
+    }
+
+    async fn open_attempt(&self, attempt: &str, hash: &str) -> Result<(ParticipantLookup, Option<Receipt>), ApiError> {
+        let path = format!("{SUPPORT_REQUESTS}/participant-attempts/{}?requestHash={hash}", segment(attempt));
+        let (lookup, headers) = self.read_with_headers(&path, SUPPORT).await?;
+        Ok((lookup, Receipt::from_response(&headers)))
+    }
+
+    async fn upload_case_photos(&self, id: &str, operation: &str, photos: &[Photo]) -> Result<Vec<String>, ApiError> {
+        let mut form = reqwest::multipart::Form::new();
+        for photo in photos {
+            form = form.part("attachments", photo_part(photo)?);
+        }
+        let req = self
+            .request(Method::POST, &format!("{SUPPORT_REQUESTS}/{}/attachments", segment(id)), SUPPORT)
+            .header("x-support-attachment-operation-id", operation)
+            .timeout(UPLOAD_TIMEOUT)
+            .multipart(form);
+        let (uploaded, _): (UploadedPhotos, _) = self.write(req).await?;
+        Ok(uploaded.attachments.into_iter().map(|a| a.reference).collect())
+    }
+}

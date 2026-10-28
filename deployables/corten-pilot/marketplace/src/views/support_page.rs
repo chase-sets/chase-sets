@@ -14,7 +14,6 @@ use corten::{
     prelude::*,
 };
 
-use super::on_marketplace;
 use crate::{
     api::{SupportChecklistItem, SupportOffer, SupportRequest},
     app::url,
@@ -126,7 +125,7 @@ pub fn SupportPage<'a>(t: SupportMsg, p: Pilot, screen: &'a SupportScreen) -> im
                 <h1 class={Title}>{reference}</h1>
                 <p class={Muted}>{&request.flow.title}</p>
             </div>
-            <a class={(Button, Secondary)} href={&on_marketplace("/account/support")}>{t.page_back()}</a>
+            <a class={(Button, Secondary)} href={url::SupportList::default()}>{t.page_back()}</a>
         </header>
         <div class={Notices} role="status" aria-live="polite">
             if let Some(error) = &said.error {

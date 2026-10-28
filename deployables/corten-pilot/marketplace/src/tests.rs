@@ -450,6 +450,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = money_api(session, &method, &uri, &body) {
         return answer;
     }
+    if let Some(answer) = support_list_api(session, &method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = support_api(session, &method, &uri, &headers, &body) {
         return answer;
     }
@@ -5231,9 +5234,7 @@ async fn a_cancellation_the_api_refuses_is_the_order_with_what_it_said() {
     // Being packed: support instead of Cancel.
     assert!(text(&html).contains("The seller has started packing. Contact support for help with this purchase."), "{html}");
     assert!(
-        html.contains(
-            r#"href="http://localhost:7753/account/support?orderId=ord_packed&amp;flow=buyer-cancel-request">Ask to cancel</a>"#
-        ),
+        html.contains(r#"href="/account/support?orderId=ord_packed&amp;flow=buyer-cancel-request">Ask to cancel</a>"#),
         "{html}"
     );
     // An answer that is not a refusal is the error page; an unknown order is not found.
@@ -5262,10 +5263,7 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
         shown.contains("Sale proceeds under support review $53.70 is held for this sale and released when the case closes."),
         "{shown}"
     );
-    assert!(
-        html.contains(r#"href="http://localhost:7753/account/support?orderId=ord_sold&amp;flow=seller-cannot-fulfill&amp;requestId=sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#),
-        "{html}"
-    );
+    assert!(html.contains(r#"href="/account/support/sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#), "{html}");
     assert!(shown.contains("Refund outcome Refunded $5.00 Retained $52.32"), "{shown}");
     assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
@@ -11203,4 +11201,338 @@ async fn a_lost_answer_is_looked_up_once_and_check_status_never_sends_it_again()
     let (status, _, _) = pilot.send(check(APPLIED_BEFORE, "not-a-hash")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(support_writes(&pilot).len(), 2, "Check status sends nothing");
+}
+
+const SUPPORT_LIST: &str = "/account/support";
+const SUPPORT_REVIEW: &str = "/account/support?orderId=ord_two&flow=product-damaged&step=review&line=ln_1";
+const BATCH: &str = "sao_01J9Z00000000000000000000B";
+
+/// Platform Operations' reads for the support page and its intake's writes, for the parties
+/// (`case_buyer`, `case_seller`). The buyer's case `sup_2` has a platform-funded refund whose return
+/// label is ready. `ord_two` has two lines, `ord_one` one, `ord_dup` a case open already, and
+/// `ord_gone` is refused. An open is committed as `sup_new` unless its attempt loses its answer
+/// (`APPLIED_BEFORE`, `NO_RECORD`, `CHECK_DOWN`, looked up as `support_api`'s are); a photo named
+/// `down.png` loses the upload's answer. The evidence is `support_api`'s.
+fn support_list_api(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if !session.starts_with("case_") {
+        return None;
+    }
+    const BASE: &str = "/api/marketplace/support-requests";
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if uri.path() == BASE && method == Method::POST {
+        return Some(if [APPLIED_BEFORE, NO_RECORD, CHECK_DOWN].contains(&attempt) {
+            StatusCode::BAD_GATEWAY.into_response()
+        } else {
+            committed(
+                StatusCode::CREATED,
+                "platform-operations",
+                "43",
+                json!({ "id": "sup_new", "version": 1, "status": "opened" }),
+            )
+        });
+    }
+    let path = uri.path().strip_prefix(BASE)?.strip_prefix('/')?;
+    let line = |id: &str, title: &str, amount: &str| json!({ "lineId": id, "itemTitle": title, "productSummary": "Near Mint", "quantity": 1, "amount": amount, "currencyCode": "USD" });
+    let order = |id: &str, lines: Value, existing: Value| {
+        Json(json!({ "orderId": id, "openedByRole": "buyer", "status": "delivered", "totalAmount": "40.00", "lines": lines,
+            "existingOpenRequest": existing }))
+        .into_response()
+    };
+    let photo = |owner: &str| json!([{ "key": "photo", "label": "Photos", "ownerRole": owner, "evidenceTypes": ["photo"], "required": true }]);
+    Some(match (method.as_str(), path) {
+        ("GET", "flows") => Json(json!({ "items": [
+            { "flowType": "product-damaged", "title": "Product arrived damaged", "openedBy": ["buyer"], "postDeliveryOpenWindowDays": 30,
+              "sellerResponseHours": 48, "checklist": photo("buyer"), "defaultResolution": "partial-refund",
+              "automationSummary": "The seller has 48 hours to respond." },
+            { "flowType": "product-not-received", "title": "Product not received", "openedBy": ["buyer"], "postDeliveryOpenWindowDays": null,
+              "sellerResponseHours": 72, "checklist": photo("seller"), "defaultResolution": "full-refund",
+              "automationSummary": "Refunds when tracking shows no delivery." },
+            { "flowType": "seller-cannot-fulfill", "title": "Seller cannot fulfill", "openedBy": ["seller"], "postDeliveryOpenWindowDays": null,
+              "sellerResponseHours": null, "checklist": [], "defaultResolution": "cancel-order", "automationSummary": "Cancels the order." },
+        ] }))
+        .into_response(),
+        ("GET", "purchases") if session == "case_buyer" => Json(json!({ "items": [support_row()], "total": 1, "count": 1 })).into_response(),
+        ("GET", "sales") if session == "case_seller" => Json(json!({ "items": [support_row()], "total": 1, "count": 1 })).into_response(),
+        ("GET", "purchases" | "sales") => Json(json!({ "items": [], "total": 0, "count": 0 })).into_response(),
+        ("GET", "orders/ord_two") => order("ord_two", json!([line("ln_1", "Charizard", "25.00"), line("ln_2", "Pikachu", "15.00")]), Value::Null),
+        ("GET", "orders/ord_one") => order("ord_one", json!([line("ln_1", "Charizard", "25.00")]), Value::Null),
+        ("GET", "orders/ord_dup") => order(
+            "ord_dup",
+            json!([line("ln_1", "Charizard", "25.00")]),
+            json!({ "supportRequestId": "sup_dup", "displayReference": "SUP-3001", "flowType": "product-damaged", "status": "waiting-on-seller" }),
+        ),
+        ("GET", "orders/ord_gone") => refusal(StatusCode::UNPROCESSABLE_ENTITY, "not_eligible", "This order cannot be used for support."),
+        ("GET", p) if p.starts_with("participant-attempts/") => match p.rsplit('/').next().unwrap_or_default() {
+            APPLIED_BEFORE => committed(
+                StatusCode::OK,
+                "platform-operations",
+                "43",
+                json!({ "outcome": "committed", "actionKind": "open-support-request",
+                    "result": { "id": "sup_new", "version": 1, "status": "opened" } }),
+            ),
+            CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "outcome": "not-recorded" })).into_response(),
+        },
+        ("POST", "sup_new/attachments") => {
+            if headers.get("x-support-attachment-operation-id").is_none() {
+                return Some(refusal(StatusCode::BAD_REQUEST, "invalid-operation-id", "The batch is missing."));
+            }
+            let parts = multipart_fields(headers, body).unwrap_or_default();
+            let files: Vec<_> = parts.iter().filter(|(name, file, _)| name == "attachments" && file.is_some()).collect();
+            if files.iter().any(|(_, file, _)| file.as_deref() == Some("down.png")) {
+                return Some(StatusCode::BAD_GATEWAY.into_response());
+            }
+            let refs: Vec<Value> = (1..=files.len())
+                .map(|n| json!({ "attachmentId": format!("sea_{n}"), "reference": format!("support-attachment:v1:sea_{n}:{}:png", "b".repeat(64)),
+                    "contentType": "image/png", "byteSize": 8 }))
+                .collect();
+            (StatusCode::CREATED, Json(json!({ "attachments": refs }))).into_response()
+        }
+        _ => return None,
+    })
+}
+
+/// The buyer's case `sup_2`, as either side's list reads it.
+fn support_row() -> Value {
+    json!({
+        "support_request_id": "sup_2", "display_reference": "SUP-2001", "order_id": "ord_case", "flow_type": "product-damaged",
+        "status": "waiting-on-seller", "priority": "urgent", "seller_response_due_at": "2099-01-01 00:00:00+00",
+        "support_review_due_at": null, "seller_condition_attestation_due_at": null,
+        "checklist": [{ "key": "damage-photo", "label": "Photo", "ownerRole": "buyer", "evidenceTypes": ["photo"], "required": true,
+            "satisfiedAt": "2026-10-26 10:00:00+00" }],
+        "remedy": { "remedy": { "kind": "full-refund", "amount": "25.00", "currencyCode": "USD" },
+            "allocation": { "fundingKind": "platform-funded", "sellerFundedAmount": "0.00", "platformFundedAmount": "25.00", "currencyCode": "USD" },
+            "returnDirective": "return-to-platform", "refundTrigger": "facility-intake", "status": "in-progress",
+            "effects": [{ "effect": "return-label-available", "status": "satisfied" }, { "effect": "carrier-accepted", "status": "pending" }],
+            "refundReleasedAt": null },
+        "remedy_approval": null,
+        "return_shipping": { "return_shipment_id": "rsh_1", "status": "label-created", "label_status": "ready", "cost_payer": "seller",
+            "tracking_identifier": "9400TEST", "label_document_url": "/labels/rsh_1.pdf", "postage_amount_cents": 550, "postage_currency": "USD" },
+    })
+}
+
+/// The intake's calls sent: method and path (with its query), and body.
+fn intake_calls(pilot: &Pilot) -> Vec<(String, String)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path.starts_with("/api/marketplace/support-requests"))
+        .map(|c| (c.path.clone(), c.body.clone()))
+        .collect()
+}
+
+/// The last step's post: `fields` over a buyer's defaults, with `files`.
+fn open_post(uri: &str, fields: &[(&str, &str)], files: &[(&str, &str, &str, &[u8])]) -> Request<Body> {
+    let mut all = vec![
+        ("intent", "open"),
+        ("account", "acc_case_buyer"),
+        ("attempt", ATTEMPT),
+        ("evidence_attempt", "55555555-5555-4555-8555-555555555555"),
+        ("operation", BATCH),
+        ("uncertain", "false"),
+    ];
+    for (name, value) in fields {
+        all.retain(|(n, _)| n != name);
+        all.push((name, value));
+    }
+    post_multipart(uri, "case_buyer", &all, files)
+}
+
+#[tokio::test]
+async fn the_support_page_lists_each_sides_cases_with_their_remedy_and_the_flows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUPPORT_LIST, Some("case_buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        r#"href="/account/support/sup_2""#,
+        "SUP-2001",
+        "urgent",
+        "1/1 required",
+        "Return label ready",
+        "Full refund of $25.00 approved.",
+        "Chase Sets is covering this resolution.",
+        "The refund can be submitted after Chase Sets receives and checks the item.",
+        "Ship the item using the return label and deadline shown in your case.",
+        "Open return label",
+        "Tracking: 9400TEST",
+        "Return postage will be deducted from the seller balance.",
+        "No support requests",
+        "Product arrived damaged",
+        "48 hours",
+        "Support owned",
+        "Cancel order",
+        r#"href="/account/purchases""#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    let (status, _, html) = pilot.send(get(SUPPORT_LIST, Some("case_seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Seller allocation: $0.00. Chase Sets is covering $25.00."), "{html}");
+    assert!(html.contains("Platform coverage does not by itself establish seller fault."), "{html}");
+    assert!(
+        html.contains("No action is needed right now.") && !html.contains("Open return label"),
+        "the label is the buyer's: {html}"
+    );
+    let (status, _, _) = pilot.send(get(SUPPORT_LIST, Some("case_stranger"))).await;
+    assert_eq!(status, StatusCode::OK, "anyone with support.view has a page, if no cases");
+}
+
+#[tokio::test]
+async fn report_a_problem_walks_its_steps_in_the_address() {
+    let pilot = Pilot::new().await;
+    let page = |uri: &str| pilot.send(get(uri, Some("case_buyer")));
+    let (status, _, html) = page("/account/support?orderId=ord_two").await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<form class="support-list-page__form" method="get" action="/account/support">"#), "{html}");
+    assert!(
+        html.contains(r#"name="line" value="ln_1">"#) && html.contains(r#"name="line" value="ln_2">"#),
+        "none chosen: {html}"
+    );
+    assert!(html.contains("Charizard · Quantity 1 · $25.00") && html.contains(r#"name="step" value="issue""#), "{html}");
+    let (_, _, html) = page("/account/support?orderId=ord_two&step=issue").await;
+    assert!(html.contains(r#"role="alert">Select every item affected by the same problem."#), "Continue with none: {html}");
+    let (_, _, html) = page("/account/support?orderId=ord_two&line=ln_1&step=issue").await;
+    assert!(html.contains(r#"<input type="hidden" name="line" value="ln_1">"#), "{html}");
+    assert!(html.contains(r#"value="product-damaged" checked required"#) && html.contains("Product not received"), "{html}");
+    assert!(!html.contains(r#"value="seller-cannot-fulfill""#), "only the buyer's flows: {html}");
+    let (_, _, html) = page(SUPPORT_REVIEW).await;
+    assert!(
+        html.contains(r#"action="/account/support?orderId=ord_two&amp;flow=product-damaged&amp;step=review&amp;line=ln_1" enctype="multipart/form-data""#),
+        "{html}"
+    );
+    assert!(
+        html.contains(r#"type="file" name="attachments""#) && html.contains("Partial refund"),
+        "the issue needs photos: {html}"
+    );
+    assert!(html.contains("Affected items: 1") && html.contains(r#"name="operation" value="sao_"#), "{html}");
+    let (_, _, html) = page("/account/support?orderId=ord_two&flow=product-not-received&step=review&line=ln_1").await;
+    assert!(!html.contains(r#"type="file""#), "the seller owns this one's photo: {html}");
+    let (_, _, html) = page("/account/support?orderId=ord_one").await;
+    assert!(html.contains(r#"name="line" value="ln_1" checked>"#), "an only line is chosen: {html}");
+    let (_, _, html) = page("/account/support?orderId=ord_dup").await;
+    assert!(html.contains(r##"href="#existing-case""##) && html.contains(r#"id="existing-case""#), "{html}");
+    assert!(html.contains(r#"href="/account/support/sup_dup""#) && !html.contains(r#"name="step""#), "no intake: {html}");
+    let (status, _, html) = page("/account/support?orderId=ord_gone").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("This order cannot be used for support.") && html.contains(r#"href="/account/sales""#), "{html}");
+}
+
+#[tokio::test]
+async fn opening_a_case_uploads_its_photos_once_and_submits_them_as_evidence() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &[], &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Add the required evidence photos before opening this case."), "{html}");
+    let (status, _, html) =
+        pilot.send(open_post(SUPPORT_REVIEW, &[], &[("attachments", "a.png", "image/png", b"not a png")])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Photos must be JPEG, PNG, or WebP images."), "{html}");
+    assert!(intake_calls(&pilot).is_empty(), "nothing sent");
+
+    let (status, headers, html) = pilot.send(open_post(SUPPORT_REVIEW, &[], &[("attachments", "a.png", "image/png", PNG)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/support/sup_new?after_write="), "{to}");
+    let calls = intake_calls(&pilot);
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    let open: Value = serde_json::from_str(&calls[0].1).unwrap();
+    assert_eq!(open, json!({ "orderId": "ord_two", "flowType": "product-damaged", "affectedLineIds": ["ln_1"] }));
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/attachments")).map(|c| c.headers.clone()).unwrap();
+    assert_eq!(sent["x-support-attachment-operation-id"], BATCH);
+    assert_eq!(calls[2].0, "/api/marketplace/support-requests/sup_new/evidence");
+    let evidence: Value = serde_json::from_str(&calls[2].1).unwrap();
+    assert_eq!(evidence["submittedByRole"], "buyer");
+    assert_eq!(evidence["attachmentOperationId"], BATCH);
+    assert_eq!(evidence["attachments"][0], format!("support-attachment:v1:sea_1:{}:png", "b".repeat(64)));
+
+    // A case without photos needs none: opened, and on to it.
+    let uri = "/account/support?orderId=ord_one&flow=product-not-received&step=review&line=ln_1";
+    let (status, headers, _) = pilot.send(open_post(uri, &[], &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/support/sup_new"));
+    assert_eq!(intake_calls(&pilot).len(), 4, "the open alone");
+}
+
+#[tokio::test]
+async fn an_upload_that_loses_its_answer_is_not_sent_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &[], &[("attachments", "down.png", "image/png", PNG)])).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"name="case" value="sup_new""#) && html.contains(r#"name="uncertain" value="true""#), "{html}");
+    assert!(html.contains("Start a new photo batch"), "{html}");
+    let fields = [("case", "sup_new"), ("uncertain", "true")];
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &fields, &[("attachments", "a.png", "image/png", PNG)])).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("The upload outcome is unknown. No second upload was started."), "{html}");
+    let opens = |pilot: &Pilot| intake_calls(pilot).iter().filter(|(p, _)| p == "/api/marketplace/support-requests").count();
+    let uploads = |pilot: &Pilot| intake_calls(pilot).iter().filter(|(p, _)| p.ends_with("/attachments")).count();
+    assert_eq!((opens(&pilot), uploads(&pilot)), (1, 1), "one case, one upload");
+
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &[("intent", "new-batch"), ("case", "sup_new")], &[])).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="uncertain" value="false""#) && !html.contains(&format!(r#"value="{BATCH}""#)), "{html}");
+    assert!(html.contains(r#"name="case" value="sup_new""#), "the case is kept: {html}");
+    let (status, headers, _) = pilot
+        .send(open_post(
+            SUPPORT_REVIEW,
+            &[("case", "sup_new"), ("operation", "sao_01J9Z00000000000000000000C")],
+            &[("attachments", "a.png", "image/png", PNG)],
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/support/sup_new"));
+    assert_eq!((opens(&pilot), uploads(&pilot)), (1, 2), "the case is not opened again");
+}
+
+#[tokio::test]
+async fn a_lost_open_is_looked_up_once_and_checked_without_sending_it_again() {
+    let pilot = Pilot::new().await;
+    let photo = [("attachments", "a.png", "image/png", PNG)];
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &[("attempt", NO_RECORD)], &photo)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("Check status before retrying this support action."), "{html}");
+    assert!(html.contains(&format!(r#"name="check_attempt" value="{NO_RECORD}""#)), "{html}");
+    assert!(html.contains(r#"<fieldset class="support-list-page__plain" disabled>"#), "the form is off: {html}");
+    let hash = html.split(r#"name="check_hash" value=""#).nth(1).and_then(|r| r.split('"').next()).unwrap().to_owned();
+    assert_eq!(hash.len(), 64);
+
+    let check = |attempt: &str| {
+        open_post(SUPPORT_REVIEW, &[("intent", "check-status"), ("check_attempt", attempt), ("check_hash", hash.as_str())], &[])
+    };
+    let (status, _, _) = pilot.send(check(NO_RECORD)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "absence is not permission to open again");
+    let (status, headers, _) = pilot.send(check(APPLIED_BEFORE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/support/sup_new"));
+    let opens = intake_calls(&pilot).iter().filter(|(p, _)| p == "/api/marketplace/support-requests").count();
+    assert_eq!(opens, 1, "Check status opens nothing");
+
+    // Found committed by the one lookup: the photos go on.
+    let (status, headers, _) = pilot.send(open_post(SUPPORT_REVIEW, &[("attempt", APPLIED_BEFORE)], &photo)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/support/sup_new"));
+    assert!(intake_calls(&pilot).iter().any(|(p, _)| p.ends_with("/sup_new/evidence")), "the evidence went");
+
+    // The evidence loses its answer: Check status on the case's page.
+    let lost = [("evidence_attempt", NO_RECORD)];
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &lost, &photo)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains(r#"action="/account/support/sup_new""#) && html.contains(r#"value="submit-evidence""#), "{html}");
+    assert!(html.contains(r#"name="case" value="sup_new""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_form_for_another_account_or_a_step_short_of_review_sends_nothing() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(open_post(SUPPORT_REVIEW, &[("account", "acc_other")], &[])).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let (status, _, _) = pilot.send(open_post("/account/support?orderId=ord_two&step=issue&line=ln_1", &[], &[])).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, html) =
+        pilot.send(open_post("/account/support?orderId=ord_dup&step=review&line=ln_1&flow=product-damaged", &[], &[])).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let (status, _, _) = pilot.send(post_multipart(SUPPORT_REVIEW, "case_reader", &[("intent", "open")], &[])).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reading is not opening");
+    assert!(intake_calls(&pilot).is_empty());
 }

@@ -399,7 +399,7 @@ fn text(value: &str, limit: usize) -> Option<&str> {
 /// The canonical request (`canonicalParticipantRequest`): `{version, actionKind, payload}` as
 /// `JSON.stringify` writes it, the payload's keys in the order the web host's code builds them.
 /// `serde_json` escapes strings as `JSON.stringify` does.
-fn canonical(action_kind: &str, payload: &[(&str, serde_json::Value)]) -> String {
+pub(crate) fn canonical(action_kind: &str, payload: &[(&str, serde_json::Value)]) -> String {
     let mut text = format!(r#"{{"version":1,"actionKind":{},"payload":{{"#, json!(action_kind));
     for (i, (key, value)) in payload.iter().enumerate() {
         if i > 0 {

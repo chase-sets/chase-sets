@@ -145,8 +145,8 @@ fn served_here(href: &str) -> bool {
         "/account/purchases",
         "/account/sales",
         "/account/shipments",
-        // A case's page; the list of cases is marketplace's.
-        "/account/support/",
+        // The cases and a case's page.
+        "/account/support",
         "/account/team",
     ];
     let path = href.split(['?', '#']).next().unwrap_or_default();

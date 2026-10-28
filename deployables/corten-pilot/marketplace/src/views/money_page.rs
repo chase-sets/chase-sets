@@ -413,7 +413,7 @@ fn BlockedRow<'a>(t: MoneyMsg, row: &'a Blocked, reconcile: bool) -> impl Render
                         </button>
                     </form>
                 }
-                <a class={(Button, Secondary)} href={&on_marketplace("/account/support")}>{t.page_contact_support()}</a>
+                <a class={(Button, Secondary)} href={url::SupportList::default()}>{t.page_contact_support()}</a>
             </div>
         </li>
     }
@@ -575,7 +575,7 @@ fn AdjustmentDialog<'a>(t: MoneyMsg, p: Pilot, adjustment: &'a WalletAdjustment)
                 <p>{t.page_wallet_adjustment_safe_description()}</p>
             </div>
             <div class={Row}>
-                <a class={(Button, Secondary)} href={&on_marketplace("/account/support")}>{t.page_contact_support()}</a>
+                <a class={(Button, Secondary)} href={url::SupportList::default()}>{t.page_contact_support()}</a>
             </div>
         </dialog>
     }

@@ -308,15 +308,14 @@ impl<'a> Known<'a> {
         self.order.cancellation_unavailable_reason.as_deref() == Some("fulfillment-started")
     }
 
-    /// Marketplace's support page for the order, with the flow the page offers.
+    /// The pilot's support page for the order (Report a problem), with the flow the page offers.
     fn support_href(&self) -> String {
-        let id = crate::api::segment(&self.order.order_id);
         let flow = match self.side {
-            Side::Buyer if self.fulfillment_started() => "&flow=buyer-cancel-request",
-            Side::Buyer => "",
-            Side::Seller => "&flow=seller-cannot-fulfill",
+            Side::Buyer if self.fulfillment_started() => Some("buyer-cancel-request"),
+            Side::Buyer => None,
+            Side::Seller => Some("seller-cannot-fulfill"),
         };
-        market_href(&format!("/account/support?orderId={id}{flow}"))
+        support_for(&self.order.order_id, flow)
     }
 
     fn payment_deadline(&self) -> Option<&'a str> {
@@ -330,6 +329,12 @@ impl<'a> Known<'a> {
             ..MoneyTimeline::default()
         })
     }
+}
+
+/// The pilot's support page with Report a problem for `order`.
+fn support_for(order: &str, flow: Option<&str>) -> String {
+    let ask = crate::support_list::Ask { order_id: Some(order.to_owned()), flow: flow.map(str::to_owned), ..Default::default() };
+    crate::app::url::SupportList { ask }.href()
 }
 
 fn market_href(path: &str) -> String {
@@ -605,11 +610,8 @@ fn CancelForm<'a>(t: OrdersMsg, facts: &'a Known<'a>, label: &'a str) -> impl Re
 #[component(css = OrderPage)]
 fn Outcome<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
     let order = facts.order;
-    let role = match facts.side {
-        Side::Buyer => "buyer",
-        Side::Seller => "seller",
-    };
-    let track = market_href(&format!("/account/support?orderId={}&role={role}", crate::api::segment(&order.order_id)));
+    // marketplace's link adds `role`, which its support page does not read.
+    let track = support_for(&order.order_id, None);
     let base = match facts.side {
         Side::Buyer => "/account/purchases",
         Side::Seller => "/account/sales",
@@ -715,10 +717,11 @@ fn Callout<'a>(t: OrdersMsg, facts: &'a Known<'a>, opportunity: &'a ReviewOpport
 fn Timeline<'a>(t: OrdersMsg, facts: &'a Known<'a>, timeline: &'a MoneyTimeline) -> impl Render {
     let money_of = move |amount: &str, currency: &str| money(t, amount, currency);
     let order = facts.order;
-    // Each case's link: marketplace's support page for the order, at the case, by its reference.
-    let support = facts.support_href();
+    // Each case's link, by its reference: the case's own page (marketplace's goes to its support
+    // page for the order with a `requestId` that page does not read).
     let link = |c: &crate::api::SupportCase| {
-        (format!("{support}&requestId={}", crate::api::segment(&c.support_request_id)), display_reference(&c.support_request_id))
+        let case = crate::app::url::SupportCase { id: &c.support_request_id, place: Default::default() };
+        (case.href(), display_reference(&c.support_request_id))
     };
     let terminal: Vec<_> =
         timeline.support_cases.iter().filter(|c| matches!(c.status.as_str(), "resolved" | "closed")).map(link).collect();
