@@ -143,7 +143,7 @@ describe("SellerDeskHomePage", () => {
     expect(screen.getByText(/Listing Lugia could not resume after inventory capacity returned/)).toBeTruthy();
     expect(screen.getByText(/Review the Listing evidence checklist/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open listing" }).getAttribute("href")).toBe(
-      "/account/desk/listings/lst_capacity",
+      "/account/listings/lst_capacity",
     );
     expect(document.querySelectorAll('[data-seller-desk-item="listing-action:lst_capacity"]')).toHaveLength(1);
   });

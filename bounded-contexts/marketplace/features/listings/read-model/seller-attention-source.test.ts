@@ -50,7 +50,7 @@ describe("createListingActionAttentionSourceFromReadModel", () => {
     const items = await createListingActionAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
     expect(items).toHaveLength(1);
     expect(items[0]?.summary.params.action).toBe("inventory-capacity:evidence-incomplete");
-    expect(items[0]?.deepLink.href).toBe("/account/desk/listings/lst_capacity");
+    expect(items[0]?.deepLink.href).toBe("/account/listings/lst_capacity");
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]).toBeDefined();
   });

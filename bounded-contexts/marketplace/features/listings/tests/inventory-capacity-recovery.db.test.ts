@@ -148,7 +148,7 @@ describeDb("inventory capacity recovery through stored events and projections", 
       {
         entity: "listing",
         summary: { params: { action: "inventory-capacity:publication-unavailable" } },
-        deepLink: { href: "/account/desk/listings/lst_blocked" },
+        deepLink: { href: "/account/listings/lst_blocked" },
       },
     ]);
     const blockedCount = await f.count();
