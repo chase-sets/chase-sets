@@ -518,18 +518,30 @@ jobs:
             echo "source-head-tree=${source_head_tree}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Resolve Playwright Chromium cache
+        id: playwright-chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(pnpm exec playwright --version | awk '{print $2}')"
+          test -n "$version"
+          browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"
+          echo "browser-path=${browser_path}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}" >> "$GITHUB_ENV"
+
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-chromium-${{ runner.os }}-
+          path: "${{ steps.playwright-chromium.outputs.browser-path }}"
+          key: "e2e-playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-chromium.outputs.version }}"
 
       - name: Install Playwright Chromium
+        timeout-minutes: 7
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          GITHUB_JOB_ID: ${{ job.check_run_id }}
+          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run marketplace e2e suites
         id: e2e-producer
@@ -539,7 +551,7 @@ jobs:
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
           RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: "${{ steps.playwright-chromium.outputs.browser-path }}"
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
