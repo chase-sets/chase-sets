@@ -283,7 +283,22 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
         await expect(editor.getByRole("combobox", { name: "Policy scope", exact: true })).toBeFocused();
         await captureAccessibilityEvidence({ page, testInfo, surface: `pricing-goal-simple-reopen-${width}` });
       }
+      const previewResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && new URL(response.url()).pathname === `${policiesApi}/dry-runs`,
+      );
       await page.getByRole("button", { name: "Preview policy", exact: true }).click();
+      const previewStarted = await previewResponse;
+      expect(previewStarted.status()).toBe(202);
+      const { dryRunId: previewDryRunId } = await previewStarted.json();
+      expect(previewDryRunId).toEqual(expect.any(String));
+      expect(previewDryRunId).not.toBe("");
+      await expect
+        .poll(async () => readJson(page.request.get(`${policiesApi}/dry-runs/${previewDryRunId}`), 200), {
+          timeout: 45_000,
+          intervals: [500, 1000, 2000],
+        })
+        .toMatchObject({ dryRunId: previewDryRunId, status: "completed" });
       await expect(page.getByTestId("repricing-dry-run-result")).toBeVisible();
       await page.getByLabel("Policy name", { exact: true }).fill("Saved simple Pricing Goal");
       await page.getByRole("button", { name: "Save policy", exact: true }).click();
