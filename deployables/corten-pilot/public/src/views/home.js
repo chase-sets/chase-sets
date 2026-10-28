@@ -353,7 +353,9 @@ export function selected(input) {
 }
 
 /**
- * Copy: the button's `data-value`, said on the button for a moment.
+ * Copy: the button's `data-value`, said on the button for a moment. Not corten-ui's CopyButton,
+ * which tells the page nothing once it has copied, so the copy could not be counted
+ * (todd-skelton/corten#294).
  * @param {HTMLButtonElement} button
  * @param {string} copied
  */
@@ -427,7 +429,8 @@ export function calculate(event) {
 }
 
 /**
- * Copy share link: the button's `data-value`, and Link copied beside it for two seconds.
+ * Copy share link: the button's `data-value`, and Link copied beside it for two seconds. Its own,
+ * not CopyButton, for the same reason as `copy` (todd-skelton/corten#294).
  * @param {HTMLButtonElement} button
  */
 export async function share(button) {

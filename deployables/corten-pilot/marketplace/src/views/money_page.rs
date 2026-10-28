@@ -6,8 +6,8 @@
 //!
 //! No script. A payout's breakdown is a dialog its button opens (`command="show-modal"`); a wallet
 //! adjustment's is a link to the page with its dialog drawn open, modal once it joins the page
-//! (corten-ui's `dialog::modal`). Escape closes it without its Close link, so the address keeps
-//! the adjustment (todd-skelton/corten#257); a reload opens it again. One column on a phone; the
+//! (corten-ui's `dialog::modalClosedBy`), and Escape goes to its Close link's address, so a
+//! reload does not open it again. One column on a phone; the
 //! three figures side by side from 48rem, and a row's facts beside its actions from 48rem.
 use corten::{
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
@@ -715,6 +715,7 @@ fn AdjustmentDialog<'a>(t: MoneyMsg, p: Pilot, adjustment: &'a WalletAdjustment)
         (t.adjustment_direction_debit(), "danger")
     };
     let currency = adjustment.currency_code.as_str();
+    let close = refs();
     html! {
         <dialog
             id={AdjustmentDialogId}
@@ -722,11 +723,11 @@ fn AdjustmentDialog<'a>(t: MoneyMsg, p: Pilot, adjustment: &'a WalletAdjustment)
             aria-labelledby="adjustment-title"
             aria-describedby="adjustment-description"
             open
-            on:connect={corten_ui::dialog::modal(target)}
+            on:connect={corten_ui::dialog::modalClosedBy(target, close, signal)}
         >
             <div class={Row}>
                 <h2 id="adjustment-title" class={PartTitle}>{t.page_wallet_adjustment_title(&adjustment.display_reference)}</h2>
-                <a class={(Button, Ghost)} href={url::Money::default()}>{p.addresses_close()}</a>
+                <a ref={close} class={(Button, Ghost)} href={url::Money::default()}>{p.addresses_close()}</a>
             </div>
             <p id="adjustment-description" class={Muted}>{t.page_wallet_adjustment_description()}</p>
             <p class={Row}>

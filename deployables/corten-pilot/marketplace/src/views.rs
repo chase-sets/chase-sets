@@ -155,10 +155,9 @@ pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
 /// handler that makes a refused update's dialog modal.
 pub const ADDRESSES: &[Component] = &[AddressPage, corten_ui::dialog::COMPONENT];
 
-/// The user's security page (`/account/security`): its stylesheet and the script that copies a new
-/// secret (corten-ui has no copy control, todd-skelton/corten#244). Revoke's dialog opens with
-/// `command="show-modal"`, which needs no script.
-pub const SECURITY: &[Component] = &[SecurityPage, security_page::handlers::COMPONENT];
+/// The user's security page (`/account/security`): its stylesheet and corten-ui's Copy for a new
+/// secret. Revoke's dialog opens with `command="show-modal"`, which needs no script.
+pub const SECURITY: &[Component] = &[SecurityPage, corten_ui::CopyButton];
 
 /// The account's team (`/account/team`): its stylesheet.
 pub const TEAM: &[Component] = &[TeamPage];
@@ -182,10 +181,10 @@ pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_p
 pub const DESK: &[Component] = &[DeskPage];
 
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
-/// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modal`).
+/// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modalClosedBy`).
 pub const MONEY: &[Component] = &[MoneyPage];
 /// A buyer's payment, with Stripe's step.
-pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::handlers::COMPONENT];
+pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry];
 
 /// The account's support (`/account/support`) and a Support Request's participant page
 /// (`/account/support/{id}`). No script: the intake's steps are GET forms, and the refund amount
@@ -206,7 +205,7 @@ pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 /// The seller's: a shipment's page, and the packing page with its script, which the shipment
 /// page's Start packing form also uses. Not the buyer's, whose pages never pack.
-pub const SALE_SHIPMENTS: &[Component] = &[ShipmentPage, PackingPage, packing_page::handlers::COMPONENT];
+pub const SALE_SHIPMENTS: &[Component] = &[ShipmentPage, PackingPage, packing_page::handlers::COMPONENT, corten_ui::CopyButton];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

@@ -5,7 +5,7 @@
 //! The page reads the payment after the write whose receipt it carries, then its orders (Payments'
 //! order inputs), as marketplace's loader does. While the payment waits for the buyer
 //! (`pending-confirmation`) it holds the secure payment step: Stripe's fields, mounted by the
-//! page's script (`payment_page.js`) from the payment's client secret and publishable key, and
+//! step's script (`payment_entry.js`) from the payment's client secret and publishable key, and
 //! Confirm payment, which Stripe confirms in the browser; a payment the provider hands off by
 //! address is a link to it instead. Nothing on the page posts to the pilot: the payment's state
 //! changes when Payments hears from the provider.
@@ -15,9 +15,8 @@
 //! page again and lose what the buyer typed. The pilot's watch is the status part
 //! (`/account/payments/{id}/status`): a patch that, while the status is the one the page was drawn
 //! with, is an empty part that asks to be read again in two seconds (Corten's patch
-//! `ReadAgain`), and once it changed is the page's content, drawn again. A page cannot ask for
-//! one of its parts to be read again, so the script starts the first read
-//! (todd-skelton/corten#276). It stops after five minutes, as marketplace's does; the
+//! `ReadAgain`), and once it changed is the page's content, drawn again. The page starts the
+//! first read with the same `ReadAgain` in its markup. It stops after five minutes, as marketplace's does; the
 //! provider's webhook covers the rest and the buyer can reload.
 //!
 //! Stripe's origins are in the app's policy, so every marketplace page allows them; the policy
@@ -105,7 +104,22 @@ pub struct PaymentScreen {
     pub defaults: Option<Defaults>,
     /// The status part to read while the payment waits for the buyer.
     #[serde(skip)]
-    pub watch: Option<String>,
+    pub watch: Option<Watching>,
+}
+
+/// The status part a page watches: the payment and the watch's query.
+pub struct Watching {
+    pub id: String,
+    pub watch: Watch,
+    /// The address, for the step's script once Stripe confirms.
+    pub href: String,
+}
+
+impl Watching {
+    /// The status part's address.
+    pub fn route(&self) -> url::BuyerPaymentStatus<'_> {
+        url::BuyerPaymentStatus { id: &self.id, watch: self.watch.clone() }
+    }
 }
 
 impl PaymentScreen {
@@ -186,8 +200,11 @@ async fn read(
         Ok(orders) => orders,
         Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
     };
-    let watch = (payment.status == "pending-confirmation" && now() < until)
-        .then(|| url::BuyerPaymentStatus { id, watch: Watch { since: Some(payment.status.clone()), until: Some(until) } }.href());
+    let watch = (payment.status == "pending-confirmation" && now() < until).then(|| {
+        let watch = Watch { since: Some(payment.status.clone()), until: Some(until) };
+        let href = url::BuyerPaymentStatus { id, watch: watch.clone() }.href();
+        Watching { id: id.to_owned(), watch, href }
+    });
     Ok(PaymentScreen { defaults: defaults(&payment, &orders), support_details: support_details(viewer), payment, orders, watch })
 }
 

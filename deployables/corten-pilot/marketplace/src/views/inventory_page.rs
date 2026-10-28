@@ -493,6 +493,7 @@ fn SaleDialog<'a>(
     draft: &'a SaleDraft,
 ) -> impl Render {
     let close = screen.place.at(screen.place.bounds().1);
+    let back = refs();
     html! {
         <dialog
             id={SaleDialogId}
@@ -500,11 +501,11 @@ fn SaleDialog<'a>(
             aria-labelledby="sale-title"
             aria-describedby="sale-description"
             open
-            on:connect={corten_ui::dialog::modal(target)}
+            on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
         >
             <div class={DialogHead}>
                 <h2 id="sale-title" class={PartTitle}>{t.sale_title()}</h2>
-                <a class={(Button, Ghost, Small)} href={close}>{t.sale_close()}</a>
+                <a ref={back} class={(Button, Ghost, Small)} href={close}>{t.sale_close()}</a>
             </div>
             <p id="sale-description" class={Muted}>{t.sale_sheet_description(label(item))}</p>
             <SaleForm

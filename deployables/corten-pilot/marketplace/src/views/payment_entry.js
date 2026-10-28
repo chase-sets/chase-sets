@@ -5,7 +5,7 @@
 // Payment Element. Loading has one deadline over the whole chain, since Stripe sets none. Confirm
 // is Stripe's own; once it succeeds the payment's status changes when the provider tells
 // Payments, so the step says the payment is being updated and reads the status part until it
-// changes (the page's watch, payment_page.js).
+// changes (the page's watch, a ReadAgain in its markup).
 import { keep, patch } from "corten";
 
 /** Stripe.js for @stripe/stripe-js 9.9.0's release train. */

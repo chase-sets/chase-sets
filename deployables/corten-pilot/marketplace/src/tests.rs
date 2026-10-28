@@ -5738,6 +5738,12 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     let finish = html.find("Finish packing").unwrap();
     assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
+    // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
+    assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
+    assert!(html.contains("ui.copy_button.copy(&quot;line-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains("ui.copy_button.copy(&quot;product-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
+    assert!(html.contains("ui.copy_button.copy(&quot;ship-to&quot;"), "{html}");
     // The pilot's own address, which redirects to marketplace's command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
@@ -6349,7 +6355,7 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
     assert!(html.contains(r#"command="show-modal""#), "Revoke asks first: {html}");
     assert!(shown.contains("Revoke Shop sync?"), "{shown}");
     assert!(html.contains("/account/sessions\""), "Manage sessions is marketplace's: {html}");
-    assert!(!html.contains("data-value"), "nothing to copy without a secret: {html}");
+    assert!(!html.contains("ui-copy-button"), "nothing to copy without a secret: {html}");
 }
 
 #[tokio::test]
@@ -6360,10 +6366,11 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert_eq!(status, StatusCode::OK, "answered by the page, not a redirect: {html}");
     assert!(headers["cache-control"].to_str().unwrap().contains("no-store"), "{headers:?}");
     assert!(text(&html).contains("API key secret created"), "{}", text(&html));
-    assert!(html.contains(&format!("<code>{STAND_IN_SECRET}</code>")), "{html}");
+    assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
-        html.contains(&format!(r#"data-value="{STAND_IN_SECRET}""#)) && html.contains("hidden"),
-        "Copy is the script's: {html}"
+        html.contains(r#"<button data-scope="ui-copy-button" type="button" hidden"#)
+            && html.contains("ui.copy_button.copy(&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
     let writes = security_writes(&pilot);
@@ -10495,7 +10502,11 @@ async fn a_wallet_adjustment_the_address_names_opens_its_breakdown() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(&format!("{MONEY}?drawer=wallet-adjustment&entity=WADJ-1"), Some("banker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"<dialog id="adjustment-dialog""#) && html.contains(" open"), "drawn open: {html}");
+    assert!(html.contains(r#"id="adjustment-dialog""#) && html.contains(" open"), "drawn open: {html}");
+    assert!(
+        html.contains("connect:ui.dialog.modalClosedBy($t,@close,$s)") && html.contains(r#"<a data-ref="close""#),
+        "Escape goes to Close's address: {html}"
+    );
     assert!(html.contains("Wallet adjustment WADJ-1") && html.contains("Goodwill credit"), "{html}");
     assert!(html.contains("Resulting available balance") && html.contains("$30.00"), "{html}");
     let (status, _, html) = pilot.send(get(&format!("{MONEY}?drawer=wallet-adjustment&entity=WADJ-9"), Some("banker"))).await;

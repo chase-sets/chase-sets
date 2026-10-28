@@ -9,6 +9,7 @@ use corten::{
     i18n::{DateStyle, parse_timestamp},
     prelude::*,
 };
+use corten_ui::CopyButton;
 
 use super::account_home_page::humanized;
 use crate::{
@@ -19,8 +20,6 @@ use crate::{
     text::{Pilot, SecurityMsg},
 };
 
-corten::script::script!(pub mod handlers = "security.js");
-
 /// Update Profile's form: a refused update draws it again.
 #[derive(Id, Clone, Copy)]
 pub struct UserFormId;
@@ -28,6 +27,10 @@ pub struct UserFormId;
 /// Create API Key's form.
 #[derive(Id, Clone, Copy)]
 pub struct ApiKeyFormId;
+
+/// A new key's secret, which Copy copies.
+#[derive(Id)]
+pub struct SecretId;
 
 /// The dialog a key's Revoke opens.
 #[derive(Id)]
@@ -206,7 +209,7 @@ pub fn SecurityPage<'a>(t: SecurityMsg, p: Pilot, screen: &'a SecurityScreen) ->
     }
 }
 
-/// A secret a create or rotate issued: the warning, Copy (shown with the script), the secret,
+/// A secret a create or rotate issued: the warning, Copy (corten-ui's, shown with the script), the secret,
 /// and a link that leaves it once it is stored (marketplace's acknowledgement).
 #[component(css = SecurityPage)]
 fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Render {
@@ -216,18 +219,11 @@ fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Rend
             <h2 id="secret-title" class={PartTitle}>{title}</h2>
             <p>{t.reveal_warning()}</p>
             <p class={Label} id="secret-label">{t.reveal_full_secret()}</p>
-            <pre class={Secret} aria-labelledby="secret-label"><code>{secret}</code></pre>
+            <pre class={Secret} aria-labelledby="secret-label"><code id={SecretId}>{secret}</code></pre>
             <div class={Links}>
-                <button
-                    type="button"
-                    class={Primary}
-                    data-value={secret}
-                    hidden
-                    on:connect={handlers::reveal(target)}
-                    on:click={handlers::copy(target, t.reveal_copied())}
-                >
-                    {t.reveal_copy()}
-                </button>
+                <span class={CopyPrimary}>
+                    <CopyButton text={SecretId} label={t.reveal_copy()} copied={t.reveal_copied()} />
+                </span>
                 <a class={(Button, Secondary)} href={url::Security::default()}>{t.manage_acknowledge_secret()}</a>
             </div>
         </section>

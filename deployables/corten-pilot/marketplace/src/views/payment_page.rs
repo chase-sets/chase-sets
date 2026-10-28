@@ -4,12 +4,12 @@
 //! payment, the deadline while it waits, the secure payment step, the status, the event timeline,
 //! staff's support details, the wallet's cover, and the purchases.
 //!
-//! The secure payment step is Stripe's: the page's script (`payment_page.js`) loads Stripe.js,
+//! The secure payment step is Stripe's: the step's script (`payment_entry.js`) loads Stripe.js,
 //! mounts the payment fields in the step and turns Confirm payment on once they are ready; Confirm
 //! is Stripe's confirm in the browser. Without a script the step says Stripe can only load in the
 //! browser. On a phone Confirm payment is also in a bar at the bottom with the total.
 //!
-//! While the payment waits for the buyer, the page's watch (an empty part with a script) reads
+//! While the payment waits for the buyer, the page's watch (an empty part and its `ReadAgain`) reads
 //! the status part (see `payment`), which redraws the page's content once the status changes.
 use std::time::Duration;
 
@@ -25,8 +25,6 @@ use crate::{
     payment::PaymentScreen,
     text::PaymentMsg,
 };
-
-corten::script::script!(pub mod handlers = "payment_page.js");
 
 /// The page's content, which the status part redraws.
 #[derive(Id)]
@@ -93,6 +91,7 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
     let total = money(t, &payment.amount, &payment.currency_code);
     let closed = matches!(payment.status.as_str(), "failed" | "cancelled");
     let deadline = if screen.pending() { screen.deadline() } else { None };
+    let watching = screen.watch.as_ref().map(crate::payment::Watching::route);
     let retry =
         on_marketplace(&format!("{}?orderIds={}", url::BuyerPaymentNew::PATH, crate::api::segment(&payment.order_ids.join(","))));
     let finished = if payment.captured_at.is_some() {
@@ -199,8 +198,8 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                     <Summary t={t} payment={payment} />
                 </aside>
             </div>
-            if let Some(watch) = &screen.watch {
-                <p id={PaymentWatchId} hidden on:connect={handlers::watch(watch.as_str())}></p>
+            if let Some(from) = &watching {
+                <PaymentWatch again={Some(from)} />
             }
         </div>
     }
@@ -274,7 +273,7 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
     let stripe = payment.processor_client_secret.as_deref().zip(payment.processor_publishable_key.as_deref());
     let (fields, skeleton, error, error_text, processing) = refs();
     let parts = js::Parts { fields, skeleton, error, error_text, processing };
-    let watch = screen.watch.as_deref().unwrap_or_default();
+    let watch = screen.watch.as_ref().map_or("", |w| w.href.as_str());
     html! {
         <section class={Section} aria-labelledby="payment-entry-title" data-payment-entry>
             <h2 id="payment-entry-title" class={PartTitle}>{t.secure_payment_2()}</h2>

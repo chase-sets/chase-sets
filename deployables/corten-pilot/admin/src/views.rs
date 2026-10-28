@@ -43,7 +43,7 @@ pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
 pub const LIVE: &[Component] = &[LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
-pub const POSTAGE: &[Component] = &[Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle];
+pub const POSTAGE: &[Component] = &[Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
 
 /// A form's typed values and what is wrong with them.
 #[derive(Clone, Debug)]

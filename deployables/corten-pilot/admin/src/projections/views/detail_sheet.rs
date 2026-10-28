@@ -4,8 +4,9 @@
 //! or a worker. An address whose record is gone draws no sheet, as admin-web's.
 //!
 //! Without JavaScript the sheet is an open, non-modal `<dialog>`, closed by a link back to the console;
-//! the confirm dialogs open with `command="show-modal"` (no script). The script makes the sheet modal
-//! and lets Escape follow the close link, so the address says what is open.
+//! the confirm dialogs open with `command="show-modal"` (no script). corten-ui's
+//! `dialog::modalClosedBy` makes the sheet modal and sends Escape to the close link's address, so
+//! the address says what is open.
 use corten::prelude::*;
 use serde_json::Value;
 
@@ -265,7 +266,7 @@ pub fn detail_sheet<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters
     }
 }
 
-#[component(css, js)]
+#[component(css)]
 pub(crate) fn DetailSheet<'a>(
     t: Ops,
     console: &'a Snapshot,
@@ -274,17 +275,16 @@ pub(crate) fn DetailSheet<'a>(
     viewer: &'a Viewer,
 ) -> impl Render {
     let close = url::Projections { filters: filters.select(None) }.href();
-    let (sheet, back) = refs();
+    let back = refs();
     let operate = viewer.can(OPERATE);
     let rebuild = viewer.can(REBUILD);
     let shown = detail(t, console, record);
     html! {
         <dialog
-            ref={sheet}
             class={Sheet}
             open
             aria-labelledby={ProjectionSheetTitleId}
-            on:connect={js::open(sheet, back, signal)}
+            on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
         >
             <header class={Head}>
                 <div>

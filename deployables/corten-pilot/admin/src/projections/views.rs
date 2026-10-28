@@ -10,7 +10,7 @@ pub use detail_sheet::detail_sheet;
 
 /// The area's components: its stylesheet and the sheet's script. Its live status is the app's
 /// (`views::LIVE`).
-pub const COMPONENTS: &[Component] = &[ConsolePage, detail_sheet::DetailSheet];
+pub const COMPONENTS: &[Component] = &[ConsolePage, detail_sheet::DetailSheet, corten_ui::dialog::COMPONENT];
 
 pub mod ids {
     use corten::prelude::*;

@@ -9,8 +9,9 @@
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
-    view::AttrValue,
+    view::{AttrValue, Id},
 };
+use corten_ui::CopyButton;
 
 use super::{listing_page::options, on_marketplace, order_page::display_reference};
 use crate::{
@@ -26,6 +27,18 @@ corten::script::script!(pub mod handlers = "packing.js");
 /// A line's item: a line write's answer replaces it, and Finish goes back to it.
 #[derive(Id)]
 pub struct PackingLineId<'a>(pub &'a str);
+
+/// A line's references in full, which each Copy copies (the page shows their last eight).
+#[derive(Id, Clone, Copy)]
+pub struct LineReferenceId<'a>(pub &'a str);
+#[derive(Id, Clone, Copy)]
+pub struct OrderLineReferenceId<'a>(pub &'a str);
+#[derive(Id, Clone, Copy)]
+pub struct ProductReferenceId<'a>(pub &'a str);
+
+/// Where the shipment goes, as Copy address copies it (a line each).
+#[derive(Id, Clone, Copy)]
+pub struct ShipToId;
 
 /// The parts a line write replaces.
 #[derive(Id)]
@@ -453,11 +466,6 @@ fn LineItem<'a>(
     let action = url::PackingLine { id, line: &line.line_id }.href();
     let f = LineInput::FIELDS;
     let enabled = at.packing && screen.outcome.writes();
-    let references = [
-        (t.packing_line_reference_label(), &line.line_id),
-        (t.packing_order_line_reference_label(), &line.order_line_id),
-        (t.packing_product_reference_label(), &line.product_id),
-    ];
     html! {
         <li id={PackingLineId(&line.line_id)} class={LineItem} data-state={state_name} data-checked={checked}>
             <WriteForm p={p} viewer={viewer} id={id} action={&action} attempt={f.attempt} enabled={enabled}>
@@ -517,26 +525,47 @@ fn LineItem<'a>(
                 </p>
             }
             <dl class={References}>
-                for (label, value) in references {
-                    <div class={Reference}>
-                        <dt>{label}</dt>
-                        <dd>
-                            <span title={value.as_str()}>{short_reference(value)}</span>
-                            <button
-                                type="button"
-                                class={Copy}
-                                data-value={value.as_str()}
-                                hidden
-                                on:connect={handlers::reveal(target)}
-                                on:click={handlers::copy(target, p.packing_copied())}
-                            >
-                                {t.packing_copy_reference()}
-                            </button>
-                        </dd>
-                    </div>
-                }
+                <ReferenceRow
+                    t={t}
+                    p={p}
+                    label={t.packing_line_reference_label()}
+                    value={&line.line_id}
+                    id={LineReferenceId(&line.line_id)}
+                />
+                <ReferenceRow
+                    t={t}
+                    p={p}
+                    label={t.packing_order_line_reference_label()}
+                    value={&line.order_line_id}
+                    id={OrderLineReferenceId(&line.line_id)}
+                />
+                <ReferenceRow
+                    t={t}
+                    p={p}
+                    label={t.packing_product_reference_label()}
+                    value={&line.product_id}
+                    id={ProductReferenceId(&line.line_id)}
+                />
             </dl>
         </li>
+    }
+}
+
+/// A reference: its label, its last eight characters (the whole in its title), and Copy
+/// (corten-ui's, shown with the script), which copies the whole from a hidden element.
+#[component(css = PackingPage)]
+fn ReferenceRow<'a, I: Id + Copy>(t: ShipmentsMsg, p: Pilot, label: &'a str, value: &'a str, id: I) -> impl Render {
+    html! {
+        <div class={Reference}>
+            <dt>{label}</dt>
+            <dd>
+                <span title={value}>{short_reference(value)}</span>
+                <span id={id} hidden>{value}</span>
+                <span class={Copy}>
+                    <CopyButton text={id} label={t.packing_copy_reference()} copied={p.packing_copied()} />
+                </span>
+            </dd>
+        </div>
     }
 }
 
@@ -637,16 +666,10 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
                         <span>{line}</span>
                     }
                 </address>
-                <button
-                    type="button"
-                    class={(Secondary, Copy)}
-                    data-value={&copied}
-                    hidden
-                    on:connect={handlers::reveal(target)}
-                    on:click={handlers::copy(target, p.packing_copied())}
-                >
-                    {t.packing_copy_address()}
-                </button>
+                <span id={ShipToId} hidden>{&copied}</span>
+                <span class={Copy}>
+                    <CopyButton text={ShipToId} label={t.packing_copy_address()} copied={p.packing_copied()} />
+                </span>
             </div>
             <div class={Card}>
                 <a

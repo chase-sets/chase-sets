@@ -19,9 +19,9 @@ pub struct SheetTitleId;
 /// A policy's details, its lifecycle, its revision and preview, and its history.
 ///
 /// Without JavaScript it is an open, non-modal `<dialog>` beside the list, closed by a link back
-/// to the list. The script makes it modal (focus stays inside, the page behind is inert) and
-/// closes it with Escape by following the same link.
-#[component(css, js)]
+/// to the list. corten-ui's `dialog::modalClosedBy` makes it modal (focus stays inside, the page
+/// behind is inert) and sends Escape to the same link's address.
+#[component(css)]
 pub fn PolicySheet<'a>(
     t: Msg,
     policy: &'a Policy,
@@ -32,7 +32,7 @@ pub fn PolicySheet<'a>(
     clone: &'a Draft<CloneInput>,
     preview: Option<&'a PackagePlan>,
 ) -> impl Render {
-    let (sheet, back) = refs();
+    let back = refs();
     let none = t.common_none();
     let comparison = if !policy.active_comparison.is_empty() {
         t.detail_material_differences_only()
@@ -42,7 +42,12 @@ pub fn PolicySheet<'a>(
         t.detail_no_active_differences()
     };
     html! {
-        <dialog ref={sheet} class={Sheet} open aria-labelledby={SheetTitleId} on:connect={js::open(sheet, back, signal)}>
+        <dialog
+            class={Sheet}
+            open
+            aria-labelledby={SheetTitleId}
+            on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+        >
             <header class={Head}>
                 <div>
                     <h2 id={SheetTitleId}>{&policy.label}</h2>

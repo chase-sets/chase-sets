@@ -2401,6 +2401,7 @@ async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make(
     // A running operation: Cancel for staff who may operate.
     let (_, _, html) = pilot.send(get("/platform/projections?selected=op_run", Some("projections-operator"))).await;
     assert!(html.contains("<dialog") && html.contains("rebuild-projection-group / running"), "{html}");
+    assert!(html.contains("connect:ui.dialog.modalClosedBy($t,@back,$s)"), "Escape goes to the close link's address: {html}");
     assert!(
         html.contains(r#"action="/platform/projections/cancel?selected=op_run""#)
             && html.contains(r#"name="operation_id" value="op_run""#),
