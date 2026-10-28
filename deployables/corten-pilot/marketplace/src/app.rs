@@ -103,6 +103,10 @@ pub const MEMBERSHIPS_MANAGE: &str = "memberships.manage";
 /// The account's shipments (Fulfillment's marketplace loaders and actions).
 pub const FULFILLMENT_VIEW: &str = "fulfillment.view";
 pub const FULFILLMENT_MANAGE: &str = "fulfillment.manage";
+/// A Support Request's participant page: to read it, and to act on it (Platform Operations'
+/// `account-support-detail` loader and action).
+pub const SUPPORT_VIEW: &str = "support.view";
+pub const SUPPORT_MANAGE: &str = "support.manage";
 
 /// Where the pilot finds the platform API. Marketplace's origin is `marketplace_origin()`.
 pub struct Config {
@@ -167,6 +171,7 @@ pub mod url {
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, SignIn};
     pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
+    pub use support::SupportCase;
     pub use team::Team;
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
@@ -749,6 +754,26 @@ pub mod url {
         }
     }
 
+    /// A Support Request's participant page (Platform Operations' marketplace
+    /// `account-support-detail`): the case, what its buyer or seller is asked for, and their writes
+    /// (see `support`). Every handler takes a `SupportMember`.
+    #[corten::routes(state = crate::app::Shared, area = SupportArea, caller = crate::auth::SupportMember)]
+    pub mod support {
+        /// The area's prefix: only the start of its paths. The list of cases at `/account/support`
+        /// is marketplace's (not ported), so it names no handler.
+        #[route("/account/support")]
+        pub struct SupportArea;
+
+        /// The case, with what the last write did and its receipt; every write posts to it.
+        #[derive(Clone, Debug)]
+        #[route("/account/support/{id}", get = crate::support::page, post = crate::support::write)]
+        pub struct SupportCase<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::support::Place,
+        }
+    }
+
     /// The Seller Desk's repricing page (marketplace's `account-desk-repricing`): the policies, the
     /// halt, the dry runs and the preset editor, its writes, and a dry run's status relayed live
     /// (see `repricing`). Every handler takes a `PricingManager`.
@@ -1096,6 +1121,7 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))

@@ -359,6 +359,21 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             .into_response();
     }
     if uri.path() == "/api/auth/session" {
+        // A Support Request's parties, each its own account: the case's buyer and seller may act on
+        // it, `case_reader` (the buyer's) may only read it, and `case_stranger` is on neither side.
+        let party = |user: &str, account: &str, permissions: &[&str]| {
+            Json(json!({ "actor": { "userId": user, "accountId": account, "roleKey": "member", "permissions": permissions } }))
+                .into_response()
+        };
+        match session {
+            "case_buyer" => return party("usr_cb", "acc_case_buyer", &["support.view", "support.manage"]),
+            "case_seller" => return party("usr_cs", "acc_case_seller", &["support.view", "support.manage"]),
+            "case_reader" => return party("usr_cr", "acc_case_buyer", &["support.view"]),
+            "case_stranger" => return party("usr_cx", "acc_case_other", &["support.view", "support.manage"]),
+            _ => {}
+        }
+    }
+    if uri.path() == "/api/auth/session" {
         let actor = |permissions: &[&str]| {
             Json(json!({ "actor": { "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "seller", "permissions": permissions } }))
                 .into_response()
@@ -433,6 +448,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = money_api(session, &method, &uri, &body) {
+        return answer;
+    }
+    if let Some(answer) = support_api(session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
@@ -10874,4 +10892,315 @@ async fn a_team_read_that_has_not_caught_up_shows_the_team_as_it_was_and_reads_a
     let (status, _, html) = pilot.send(get(&format!("{TEAM}?after_write={}", receipt_at("45")), Some("teamer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Synthetic Seller") && html.contains("Your team is still updating"), "{html}");
+}
+
+const SUPPORT_CASE: &str = "/account/support/sup_1";
+const SUPPORT_OFFER: &str = "/account/support/sup_offer";
+
+/// Platform Operations' reads and writes for a Support Request's parties (`case_buyer`, `case_seller`, ...`).
+/// `sup_1` waits on the seller, with the buyer's evidence in and an offer the buyer declined;
+/// `sup_offer` waits on the buyer to decide a partial refund. The seller's flow allows tracking, a
+/// partial refund and support review; the buyer's allows no response, as the API projects it. A
+/// write is committed at position 42 unless its attempt is `APPLIED_BEFORE` (no answer, and the
+/// lookup finds it committed), `NO_RECORD` (no answer, and the lookup finds nothing) or `CHECK_DOWN`
+/// (no answer, and the lookup fails); a response summarized `refuse` is refused.
+fn support_api(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if !session.starts_with("case_") {
+        return None;
+    }
+    let path = uri.path().strip_prefix("/api/marketplace/support-requests/")?;
+    let lost = |attempt: &str| [APPLIED_BEFORE, NO_RECORD, CHECK_DOWN].contains(&attempt);
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    Some(match (method.as_str(), path) {
+        ("GET", "sup_1" | "sup_offer") => {
+            let seller = session == "case_seller";
+            let offer = path == "sup_offer";
+            let declined = json!({ "offerId": "sof_old", "responseId": "srp_old", "pendingWithRole": "buyer",
+                "resolutionType": "partial-refund", "refundAmount": "5.00", "summary": "Five back", "status": "declined",
+                "offeredAt": "2026-10-26T15:00:00.000Z", "decidedAt": "2026-10-26T16:00:00.000Z", "decisionSummary": "Not enough" });
+            let pending = json!({ "offerId": "sof_1", "responseId": "srp_1", "pendingWithRole": "buyer",
+                "resolutionType": "partial-refund", "refundAmount": "12.50", "summary": "Half back for the crease",
+                "status": "pending", "offeredAt": "2026-10-27T15:00:00.000Z", "decidedAt": null, "decisionSummary": null });
+            Json(json!({
+                "support_request_id": path, "display_reference": "SUP-1001", "order_id": "ord_case",
+                "buyer_account_id": "acc_case_buyer", "seller_account_id": "acc_case_seller", "flow_type": "product-damaged",
+                "status": if offer { "waiting-on-buyer" } else { "waiting-on-seller" }, "priority": "normal",
+                "opened_by_account_id": "acc_case_buyer", "opened_by_role": "buyer", "opened_at": "2026-10-26 09:00:00.25+00",
+                "seller_response_due_at": "2099-01-01 00:00:00+00", "support_review_due_at": null,
+                "seller_condition_attestation_due_at": null,
+                "checklist": [{ "key": "damage-photo", "label": "Photo of the damage", "ownerRole": "buyer",
+                    "evidenceTypes": ["photo", "support-note"], "required": true, "satisfiedAt": "2026-10-26 10:00:00+00" }],
+                "pending_offer": if offer { pending.clone() } else { Value::Null },
+                "resolution": null, "closed_at": null, "escalated_at": null, "escalation_reason": null,
+                "remedy": null, "case_presentation": "decision-pending",
+                "evidence": [{ "evidenceId": "sev_1", "submittedByRole": "buyer", "evidenceType": "photo",
+                    "summary": "Corner crease on arrival", "submittedAt": "2026-10-26T10:00:00.000Z", "attachments": [] }],
+                "responses": [{ "responseId": "srp_old", "responseType": "offer-partial-refund", "summary": "Five back",
+                    "submittedAt": "2026-10-26T15:00:00.000Z", "offerId": "sof_old" }],
+                "offers": if offer { json!([declined, pending]) } else { json!([declined]) },
+                "flow": { "flowType": "product-damaged", "title": "Product arrived damaged",
+                    "automationSummary": "The seller has 48 hours to respond.",
+                    "allowedResponses": if seller { json!(["provide-tracking", "offer-partial-refund", "request-support-review"]) } else { json!([]) } },
+            }))
+            .into_response()
+        }
+        ("GET", "sup_missing") => refusal(StatusCode::NOT_FOUND, "not_found", "Support request not found."),
+        ("GET", p) if p.contains("/participant-attempts/") => {
+            let attempt = p.rsplit('/').next().unwrap_or_default();
+            let kind = uri.query().and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("actionKind="))).unwrap_or_default();
+            match attempt {
+                APPLIED_BEFORE => committed(
+                    StatusCode::OK,
+                    "platform-operations",
+                    "42",
+                    json!({
+                        "outcome": "committed", "actionKind": kind,
+                        "result": { "id": p.split('/').next(), "version": 3, "status": "response-recorded",
+                            "evidenceId": null, "responseId": "srp_2", "offerId": null },
+                    }),
+                ),
+                CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                _ => Json(json!({ "outcome": "not-recorded" })).into_response(),
+            }
+        }
+        ("POST", _) if lost(attempt) => StatusCode::BAD_GATEWAY.into_response(),
+        ("POST", _) if headers.get("x-support-request-hash").is_none() => {
+            refusal(StatusCode::BAD_REQUEST, "participant-hash-missing", "")
+        }
+        ("POST", "sup_1/responses") if serde_json::from_str::<Value>(body).unwrap_or_default()["summary"] == "refuse" => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Tracking responses need a carrier tracking number.")
+        }
+        ("POST", "sup_1/responses") if session == "case_seller" => committed(
+            StatusCode::CREATED,
+            "platform-operations",
+            "42",
+            json!({ "id": "sup_1", "version": 3, "status": "response-recorded" }),
+        ),
+        ("POST", p) if p.starts_with("sup_") => committed(
+            StatusCode::OK,
+            "platform-operations",
+            "42",
+            json!({ "id": p.split('/').next(), "version": 4, "status": "ok" }),
+        ),
+        _ => return None,
+    })
+}
+
+/// The support writes sent: path, body, attempt and hash.
+fn support_writes(pilot: &Pilot) -> Vec<(String, Value, String, String)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    let header = |c: &Call, name: &str| c.headers.get(name).map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path.starts_with("/api/marketplace/support-requests/"))
+        .map(|c| {
+            (
+                c.path.clone(),
+                serde_json::from_str(&c.body).unwrap_or_default(),
+                header(c, "idempotency-key"),
+                header(c, "x-support-request-hash"),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_support_case_shows_who_acts_next_and_only_the_viewers_part() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUPPORT_CASE, Some("case_seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>SUP-1001 | Support"), "marketplace's title: {html}");
+    assert!(html.contains("You need to act") && html.contains("Current status: Waiting on seller"), "{html}");
+    assert!(html.contains("Due in ") && html.contains(" days"), "the seller's deadline counts down: {html}");
+    assert!(html.contains("The seller has 48 hours to respond."), "{html}");
+    assert!(html.contains(r#"<option value="provide-tracking" selected>Provide tracking</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="offer-partial-refund">Offer a partial refund</option>"#), "{html}");
+    assert!(!html.contains(r#"<option value="request-support-review""#), "review is its own button: {html}");
+    assert!(html.contains("Request support review</button>") && !html.contains("Cancel case"), "the buyer opened it: {html}");
+    let order: Vec<usize> = ["Case opened", "Evidence submitted", "Offer made", "Offer declined"]
+        .iter()
+        .map(|title| html.find(&format!(">{title}<")).unwrap_or_else(|| panic!("{title}: {html}")))
+        .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "oldest first: {order:?}");
+    assert!(html.contains("Opened by the buyer.") && html.contains("Not enough"), "{html}");
+    assert!(!html.contains("Response recorded"), "a response that made an offer is shown as its offer: {html}");
+
+    let mut req = get(SUPPORT_CASE, Some("case_seller"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!((body["data"]["next_actor"].as_str(), body["data"]["viewer_role"].as_str()), (Some("seller"), Some("seller")));
+
+    let (status, _, html) = pilot.send(get(SUPPORT_CASE, Some("case_buyer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Waiting on seller until the deadline"), "{html}");
+    for intent in ["evidence", "response", "escalate", "cancel", "accept-offer"] {
+        assert!(!html.contains(&format!(r#"name="intent" value="{intent}""#)), "nothing for the buyer to do: {intent} {html}");
+    }
+
+    let (status, _, _) = pilot.send(get(SUPPORT_CASE, Some("case_stranger"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "neither the buyer nor the seller");
+    let (status, _, _) = pilot.send(get("/account/support/sup_missing", Some("case_buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get(SUPPORT_CASE, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "without support.view");
+    let (status, headers, _) = pilot.send(get(SUPPORT_CASE, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Fsupport%2Fsup_1"),
+        "{headers:?}"
+    );
+    let (status, _, _) = pilot.send(post(SUPPORT_CASE, "case_reader", "intent=escalate", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs support.manage");
+    assert!(support_writes(&pilot).is_empty());
+}
+
+#[tokio::test]
+async fn a_response_is_one_attempt_with_the_web_hosts_hash_and_the_page_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let body = format!(
+        "intent=response&account=acc_case_seller&attempt={ATTEMPT}&response_type=offer-partial-refund&refund_amount=%2412.5&summary=+Half+back+"
+    );
+    let (status, headers, html) = pilot.send(post(SUPPORT_CASE, "case_seller", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/support/sup_1?action=response&after_write="), "{to}");
+    let (path, sent, attempt, hash) = support_writes(&pilot).pop().unwrap();
+    assert_eq!(path, "/api/marketplace/support-requests/sup_1/responses");
+    assert_eq!(
+        sent,
+        json!({ "submittedByRole": "seller", "responseType": "offer-partial-refund", "summary": "Half back",
+                "offerResolutionType": "partial-refund", "refundAmount": "12.50" })
+    );
+    assert_eq!(attempt, ATTEMPT, "the form's attempt is the Idempotency-Key");
+    // hashParticipantRequest("record-response", ..) on the same input, run with tsx.
+    assert_eq!(hash, "5585563375f01e17908007c0cb41827ecdee3c74ced13947edeb3d1d4497db18");
+    let (_, _, html) = pilot.send(get(&to, Some("case_seller"))).await;
+    assert!(html.contains("Response sent."), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let read = calls.iter().rev().find(|c| c.path == "/api/marketplace/support-requests/sup_1").unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "read after the response's receipt");
+    drop(calls);
+
+    let refused = |body: &str| post(SUPPORT_CASE, "case_seller", body, false);
+    let (status, _, html) = pilot
+        .send(refused(&format!(
+            "intent=response&attempt={ATTEMPT}&response_type=offer-partial-refund&refund_amount=&summary=Half+back"
+        )))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter the partial refund amount.") && html.contains(">Half back</textarea>"), "kept: {html}");
+    assert!(html.contains(r#"<option value="offer-partial-refund" selected>"#), "{html}");
+    let (status, _, html) =
+        pilot.send(refused(&format!("intent=response&attempt={ATTEMPT}&response_type=request-support-review&summary=x"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose one of the listed options."), "{html}");
+    let (status, _, html) =
+        pilot.send(refused(&format!("intent=response&attempt={ATTEMPT}&response_type=provide-tracking&summary=+++"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter a summary."), "{html}");
+    let (status, _, html) =
+        pilot.send(refused(&format!("intent=response&attempt={ATTEMPT}&response_type=provide-tracking&summary=refuse"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "refused before anything was applied");
+    assert!(html.contains("Tracking responses need a carrier tracking number.") && html.contains(">refuse</textarea>"), "{html}");
+    let (status, _, html) = pilot.send(refused("intent=forget")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(html.contains("Choose a supported case action."), "{html}");
+    let (status, _, html) = pilot.send(refused("intent=escalate&account=acc_someone_else")).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(html.contains("Support account changed. Reload before submitting."), "{html}");
+    assert_eq!(support_writes(&pilot).len(), 2, "nothing sent for any of the others");
+}
+
+#[tokio::test]
+async fn an_offer_is_decided_with_its_id_in_the_path_and_the_hash_only() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUPPORT_OFFER, Some("case_buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-support-offer="sof_1""#) && html.contains("Half back for the crease"), "{html}");
+    assert!(html.contains("$12.50") && html.contains("Accept offer") && html.contains("Decline offer"), "{html}");
+    assert!(html.contains("Cancel your case"), "the buyer opened it and acts next: {html}");
+    assert!(!html.contains("Request support review</button>"), "an offer waits first: {html}");
+
+    let (status, headers, _) = pilot
+        .send(post(SUPPORT_OFFER, "case_buyer", &format!("intent=accept-offer&offer_id=sof_1&attempt={ATTEMPT}"), false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers[header::LOCATION].to_str().unwrap().starts_with("/account/support/sup_offer?action=offerAccepted"),
+        "{headers:?}"
+    );
+    let (status, _, _) = pilot
+        .send(post(SUPPORT_OFFER, "case_buyer", &format!("intent=decline-offer&offer_id=sof_1&attempt={ATTEMPT}"), false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let writes = support_writes(&pilot);
+    assert_eq!(writes[0].0, "/api/marketplace/support-requests/sup_offer/offers/sof_1/accept");
+    assert_eq!(writes[0].1, json!({}), "the offer is in the path");
+    assert_eq!(writes[0].3, "41f46ac63d078a3c2322ca008adb7c7fa8ae840b56ddafd5a85be997b219f004", "and in the hash");
+    assert_eq!(writes[1].0, "/api/marketplace/support-requests/sup_offer/offers/sof_1/decline");
+    assert_eq!(writes[1].1, json!({ "summary": "The offer was declined and the case needs support review." }));
+
+    let (status, _, html) =
+        pilot.send(post(SUPPORT_OFFER, "case_buyer", &format!("intent=cancel&attempt={ATTEMPT}&reason=+"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter a reason."), "{html}");
+    let (status, _, _) = pilot.send(post(SUPPORT_OFFER, "case_buyer", "intent=cancel&reason=Sorted+it+out", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a post without its attempt is still one attempt");
+    let (_, sent, attempt, _) = support_writes(&pilot).pop().unwrap();
+    assert_eq!(sent, json!({ "reason": "Sorted it out" }));
+    assert_eq!(attempt.len(), 36, "one drawn for it: {attempt}");
+}
+
+#[tokio::test]
+async fn a_lost_answer_is_looked_up_once_and_check_status_never_sends_it_again() {
+    let pilot = Pilot::new().await;
+    let escalate = |attempt: &str| {
+        post(SUPPORT_CASE, "case_seller", &format!("intent=escalate&account=acc_case_seller&attempt={attempt}"), false)
+    };
+    // The lookup finds it committed: on to the page with its receipt.
+    let (status, headers, _) = pilot.send(escalate(APPLIED_BEFORE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/support/sup_1?action=escalated&after_write="), "{to}");
+
+    // Nothing recorded: ambiguous, and every write is off.
+    let (status, _, html) = pilot.send(escalate(NO_RECORD)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(
+        html.contains("Check status before retrying this support action.") && html.contains("Do not submit it again yet."),
+        "{html}"
+    );
+    assert!(
+        html.contains(&format!(r#"name="check_attempt" value="{NO_RECORD}""#)) && html.contains(r#"value="escalate""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"<fieldset class="support-page__plain" disabled>"#), "the forms are off: {html}");
+    let lookups = || pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.contains("/participant-attempts/")).count();
+    assert_eq!(lookups(), 2, "one lookup per lost answer");
+
+    let check = |attempt: &str, hash: &str| {
+        post(
+            SUPPORT_CASE,
+            "case_seller",
+            &format!("intent=check-status&account=acc_case_seller&check_kind=escalate&check_attempt={attempt}&check_hash={hash}"),
+            false,
+        )
+    };
+    let hash = "a".repeat(64);
+    let (status, _, html) = pilot.send(check(NO_RECORD, &hash)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "absence is not permission to send it again");
+    assert!(html.contains("Check status before retrying"), "{html}");
+    let (status, _, html) = pilot.send(check(CHECK_DOWN, &hash)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(
+        html.contains("Support status could not be checked. Reload before submitting.") && html.contains(CHECK_DOWN),
+        "{html}"
+    );
+    let (status, headers, _) = pilot.send(check(APPLIED_BEFORE, &hash)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("action=escalated"), "{headers:?}");
+    let (status, _, _) = pilot.send(check(APPLIED_BEFORE, "not-a-hash")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(support_writes(&pilot).len(), 2, "Check status sends nothing");
 }

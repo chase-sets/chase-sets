@@ -5587,3 +5587,189 @@ impl MoneyCalls for Caller<'_> {
         Ok(run.progress.message.filter(|m| !m.trim().is_empty()))
     }
 }
+
+const SUPPORT: &str = "platform-operations";
+const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
+
+/// A Support Request as its participant reads it (`SupportRequestDetailResponse`: Platform
+/// Operations' detail row and its flow, already scoped to the viewer's role), the fields the page
+/// reads. Moments are as the read model writes them (`2026-10-28 13:05:00.123+00`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SupportRequest {
+    pub support_request_id: String,
+    pub display_reference: String,
+    pub order_id: String,
+    pub buyer_account_id: String,
+    pub seller_account_id: String,
+    pub status: String,
+    pub opened_by_account_id: String,
+    pub opened_by_role: String,
+    pub opened_at: String,
+    pub seller_response_due_at: Option<String>,
+    pub support_review_due_at: Option<String>,
+    pub seller_condition_attestation_due_at: Option<String>,
+    pub checklist: Vec<SupportChecklistItem>,
+    pub pending_offer: Option<SupportOffer>,
+    pub resolution: Option<SupportResolution>,
+    pub closed_at: Option<String>,
+    pub escalated_at: Option<String>,
+    pub escalation_reason: Option<String>,
+    /// Whether a remedy runs: the page reads only that there is one.
+    pub remedy: Option<serde_json::Value>,
+    /// `RemedyCasePresentation`: `decision-pending`, `remedy-in-progress`, ...
+    pub case_presentation: String,
+    pub evidence: Vec<SupportEvidence>,
+    pub responses: Vec<SupportResponse>,
+    pub offers: Vec<SupportOffer>,
+    pub flow: SupportFlow,
+}
+
+/// The request's flow, as the API projects it for the viewer (`SupportFlowDetail`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportFlow {
+    pub flow_type: String,
+    pub title: String,
+    pub automation_summary: String,
+    /// The responses the viewer may record: none for a buyer, nor for a seller once escalated.
+    pub allowed_responses: Vec<String>,
+}
+
+/// A checklist item (`SupportChecklistItem`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportChecklistItem {
+    pub key: String,
+    pub label: String,
+    /// `buyer`, `seller` or `support`.
+    pub owner_role: String,
+    pub evidence_types: Vec<String>,
+    pub required: bool,
+    pub satisfied_at: Option<String>,
+}
+
+/// A piece of evidence (`SupportEvidence`), the fields the timeline shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportEvidence {
+    pub evidence_id: String,
+    pub summary: String,
+    pub submitted_at: String,
+}
+
+/// A response (`SupportResponse`); one that made an offer is shown as its offer.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportResponse {
+    pub response_id: String,
+    pub summary: String,
+    pub submitted_at: String,
+    pub offer_id: Option<String>,
+}
+
+/// An offer (`SupportOffer`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportOffer {
+    pub offer_id: String,
+    pub pending_with_role: String,
+    pub resolution_type: String,
+    pub refund_amount: Option<String>,
+    pub summary: String,
+    pub offered_at: String,
+    /// `pending`, `accepted` or `declined`.
+    pub status: String,
+    pub decided_at: Option<String>,
+    pub decision_summary: Option<String>,
+}
+
+/// How the request was resolved (`SupportResolution`), the fields shown.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportResolution {
+    pub resolution_type: String,
+    pub summary: String,
+    pub refund_amount: Option<String>,
+    pub resolved_at: String,
+}
+
+/// A participant write as Platform Operations takes it (`participantActions`): what it is, the
+/// request it is on, its body as sent and its canonical request, whose hash the API checks.
+#[derive(Clone, Debug)]
+pub struct ParticipantWrite {
+    /// `submit-evidence`, `record-response`, `accept-offer`, `decline-offer`, `escalate`, `cancel`.
+    pub action_kind: &'static str,
+    pub path: String,
+    pub body: serde_json::Value,
+    /// `canonicalParticipantRequest`'s text.
+    pub canonical: String,
+}
+
+/// What `GET .../participant-attempts/{attempt}` says of an attempt (`ParticipantLookup`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticipantLookup {
+    /// `committed`, `confirming`, `not-recorded` or `unknown`.
+    pub outcome: String,
+    #[serde(default)]
+    pub action_kind: Option<String>,
+    #[serde(default)]
+    pub result: Option<ParticipantResult>,
+}
+
+/// The applied attempt's result (`ParticipantResult`), the field the page compares.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ParticipantResult {
+    pub id: String,
+}
+
+/// A Support Request participant page's calls (Platform Operations', as marketplace's
+/// `account-support-detail` route makes them).
+pub trait SupportCalls {
+    async fn support_request(&self, id: &str) -> Result<SupportRequest, ApiError>;
+    /// Sends `write` as `attempt` (`Idempotency-Key`) with its request hash
+    /// (`X-Support-Request-Hash`): the receipt the next read waits for.
+    async fn participant_write(&self, write: &ParticipantWrite, attempt: &str, hash: &str) -> Result<Option<Receipt>, ApiError>;
+    /// What the API recorded for `attempt` on request `id`, and the receipt of its write.
+    async fn participant_attempt(
+        &self,
+        id: &str,
+        action_kind: &str,
+        attempt: &str,
+        hash: &str,
+    ) -> Result<(ParticipantLookup, Option<Receipt>), ApiError>;
+}
+
+impl SupportCalls for Caller<'_> {
+    async fn support_request(&self, id: &str) -> Result<SupportRequest, ApiError> {
+        self.read(&format!("{SUPPORT_REQUESTS}/{}", segment(id)), SUPPORT).await
+    }
+
+    async fn participant_write(&self, write: &ParticipantWrite, attempt: &str, hash: &str) -> Result<Option<Receipt>, ApiError> {
+        let req = self
+            .request(Method::POST, &format!("{SUPPORT_REQUESTS}{}", write.path), SUPPORT)
+            .header("idempotency-key", attempt)
+            .header("x-support-request-hash", hash)
+            .json(&write.body);
+        let (_, receipt): (serde_json::Value, _) = self.write(req).await?;
+        Ok(receipt)
+    }
+
+    async fn participant_attempt(
+        &self,
+        id: &str,
+        action_kind: &str,
+        attempt: &str,
+        hash: &str,
+    ) -> Result<(ParticipantLookup, Option<Receipt>), ApiError> {
+        let path = format!(
+            "{SUPPORT_REQUESTS}/{}/participant-attempts/{}?requestHash={hash}&actionKind={}",
+            segment(id),
+            segment(attempt),
+            segment(action_kind),
+        );
+        let (lookup, headers) = self.read_with_headers(&path, SUPPORT).await?;
+        Ok((lookup, Receipt::from_response(&headers)))
+    }
+}

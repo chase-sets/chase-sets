@@ -132,7 +132,7 @@ pub fn open_href(href: &str) -> Option<String> {
 /// page is the pilot's: the list, the packing slips and the packing flow are marketplace's. Not
 /// `Req::serves`, which would keep the list here only for the pilot to send it to marketplace.
 fn served_here(href: &str) -> bool {
-    const HERE: [&str; 13] = [
+    const HERE: [&str; 14] = [
         "/items/",
         "/listings/",
         "/accounts/",
@@ -145,6 +145,8 @@ fn served_here(href: &str) -> bool {
         "/account/purchases",
         "/account/sales",
         "/account/shipments",
+        // A case's page; the list of cases is marketplace's.
+        "/account/support/",
         "/account/team",
     ];
     let path = href.split(['?', '#']).next().unwrap_or_default();

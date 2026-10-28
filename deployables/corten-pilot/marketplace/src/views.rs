@@ -54,6 +54,7 @@ mod set_page;
 mod shipment_page;
 mod sign_in_page;
 mod submitted_offers_page;
+mod support_page;
 mod team_page;
 
 pub use account_home_page::AccountHomePage;
@@ -92,6 +93,7 @@ pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts};
+pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
@@ -176,6 +178,10 @@ pub const DESK: &[Component] = &[DeskPage];
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
 /// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modal`).
 pub const MONEY: &[Component] = &[MoneyPage];
+
+/// A Support Request's participant page (`/account/support/{id}`). No script: the refund amount
+/// shows for a partial refund by CSS (`:has`), and the handler checks it is there.
+pub const SUPPORT: &[Component] = &[SupportPage];
 
 /// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
 /// editor's choice as it changes.

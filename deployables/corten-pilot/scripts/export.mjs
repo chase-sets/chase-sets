@@ -106,6 +106,10 @@
 //   (settlement.features.moneyDashboard.ui.* as page.*, the payout words it shares as payout.*, a wallet
 //   adjustment's account-facing status, direction and reason as adjustment_status.*, adjustment_direction.*
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
+// - marketplace/locales/support.en.json: a Support Request participant page's English catalog
+//   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
+//   the support operations page's deadline words as deadline.* and not_applicable, and
+//   support.participantAttempt.* as attempt.*; the evidence and response types' dashes as underscores).
 // - marketplace/locales/repricing.en.json: the Seller Desk repricing page's English catalog
 //   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
 //   editor.* and activity.*, the route's words as route.*, and the two links' labels).
@@ -771,6 +775,24 @@ const outputs = [
       ])),
       ...Object.fromEntries(Object.entries(moneyStatusLabels).map(([code, text]) => [`status.${code.replaceAll("-", "_")}`, text])),
     }),
+  ],
+  [
+    "marketplace/locales/support.en.json",
+    json(
+      Object.fromEntries(
+        Object.entries({
+          ...(await catalog("support.ts", "supportEnglishTranslations", [
+            ["support.features.supportRequests.ui.supportRequestDetailPage.", "page"],
+            ["support.routes.marketplace.accountSupportDetail.", "route"],
+            ["support.features.supportRequests.ui.supportOperationsPage.deadline.", "deadline"],
+            ["support.features.supportRequests.ui.supportOperationsPage.not.applicable", "not_applicable"],
+          ])),
+          ...(await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
+            ["support.participantAttempt.", "attempt"],
+          ])),
+        }).map(([key, text]) => [key.replaceAll("-", "_"), text]),
+      ),
+    ),
   ],
   [
     "marketplace/locales/repricing.en.json",

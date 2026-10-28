@@ -898,6 +898,7 @@ node scripts/smoke-market-offer-matches.mjs http://localhost:7794 [seller-state]
 node scripts/smoke-market-submitted-offers.mjs http://localhost:7794 [seller-state] [collector-state] [api-url]  # the buyer's submitted offers as the demo seller (WRITES one synthetic offer): 390 px; the filter's counts; the bulk bar once an offer is checked; the row drawn again live; Pause, Resume, Pause selected and Withdraw from its dialog without a script, or the closed lifecycle's answer; the collector sees no boxes or buttons
 node scripts/smoke-market-inventory.mjs http://localhost:7794 [seller-state] [api-url]  # the inventory list and an item's page as the demo seller: the API's items, find as you type and a pasted id, Choose and the options (a raw card, chase-sets/chase-sets#10671), Create inventory item (to the pilot's item page, which confirms it); on that page Adjust Quantity +1, Create Hold and Release it (each confirmed, and the API has it), the ledger filtered to adjustments, Record sale of one unit; then Record sale of the last unit from the list's dialog. A page that says it could not verify a write is accepted only after the API timed out its receipt (chase-sets/chase-sets#10672). Without a script, Find, the dialog drawn open, a refused sale and a refused adjustment (422, nothing sent); both pages at 390 px. WRITES one synthetic raw Charizard at the first open location, adjusts, holds, releases and sells it out, leaving it with nothing available
 node scripts/smoke-market-desk.mjs http://localhost:7794 [seller-state] [api-url]  # the Seller Desk as the demo seller, with and without a script: the API's count and one row per item in its order, each row's link (the pilot's own page for a listing, shipment or sale, chase-sets/chase-sets#10676), every summary filled in, the degraded banner naming the sources the API could not read without their reason, the active listings and open orders tiles; at 390 px nothing scrolls sideways, the tiles stack, every link is 44 px tall and a button-like link's text is at least 4.5:1 on its background (reads only)
+node scripts/smoke-market-support.mjs http://localhost:7794 [seller-state] [marketplace-url] [api-url]  # the seed's Support Requests as the demo seller, with and without a script: titled by reference, who acts next by marketplace's rule, a timeline entry per moment the API holds and no forms when it is not the viewer's turn, beside marketplace's page; a case that does not exist is Not found; at 390 px nothing scrolls sideways and every control is 40 px tall. It never submits a form
 node scripts/smoke-market-money.mjs http://localhost:7794 [seller-state] [marketplace-url] [api-url]  # the money page as the demo seller, with and without a script: the balance, the blocked payouts by marketplace's rule and a row per payout and movement against Settlement, beside marketplace's page; Request a payout off while setup is unfinished; a typed $5.00 previewed (a preview writes nothing) with Settlement's reasons and Confirm off; a payout's breakdown opened and closed with Escape; an adjustment the account has not; at 390 px nothing scrolls sideways, the figures stack and every control is 40 px tall. It never confirms a payout or runs a status check
 node scripts/smoke-market-repricing.mjs http://localhost:7794 [seller-state] [api-url]  # the repricing desk as the demo seller, with and without a script: the policies and the halt against the API, the halt engaged through its dialog and released (WRITES the halt, released again), the editor's currency, floor and scope count against the API, a new strategy's name and undercut, Preview (a synthetic dry run, drawn live or reloaded) whose body is the compiled preset and whose changed count is the API's, Activate on, then a changed knob saying so with Activate off; at 390 px nothing scrolls sideways, the editor is one column, each table a card per row, every control 44 px tall and every button 4.5:1. It never activates a policy
 node scripts/smoke-market-checkout.mjs http://localhost:7794 [session] [collector-state] [api-url]  # the buy checkout as the collector on a buy-now session it started, with and without a script: the session's lines, the checkout fee and payable total against Payments' quote for what the form sends, Update totals (offered with a script once a choice changes, which says the totals need a refresh) writing the address and shipping option to the session (WRITES the session's review; the shipping option alternates run to run), read after its receipt; at 390 px one column, nothing scrolls sideways, every control 44 px tall and Pay now in the bottom bar; at 1280 px the summary beside the form. It never presses Pay now
@@ -1070,6 +1071,7 @@ postage, storage locations, cart, item and Add to List. What changed:
 | `marketplace/src/inventory_list.rs`, `views/inventory_page.*` | the inventory list: its address (`Place`), the reads, Create Inventory Item (`CreateItem`, the picker shared with Create listing) and Record sale (`SaleInput`, `SaleDraft`), and the page's parts |
 | `marketplace/src/inventory_item.rs`, `views/inventory_item_page.*` | the inventory item page: its address (`ItemPlace`, the ledger filter and a sale's outcome), the read, Adjust Quantity (`AdjustInput`), Create Hold (`HoldInput`), Release hold and Record sale, the forms drawn again (`Drafts`), and the page's parts |
 | `marketplace/src/desk.rs`, `views/desk_page.*` | the Seller Desk: the three reads in parallel (the queue, the listings' status counts at `limit=1`, open orders), what a failed read draws, the summary's words by key (`summary`), the row's link (`link`, the workaround for #10676) and the page's parts |
+| `marketplace/src/support.rs`, `views/support_page.*` | a Support Request's participant page: its address (`Place`), the copied Platform Operations rules (`next_actor`, `deadline`, `offer_outcome`, the gates in `screen`, the workaround for #10715), the canonical request and its hash, the writes and Check status (`write`) and the page's parts |
 | `marketplace/src/money.rs`, `views/money_page.*` | the Seller Desk's money page: its address (`Place`, an adjustment's breakdown), the six reads at once, the copied Settlement rules (`next_payout`, `blocked`, `can_request`, `unavailable`, the workaround for #10712), the five writes (`write`) and the page's parts |
 | `marketplace/src/repricing.rs`, `views/repricing_page.*` | the repricing desk: the presets and their knobs (`Preset`), the editor's address (`Place`) and its compiled body (`Editor::compile`, the workaround for #10682), the reads, the six writes (`write`), the dry run's live relay (`live`) and the page's parts |
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
@@ -2374,9 +2376,40 @@ postage, storage locations, cart, item and Add to List. What changed:
     ([`money.rs`](marketplace/src/money.rs),
     [`money_page.rs`](marketplace/src/views/money_page.rs)).
 
+73. **A Support Request's participant page is the pilot's, and every write on it is one attempt
+    the API can be asked about.** Platform Operations' `account-support-detail` route is
+    `/account/support/{id}` in an area of its own, behind a `SupportMember` (`support.view` to read,
+    `support.manage` to write, as marketplace's loader and action require); anyone but the case's
+    buyer or seller gets Not found. The page shows who acts next with the deadline's countdown, the
+    overview, the evidence prompts, the offer, the seller's response and Request support review,
+    Cancel case, the resolution and the timeline. Which party acts next, the deadline in effect and
+    which forms the viewer gets are Platform Operations' rules in marketplace's web layer
+    ([chase-sets/chase-sets#10715 [platform-operations] Return who acts next on a Support Request, the deadline in effect and the participant's actions from its detail read](https://github.com/chase-sets/chase-sets/issues/10715)):
+    the pilot copies them as written (`next_actor`, `deadline`, `offer_outcome`, `screen`). Every
+    write is a participant attempt: the form's `SubmitKey` is its `Idempotency-Key` (a post without
+    one draws one), and the canonical request (`{version, actionKind, payload}`, keys in the web
+    host's order) is hashed into `X-Support-Request-Hash`; unit tests pin the hash against the web
+    host's function run with tsx. A 400 or 403 applied nothing, so the page says why (the API's words
+    where it gives them; marketplace always says "not sent") and keeps what was typed. Any other
+    failure is looked up once; committed goes on to the page with its receipt, anything else is
+    ambiguous: Check status, with every form's fieldset off. Check status only looks up, and a lookup
+    that finds nothing stays ambiguous, as marketplace's does. The role a write is submitted as is
+    the viewer's, read before the write (marketplace's is a hidden field), a response's offer outcome
+    is derived from its type, and Request support review's reason and a declined offer's summary are
+    the catalog's words. A partial refund's amount is shown by CSS `:has` and checked by the handler,
+    since `required` cannot follow another field without a script
+    ([todd-skelton/corten#269 A field required only for one choice of another field needs a script, so the browser cannot check it before the form is sent](https://github.com/todd-skelton/corten/issues/269)).
+    The timeline is sorted by the moment, not as text (marketplace's text sort puts the read model's
+    `2026-10-28 13:05` before an event's `2026-10-28T09:00`). No script. Not ported: the list of
+    cases with opening a case and its photo uploads (`/account/support`), which stays marketplace's
+    ([`support.rs`](marketplace/src/support.rs),
+    [`support_page.rs`](marketplace/src/views/support_page.rs)).
+
 ## Corten gaps
 
 Closed at the `1f7d68b` pin and adopted: [todd-skelton/corten#208 Money typed into a form is parsed by each app, three different ways, and card-market reads it as f64](https://github.com/todd-skelton/corten/issues/208) (`t.parse_money`; the pilot's own reading of a typed price is gone) and [todd-skelton/corten#235 A Public answer that sets a cookie compiles, and is only made private when it is sent](https://github.com/todd-skelton/corten/issues/235) (public-web's pages are made for everyone, checked when they compile).
+
+Open at the `1f7d68b` pin, found by the Support Request page's port (decision 73): [todd-skelton/corten#269 A field required only for one choice of another field needs a script, so the browser cannot check it before the form is sent](https://github.com/todd-skelton/corten/issues/269), worked around by `:has` for the partial refund's amount and a check in `support.rs`.
 
 Open at the `1f7d68b` pin, found by Projection Operations' port (decision 71): [todd-skelton/corten#257 corten-ui's dialog::modal closes a dialog the address opened without following its close link, so Escape leaves ?selected= behind](https://github.com/todd-skelton/corten/issues/257), worked around by two copies of one script (`views/policy_sheet.js` and `projections/views/detail_sheet.js`).
 
@@ -2479,6 +2512,8 @@ Found in Chase Sets by the search port:
 45. [chase-sets/chase-sets#10707 [identity] A security.manage owner can list another user's or account's consents by naming its ids, or every consent by naming neither](https://github.com/chase-sets/chase-sets/issues/10707), found by reading Identity's consents route for the consent history's port. Not reproduced: the sandbox records no consents (the list answered `total: 0` for the collector and the platform admin). The pilot keeps only the user's own consents (decision 68).
 
 46. [chase-sets/chase-sets#10712 [settlement] Answer the money dashboard's next payout, blocked payouts and payout availability from the Settlement API](https://github.com/chase-sets/chase-sets/issues/10712), found by reading Settlement's money dashboard for its port: three Settlement rules in the web layer, and the blocked one disagrees with the Seller Desk's own source (failed payouts only). The pilot copies the three in `money.rs` until the API answers them (decision 72).
+
+47. [chase-sets/chase-sets#10715 [platform-operations] Return who acts next on a Support Request, the deadline in effect and the participant's actions from its detail read](https://github.com/chase-sets/chase-sets/issues/10715), found by reading the Support Request detail page for its port: who acts next, the deadline and which actions a participant gets are worked out in the web layer. The pilot copies them in `support.rs` until the detail read answers them (decision 73).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`

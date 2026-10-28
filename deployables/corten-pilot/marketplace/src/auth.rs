@@ -18,8 +18,8 @@ use crate::{
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
         MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PAYOUTS_VIEW,
-        PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, Shared, VIEW, sign_in_at,
-        sign_in_back_to,
+        PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, SUPPORT_MANAGE, SUPPORT_VIEW, Shared,
+        VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -295,6 +295,25 @@ impl Identify<Shared> for PayoutViewer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer) if viewer.actor.can(PAYOUTS_VIEW) => Ok(PayoutViewer(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A buyer or seller on a Support Request's page (Platform Operations' `account-support-detail`):
+/// reading needs `support.view` and every write `support.manage`, as marketplace's loader and action
+/// require; the page then answers Not found to anyone but the case's buyer or seller, and the API
+/// checks it all again. Anyone not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct SupportMember(pub Viewer);
+
+impl Identify<Shared> for SupportMember {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { SUPPORT_VIEW } else { SUPPORT_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(SupportMember(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

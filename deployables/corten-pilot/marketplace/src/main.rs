@@ -47,6 +47,7 @@ mod sets;
 mod shipments;
 mod sign_in;
 mod submitted_offers;
+mod support;
 mod team;
 mod text;
 mod uploads;
