@@ -445,7 +445,14 @@ describe("producer dispatch-loss reconciliation", () => {
       ],
       {
         policyRevision,
-        policyContent: JSON.stringify({ enabled: true }),
+        policyContent: JSON.stringify({
+          schemaVersion: "merge-qualification-policy/v1",
+          enabled: true,
+          owner: "synthetic-owner",
+          ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+          enabledAt: "2026-07-20T00:00:00Z",
+          expiresAt: "2026-08-10T00:00:00Z",
+        }),
         producerRuns: { total_count: 1, workflow_runs: [producer()] },
         advisoryRuns: { total_count: 0, workflow_runs: [] },
         jobs: { total_count: 1, jobs: [{ id: 77, name: "Docker Image Build", conclusion: "skipped", steps: [] }] },
@@ -524,57 +531,74 @@ describe("producer dispatch-loss reconciliation", () => {
       cleanupFiles: {},
       expectedState: "awaiting_advisory_cleanup",
     },
-  ])("runs the producer terminal downloader for a $name", ({ cleanupArtifacts, cleanupFiles, expectedState }) => {
-    const loss = reconcileMergeQualificationProducerAttempt({
-      producer: producer(),
-      candidate,
-      policy: { enabled: true },
-      advisoryRun: null,
-      now,
-    }).event;
-    const terminalName = "merge-qualification-producer-terminal-4000-1";
-    const cleanupName = "merge-qualification-cleanup-complete-5000-1";
-    const result = runQualificationCli(
-      [
-        "producer-terminal-inventory",
-        "--repository",
-        "chase-sets/chase-sets",
-        "--default-branch",
-        "main",
-        "--producer",
-        "__CLI_PRODUCER__",
-        "--advisory-run",
-        "__CLI_ADVISORY__",
-        "--out",
-        "__CLI_OUTPUT__",
-      ],
-      {
-        producer: producer(),
-        advisory: {
-          id: 5000,
-          run_attempt: 1,
-          repository: { full_name: "chase-sets/chase-sets" },
-          path: ".github/workflows/platform-merge-qualification.yml",
-          event: "workflow_dispatch",
-        },
-        artifacts: {
-          [terminalName]: [artifact(1, terminalName, 9000)],
-          [cleanupName]: cleanupArtifacts,
-          "merge-qualification-terminal-5000-1": [],
-        },
-        downloads: {
-          [terminalName]: { "event.json": JSON.stringify(loss) },
-          [cleanupName]: cleanupFiles,
-        },
-        owners: { 9000: observerWriter(9000), 9001: observerWriter(9001) },
+    {
+      name: "cleanup marker with an extra file",
+      cleanupArtifacts: [artifact(2, "merge-qualification-cleanup-complete-5000-1", 9001)],
+      cleanupFiles: {
+        "cleanup-complete.json": JSON.stringify({ runId: "5000", runAttempt: "1", cleanup: "complete" }),
+        "extra.json": "{}",
       },
-    );
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.files.output)).toMatchObject({
-      state: expectedState,
-      advisoryCleanupComplete: expectedState === "advisory_cleanup_complete",
-    });
-  });
+      expectedError: "terminal_payload_extra_files",
+    },
+  ])(
+    "runs the producer terminal downloader for a $name",
+    ({ cleanupArtifacts, cleanupFiles, expectedState, expectedError }) => {
+      const loss = reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        advisoryRun: null,
+        now,
+      }).event;
+      const terminalName = "merge-qualification-producer-terminal-4000-1";
+      const cleanupName = "merge-qualification-cleanup-complete-5000-1";
+      const result = runQualificationCli(
+        [
+          "producer-terminal-inventory",
+          "--repository",
+          "chase-sets/chase-sets",
+          "--default-branch",
+          "main",
+          "--producer",
+          "__CLI_PRODUCER__",
+          "--advisory-run",
+          "__CLI_ADVISORY__",
+          "--out",
+          "__CLI_OUTPUT__",
+        ],
+        {
+          producer: producer(),
+          advisory: {
+            id: 5000,
+            run_attempt: 1,
+            repository: { full_name: "chase-sets/chase-sets" },
+            path: ".github/workflows/platform-merge-qualification.yml",
+            event: "workflow_dispatch",
+          },
+          artifacts: {
+            [terminalName]: [artifact(1, terminalName, 9000)],
+            [cleanupName]: cleanupArtifacts,
+            "merge-qualification-terminal-5000-1": [],
+          },
+          downloads: {
+            [terminalName]: { "event.json": JSON.stringify(loss) },
+            [cleanupName]: cleanupFiles,
+          },
+          owners: { 9000: observerWriter(9000), 9001: observerWriter(9001) },
+        },
+      );
+      if (expectedError) {
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(expectedError);
+        return;
+      }
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.files.output)).toMatchObject({
+        state: expectedState,
+        advisoryCleanupComplete: expectedState === "advisory_cleanup_complete",
+      });
+    },
+  );
 
   it.each([
     { name: "an extra file", terminalFiles: { "event.json": "{}", "extra.json": "{}" } },
@@ -1082,121 +1106,108 @@ describe("producer dispatch-loss reconciliation", () => {
     ).toMatchObject({ state: "awaiting_tick", reason: "awaiting_advisory_dispatch_tick" });
   });
 
-  it("propagates policy authority errors through the real reconcile CLI", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "qualification-cli-"));
-    const out = path.join(dir, "out");
-    const producerPath = path.join(dir, "producer.json");
-    writeFileSync(producerPath, JSON.stringify(producer()));
-    const code = await main([
-      "producer-reconcile",
-      "--producer",
-      producerPath,
-      "--policy-authority-error",
-      "producer_policy_landing_evidence_unavailable",
-      "--github-output",
-      out,
-    ]);
-    expect(code).toBe(1);
-    expect(readFileSync(out, "utf8")).toContain("state=unknown");
-    rmSync(dir, { recursive: true, force: true });
-  });
-
   it("accepts the observer's explicit cleanup value flag in the real reconcile CLI", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "qualification-cli-"));
-    const producerPath = path.join(dir, "producer.json");
-    const candidatePath = path.join(dir, "candidate.json");
-    const policyPath = path.join(dir, "policy.json");
-    const terminalPath = path.join(dir, "terminal.json");
-    const outPath = path.join(dir, "out.json");
-    writeFileSync(producerPath, JSON.stringify(producer()));
-    writeFileSync(candidatePath, JSON.stringify(candidate));
-    writeFileSync(
-      policyPath,
-      JSON.stringify({
-        schemaVersion: "merge-qualification-policy/v1",
-        enabled: true,
-        owner: "todd.skelton@chasesets.com",
-        ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
-        enabledAt: "2026-07-20T00:00:00Z",
-        expiresAt: "2026-08-10T00:00:00Z",
-      }),
-    );
-    const loss = reconcileMergeQualificationProducerAttempt({
-      producer: producer(),
-      candidate,
-      policy: { enabled: true },
-      now,
-    }).event;
-    writeFileSync(terminalPath, JSON.stringify(loss));
-    const code = await main([
-      "producer-reconcile",
-      "--producer",
-      producerPath,
-      "--candidate",
-      candidatePath,
-      "--policy",
-      policyPath,
-      "--advisory-run",
-      terminalPath,
-      "--existing-terminal",
-      terminalPath,
-      "--advisory-cleanup-complete",
-      "true",
-      "--out",
-      outPath,
-      "--now",
-      now.toISOString(),
-    ]);
-    expect(code).toBe(0);
-    expect(JSON.parse(readFileSync(outPath, "utf8"))).toMatchObject({ terminalState: "conflict" });
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      const producerPath = path.join(dir, "producer.json");
+      const candidatePath = path.join(dir, "candidate.json");
+      const policyPath = path.join(dir, "policy.json");
+      const terminalPath = path.join(dir, "terminal.json");
+      const outPath = path.join(dir, "out.json");
+      writeFileSync(producerPath, JSON.stringify(producer()));
+      writeFileSync(candidatePath, JSON.stringify(candidate));
+      writeFileSync(
+        policyPath,
+        JSON.stringify({
+          schemaVersion: "merge-qualification-policy/v1",
+          enabled: true,
+          owner: "todd.skelton@chasesets.com",
+          ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+          enabledAt: "2026-07-20T00:00:00Z",
+          expiresAt: "2026-08-10T00:00:00Z",
+        }),
+      );
+      const loss = reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        now,
+      }).event;
+      writeFileSync(terminalPath, JSON.stringify(loss));
+      const code = await main([
+        "producer-reconcile",
+        "--producer",
+        producerPath,
+        "--candidate",
+        candidatePath,
+        "--policy",
+        policyPath,
+        "--advisory-run",
+        terminalPath,
+        "--existing-terminal",
+        terminalPath,
+        "--advisory-cleanup-complete",
+        "true",
+        "--out",
+        outPath,
+        "--now",
+        now.toISOString(),
+      ]);
+      expect(code).toBe(0);
+      expect(JSON.parse(readFileSync(outPath, "utf8"))).toMatchObject({ terminalState: "conflict" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps the policy authority error as the CLI's authoritative unknown", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "qualification-cli-"));
-    const producerPath = path.join(dir, "producer.json");
-    const candidatePath = path.join(dir, "candidate.json");
-    const policyPath = path.join(dir, "policy.json");
-    const outPath = path.join(dir, "out");
-    writeFileSync(producerPath, JSON.stringify(producer()));
-    writeFileSync(candidatePath, JSON.stringify(candidate));
-    writeFileSync(
-      policyPath,
-      JSON.stringify({
-        schemaVersion: "merge-qualification-policy/v1",
-        enabled: true,
-        owner: "todd.skelton@chasesets.com",
-        ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
-        enabledAt: "2026-07-20T00:00:00Z",
-        expiresAt: "2026-08-10T00:00:00Z",
-      }),
-    );
-    const result = reconcileMergeQualificationProducerAttempt({
-      producer: producer(),
-      candidate,
-      policy: { enabled: true },
-      policyAuthorityError: "producer_policy_landing_evidence_unavailable",
-      now,
-    });
-    expect(result).toMatchObject({ state: "unknown", reason: "producer_policy_landing_evidence_unavailable" });
-    const code = await main([
-      "producer-reconcile",
-      "--producer",
-      producerPath,
-      "--candidate",
-      candidatePath,
-      "--policy",
-      policyPath,
-      "--policy-authority-error",
-      "producer_policy_landing_evidence_unavailable",
-      "--github-output",
-      outPath,
-      "--now",
-      now.toISOString(),
-    ]);
-    expect(code).toBe(1);
-    expect(readFileSync(outPath, "utf8")).toContain("state=unknown");
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      const producerPath = path.join(dir, "producer.json");
+      const candidatePath = path.join(dir, "candidate.json");
+      const policyPath = path.join(dir, "policy.json");
+      const outPath = path.join(dir, "out");
+      writeFileSync(producerPath, JSON.stringify(producer()));
+      writeFileSync(candidatePath, JSON.stringify(candidate));
+      writeFileSync(
+        policyPath,
+        JSON.stringify({
+          schemaVersion: "merge-qualification-policy/v1",
+          enabled: true,
+          owner: "todd.skelton@chasesets.com",
+          ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+          enabledAt: "2026-07-20T00:00:00Z",
+          expiresAt: "2026-08-10T00:00:00Z",
+        }),
+      );
+      const result = reconcileMergeQualificationProducerAttempt({
+        producer: producer(),
+        candidate,
+        policy: { enabled: true },
+        policyAuthorityError: "producer_policy_landing_evidence_unavailable",
+        now,
+      });
+      expect(result).toMatchObject({ state: "unknown", reason: "producer_policy_landing_evidence_unavailable" });
+      const code = await main([
+        "producer-reconcile",
+        "--producer",
+        producerPath,
+        "--candidate",
+        candidatePath,
+        "--policy",
+        policyPath,
+        "--policy-authority-error",
+        "producer_policy_landing_evidence_unavailable",
+        "--github-output",
+        outPath,
+        "--now",
+        now.toISOString(),
+      ]);
+      expect(code).toBe(1);
+      expect(readFileSync(outPath, "utf8")).toContain("state=unknown");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("waits for cleanup before conflict and settles a two-record replay", () => {
