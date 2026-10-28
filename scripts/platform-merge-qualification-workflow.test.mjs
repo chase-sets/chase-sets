@@ -84,6 +84,12 @@ describe("producer-loss authority pins", () => {
     expect(mergeQualification).toContain(
       "entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName",
     );
+    const producerTerminalCli = mergeQualification.slice(
+      mergeQualification.indexOf('if (command === "producer-terminal-inventory")'),
+      mergeQualification.indexOf('if (command === "terminal-inventory")'),
+    );
+    expect(producerTerminalCli).toContain("const file = path.join(directory, fileName);");
+    expect(producerTerminalCli).toContain('throw new Error("terminal_payload_extra_files");');
     expect(mergeQualification).toContain('fileName: name.startsWith("merge-qualification-cleanup-complete-")');
   });
   it("inspects only image-eligible producers and uses the advisory run head for recovery", () => {
