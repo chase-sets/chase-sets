@@ -292,6 +292,8 @@ export const committedCallers = [
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40078269313.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40191794836.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40217094516.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40252660960-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40252660960.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40503475846.json",
   "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
