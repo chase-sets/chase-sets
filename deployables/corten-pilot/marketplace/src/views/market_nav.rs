@@ -7,9 +7,9 @@ use crate::{
     text::Pilot,
 };
 
-/// The nav entries the pilot serves, by the exact path marketplace's nav names. Not `app::serves`,
-/// which answers for every path under an area's prefix, `/account/inventory/imports` too, which
-/// the inventory area does not route (todd-skelton/corten#203).
+/// The nav entries the pilot serves, by the exact path marketplace's nav names. Not `Req::serves`:
+/// the pilot routes `/account/sales/shipments` only to send it on to marketplace's command center
+/// (chase-sets/chase-sets#10638), and a nav entry should not take that extra hop.
 const OWN: &[&str] = &[
     <url::Locations as Route>::PATH,
     <url::Restock as Route>::PATH,

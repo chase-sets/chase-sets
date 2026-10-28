@@ -29,8 +29,8 @@
 use std::time::{Duration, SystemTime};
 
 use corten::{
-    ClientIp,
-    axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
+    ClientIp, Local,
+    axum::http::{HeaderMap, StatusCode, Uri},
     i18n::parse_timestamp,
     prelude::*,
     security::cookie::{self, SetCookie},
@@ -41,7 +41,7 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{ApiError, Caller, Method as Http, segment},
-    app::{Config, Shared, serves, url},
+    app::{Config, Shared, url},
     text::{Pilot, SignInMsg},
     views::{self, Layout},
 };
@@ -168,26 +168,21 @@ impl Kind {
     }
 }
 
-/// marketplace's `getSafeReturnTo`: a path on this site, else `fallback`. Stricter than
-/// marketplace's: a backslash is refused, since a browser reads `/\host` as `//host`, another
-/// site ([chase-sets/chase-sets#10687](https://github.com/chase-sets/chase-sets/issues/10687)).
+/// marketplace's `getSafeReturnTo`: a path on this site (`Local`), else `fallback`. Stricter
+/// than marketplace's: `/\host`, which a browser reads as `//host`, another site
+/// ([chase-sets/chase-sets#10687](https://github.com/chase-sets/chase-sets/issues/10687)), a
+/// control character, and a `.` or `..` segment are refused.
 pub fn safe_return_to(value: Option<&str>, fallback: &str) -> String {
-    match value {
-        Some(path)
-            if path.starts_with('/')
-                && !path.starts_with("//")
-                && !path.contains(['\\'])
-                && !path.chars().any(char::is_control) =>
-        {
-            path.to_owned()
-        }
-        _ => fallback.to_owned(),
-    }
+    value.and_then(Local::parse).map_or_else(|| fallback.to_owned(), |path| path.to_string())
 }
 
-/// Where a path on the site is: the pilot's page when it serves it, marketplace's otherwise.
-pub fn destination(path: &str) -> Option<Uri> {
-    if serves(path) { path.parse().ok() } else { views::marketplace(path) }
+/// Where a path on the site is: the pilot's page when it has one there (`Req::serves`),
+/// marketplace's otherwise.
+pub fn destination(req: &Req, path: &str) -> Option<Uri> {
+    match Local::parse(path) {
+        Some(local) if req.serves(&local) => local.to_string().parse().ok(),
+        _ => views::marketplace(path),
+    }
 }
 
 /// Marketplace's sign-in, for what the pilot does not do (a passkey): back to the same place with
@@ -386,16 +381,8 @@ fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, String)
 }
 
 /// A cookie, Secure only when browsers reach the pilot over https.
-fn set(config: &Config, cookie: SetCookie) -> HeaderValue {
-    if config.proto == "https" { cookie.header() } else { cookie.insecure().header() }
-}
-
-/// A token the API wrote, as a cookie's value: `SetCookie::new` panics on one it cannot carry, so
-/// the pilot checks it first and answers 502 for the API's mistake
-/// ([todd-skelton/corten#204](https://github.com/todd-skelton/corten/issues/204)).
-fn cookie_value(token: &str) -> Result<&str, corten::Error> {
-    let carried = !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic() && !matches!(b, b';' | b',' | b'"' | b'\\'));
-    if carried { Ok(token) } else { Err(corten::Error::status(StatusCode::BAD_GATEWAY)) }
+fn secure(config: &Config, cookie: SetCookie) -> SetCookie {
+    if config.proto == "https" { cookie } else { cookie.insecure() }
 }
 
 /// Seconds until `expires_at`, none past it (`maxAgeSecondsFromExpiry`).
@@ -407,12 +394,19 @@ fn seconds_until(expires_at: &str) -> i64 {
 /// The browser signed in (`completeBrowserAuthentication`): the session's cookie and back to
 /// `return_to`, or the selection's cookie and the choice of account, which then goes there.
 fn complete(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
-    let (Authenticated::SessionStarted { session_token: token, .. }
-    | Authenticated::AccountSelectionRequired { selection_token: token, .. }) = &result;
-    cookie_value(token)?;
-    let mut res = match &result {
+    // A token the API wrote that a cookie cannot carry is the API's mistake: 502, not a panic.
+    let keep = match &result {
+        Authenticated::SessionStarted { session_token, session } => {
+            SetCookie::try_new(SESSION_COOKIE, session_token).map(|c| c.max_age(seconds_until(&session.expires_at)))
+        }
+        Authenticated::AccountSelectionRequired { selection_token, selection_expires_at } => {
+            SetCookie::try_new(SELECTION_COOKIE, selection_token).map(|c| c.max_age(seconds_until(selection_expires_at)))
+        }
+    };
+    let keep = keep.map_err(|_| corten::Error::status(StatusCode::BAD_GATEWAY))?;
+    let res = match &result {
         Authenticated::SessionStarted { .. } => {
-            let to = destination(return_to).or_else(|| views::marketplace(DEFAULT_SUCCESS));
+            let to = destination(req, return_to).or_else(|| views::marketplace(DEFAULT_SUCCESS));
             let to = to.ok_or_else(|| corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR))?;
             req.redirect(&to)?
         }
@@ -420,19 +414,7 @@ fn complete(req: &Req, config: &Config, return_to: &str, result: Authenticated) 
             req.redirect(&url::AccountSelect { back: Back { return_to: Some(return_to.to_owned()) } })?
         }
     };
-    let headers = res.headers_mut();
-    headers.append(header::SET_COOKIE, set(config, SetCookie::remove(SELECTION_COOKIE)));
-    match result {
-        Authenticated::SessionStarted { session_token, session } => {
-            let keep = SetCookie::new(SESSION_COOKIE, &session_token).max_age(seconds_until(&session.expires_at));
-            headers.append(header::SET_COOKIE, set(config, keep));
-        }
-        Authenticated::AccountSelectionRequired { selection_token, selection_expires_at } => {
-            let keep = SetCookie::new(SELECTION_COOKIE, &selection_token).max_age(seconds_until(&selection_expires_at));
-            headers.append(header::SET_COOKIE, set(config, keep));
-        }
-    }
-    Ok(res)
+    Ok(res.with_cookie(secure(config, SetCookie::remove(SELECTION_COOKIE))).with_cookie(secure(config, keep)))
 }
 
 fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
@@ -674,7 +656,7 @@ pub(crate) async fn sign_out(req: Req, State(config): State<Shared>, headers: He
     }
     let mut res = req.redirect(&url::Search::default())?;
     for name in [SELECTION_COOKIE, SESSION_COOKIE, GUEST_CHECKOUT_COOKIE] {
-        res.headers_mut().append(header::SET_COOKIE, set(&config, SetCookie::remove(name)));
+        res = res.with_cookie(secure(&config, SetCookie::remove(name)));
     }
     Ok(res)
 }

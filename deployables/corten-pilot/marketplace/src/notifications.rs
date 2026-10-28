@@ -129,7 +129,8 @@ pub fn open_href(href: &str) -> Option<String> {
 }
 
 /// Whether the pilot serves the page at `href`. Of the seller's shipments only a shipment's own
-/// page is the pilot's: the list, the packing slips and the packing flow are marketplace's.
+/// page is the pilot's: the list, the packing slips and the packing flow are marketplace's. Not
+/// `Req::serves`, which would keep the list here only for the pilot to send it to marketplace.
 fn served_here(href: &str) -> bool {
     const HERE: [&str; 12] = [
         "/items/",

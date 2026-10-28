@@ -1310,6 +1310,8 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     Some(match path {
         "/api/auth/password-sign-in" => match (text("email").as_str(), text("password").as_str()) {
             ("collector@example.test", "right") => started("tok_collector"),
+            // A token a cookie cannot carry (todd-skelton/corten#204).
+            ("garbled@example.test", "right") => started("tok;Path=/evil"),
             ("member@example.test", "right") => Json(json!({
                 "type": "account-selection-required", "userId": "usr_2", "selectionToken": "sel_1",
                 "selectionExpiresAt": later, "memberships": [],
@@ -9621,6 +9623,11 @@ async fn a_password_starts_the_session_and_goes_back_to_the_pilot_or_marketplace
 
     for (return_to, to) in [
         ("%2Faccount%2Fmessages", "http://localhost:7753/account/messages"),
+        // Under an area the pilot has, but a page it does not route (`Req::serves`): marketplace's.
+        ("%2Faccount%2Finventory%2Fimports", "http://localhost:7753/account/inventory/imports"),
+        ("%2Faccount%2Foffers%2Fsubmitted%2Fofr_1", "http://localhost:7753/account/offers/submitted/ofr_1"),
+        // A route the pilot has: its page, with the query.
+        ("%2Faccount%2Finventory%2Fitems%2Finv_1%3FledgerKind%3Dadjusted", "/account/inventory/items/inv_1?ledgerKind=adjusted"),
         // No return address, or one that leaves the site: the pilot's account page.
         ("", "/account"),
         ("%2F%2Fexample.com%2F", "/account"),
@@ -9632,6 +9639,15 @@ async fn a_password_starts_the_session_and_goes_back_to_the_pilot_or_marketplace
         assert_eq!(status, StatusCode::SEE_OTHER, "{return_to}");
         assert_eq!(headers[header::LOCATION], to, "{return_to}");
     }
+}
+
+#[tokio::test]
+async fn a_token_a_cookie_cannot_carry_is_the_apis_mistake_not_a_panic() {
+    let pilot = Pilot::new().await;
+    let body = "intent=password&email=garbled%40example.test&password=right";
+    let (status, headers, _) = pilot.send(sign_in_post("/sign-in?returnTo=%2Faccount%2Fcart", None, body)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(headers.get(header::SET_COOKIE).is_none(), "no cookie is set: {headers:?}");
 }
 
 #[tokio::test]

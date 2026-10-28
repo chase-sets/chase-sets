@@ -165,7 +165,8 @@ pub mod url {
 
     /// The account's own page (Identity's `account`): its profile and Update Profile. Every handler
     /// takes an `AccountOwner` (`accounts.view` to read, `accounts.manage` to write). Its prefix
-    /// holds every other `/account/..` area, so it is not in `AREAS`: `serves` names its path.
+    /// holds every other `/account/..` area, so its stylesheet is in `App::components` (as Corten's
+    /// styles guide says for a page whose path is the prefix of other areas).
     #[corten::routes(state = crate::app::Shared, area = AccountHome, caller = crate::auth::AccountOwner)]
     pub mod account_home {
         /// The page, read after the write whose receipt it carries, and the profile's update.
@@ -936,46 +937,6 @@ pub fn sign_in_at(path: &str) -> Option<Uri> {
 /// The pilot's sign-in, coming back to `page` (a path and its query).
 pub fn sign_in_back_to(page: &str) -> Option<Uri> {
     url::SignIn { ask: crate::sign_in::Ask::back_to(page) }.href().parse().ok()
-}
-
-/// The start of every path the pilot serves: its areas' prefixes. Corten cannot say whether an
-/// app routes a path ([todd-skelton/corten#203](https://github.com/todd-skelton/corten/issues/203)), so this lists them; a path under one that the area
-/// does not route is the pilot's not-found page.
-const AREAS: &[&str] = &[
-    <url::search::Search as corten::route::Prefix>::PREFIX,
-    <url::categories::Categories as corten::route::Prefix>::PREFIX,
-    <url::accounts::AccountsArea as corten::route::Prefix>::PREFIX,
-    <url::listings::ListingsArea as corten::route::Prefix>::PREFIX,
-    <url::sets::Sets as corten::route::Prefix>::PREFIX,
-    <url::items::ItemsArea as corten::route::Prefix>::PREFIX,
-    <url::inventory::Inventory as corten::route::Prefix>::PREFIX,
-    <url::notifications::Notifications as corten::route::Prefix>::PREFIX,
-    <url::addresses::ShippingAddresses as corten::route::Prefix>::PREFIX,
-    <url::security::Security as corten::route::Prefix>::PREFIX,
-    <url::sessions::Sessions as corten::route::Prefix>::PREFIX,
-    <url::new_listing::NewListing as corten::route::Prefix>::PREFIX,
-    <url::seller_listings::SellerListings as corten::route::Prefix>::PREFIX,
-    <url::desk::Desk as corten::route::Prefix>::PREFIX,
-    <url::repricing::Repricing as corten::route::Prefix>::PREFIX,
-    <url::offer_matches::OfferMatches as corten::route::Prefix>::PREFIX,
-    <url::submitted_offers::SubmittedOffers as corten::route::Prefix>::PREFIX,
-    <url::purchases::Purchases as corten::route::Prefix>::PREFIX,
-    <url::sales::Sales as corten::route::Prefix>::PREFIX,
-    <url::shipments::Shipments as corten::route::Prefix>::PREFIX,
-    <url::sale_shipments::SaleShipments as corten::route::Prefix>::PREFIX,
-    <url::checkout::BuyCheckoutArea as corten::route::Prefix>::PREFIX,
-    <url::cart::Cart as corten::route::Prefix>::PREFIX,
-    <url::sign_in::SignIn as corten::route::Prefix>::PREFIX,
-    <url::account_select::AccountSelect as corten::route::Prefix>::PREFIX,
-];
-
-/// Whether `path` (a path, maybe with a query) is one of the pilot's pages: the home page, the
-/// account's page, or a path under one of its areas' prefixes.
-pub fn serves(path: &str) -> bool {
-    let path = path.split(['?', '#']).next().unwrap_or_default();
-    path == "/"
-        || path == <url::AccountHome as corten::route::Prefix>::PREFIX
-        || AREAS.iter().any(|prefix| path == *prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/')))
 }
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
