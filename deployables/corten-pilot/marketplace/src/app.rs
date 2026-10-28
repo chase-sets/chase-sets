@@ -26,6 +26,7 @@
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
+//! | `GET /account?<place>`, `POST /account` | the account's own page and its profile's update (see `account_home`) |
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
@@ -112,6 +113,7 @@ pub type Shared = Arc<Config>;
 /// Every URL the pilot serves, by area. Each area's routes module names each route's handler and
 /// the caller every handler there takes.
 pub mod url {
+    pub use account_home::AccountHome;
     pub use account_select::AccountSelect;
     pub use accounts::{Account, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
@@ -151,6 +153,20 @@ pub mod url {
         pub struct Home {
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+    }
+
+    /// The account's own page (Identity's `account`): its profile and Update Profile. Every handler
+    /// takes an `AccountOwner` (`accounts.view` to read, `accounts.manage` to write). Its prefix
+    /// holds every other `/account/..` area, so it is not in `AREAS`: `serves` names its path.
+    #[corten::routes(state = crate::app::Shared, area = AccountHome, caller = crate::auth::AccountOwner)]
+    pub mod account_home {
+        /// The page, read after the write whose receipt it carries, and the profile's update.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account", get = crate::account_home::page, post = crate::account_home::update)]
+        pub struct AccountHome {
+            #[route(query)]
+            pub place: crate::account_home::Place,
         }
     }
 
@@ -895,11 +911,12 @@ const AREAS: &[&str] = &[
     <url::account_select::AccountSelect as corten::route::Prefix>::PREFIX,
 ];
 
-/// Whether `path` (a path, maybe with a query) is one of the pilot's pages: the home page, or a
-/// path under one of its areas' prefixes.
+/// Whether `path` (a path, maybe with a query) is one of the pilot's pages: the home page, the
+/// account's page, or a path under one of its areas' prefixes.
 pub fn serves(path: &str) -> bool {
     let path = path.split(['?', '#']).next().unwrap_or_default();
     path == "/"
+        || path == <url::AccountHome as corten::route::Prefix>::PREFIX
         || AREAS.iter().any(|prefix| path == *prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/')))
 }
 
@@ -926,6 +943,8 @@ pub fn app(config: Config) -> App {
         // stylesheet for `/` alone would trade for a blocking request on the most visited page
         // (todd-skelton/corten#95, measured there).
         .components(views::SEARCH)
+        .components(views::ACCOUNT_HOME)
+        .area(|area| url::account_home::area(area, shared.clone()))
         .area(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area(|area| url::cart::area(area, shared.clone()).components(views::CART))
         .area(|area| url::checkout::area(area, shared.clone()).components(views::CHECKOUT))

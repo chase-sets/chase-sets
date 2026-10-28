@@ -106,6 +106,9 @@
     "suggested": "Suggested address",
     "entered": "Address entered"
   },
+  "account_home": {
+    "pending": "Your profile is still updating. This page reads it again in a moment."
+  },
   "listing_new": {
     "find": "Find",
     "choose": "Choose",

@@ -3275,31 +3275,34 @@ pub struct SuggestedAddress {
     pub country: String,
 }
 
-/// A shipping address write (Identity's `MutationAction` for the address book).
+/// An Identity account-management write the pilot sends (`MutationAction`): the address book's
+/// four, and the account's profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
-pub enum AddressAction {
+pub enum AccountAction {
     Create,
     Update,
     Default,
     Archive,
+    UpdateProfile,
 }
 
-impl AddressAction {
+impl AccountAction {
     pub fn as_str(self) -> &'static str {
         match self {
-            AddressAction::Create => "create",
-            AddressAction::Update => "update",
-            AddressAction::Default => "default",
-            AddressAction::Archive => "archive",
+            AccountAction::Create => "create",
+            AccountAction::Update => "update",
+            AccountAction::Default => "default",
+            AccountAction::Archive => "archive",
+            AccountAction::UpdateProfile => "update-profile",
         }
     }
 }
 
-/// What Identity answered about an attempt (`MutationResult`).
+/// What Identity answered about an account-management attempt (`MutationResult`).
 #[derive(Clone, Debug, PartialEq)]
-pub enum AddressAnswer {
-    /// Recorded, now or before: the receipt the list waits for (from the headers, or the lookup's
+pub enum AccountAnswer {
+    /// Recorded, now or before: the receipt the page waits for (from the headers, or the lookup's
     /// `destination`).
     Committed(Option<String>),
     /// Nothing was recorded, for `code`: `validation-failed` (with the field a required-field
@@ -3343,7 +3346,7 @@ fn after_write_of(destination: &str) -> Option<String> {
     Receipt::from_param(Some(&twice)).map(|r| r.param())
 }
 
-impl AddressAnswer {
+impl AccountAnswer {
     /// The answer `status` and `body` say; an error the page handles itself (sign in, forbidden,
     /// anything else) is `Err`.
     fn read(status: u16, body: &str, receipt: Option<Receipt>) -> Result<Self, ApiError> {
@@ -3353,19 +3356,19 @@ impl AddressAnswer {
         match (status, outcome) {
             (200, Some("committed")) => {
                 let from_destination = parsed.as_ref().and_then(|b| b.destination.as_deref()).and_then(after_write_of);
-                Ok(AddressAnswer::Committed(receipt.map(|r| r.param()).or(from_destination)))
+                Ok(AccountAnswer::Committed(receipt.map(|r| r.param()).or(from_destination)))
             }
-            (200 | 400, Some("not-recorded")) => Ok(AddressAnswer::NotRecorded {
+            (200 | 400, Some("not-recorded")) => Ok(AccountAnswer::NotRecorded {
                 code,
                 field: None,
                 suggested: parsed.and_then(|b| b.suggested_address).map(Box::new),
             }),
-            (200 | 409, Some("conflict")) => Ok(AddressAnswer::Conflict),
-            (_, Some("indeterminate")) | (500..=599, _) => Ok(AddressAnswer::Indeterminate),
+            (200 | 409, Some("conflict")) => Ok(AccountAnswer::Conflict),
+            (_, Some("indeterminate")) | (500..=599, _) => Ok(AccountAnswer::Indeterminate),
             (400, None) => {
                 let error = parsed.and_then(|b| b.error);
                 match error {
-                    Some(AnswerError { code: Some(c), details }) if c == "validation_failed" => Ok(AddressAnswer::NotRecorded {
+                    Some(AnswerError { code: Some(c), details }) if c == "validation_failed" => Ok(AccountAnswer::NotRecorded {
                         code: "validation-failed".into(),
                         field: details.into_iter().find_map(|d| d.field),
                         suggested: None,
@@ -3377,7 +3380,7 @@ impl AddressAnswer {
                     }),
                 }
             }
-            (200, _) => Ok(AddressAnswer::Indeterminate),
+            (200, _) => Ok(AccountAnswer::Indeterminate),
             _ => {
                 let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
                 Err(ApiError::Status { status, code: Some(code).filter(|c| !c.is_empty()), message: String::new() })
@@ -3397,18 +3400,18 @@ pub trait Addresses {
     async fn write_address(
         &self,
         account: &str,
-        action: AddressAction,
+        action: AccountAction,
         target: Option<&str>,
         attempt: &str,
         command: Option<&AddressCommand>,
-    ) -> Result<AddressAnswer, ApiError>;
-    /// What came of `attempt` (Identity's attempt lookup).
-    async fn address_attempt(
+    ) -> Result<AccountAnswer, ApiError>;
+    /// What came of `attempt` (Identity's attempt lookup), for any account-management action.
+    async fn account_attempt(
         &self,
-        action: AddressAction,
+        action: AccountAction,
         target: Option<&str>,
         attempt: &str,
-    ) -> Result<AddressAnswer, ApiError>;
+    ) -> Result<AccountAnswer, ApiError>;
 }
 
 impl Addresses for Caller<'_> {
@@ -3421,18 +3424,19 @@ impl Addresses for Caller<'_> {
     async fn write_address(
         &self,
         account: &str,
-        action: AddressAction,
+        action: AccountAction,
         target: Option<&str>,
         attempt: &str,
         command: Option<&AddressCommand>,
-    ) -> Result<AddressAnswer, ApiError> {
+    ) -> Result<AccountAnswer, ApiError> {
         let book = format!("/api/identity/accounts/{}/shipping-addresses", segment(account));
         let target = target.map(segment).unwrap_or_default();
         let (method, path) = match action {
-            AddressAction::Create => (Method::POST, book),
-            AddressAction::Update => (Method::PUT, format!("{book}/{target}")),
-            AddressAction::Default => (Method::POST, format!("{book}/{target}/default")),
-            AddressAction::Archive => (Method::POST, format!("{book}/{target}/archive")),
+            AccountAction::Create => (Method::POST, book),
+            AccountAction::Update => (Method::PUT, format!("{book}/{target}")),
+            AccountAction::Default => (Method::POST, format!("{book}/{target}/default")),
+            AccountAction::Archive => (Method::POST, format!("{book}/{target}/archive")),
+            AccountAction::UpdateProfile => unreachable!("a profile is not in the address book: AccountCalls::update_profile"),
         };
         let req = self.request(method, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt);
         let req = match command {
@@ -3442,15 +3446,15 @@ impl Addresses for Caller<'_> {
         let res = req.send().await?;
         let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
         let body = res.text().await?;
-        AddressAnswer::read(status, &body, receipt)
+        AccountAnswer::read(status, &body, receipt)
     }
 
-    async fn address_attempt(
+    async fn account_attempt(
         &self,
-        action: AddressAction,
+        action: AccountAction,
         target: Option<&str>,
         attempt: &str,
-    ) -> Result<AddressAnswer, ApiError> {
+    ) -> Result<AccountAnswer, ApiError> {
         let mut path = format!("{ACCOUNT_ATTEMPTS}?action={}", action.as_str());
         if let Some(target) = target {
             path.push_str(&format!("&target={}", segment(target)));
@@ -3458,7 +3462,92 @@ impl Addresses for Caller<'_> {
         let res = self.request(Method::GET, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).send().await?;
         let status = res.status().as_u16();
         let body = res.text().await?;
-        AddressAnswer::read(status, &body, None)
+        AccountAnswer::read(status, &body, None)
+    }
+}
+
+/// An account (Identity's `Account`), the fields the account page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountProfile {
+    pub account_id: String,
+    pub name: String,
+    pub display_name: String,
+    pub account_type: String,
+    pub status: String,
+    pub badges: Vec<String>,
+    pub founder_number: Option<u32>,
+    /// Empty for the fallback the page builds from the actor (`buildActorAccountFallback`).
+    pub updated_at: String,
+}
+
+/// Who is signed in, as Identity shows them (`CurrentActorDisplay`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActorDisplay {
+    pub account: ActorAccount,
+    pub membership: ActorMembership,
+    pub user: ActorUser,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActorAccount {
+    pub account_id: String,
+    pub display_name: Option<String>,
+    pub name: Option<String>,
+    pub badges: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActorMembership {
+    pub membership_id: String,
+    pub role_key: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActorUser {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub primary_email: Option<String>,
+}
+
+/// What a profile update sends (the `update-profile` action's two fields, as marketplace sends
+/// them: the form's text as it is; Identity trims it).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileCommand {
+    pub name: String,
+    pub display_name: String,
+}
+
+/// The signed-in account's own page (Identity's `accounts/{account}` and
+/// `current-actor-display`), and its profile write, an account-management attempt like the
+/// address book's.
+pub trait AccountCalls {
+    async fn account(&self, account: &str) -> Result<AccountProfile, ApiError>;
+    async fn actor_display(&self) -> Result<ActorDisplay, ApiError>;
+    /// Send the profile as `attempt`. A call with no answer is `Err(ApiError::Transport)`.
+    async fn update_profile(&self, account: &str, attempt: &str, command: &ProfileCommand) -> Result<AccountAnswer, ApiError>;
+}
+
+impl AccountCalls for Caller<'_> {
+    async fn account(&self, account: &str) -> Result<AccountProfile, ApiError> {
+        self.read(&format!("/api/identity/accounts/{}", segment(account)), IDENTITY).await
+    }
+
+    async fn actor_display(&self) -> Result<ActorDisplay, ApiError> {
+        self.read("/api/identity/current-actor-display", IDENTITY).await
+    }
+
+    async fn update_profile(&self, account: &str, attempt: &str, command: &ProfileCommand) -> Result<AccountAnswer, ApiError> {
+        let path = format!("/api/identity/accounts/{}", segment(account));
+        let res = self.request(Method::PUT, &path, IDENTITY).header(IDEMPOTENCY_KEY, attempt).json(command).send().await?;
+        let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
+        let body = res.text().await?;
+        AccountAnswer::read(status, &body, receipt)
     }
 }
 
@@ -3469,32 +3558,32 @@ mod address_tests {
     #[test]
     fn identity_answers_read_as_the_page_needs_them() {
         let committed = r#"{"outcome":"committed","newlyCommitted":true,"current":{"id":"adr_1","version":2,"status":"active"}}"#;
-        assert_eq!(AddressAnswer::read(200, committed, None).unwrap(), AddressAnswer::Committed(None));
+        assert_eq!(AccountAnswer::read(200, committed, None).unwrap(), AccountAnswer::Committed(None));
         let required = r#"{"error":{"code":"validation_failed","message":"City is required.","details":[{"field":"city","code":"required","message":"City is required."}]}}"#;
         assert_eq!(
-            AddressAnswer::read(400, required, None).unwrap(),
-            AddressAnswer::NotRecorded { code: "validation-failed".into(), field: Some("city".into()), suggested: None }
+            AccountAnswer::read(400, required, None).unwrap(),
+            AccountAnswer::NotRecorded { code: "validation-failed".into(), field: Some("city".into()), suggested: None }
         );
         let suggested = r#"{"outcome":"not-recorded","code":"address-standardization-suggested","suggestedAddress":{"name":"A","company":null,"line1":"1 TEST WAY","line2":null,"city":"AUSTIN","state":"TX","postalCode":"78701-0001","country":"US","phone":null,"email":null}}"#;
-        let AddressAnswer::NotRecorded { suggested: Some(address), .. } = AddressAnswer::read(400, suggested, None).unwrap()
+        let AccountAnswer::NotRecorded { suggested: Some(address), .. } = AccountAnswer::read(400, suggested, None).unwrap()
         else {
             panic!("a suggestion")
         };
         assert_eq!(address.postal_code, "78701-0001");
         let conflict =
             r#"{"outcome":"conflict","code":"owner-state-conflict","current":{"id":"adr_1","version":3,"status":"archived"}}"#;
-        assert_eq!(AddressAnswer::read(409, conflict, None).unwrap(), AddressAnswer::Conflict);
+        assert_eq!(AccountAnswer::read(409, conflict, None).unwrap(), AccountAnswer::Conflict);
         assert_eq!(
-            AddressAnswer::read(503, r#"{"outcome":"indeterminate","code":"INDETERMINATE"}"#, None).unwrap(),
-            AddressAnswer::Indeterminate
+            AccountAnswer::read(503, r#"{"outcome":"indeterminate","code":"INDETERMINATE"}"#, None).unwrap(),
+            AccountAnswer::Indeterminate
         );
-        assert_eq!(AddressAnswer::read(502, "", None).unwrap(), AddressAnswer::Indeterminate);
+        assert_eq!(AccountAnswer::read(502, "", None).unwrap(), AccountAnswer::Indeterminate);
         assert_eq!(
-            AddressAnswer::read(401, r#"{"error":{"code":"authentication_required"}}"#, None).unwrap_err().status(),
+            AccountAnswer::read(401, r#"{"error":{"code":"authentication_required"}}"#, None).unwrap_err().status(),
             Some(StatusCode::UNAUTHORIZED)
         );
         assert_eq!(
-            AddressAnswer::read(403, r#"{"outcome":"not-recorded","code":"authorization_forbidden"}"#, None)
+            AccountAnswer::read(403, r#"{"outcome":"not-recorded","code":"authorization_forbidden"}"#, None)
                 .unwrap_err()
                 .status(),
             Some(StatusCode::FORBIDDEN)
@@ -3512,7 +3601,7 @@ mod address_tests {
         let body = format!(
             r#"{{"outcome":"committed","newlyCommitted":false,"destination":"/account/shipping-addresses?afterWrite={twice}"}}"#
         );
-        let AddressAnswer::Committed(Some(after)) = AddressAnswer::read(200, &body, None).unwrap() else { panic!("a receipt") };
+        let AccountAnswer::Committed(Some(after)) = AccountAnswer::read(200, &body, None).unwrap() else { panic!("a receipt") };
         assert!(after.contains(r#""maxGlobalPosition":"83""#), "{after}");
         assert_eq!(after_write_of("/account/shipping-addresses"), None);
     }

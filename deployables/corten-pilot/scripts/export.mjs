@@ -61,6 +61,11 @@
 //   (identity.features.shippingAddresses.ui.shippingAddressPage.* and .errors.*, Identity's account-management
 //   states and address choice, identity.accountManagement.*, the route's words,
 //   identity.routes.marketplace.accountShippingAddresses.*, and identity.support.routeSupport.accountActionErrors.*).
+// - marketplace/locales/account-home.en.json: the account's own page's English catalog
+//   (identity.features.accounts.ui.accountProfilePage.* as page.*, .currentActorDisplayCue.* as actor.*,
+//   .accountBadges.* as badges.*, the account types, statuses and membership roles Identity's value labels
+//   use, their unrecognized words, Identity's account-management states, identity.accountManagement.*, as
+//   manage.*, identity.support.routeSupport.accountActionErrors.* as action.*, and the route's title).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -532,6 +537,29 @@ const outputs = [
         ["identity.accountManagement.", "manage"],
         ["identity.routes.marketplace.accountShippingAddresses.", "route"],
         ["identity.support.routeSupport.accountActionErrors.", "action"],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/account-home.en.json",
+    json(
+      await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.features.accounts.ui.accountProfilePage.", "page"],
+        ["identity.features.accounts.ui.currentActorDisplayCue.", "actor"],
+        ["identity.features.accounts.ui.accountBadges.", "badges"],
+        ["identity.values.accountType.", "account_type"],
+        ["identity.features.accounts.ui.accountListPage.status.filter.", "status"],
+        ["identity.features.memberships.ui.role.", "role"],
+        ["identity.values.role.platformAdmin", "role.platform_admin"],
+        ["identity.values.family.accountType", "family.account_type"],
+        ["identity.values.family.accountStatus", "family.account_status"],
+        ["identity.values.family.membershipRole", "family.membership_role"],
+        ["identity.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["identity.values.unrecognized", "value.unrecognized"],
+        ["identity.values.date.unavailable", "value.date_unavailable"],
+        ["identity.accountManagement.", "manage"],
+        ["identity.support.routeSupport.accountActionErrors.", "action"],
+        ["identity.routes.marketplace.account.account.marketplace", "route.title"],
       ]),
     ),
   ],

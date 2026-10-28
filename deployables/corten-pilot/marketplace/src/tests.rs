@@ -5783,6 +5783,9 @@ fn identity(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     let indeterminate = || {
         (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
     };
+    if let Some(answer) = identity_account(method, path, headers, attempt, body) {
+        return Some(answer);
+    }
     if path == "/api/identity/account-management/attempts" {
         return Some(match attempt {
             APPLIED_BEFORE => {
@@ -5828,6 +5831,220 @@ fn identity(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
         ("POST" | "PUT", id) => Some(address_committed(id.trim_start_matches('/').split('/').next().unwrap_or_default())),
         _ => Some(StatusCode::METHOD_NOT_ALLOWED.into_response()),
     }
+}
+
+const ACCOUNT_API: &str = "/api/identity/accounts/acc_seller";
+const ACCOUNT_HOME: &str = "/account";
+
+/// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
+/// is still catching up. A profile update's attempt decides an answer as an address write's does
+/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict and the
+/// marketplace name `Refused` is refused for its fields.
+fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
+    if path == "/api/identity/current-actor-display" {
+        return Some(
+            Json(json!({
+                "account": { "account_id": "acc_seller", "display_name": "Synthetic Shop", "name": "Synthetic Legal LLC", "badges": ["trusted-seller"] },
+                "membership": { "membership_id": "mbr_1", "role_key": "owner" },
+                "user": { "user_id": "usr_seller", "display_name": null, "primary_email": "seller@chasesets.test" },
+            }))
+            .into_response(),
+        );
+    }
+    if path != ACCOUNT_API {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match method.as_str() {
+        "GET" if waits_for(headers).as_deref() == Some("45") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        "GET" => Json(json!({
+            "account_id": "acc_seller", "name": "Synthetic Legal LLC", "display_name": "Synthetic Shop", "account_type": "business",
+            "status": "active", "badges": ["founding-account", "trusted-seller", "not-a-badge"], "founder_number": 7,
+            "updated_at": "2026-10-24T03:53:46.180Z",
+        }))
+        .into_response(),
+        "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => {
+            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" }))).into_response()
+        }
+        "PUT" if sent["name"] == "Conflict Co" => (
+            StatusCode::CONFLICT,
+            Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "acc_seller", "version": 3, "status": "active" } })),
+        )
+            .into_response(),
+        "PUT" if sent["displayName"] == "Refused" => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
+        }
+        "PUT" => {
+            let body = json!({
+                "outcome": "committed", "newlyCommitted": true, "current": { "id": "acc_seller", "version": 2, "status": "active" },
+                "destination": "/account",
+            });
+            committed(StatusCode::OK, "identity", "42", body)
+        }
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// The profile updates the pilot sent: the attempt and the body.
+fn profile_writes(pilot: &Pilot) -> Vec<(String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == ACCOUNT_API && c.method == Method::PUT)
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (attempt, serde_json::from_str(&c.body).unwrap_or_default())
+        })
+        .collect()
+}
+
+fn profile_body(attempt: &str, name: &str, display_name: &str) -> String {
+    format!("attempt={attempt}&name={}&display_name={}", name.replace(' ', "+"), display_name.replace(' ', "+"))
+}
+
+#[tokio::test]
+async fn the_account_page_needs_accounts_view_to_see_and_accounts_manage_to_update() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get(ACCOUNT_HOME, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without accounts.view");
+    let (status, headers, _) = pilot.send(get(ACCOUNT_HOME, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount"), "{headers:?}");
+    let (status, _, html) = pilot.send(get(ACCOUNT_HOME, Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let body = profile_body(ATTEMPT, "Synthetic Legal LLC", "New Shop");
+    let (status, _, _) = pilot.send(post(ACCOUNT_HOME, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an update needs accounts.manage");
+    assert!(profile_writes(&pilot).is_empty(), "nothing is sent for who may not write");
+}
+
+#[tokio::test]
+async fn the_account_page_shows_the_profile_who_is_signed_in_and_where_to_manage_the_rest() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ACCOUNT_HOME, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("Account Synthetic Shop Founding Account #007 Trusted Seller Profile and commercial ownership details for your active account."),
+        "an unknown badge is not shown: {shown}"
+    );
+    assert!(html.contains("<title>Account | Marketplace</title>"), "{html}");
+    assert!(html.contains(r#"method="post" action="/account""#), "{html}");
+    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Shop" required"#), "{html}");
+    assert_eq!(html.matches(ATTEMPT_INPUT).count(), 1, "the update carries an attempt: {html}");
+    for (href, words) in [
+        ("/account/shipping-addresses", "Manage shipping addresses"),
+        ("/account/inventory/locations", "Manage ship-from locations"),
+        ("/account/listings", "Manage time away &amp; order capacity"),
+    ] {
+        assert!(html.contains(&format!(r#"href="{href}">{words}</a>"#)), "{href} on the pilot: {html}");
+    }
+    assert!(
+        shown.contains("Signed-In Identity Confirm the account and user before buying, selling, fulfillment, payout, or security work. Account Synthetic Shop Trusted Seller Selected account for this session User seller@chasesets.test seller@chasesets.test Membership Owner Active membership for this account"),
+        "{shown}"
+    );
+    assert!(shown.contains("Account Type Business"), "{shown}");
+    assert!(shown.contains("Status Active Active accounts can buy"), "{shown}");
+    assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
+    assert!(
+        shown.contains("Legal Name Synthetic Legal LLC Marketplace name Synthetic Shop Status Active Platform protection active"),
+        "{shown}"
+    );
+}
+
+#[tokio::test]
+async fn an_updated_profile_is_read_after_its_write_and_the_page_says_it_was_saved() {
+    let pilot = Pilot::new().await;
+    let body = profile_body(ATTEMPT, " Synthetic Legal LLC ", "New Shop");
+    let (status, headers, _) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account?"), "{to}");
+    let place = query(&to);
+    assert_eq!(place["saved"], ATTEMPT);
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    let writes = profile_writes(&pilot);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].0, ATTEMPT, "the form's attempt is the Idempotency-Key");
+    assert_eq!(writes[0].1, json!({ "name": " Synthetic Legal LLC ", "displayName": "New Shop" }), "the text as typed");
+    let (status, _, html) = pilot.send(get(&to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
+    let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == ACCOUNT_API).cloned().unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the account waits for the write");
+}
+
+#[tokio::test]
+async fn a_refused_or_conflicting_profile_says_so_and_a_page_still_catching_up_reads_itself_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body(ATTEMPT, "Synthetic Legal LLC", "Refused"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Some details are invalid. Check the information you provided."), "{}", text(&html));
+    assert!(html.contains(r#"value="Refused""#), "what was sent is kept: {html}");
+    assert_ne!(drawn_attempt(&html), ATTEMPT, "drawn with a new attempt");
+
+    let (status, _, html) =
+        pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body(ATTEMPT, "Conflict Co", "Shop"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The account changed. Review its current state before submitting again."), "{}", text(&html));
+
+    let (status, _, _) = pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body("not-an-attempt", "A", "B"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(profile_writes(&pilot).len(), 2, "a profile without the pilot's attempt is not sent");
+
+    let to = format!("{ACCOUNT_HOME}?after_write={}&saved={ATTEMPT}", receipt_at("45"));
+    let (status, _, html) = pilot.send(get(&to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Your profile is still updating. This page reads it again in a moment."), "{shown}");
+    assert!(shown.contains("Synthetic Shop"), "the account as it was read without the receipt: {shown}");
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_profile_update_without_an_answer_is_asked_about_and_one_that_cannot_be_confirmed_holds_the_form() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body(APPLIED_BEFORE, "A", "B"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "the lookup says it was saved");
+    assert_eq!(query(headers["location"].to_str().unwrap())["saved"], APPLIED_BEFORE);
+    let lookup = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.starts_with("/api/identity/account-management/attempts"))
+        .cloned()
+        .unwrap();
+    assert_eq!(lookup.path, "/api/identity/account-management/attempts?action=update-profile&target=acc_seller");
+
+    let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body(NO_RECORD, "A", "B"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("No change was recorded. Review and submit again."), "{}", text(&html));
+
+    let (status, headers, _) = pilot.send(post(ACCOUNT_HOME, "addresser", &profile_body(CHECK_DOWN, "A", "B"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(to, format!("/account?check={CHECK_DOWN}"));
+    let (status, _, html) = pilot.send(get(&to, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        text(&html).contains("We could not confirm the result. Do not repeat this action yet. Check again"),
+        "{}",
+        text(&html)
+    );
+    let form = html.find(r#"action="/account""#).unwrap();
+    assert!(html[form..].split("</form>").next().unwrap().contains("disabled"), "Update Profile is held: {html}");
 }
 
 /// The address writes the pilot sent: method, path under the book, attempt and body.
@@ -5883,7 +6100,7 @@ async fn the_addresses_page_shows_each_address_with_its_actions() {
     let shown = text(&html);
     assert!(shown.contains("Account Shipping Addresses Manage reusable recipient destinations for faster checkout."), "{shown}");
     assert!(shown.contains("Home Default Synthetic Collector 1 Test Way Austin, TX 78701 US"), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account">Back to account</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account">Back to account</a>"#), "the pilot's account page: {html}");
     assert!(html.contains(r#"action="/account/shipping-addresses/adr_work/default""#), "Work may be made the default");
     assert!(!html.contains(r#"action="/account/shipping-addresses/adr_home/default""#), "Home is the default already");
     assert!(html.contains(r#"action="/account/shipping-addresses/adr_home/archive""#), "{html}");
@@ -8937,10 +9154,11 @@ async fn a_password_starts_the_session_and_goes_back_to_the_pilot_or_marketplace
 
     for (return_to, to) in [
         ("%2Faccount%2Fmessages", "http://localhost:7753/account/messages"),
-        ("", "http://localhost:7753/account"),
-        ("%2F%2Fexample.com%2F", "http://localhost:7753/account"),
-        ("%2F%5Cexample.com%2F", "http://localhost:7753/account"),
-        ("https%3A%2F%2Fexample.com%2F", "http://localhost:7753/account"),
+        // No return address, or one that leaves the site: the pilot's account page.
+        ("", "/account"),
+        ("%2F%2Fexample.com%2F", "/account"),
+        ("%2F%5Cexample.com%2F", "/account"),
+        ("https%3A%2F%2Fexample.com%2F", "/account"),
         ("%2Fsearch%3Fq%3Dlugia", "/search?q=lugia"),
     ] {
         let (status, headers, _) = pilot.send(sign_in_post(&format!("/sign-in?returnTo={return_to}"), None, body)).await;

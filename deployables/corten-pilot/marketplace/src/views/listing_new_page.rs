@@ -692,7 +692,7 @@ pub fn ListingAccessRequired<'a>(t: ListingNewMsg, back: &'a str) -> impl Render
             <p>{t.route_use_an_account_with_listing_access()}</p>
             <p class={Actions}>
                 <a class={Button} href={&sign_in}>{t.route_use_a_different_account()}</a>
-                <a class={(Button, Secondary)} href={&on_marketplace("/account")}>{t.route_view_account()}</a>
+                <a class={(Button, Secondary)} href={url::AccountHome::default()}>{t.route_view_account()}</a>
             </p>
         </section>
     }

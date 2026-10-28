@@ -6,6 +6,7 @@
 //! (`/account/purchases`, `/account/sales`) and shipments (`/account/shipments`,
 //! `/account/sales/shipments/{id}`) and shipping addresses (`/account/shipping-addresses`), and Create listing
 //! (`/account/listings/new`), the seller's listings (`/account/listings`) and each listing's page, and signing in (`/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out`). See README.md.
+mod account_home;
 mod accounts;
 mod addresses;
 mod api;

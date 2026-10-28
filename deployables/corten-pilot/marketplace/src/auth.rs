@@ -212,6 +212,24 @@ impl Identify<Shared> for AddressOwner {
     }
 }
 
+/// An account on its own page (`/account`): reading needs `accounts.view`, updating the profile
+/// `accounts.manage`, as Identity's loader and action require (the API checks both again). Anyone
+/// not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct AccountOwner(pub Viewer);
+
+impl Identify<Shared> for AccountOwner {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        let permission = if parts.method.is_safe() { ACCOUNTS_VIEW } else { ACCOUNTS_MANAGE };
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(permission) => Ok(AccountOwner(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A buyer on its purchases: reading needs `orders.view`, cancelling `orders.manage`, as
 /// marketplace's loader and action require (the API checks both again). Anyone not signed in is
 /// sent to the sign-in, back to the page.

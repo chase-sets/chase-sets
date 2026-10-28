@@ -6,10 +6,9 @@
 //! two buttons that send it again, in a new attempt, with the choice.
 use corten::{form::Within, prelude::*, view::AttrValue};
 
-use super::marketplace;
 use crate::{
     addresses::{AddressInput, AddressScreen, Draft, Place, Said, Which},
-    api::{AddressAction, ShippingAddress, SuggestedAddress},
+    api::{AccountAction, ShippingAddress, SuggestedAddress},
     app::url,
     text::{AddressesMsg, Pilot},
 };
@@ -77,7 +76,7 @@ pub fn AddressPage<'a>(t: AddressesMsg, p: Pilot, screen: &'a AddressScreen) -> 
             (address, draft_for(which, AddressInput::of(address)), open)
         })
         .collect();
-    let back = marketplace("/account").map(|u| u.to_string()).unwrap_or_default();
+    let back = url::AccountHome::default().href();
     let banner = match &screen.said {
         Said::Editing => None,
         Said::Saved => Some(("info", t.manage_state_succeeded())),
@@ -95,7 +94,7 @@ pub fn AddressPage<'a>(t: AddressesMsg, p: Pilot, screen: &'a AddressScreen) -> 
         ),
         _ => None,
     };
-    let held = |action: AddressAction, target: Option<&str>| screen.said.holds(action, target);
+    let held = |action: AccountAction, target: Option<&str>| screen.said.holds(action, target);
     html! {
         <header class={Header}>
             <div class={Heading}>
@@ -132,7 +131,7 @@ pub fn AddressPage<'a>(t: AddressesMsg, p: Pilot, screen: &'a AddressScreen) -> 
                     action={url::ShippingAddresses::default()}
                     draft={&add}
                     create
-                    held={held(AddressAction::Create, None)}
+                    held={held(AccountAction::Create, None)}
                 />
             </div>
         </section>
@@ -383,7 +382,7 @@ fn AddressCard<'a>(
                 if !address.is_default {
                     <form method="post" action={url::AddressDefault { id }}>
                         {SubmitKey::field(attempt)}
-                        <button type="submit" class={Secondary} disabled={said.holds(AddressAction::Default, Some(id))}>
+                        <button type="submit" class={Secondary} disabled={said.holds(AccountAction::Default, Some(id))}>
                             {t.page_set_default()}
                         </button>
                     </form>
@@ -413,7 +412,7 @@ fn AddressCard<'a>(
                     action={url::AddressUpdate { id }}
                     draft={update}
                     create={false}
-                    held={said.holds(AddressAction::Update, Some(id))}
+                    held={said.holds(AccountAction::Update, Some(id))}
                 />
             </dialog>
             <dialog id={ArchiveDialogId(id)} class={Dialog} aria-labelledby={&archive_title} aria-describedby={&archive_text}>
@@ -424,7 +423,7 @@ fn AddressCard<'a>(
                     <button type="button" class={Secondary} command="close" commandfor={ArchiveDialogId(id)}>
                         {p.addresses_cancel()}
                     </button>
-                    <button type="submit" class={Danger} disabled={said.holds(AddressAction::Archive, Some(id))}>
+                    <button type="submit" class={Danger} disabled={said.holds(AccountAction::Archive, Some(id))}>
                         {t.page_archive()}
                     </button>
                 </form>

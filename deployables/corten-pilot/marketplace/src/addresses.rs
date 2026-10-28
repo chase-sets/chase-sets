@@ -24,7 +24,7 @@ use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{AddressAction, AddressAnswer, AddressCommand, Addresses as _, ApiError, ShippingAddress, SuggestedAddress},
+    api::{AccountAction, AccountAnswer, AddressCommand, Addresses as _, ApiError, ShippingAddress, SuggestedAddress},
     app::{Shared, read_failed, sign_in, url},
     auth::{AddressOwner, Viewer},
     recovery::valid_attempt,
@@ -41,7 +41,7 @@ pub struct Place {
     pub after_write: Option<String>,
     pub saved: Option<String>,
     pub check: Option<String>,
-    pub action: Option<AddressAction>,
+    pub action: Option<AccountAction>,
     pub target: Option<String>,
 }
 
@@ -58,14 +58,14 @@ pub enum Said {
     /// The address book changed (`conflict`).
     Conflict,
     /// Whether it was saved is not known yet (`ambiguous`): that write's form is off.
-    Unconfirmed { attempt: String, action: AddressAction, target: Option<String> },
+    Unconfirmed { attempt: String, action: AccountAction, target: Option<String> },
     /// The account may no longer do it (`route-denied`).
     Denied,
 }
 
 impl Said {
     /// Whether the form for `action` on `target` is off: the write it would repeat is unconfirmed.
-    pub fn holds(&self, action: AddressAction, target: Option<&str>) -> bool {
+    pub fn holds(&self, action: AccountAction, target: Option<&str>) -> bool {
         matches!(self, Said::Unconfirmed { action: a, target: t, .. } if *a == action && t.as_deref() == target)
     }
 }
@@ -198,16 +198,16 @@ pub(crate) async fn page(
 }
 
 /// What the API says came of `attempt`, for the page.
-async fn check(caller: &crate::api::Caller<'_>, action: AddressAction, target: Option<&str>, attempt: &str) -> Said {
+async fn check(caller: &crate::api::Caller<'_>, action: AccountAction, target: Option<&str>, attempt: &str) -> Said {
     let unconfirmed = || Said::Unconfirmed { attempt: attempt.to_owned(), action, target: target.map(str::to_owned) };
     if !valid_attempt(attempt) {
         return Said::NotSaved;
     }
-    match caller.address_attempt(action, target, attempt).await {
-        Ok(AddressAnswer::Committed(_)) => Said::Saved,
-        Ok(AddressAnswer::NotRecorded { .. }) => Said::NotSaved,
-        Ok(AddressAnswer::Conflict) => Said::Conflict,
-        Ok(AddressAnswer::Indeterminate) => unconfirmed(),
+    match caller.account_attempt(action, target, attempt).await {
+        Ok(AccountAnswer::Committed(_)) => Said::Saved,
+        Ok(AccountAnswer::NotRecorded { .. }) => Said::NotSaved,
+        Ok(AccountAnswer::Conflict) => Said::Conflict,
+        Ok(AccountAnswer::Indeterminate) => unconfirmed(),
         Err(error) => {
             tracing::warn!("the address attempt check failed: {error}");
             unconfirmed()
@@ -255,7 +255,7 @@ pub(crate) async fn create(
     headers: HeaderMap,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, AddressAction::Create, None, input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Create, None, input).await
 }
 
 pub(crate) async fn update(
@@ -266,7 +266,7 @@ pub(crate) async fn update(
     Path(id): Path<String>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, AddressAction::Update, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Update, Some(&id), input).await
 }
 
 pub(crate) async fn make_default(
@@ -277,7 +277,7 @@ pub(crate) async fn make_default(
     Path(id): Path<String>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, AddressAction::Default, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Default, Some(&id), input).await
 }
 
 pub(crate) async fn archive(
@@ -288,7 +288,7 @@ pub(crate) async fn archive(
     Path(id): Path<String>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, AddressAction::Archive, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Archive, Some(&id), input).await
 }
 
 /// The field a required-field refusal names, as the form calls it.
@@ -323,14 +323,14 @@ async fn write(
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
-    action: AddressAction,
+    action: AccountAction,
     target: Option<&str>,
     input: AddressInput,
 ) -> HtmlResult {
     let (t, p): (AddressesMsg, Pilot) = (req.t(), req.t());
     let which = match (action, target) {
-        (AddressAction::Create, _) => Some(Which::Create),
-        (AddressAction::Update, Some(id)) => Some(Which::Update(id.to_owned())),
+        (AccountAction::Create, _) => Some(Which::Create),
+        (AccountAction::Update, Some(id)) => Some(Which::Update(id.to_owned())),
         _ => None,
     };
     let attempt = input.attempt.clone();
@@ -351,14 +351,14 @@ async fn write(
         Ok(answer) => answer,
         Err(ApiError::Transport(error)) => {
             tracing::warn!("an address write had no answer: {error}");
-            AddressAnswer::Indeterminate
+            AccountAnswer::Indeterminate
         }
         Err(error) => return failed(req, viewer, config, headers, error).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does.
     let answer = match answer {
-        AddressAnswer::Indeterminate => match caller.address_attempt(action, target, &attempt).await {
-            Ok(AddressAnswer::Indeterminate) | Err(_) => {
+        AccountAnswer::Indeterminate => match caller.account_attempt(action, target, &attempt).await {
+            Ok(AccountAnswer::Indeterminate) | Err(_) => {
                 let place =
                     Place { check: Some(attempt), action: Some(action), target: target.map(str::to_owned), ..Place::default() };
                 return req.redirect(&url::ShippingAddresses { place });
@@ -368,11 +368,11 @@ async fn write(
         answer => answer,
     };
     match answer {
-        AddressAnswer::Committed(after_write) => {
+        AccountAnswer::Committed(after_write) => {
             let place = Place { after_write, saved: Some(attempt), ..Place::default() };
             req.redirect(&url::ShippingAddresses { place })
         }
-        AddressAnswer::NotRecorded { code, field, suggested } => {
+        AccountAnswer::NotRecorded { code, field, suggested } => {
             let mut errors = Errors::new();
             match (code.as_str(), field.as_deref()) {
                 ("validation-failed", Some(api)) if field_of(api).is_some() => {
@@ -385,8 +385,8 @@ async fn write(
             }
             refuse(errors, suggested.map(|s| *s)).await
         }
-        AddressAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
-        AddressAnswer::Indeterminate => unreachable!("asked about above"),
+        AccountAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
+        AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
 
@@ -430,10 +430,10 @@ mod tests {
 
     #[test]
     fn only_the_unconfirmed_writes_form_is_held() {
-        let said = Said::Unconfirmed { attempt: "a".into(), action: AddressAction::Archive, target: Some("adr_1".into()) };
-        assert!(said.holds(AddressAction::Archive, Some("adr_1")));
-        assert!(!said.holds(AddressAction::Archive, Some("adr_2")));
-        assert!(!said.holds(AddressAction::Default, Some("adr_1")));
-        assert!(!Said::Saved.holds(AddressAction::Create, None));
+        let said = Said::Unconfirmed { attempt: "a".into(), action: AccountAction::Archive, target: Some("adr_1".into()) };
+        assert!(said.holds(AccountAction::Archive, Some("adr_1")));
+        assert!(!said.holds(AccountAction::Archive, Some("adr_2")));
+        assert!(!said.holds(AccountAction::Default, Some("adr_1")));
+        assert!(!Said::Saved.holds(AccountAction::Create, None));
     }
 }

@@ -21,6 +21,7 @@ use crate::{
     text::{CartMsg, Msg, Pilot, Restock},
 };
 
+mod account_home_page;
 mod account_page;
 mod address_page;
 mod cart_item;
@@ -49,6 +50,7 @@ mod shipment_page;
 mod sign_in_page;
 mod submitted_offers_page;
 
+pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
 pub use cart_item::{
@@ -120,6 +122,11 @@ pub const SET: &[Component] = &[SetPage];
 /// An account's public page (`/accounts`): its stylesheet, and corten-ui's handler that makes a
 /// refused Report review's dialog modal.
 pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
+
+/// The account's own page (`/account`). Its prefix holds every other `/account/..` area, and a page
+/// under nested areas links each one's stylesheet, so an area of its own would put this on every
+/// account page as one more request: it is in `App::components` instead (todd-skelton/corten#239).
+pub const ACCOUNT_HOME: &[Component] = &[AccountHomePage];
 
 /// The notification center (`/account/notifications`).
 pub const NOTIFICATIONS: &[Component] = &[NotificationPage];
