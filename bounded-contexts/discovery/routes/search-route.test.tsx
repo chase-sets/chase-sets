@@ -258,7 +258,7 @@ describe("marketplace search route", () => {
     const request = { request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never;
     const errorResult = await loader(request);
     const errorPayload = payloadOf(errorResult);
-    expect(errorPayload).toMatchObject({ searchFailed: true, data: { items: [] } });
+    expect(errorPayload).toMatchObject({ searchFailed: true, data: null });
     cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), errorPayload);
     expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
     failed = false;
