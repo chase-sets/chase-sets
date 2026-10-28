@@ -23,6 +23,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { ProjectorHandlerContext } from "@chase-sets/event-core/projector";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryItemLedgerProjectionHandlers } from "../features/inventory-items/read-model/ledger-projection";
 import { inventoryItemSchemaMigrations } from "../features/inventory-items/read-model/schema";
@@ -74,12 +75,13 @@ const handoff = inventoryItemSchemaMigrations.find((migration) => migration.migr
 
 // The retired handler differed only in the detail's quantity parameter. Keep its
 // real INSERT, identities and metadata so these are old writes, not disabled writers.
-async function oldSaleWriter(db: PgQueryable, event: TransportEvent) {
+async function oldSaleWriter(db: NonNullable<ProjectorHandlerContext["db"]>, event: TransportEvent) {
   const oldDb: PgQueryable = {
-    query: <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+    query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
       const oldValues = [...(values ?? [])];
       oldValues[5] = -Number(event.data.quantity);
-      return db.query<Row>(sql, oldValues);
+      const result = await db.query<Row>(sql, oldValues);
+      return { ...result, rows: [...result.rows] };
     },
   };
   await buildInventoryItemLedgerProjectionHandlers(oldDb)["inventory.item.offline-sale-recorded"]!(event);
@@ -87,7 +89,9 @@ async function oldSaleWriter(db: PgQueryable, event: TransportEvent) {
 
 function barrier() {
   let release!: () => void;
-  const promise = new Promise<void>((resolve) => { release = resolve; });
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   return { promise, release };
 }
 
@@ -122,10 +126,14 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
         pool: pools.inventory,
         projectionHandlerSets: (inventoryModule.projectionHandlerSets?.(services) ?? []).map((set) =>
           oldLedger && set.projectionName === "inventory-item-ledger-projection"
-            ? { ...set, handlers: { ...set.handlers,
-                "inventory.item.offline-sale-recorded": (event, handlerContext) =>
-                  oldSaleWriter(handlerContext?.db ?? pools.inventory, event),
-              } }
+            ? {
+                ...set,
+                handlers: {
+                  ...set.handlers,
+                  "inventory.item.offline-sale-recorded": (event, handlerContext) =>
+                    oldSaleWriter(handlerContext?.db ?? pools.inventory, event),
+                },
+              }
             : set,
         ),
       },
@@ -237,15 +245,28 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
   }
 
   async function sale(idempotencyKey: string) {
-    const item = (await pools.inventory.query<{ item_id: string }>(
-      "SELECT item_id FROM inventory_items WHERE total_quantity = 10 LIMIT 1",
-    )).rows[0] ?? (await pools.inventory.query<{ item_id: string }>(
-      "SELECT item_id FROM inventory_items ORDER BY created_at, item_id LIMIT 1",
-    )).rows[0]!;
-    await services.holdCollisions.reduceItem({
-      accountId, itemId: item.item_id, requestedQuantity: 1, reason: "Offline sale", reasonCode: "sold-offline",
-      offlineSale: { idempotencyKey, salePriceAmount: "12.50", channel: "card-show" },
-    }, withInventoryMutationAttempt(context, randomUUID()));
+    const item =
+      (
+        await pools.inventory.query<{ item_id: string }>(
+          "SELECT item_id FROM inventory_items WHERE total_quantity = 10 LIMIT 1",
+        )
+      ).rows[0] ??
+      (
+        await pools.inventory.query<{ item_id: string }>(
+          "SELECT item_id FROM inventory_items ORDER BY created_at, item_id LIMIT 1",
+        )
+      ).rows[0]!;
+    await services.holdCollisions.reduceItem(
+      {
+        accountId,
+        itemId: item.item_id,
+        requestedQuantity: 1,
+        reason: "Offline sale",
+        reasonCode: "sold-offline",
+        offlineSale: { idempotencyKey, salePriceAmount: "12.50", channel: "card-show" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
     return item.item_id;
   }
 
@@ -269,26 +290,38 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       [handoffCheck],
     );
     const record = await pools.inventory.query(
-      "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [handoffId],
+      "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1",
+      [handoffId],
     );
     return { guard: guard.rows, record: record.rows };
   }
 
   function instrumentedHandoff(wrap: (db: BcSchemaMigrationClient) => BcSchemaMigrationClient) {
-    return { ...inventoryModule, schemaMigrations: inventoryModule.schemaMigrations!.map((migration) =>
-      migration.migrationId === handoffId
-        ? { ...migration, dataStep: (db: BcSchemaMigrationClient) => handoff.dataStep!(wrap(db)) }
-        : migration,
-    ) };
+    return {
+      ...inventoryModule,
+      schemaMigrations: inventoryModule.schemaMigrations!.map((migration) =>
+        migration.migrationId === handoffId
+          ? { ...migration, dataStep: (db: BcSchemaMigrationClient) => handoff.dataStep!(wrap(db)) }
+          : migration,
+      ),
+    };
   }
 
   it("retained sale handoff preserves every sibling row, event and detail field while correcting complete sums", async () => {
     await retainedBoot();
     const itemId = await sale("retained-sale");
     await settle();
-    await services.items.adjustItem({ accountId, itemId, quantityDelta: -1,
-      reason: "Bare Honor Offline", reasonCode: "sold-offline", note: "No sale detail event" },
-      withInventoryMutationAttempt(context, randomUUID()));
+    await services.items.adjustItem(
+      {
+        accountId,
+        itemId,
+        quantityDelta: -1,
+        reason: "Bare Honor Offline",
+        reasonCode: "sold-offline",
+        note: "No sale detail event",
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
     await settle();
     // Neither half of the predicate alone owns a correction, even in another account.
     await pools.inventory.query(`INSERT INTO inventory_item_ledger
@@ -296,20 +329,29 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
         hold_quantity, purpose, reason, reason_code, note, sale_price_amount, channel, source_ref,
         actor, event_type, stream_id, stream_version, recorded_at
       FROM inventory_item_ledger WHERE kind = 'offline-sale'`);
-    await pools.inventory.query(`INSERT INTO inventory_item_ledger
+    await pools.inventory.query(
+      `INSERT INTO inventory_item_ledger
       SELECT ledger_entry_id || '-event-control', item_id, 'acc_other', occurred_at, kind, 8,
         hold_quantity, purpose, reason, reason_code, note, sale_price_amount, channel, source_ref,
         actor, 'inventory.item.adjusted', stream_id, stream_version, recorded_at
-      FROM inventory_item_ledger WHERE kind = 'offline-sale' AND account_id = $1`, [accountId]);
+      FROM inventory_item_ledger WHERE kind = 'offline-sale' AND account_id = $1`,
+      [accountId],
+    );
     const before = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
     const events = await pools.inventory.query("SELECT * FROM event_store_events ORDER BY global_position");
     const items = await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id");
     await expect(assertFullHistory()).rejects.toThrow();
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
-    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows)
-      .toEqual(before.rows.map((row) => row.kind === "offline-sale" &&
-        row.event_type === "inventory.item.offline-sale-recorded" ? { ...row, quantity_delta: null } : row));
-    expect((await pools.inventory.query("SELECT * FROM event_store_events ORDER BY global_position")).rows).toEqual(events.rows);
+    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows).toEqual(
+      before.rows.map((row) =>
+        row.kind === "offline-sale" && row.event_type === "inventory.item.offline-sale-recorded"
+          ? { ...row, quantity_delta: null }
+          : row,
+      ),
+    );
+    expect((await pools.inventory.query("SELECT * FROM event_store_events ORDER BY global_position")).rows).toEqual(
+      events.rows,
+    );
     expect((await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id")).rows).toEqual(items.rows);
     expect(await handoffState()).toEqual({ guard: [{ convalidated: true }], record: [{ migration_id: handoffId }] });
     await assertFullHistory();
@@ -317,18 +359,128 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     await assertFullHistory();
   });
 
+  it("boot replay and next sale retain non-consumption hold lifecycles and bare Honor Offline", async () => {
+    await retainedBoot();
+    const itemId = await sale("lifecycle-before-boot");
+    await settle();
+    const order = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Active order",
+        purpose: "order",
+        sourceRef: { orderId: "ord_active", reservationRequestId: "res_active" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    const checkout = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Active checkout",
+        purpose: "checkout",
+        sourceRef: { checkoutSessionId: "chk_active", lineKey: "active" },
+        expiresAt: "2027-10-28T01:00:00Z",
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    for (const terminal of ["converted", "expired"] as const) {
+      const hold = await services.holds.createHold(
+        {
+          accountId,
+          itemId,
+          quantity: 1,
+          reason: "Checkout control",
+          purpose: "checkout",
+          sourceRef: { checkoutSessionId: `chk_${terminal}`, lineKey: terminal },
+          expiresAt: "2026-10-28T01:00:00Z",
+        },
+        withInventoryMutationAttempt(context, randomUUID()),
+      );
+      await services.holds.commandHandler({
+        streamId: `inventory.hold-${hold.holdId}`,
+        command:
+          terminal === "converted"
+            ? {
+                type: "ConvertInventoryHold",
+                convertedAt: "2026-10-28T00:30:00Z",
+                orderId: "ord_converted",
+                reservationRequestId: "res_converted",
+              }
+            : { type: "ExpireInventoryHold", expiredAt: "2026-10-28T02:00:00Z" },
+        context,
+      });
+      if (terminal === "converted") {
+        await services.holds.releaseHold(
+          { accountId, holdId: hold.holdId, releaseReason: "order-cancelled" },
+          withInventoryMutationAttempt(context, randomUUID()),
+        );
+      }
+    }
+    await services.items.adjustItem(
+      { accountId, itemId, quantityDelta: -1, reason: "Bare Honor Offline", reasonCode: "sold-offline" },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    await settle();
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    runtime = mount();
+    const before = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const runner = runtime.subscriptionRunners.find(
+      (entry) => entry.projectionName === "inventory-item-ledger-projection",
+    )!;
+    await runner.reset();
+    await settle();
+    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows).toEqual(
+      before.rows,
+    );
+    expect(before.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "hold-placed", purpose: "manual" }),
+        expect.objectContaining({ kind: "hold-placed", purpose: "order" }),
+        expect.objectContaining({ kind: "hold-placed", purpose: "checkout" }),
+        expect.objectContaining({ kind: "hold-converted" }),
+        expect.objectContaining({ kind: "hold-released" }),
+        expect.objectContaining({ kind: "hold-expired" }),
+        expect.objectContaining({ kind: "adjusted", reason: "Bare Honor Offline", quantity_delta: -1 }),
+      ]),
+    );
+    expect(
+      (await pools.inventory.query("SELECT status FROM inventory_holds WHERE hold_id = $1", [order.holdId])).rows,
+    ).toEqual([{ status: "active" }]);
+    expect(
+      (await pools.inventory.query("SELECT status FROM inventory_holds WHERE hold_id = $1", [checkout.holdId])).rows,
+    ).toEqual([{ status: "active" }]);
+    await sale("lifecycle-next-sale");
+    await settle();
+    await assertFullHistory();
+  });
+
   it("consumed hold remains outside sale repair: stock and consumed detail retain the known mismatch", async () => {
     await retainedBoot();
     const itemId = await sale("sale-beside-consumption");
     await settle();
-    const hold = await services.holds.createHold({
-      accountId, itemId, quantity: 1, reason: "Synthetic consumed order", purpose: "order",
-      sourceRef: { orderId: "ord_sale_control", reservationRequestId: "res_sale_control" },
-    }, withInventoryMutationAttempt(context, randomUUID()));
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Synthetic consumed order",
+        purpose: "order",
+        sourceRef: { orderId: "ord_sale_control", reservationRequestId: "res_sale_control" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
     await settle();
     await services.holds.commandHandler({
       streamId: `inventory.hold-${hold.holdId}`,
-      command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-28T00:00:00Z", consumptionReason: "Synthetic dispatch" },
+      command: {
+        type: "ConsumeInventoryHold",
+        consumedAt: "2026-10-28T00:00:00Z",
+        consumptionReason: "Synthetic dispatch",
+      },
       context,
     });
     await settle();
@@ -337,11 +489,15 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     expect(consumed.rows).toEqual([expect.objectContaining({ item_id: itemId, quantity_delta: -1 })]);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     expect((await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id")).rows).toEqual(stock.rows);
-    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger WHERE kind = 'hold-consumed'")).rows)
-      .toEqual(consumed.rows);
-    const sums = await pools.inventory.query(`SELECT i.total_quantity, sum(l.quantity_delta)::int AS ledger_quantity
+    expect(
+      (await pools.inventory.query("SELECT * FROM inventory_item_ledger WHERE kind = 'hold-consumed'")).rows,
+    ).toEqual(consumed.rows);
+    const sums = await pools.inventory.query(
+      `SELECT i.total_quantity, sum(l.quantity_delta)::int AS ledger_quantity
       FROM inventory_items i JOIN inventory_item_ledger l ON l.item_id = i.item_id AND l.account_id = i.account_id
-      WHERE i.item_id = $1 GROUP BY i.item_id`, [itemId]);
+      WHERE i.item_id = $1 GROUP BY i.item_id`,
+      [itemId],
+    );
     expect(sums.rows).toEqual([{ total_quantity: 9, ledger_quantity: 8 }]);
   });
 
@@ -369,18 +525,35 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     // A rejection must not leave the bootstrap or old writer waiting on a test barrier.
     void boot.catch(() => locked.release());
     const writer = await pools.inventory.connect();
-    const queuedEvent = buildTransportEvent("inventory.item.offline-sale-recorded", {
-      itemId, quantity: 1, salePriceAmount: "12.50", channel: "card-show",
-    }, { streamId: "inventory.item-queued-old-writer", streamVersion: 1, tenantId: context.tenantId,
-      audit: context.audit });
+    const queuedEvent = buildTransportEvent(
+      "inventory.item.offline-sale-recorded",
+      {
+        itemId,
+        quantity: 1,
+        salePriceAmount: "12.50",
+        channel: "card-show",
+      },
+      {
+        streamId: "inventory.item-queued-old-writer",
+        streamVersion: 1,
+        tenantId: context.tenantId,
+        audit: context.audit,
+      },
+    );
     try {
       await locked.promise;
       const pid = (await writer.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
-      const insert = oldSaleWriter(writer, queuedEvent).then(() => null, (error: unknown) => error);
+      const insert = oldSaleWriter(writer, queuedEvent).then(
+        () => null,
+        (error: unknown) => error,
+      );
       let waiting = false;
       for (let attempt = 0; attempt < 100; attempt++) {
         const state = await pools.inventory.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1", [pid]);
-        if (state.rows[0]?.wait_event_type === "Lock") { waiting = true; break; }
+        if (state.rows[0]?.wait_event_type === "Lock") {
+          waiting = true;
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       commit.release();
@@ -403,12 +576,19 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     expect(poison.rows).toEqual([{ error_message: expect.stringContaining(handoffCheck), state: "blocked" }]);
     expect((await handoffState()).guard).toEqual([{ convalidated: true }]);
     runtime = mount();
-    const runner = runtime.subscriptionRunners.find((entry) => entry.projectionName === "inventory-item-ledger-projection")!;
-    await expect(retryProjectionBlockedStream(runtime, runner.checkpointKey, `inventory.item-${nextItemId}`, {}))
-      .resolves.toMatchObject({ state: "resolved", errorMessage: null });
+    const runner = runtime.subscriptionRunners.find(
+      (entry) => entry.projectionName === "inventory-item-ledger-projection",
+    )!;
+    await expect(
+      retryProjectionBlockedStream(runtime, runner.checkpointKey, `inventory.item-${nextItemId}`, {}),
+    ).resolves.toMatchObject({ state: "resolved", errorMessage: null });
     await settle();
-    expect((await pools.inventory.query(`SELECT state FROM event_projection_poison_events
-      WHERE event_type = 'inventory.item.offline-sale-recorded'`)).rows).toEqual([{ state: "resolved" }]);
+    expect(
+      (
+        await pools.inventory.query(`SELECT state FROM event_projection_poison_events
+      WHERE event_type = 'inventory.item.offline-sale-recorded'`)
+      ).rows,
+    ).toEqual([{ state: "resolved" }]);
     const missing = await pools.inventory.query(`SELECT e.event_id FROM event_store_events e
       LEFT JOIN inventory_item_ledger l ON l.stream_id = e.stream_id AND l.stream_version = e.stream_version
       WHERE e.event_type = 'inventory.item.offline-sale-recorded' AND l.ledger_entry_id IS NULL`);
@@ -421,52 +601,68 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       await control.query("BEGIN");
       await control.query(`ALTER TABLE inventory_item_ledger DROP CONSTRAINT ${handoffCheck}`);
       await oldSaleWriter(control, queuedEvent);
-      const bad = await control.query(`SELECT sum(quantity_delta)::int AS quantity FROM inventory_item_ledger WHERE item_id = $1 AND account_id = $2`, [itemId, accountId]);
+      const bad = await control.query(
+        `SELECT sum(quantity_delta)::int AS quantity FROM inventory_item_ledger WHERE item_id = $1 AND account_id = $2`,
+        [itemId, accountId],
+      );
       const stock = await control.query("SELECT total_quantity FROM inventory_items WHERE item_id = $1", [itemId]);
       expect(bad.rows[0]!.quantity).not.toBe(stock.rows[0]!.total_quantity);
-    } finally { await control.query("ROLLBACK"); control.release(); }
+    } finally {
+      await control.query("ROLLBACK");
+      control.release();
+    }
     await assertFullHistory();
   });
 
-  it.each(["timeout", "overflow", "injected failure", "deadline"])("handoff rollback and retry: %s", async (failure) => {
-    await retainedBoot();
-    await sale(`rollback-${failure}`);
-    await settle();
-    if (failure === "overflow") {
-      await pools.inventory.query(`INSERT INTO inventory_item_ledger
+  it.each(["timeout", "overflow", "injected failure", "deadline"])(
+    "handoff rollback and retry: %s",
+    async (failure) => {
+      await retainedBoot();
+      await sale(`rollback-${failure}`);
+      await settle();
+      if (failure === "overflow") {
+        await pools.inventory.query(`INSERT INTO inventory_item_ledger
         SELECT 'overflow-' || n, 'synthetic-item', 'acc_overflow', now(), 'adjusted', 0,
           NULL, NULL, 'Synthetic bound control', NULL, NULL, NULL, NULL, NULL, 'system',
           'inventory.item.adjusted', 'inventory.item-overflow', n, now()
         FROM generate_series(1, 100001) n`);
-    }
-    const before = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
-    let restoreClock: (() => void) | undefined;
-    const module = instrumentedHandoff((db) => ({ query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
-      const result = await db.query<Row>(sql, values);
-      if (sql.startsWith("UPDATE inventory_item_ledger")) {
-        if (failure === "injected failure") throw new Error("injected after correction");
-        if (failure === "timeout") {
-          await db.query("SET LOCAL statement_timeout = '1ms'");
-          await db.query("SELECT pg_sleep(0.02)");
-        }
-        if (failure === "deadline") {
-          const expired = Date.now() + 60_001;
-          const clock = vi.spyOn(Date, "now").mockReturnValue(expired);
-          restoreClock = () => clock.mockRestore();
-        }
       }
-      return result;
-    } }));
-    try {
-      await expect(bootstrapContextDatabase(module, pools.inventory)).rejects.toThrow("ledger handoff incomplete");
-    } finally { restoreClock?.(); }
-    expect(await handoffState()).toEqual({ guard: [], record: [] });
-    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows).toEqual(before.rows);
-    if (failure === "overflow") await pools.inventory.query("DELETE FROM inventory_item_ledger WHERE account_id = 'acc_overflow'");
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
-    expect(await handoffState()).toEqual({ guard: [{ convalidated: true }], record: [{ migration_id: handoffId }] });
-    await assertFullHistory();
-  });
+      const before = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
+      let restoreClock: (() => void) | undefined;
+      const module = instrumentedHandoff((db) => ({
+        query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+          const result = await db.query<Row>(sql, values);
+          if (sql.startsWith("UPDATE inventory_item_ledger")) {
+            if (failure === "injected failure") throw new Error("injected after correction");
+            if (failure === "timeout") {
+              await db.query("SET LOCAL statement_timeout = '1ms'");
+              await db.query("SELECT pg_sleep(0.02)");
+            }
+            if (failure === "deadline") {
+              const expired = Date.now() + 60_001;
+              const clock = vi.spyOn(Date, "now").mockReturnValue(expired);
+              restoreClock = () => clock.mockRestore();
+            }
+          }
+          return result;
+        },
+      }));
+      try {
+        await expect(bootstrapContextDatabase(module, pools.inventory)).rejects.toThrow("ledger handoff incomplete");
+      } finally {
+        restoreClock?.();
+      }
+      expect(await handoffState()).toEqual({ guard: [], record: [] });
+      expect(
+        (await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows,
+      ).toEqual(before.rows);
+      if (failure === "overflow")
+        await pools.inventory.query("DELETE FROM inventory_item_ledger WHERE account_id = 'acc_overflow'");
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+      expect(await handoffState()).toEqual({ guard: [{ convalidated: true }], record: [{ migration_id: handoffId }] });
+      await assertFullHistory();
+    },
+  );
 
   async function capture() {
     const checkpoints = await pools.inventory.query(
