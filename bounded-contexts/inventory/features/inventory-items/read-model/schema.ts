@@ -167,15 +167,15 @@ $migration$`,
     description: "Retire quantity-bearing offline-sale audit writes and reconcile retained ledger detail atomically.",
     statements: [],
     dataStep: async (db) => {
-      const migrationDb: BcSchemaMigrationClient = db;
+      const runMigrationQuery: BcSchemaMigrationClient["query"] = (text, values) => db.query(text, values);
       const deadline = Date.now() + 60_000;
       async function query<Row = Record<string, unknown>>(sql: string) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
           throw new Error("60-second deadline exceeded");
         }
-        await migrationDb.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
-        const result = await migrationDb.query<Row>(sql);
+        await runMigrationQuery("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
+        const result = await runMigrationQuery<Row>(sql);
         if (Date.now() >= deadline) {
           throw new Error("60-second deadline exceeded");
         }
