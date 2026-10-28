@@ -11,6 +11,7 @@ import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import {
   cleanDrillProfile,
+  createDeployedPopupObserver,
   deployedBrowserArgs,
   digestConnectorDist,
   drillBrowserEnvironment,
@@ -35,6 +36,130 @@ import { drillTestCertificate, stagingFakePlatform, stagingSynthetic, synthetic 
 const staging = linkIntentOrigins["marketplace-web"].staging;
 const production = linkIntentOrigins["marketplace-web"].production;
 const stagingHost = new URL(staging).host;
+
+describe("deployed popup target-scoped document controls", () => {
+  const path = "/account/channels/synthetic-popup-connection";
+  const url = `${staging}${path}`;
+  function scenario(
+    overrides: {
+      openerId?: string;
+      browserContextId?: string;
+      targetType?: string;
+      requestSession?: string;
+      responseSession?: string;
+      method?: string;
+      responseUrl?: string;
+      resourceType?: string;
+      status?: number;
+      response?: boolean;
+      bind?: boolean;
+      pageTargetId?: string;
+      pageUrl?: string;
+    } = {},
+  ) {
+    const observer = createDeployedPopupObserver({
+      sourceTargetId: "synthetic-source",
+      browserContextId: "synthetic-context",
+      origin: staging,
+      path,
+    });
+    observer.observe({
+      method: "Target.attachedToTarget",
+      params: {
+        sessionId: "synthetic-child-session",
+        targetInfo: {
+          targetId: "synthetic-popup",
+          type: overrides.targetType ?? "page",
+          openerId: overrides.openerId ?? "synthetic-source",
+          browserContextId: overrides.browserContextId ?? "synthetic-context",
+          url,
+        },
+      },
+    });
+    observer.observe({
+      method: "Network.requestWillBeSent",
+      sessionId: overrides.requestSession ?? "synthetic-child-session",
+      params: { requestId: "synthetic-request", type: "Document", request: { method: overrides.method ?? "GET", url } },
+    });
+    if (overrides.response !== false)
+      observer.observe({
+        method: "Network.responseReceived",
+        sessionId: overrides.responseSession ?? "synthetic-child-session",
+        params: {
+          requestId: "synthetic-request",
+          type: overrides.resourceType ?? "Document",
+          response: { url: overrides.responseUrl ?? url, status: overrides.status ?? 200, mimeType: "text/html" },
+        },
+      });
+    // The actual observer must retain a response arriving before Playwright's page.
+    expect(observer.document()).toBeUndefined();
+    if (overrides.bind !== false)
+      observer.bindPage(overrides.pageTargetId ?? "synthetic-popup", overrides.pageUrl ?? url);
+    return observer;
+  }
+
+  it("retains response-before-page ordering", () => {
+    expect(scenario().document()).toMatchObject({
+      targetId: "synthetic-popup",
+      sessionId: "synthetic-child-session",
+      method: "GET",
+      status: 200,
+      url,
+    });
+  });
+  it("refuses wrong target session", () => {
+    expect(scenario({ responseSession: "synthetic-unrelated-session" }).document()).toBeUndefined();
+  });
+  it("refuses wrong request session", () => {
+    expect(scenario({ requestSession: "synthetic-unrelated-session" }).document()).toBeUndefined();
+  });
+  it("refuses wrong opener", () => {
+    expect(scenario({ openerId: "synthetic-other-opener" }).document()).toBeUndefined();
+  });
+  it("refuses wrong browser context", () => {
+    expect(scenario({ browserContextId: "synthetic-other-context" }).document()).toBeUndefined();
+  });
+  it("refuses wrong origin", () => {
+    expect(scenario({ responseUrl: `https://unrelated.example${path}` }).document()).toBeUndefined();
+  });
+  it("refuses wrong stored path", () => {
+    expect(
+      scenario({ responseUrl: `${staging}/account/channels/synthetic-wrong-connection` }).document(),
+    ).toBeUndefined();
+  });
+  it("refuses non-Document resource", () => {
+    expect(scenario({ resourceType: "Stylesheet" }).document()).toBeUndefined();
+  });
+  it("refuses non-200 response", () => {
+    expect(scenario({ status: 404 }).document()).toBeUndefined();
+  });
+  it("refuses non-GET request", () => {
+    expect(scenario({ method: "POST" }).document()).toBeUndefined();
+  });
+  it("refuses missing target-page binding", () => {
+    expect(scenario({ bind: false }).document()).toBeUndefined();
+  });
+  it("refuses same-URL wrong page target", () => {
+    expect(scenario({ pageTargetId: "synthetic-unrelated-page" }).document()).toBeUndefined();
+  });
+  it("refuses wrong surfaced page URL", () => {
+    expect(scenario({ pageUrl: `${staging}/account/channels/synthetic-other-page` }).document()).toBeUndefined();
+  });
+  it("refuses same-path different page URL", () => {
+    expect(scenario({ pageUrl: `${url}?synthetic-different-document` }).document()).toBeUndefined();
+  });
+  it("refuses fake-server receipt with no target response", () => {
+    const fakeServerReceipt = { method: "GET", url, status: 200 };
+    expect(fakeServerReceipt.status).toBe(200);
+    expect(scenario({ response: false }).document()).toBeUndefined();
+  });
+  it("refuses service-worker-only evidence", () => {
+    expect(scenario({ targetType: "service_worker" }).document()).toBeUndefined();
+  });
+  it("refuses URL-only evidence", () => {
+    expect(scenario({ response: false }).document()).toBeUndefined();
+  });
+});
 const authorizePath = "/channel-connector/oauth/authorize";
 const run = "1";
 const commit = `${"0".repeat(39)}1`;
