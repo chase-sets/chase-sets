@@ -55,17 +55,18 @@ export function renderHeldAccountManagementRoute<T>(path: string, initial: T, pa
 
 type AccountManagementRouter = ReturnType<typeof createMemoryRouter>;
 
-function routerIsIdle(router: AccountManagementRouter) {
+function routeIsIdle(state: AccountManagementRouter["state"]) {
   return (
-    router.state.initialized &&
-    router.state.navigation.state === "idle" &&
-    [...router.state.fetchers.values()].every((fetcher) => fetcher.state === "idle")
+    state.initialized &&
+    state.navigation.state === "idle" &&
+    state.revalidation === "idle" &&
+    [...state.fetchers.values()].every((fetcher) => fetcher.state === "idle")
   );
 }
 
-/** Waits for route idle and the React commit that renders its settled data. */
-export function settleAccountManagementRoute(router: AccountManagementRouter, settled: () => boolean = () => true) {
-  if (routerIsIdle(router) && settled()) return Promise.resolve();
+/** Waits for route idle (navigation, revalidation, fetchers) plus a DOM commit at which settled() holds. */
+export function settleAccountManagementRoute(router: AccountManagementRouter, settled: () => boolean) {
+  if (routeIsIdle(router.state) && settled()) return Promise.resolve();
 
   return new Promise<void>((resolve) => {
     let idle = false;
@@ -84,13 +85,10 @@ export function settleAccountManagementRoute(router: AccountManagementRouter, se
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     const unsubscribe = router.subscribe((state) => {
-      idle =
-        state.initialized &&
-        state.navigation.state === "idle" &&
-        [...state.fetchers.values()].every((fetcher) => fetcher.state === "idle");
+      idle = routeIsIdle(state);
       finish();
     });
-    idle = routerIsIdle(router);
+    idle = routeIsIdle(router.state);
     finish();
   });
 }
