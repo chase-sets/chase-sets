@@ -153,7 +153,8 @@ export type PairingDrillEvidence = Readonly<{
   requests: readonly DrillRequestRow[];
   lifecycle: readonly string[];
   /** Deployed mode only: every row recorded before the refusal, and the profile's fate. */
-  deployed?: DeployedDrillRows & Readonly<{ profile: DeployedDrillProfile | null }>;
+  deployed?: DeployedDrillRows &
+    Readonly<{ profile: DeployedDrillProfile | null; claimResponses: readonly DeployedClaimResponseRow[] }>;
   /** The deploy-authority adapter's stop code when it bound no deploy. */
   deployStop?: string;
 }>;
@@ -276,6 +277,12 @@ export type DeployedClaimRow = Readonly<{
   status: number;
   reservation: null | "present" | "unreadable";
   bodyCode: string | null;
+}>;
+/** Refusal evidence only: a stored-path worker claim response the installed listener saw, and its body's fate. */
+export type DeployedClaimResponseRow = Readonly<{
+  phase: DeployedClaimRow["phase"];
+  status: number;
+  body: "pending" | "settled" | "unreadable";
 }>;
 export type DeployedDisplayRow = Readonly<{ state: string; title: string; badge: string }>;
 export type DeployedDrillProfile = Readonly<{ path: string; deleted: boolean }>;
@@ -1507,6 +1514,7 @@ export function installDeployedResponses(
     phase(): DeployedClaimRow["phase"];
     pages: DeployedPageRow[];
     claims: DeployedClaimRow[];
+    responses: DeployedClaimResponseRow[];
   }>,
 ) {
   let closed = false;
@@ -1542,12 +1550,16 @@ export function installDeployedResponses(
       return;
     const phase = input.phase();
     const path = redact(url.pathname);
+    const status = response.status();
+    // Seen before its body settles, so a refusal tells a late body from an absent response.
+    const observed = input.responses.push({ phase, status, body: "pending" }) - 1;
     const body: unknown = await response.json().catch(() => undefined);
     if (closed) return;
+    input.responses[observed] = { phase, status, body: body === undefined ? "unreadable" : "settled" };
     input.claims.push({
       phase,
       path,
-      status: response.status(),
+      status,
       reservation:
         isRecord(body) && "reservation" in body ? (body.reservation === null ? null : "present") : "unreadable",
       bodyCode: bodyCode(body),
@@ -1597,6 +1609,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   const steps: DeployedStepRow[] = [];
   const pages: DeployedPageRow[] = [];
   const claims: DeployedClaimRow[] = [];
+  const claimResponses: DeployedClaimResponseRow[] = [];
   const display: DeployedDisplayRow[] = [];
   const isolation = { tcgplayer: 0, workerEscapes: 0, connectionWrites: 0 };
   let lifecycle: readonly string[] = [];
@@ -1623,6 +1636,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       display: [...display],
       aborted: sorted(aborted),
       profile,
+      claimResponses: [...claimResponses],
     },
   });
   const fail: (code: PairingDrillRefusalCode) => never = (code) => {
@@ -1657,6 +1671,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       phase: () => claimPhase,
       pages,
       claims,
+      responses: claimResponses,
     });
     const callback = new URL(TCGPLAYER_CONNECTOR_REDIRECT_URI);
     await context.route("**/*", async (route) => {
@@ -2133,15 +2148,14 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       claimPhase = "unpaired";
       const claimsAtUnpair = claims.length;
       await fire();
-      const revoked = await waitFor(async () => (await profileEntry(connector)) === "revoked");
+      // Revocation and the browser's own collected 401 land in either order; the leg consumes both.
+      const settled = await waitFor(
+        async () =>
+          (await profileEntry(connector)) === "revoked" && deployedUnpairedClaimObserved(claims, claimsAtUnpair),
+      );
       lifecycle = await readLifecycle(connector);
       const cleanupAt = lifecycle.indexOf("cleanup-pending");
-      if (
-        !revoked ||
-        cleanupAt < 0 ||
-        cleanupAt > lifecycle.lastIndexOf("revoked") ||
-        !deployedUnpairedClaimObserved(claims, claimsAtUnpair)
-      )
+      if (!settled || cleanupAt < 0 || cleanupAt > lifecycle.lastIndexOf("revoked"))
         fail("connector-drill-lifecycle-refused");
       const titled = await waitFor(async () => (await actionTitle(connector)) === "revoked");
       const transitional = (

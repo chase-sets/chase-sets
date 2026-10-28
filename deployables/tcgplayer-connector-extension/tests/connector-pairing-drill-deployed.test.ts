@@ -27,6 +27,7 @@ import {
   retainDeployedReceipt,
   runPairingDrill,
   type DeployedPairingDrillReceipt,
+  type DeployedClaimResponseRow,
   type DeployedClaimRow,
   type DeployedPageRow,
   type DrillLaunchOptions,
@@ -92,6 +93,7 @@ describe("installed deployed response subscription", () => {
     const context = Object.assign(new EventEmitter(), { pages: () => [page as unknown as Page] });
     const pages: DeployedPageRow[] = [];
     const claims: DeployedClaimRow[] = [];
+    const responses: DeployedClaimResponseRow[] = [];
     let phase: DeployedClaimRow["phase"] = "paused";
     const close = installDeployedResponses(context as unknown as BrowserContext, {
       platformOrigin: staging,
@@ -99,6 +101,7 @@ describe("installed deployed response subscription", () => {
       phase: () => phase,
       pages,
       claims,
+      responses,
     });
     const emit = async (value: BrowserResponse, onPage = false) => {
       context.emit("response", value);
@@ -110,6 +113,7 @@ describe("installed deployed response subscription", () => {
       context,
       pages,
       claims,
+      responses,
       close,
       emit,
       unpair: () => {
@@ -289,210 +293,404 @@ describe("installed deployed response subscription", () => {
       second.close();
     }
   });
+  it("keeps each stored claim response's body state, pending until it settles and frozen at cleanup", async () => {
+    const run = installed();
+    let finish!: (body: unknown) => void;
+    const held = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    let finishLate!: (body: unknown) => void;
+    const late = new Promise<unknown>((resolve) => {
+      finishLate = resolve;
+    });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      await run.emit(response({ status: 401, json: () => held }).value);
+      await run.emit(
+        response({
+          json: async () => {
+            throw new SyntaxError("invalid-json");
+          },
+        }).value,
+      );
+      await run.emit(response({ method: "GET" }).value);
+      await settle();
+      expect(run.responses).toEqual([
+        { phase: "paused", status: 401, body: "pending" },
+        { phase: "paused", status: 200, body: "unreadable" },
+      ]);
+      finish({ error: "invalid-credential" });
+      await settle();
+      expect(run.responses[0]).toEqual({ phase: "paused", status: 401, body: "settled" });
+      run.unpair();
+      await run.emit(response({ status: 401, json: () => late }).value);
+    } finally {
+      run.close();
+    }
+    finishLate({ error: "invalid-credential" });
+    await settle();
+    expect(run.responses.at(-1)).toEqual({ phase: "unpaired", status: 401, body: "pending" });
+    expect(run.claims.map(({ phase, status }) => [phase, status])).toEqual([
+      ["paused", 200],
+      ["paused", 401],
+    ]);
+  });
+
+  /** When the post-Unpair claim reaches the installed listener, relative to the product's visible revocation. */
+  type PostUnpairDelivery =
+    | "settled-then-revoked"
+    | "revoked-after-first-read"
+    | "event-after-revoked"
+    | "body-after-revoked"
+    | "missing"
+    | "post-boundary-200"
+    | "pre-boundary-late-401"
+    | "body-unresolved";
+  /** Deliveries that never satisfy the post-Unpair gate, so the run reaches the leg's deadline. */
+  const pendingEvidence: readonly PostUnpairDelivery[] = [
+    "missing",
+    "post-boundary-200",
+    "pre-boundary-late-401",
+    "body-unresolved",
+  ];
+  const invalidCredential = async (): Promise<unknown> => ({ error: "invalid-credential" });
+  /** Real driver over synthetic browser APIs: installed listeners, consumption and lifetime, not browser proof. */
+  async function syntheticDrill(
+    options: Readonly<{
+      pausedReservation?: boolean;
+      postUnpair?: PostUnpairDelivery;
+      onUnpairedFire?: () => void;
+    }> = {},
+  ) {
+    const postUnpair = options.postUnpair ?? "settled-then-revoked";
+    const fake = await stagingFakePlatform();
+    const outputDir = mkdtempSync(join(tmpdir(), "connector-drill-subscription-"));
+    const marker = "8c3aee36-8c7d-4cf3-8802-57cb8f195144";
+    let title = "unpaired";
+    let unpaired = false;
+    let sequence = 0;
+    let actions = 0;
+    const postJoinListeners: number[] = [];
+    let route!: (route: unknown) => Promise<void>;
+    const changes: ((change: unknown, area: string) => void)[] = [];
+    const change = (state: string) => {
+      title = state;
+      for (const listener of changes) listener({ "channel-connector-profile": { newValue: { state } } }, "local");
+    };
+    const revoke = () => {
+      change("cleanup-pending");
+      change("revoked");
+    };
+    const emit = (status: number, json: () => Promise<unknown>) =>
+      context.emit("response", response({ status, json }).value);
+    // A held body settles only when the run, or a later test step, releases it.
+    let release: () => void = () => undefined;
+    const held = () =>
+      new Promise<unknown>((resolve) => {
+        release = () => resolve({ error: "invalid-credential" });
+      });
+    // Lands after the driver's next profile read returns, as a late browser event or product write would.
+    let afterNextRead: (() => void) | undefined;
+    let ticker: ReturnType<typeof setInterval> | undefined;
+    const deliveries: Record<PostUnpairDelivery, () => void> = {
+      "settled-then-revoked": () => {
+        emit(401, invalidCredential);
+        revoke();
+      },
+      "revoked-after-first-read": () => {
+        emit(401, invalidCredential);
+        afterNextRead = revoke;
+      },
+      "event-after-revoked": () => {
+        revoke();
+        afterNextRead = () => emit(401, invalidCredential);
+      },
+      "body-after-revoked": () => {
+        emit(401, held);
+        revoke();
+        afterNextRead = () => release();
+      },
+      missing: revoke,
+      "post-boundary-200": () => {
+        emit(200, async () => ({ reservation: null }));
+        revoke();
+      },
+      "pre-boundary-late-401": () => {
+        release();
+        revoke();
+      },
+      "body-unresolved": () => {
+        emit(401, held);
+        revoke();
+      },
+    };
+    const chrome = {
+      action: { getTitle: async () => title, getBadgeText: async () => (title === "paired-idle" ? "ON" : "!") },
+      storage: {
+        onChanged: { addListener: (listener: (typeof changes)[number]) => changes.push(listener) },
+        local: {
+          get: async () => {
+            if (afterNextRead) setTimeout(afterNextRead, 0);
+            afterNextRead = undefined;
+            return { "channel-connector-profile": { state: title } };
+          },
+        },
+      },
+      alarms: {
+        create: () => {
+          if (!unpaired) {
+            emit(200, async () => ({ reservation: options.pausedReservation ? {} : null }));
+            return;
+          }
+          options.onUnpairedFire?.();
+          if (pendingEvidence.includes(postUnpair)) {
+            // Only Date is faked, the package's established timer seam: the 10 s leg ends without a 10 s sleep.
+            vi.useFakeTimers({ toFake: ["Date"] });
+            ticker = setInterval(() => vi.setSystemTime(Date.now() + 1_000), 10);
+          }
+          deliveries[postUnpair]();
+        },
+      },
+    };
+    const worker = {
+      url: () => "chrome-extension://synthetic/background.js",
+      evaluate: async (fn: (arg: unknown) => unknown, arg: unknown) => {
+        if (arg === "https://connector-drill.invalid/canary") {
+          await route({
+            request: () => ({ url: () => arg, serviceWorker: () => worker }),
+            abort: async () => undefined,
+          });
+          return;
+        }
+        return fn(arg);
+      },
+    };
+    let currentUrl = `${staging}/account/channels`;
+    const page = Object.assign(new EventEmitter(), {
+      url: () => currentUrl,
+      goto: async (url: string) => {
+        currentUrl = url;
+        return { status: () => 200 };
+      },
+      bringToFront: async () => undefined,
+      locator: (selector: string) => ({
+        click: async () => {
+          if (!selector.includes("connector-unpair")) return;
+          unpaired = true;
+          // A claim in flight at Unpair: its 401 is paused-phase evidence however late its body lands.
+          if (postUnpair === "pre-boundary-late-401") emit(401, held);
+        },
+      }),
+      evaluate: async (_fn: unknown, request: { method: string; path: string }) => {
+        if (actions === 2 && request.path.endsWith("/connector-pairing")) {
+          const active = context.listenerCount("response");
+          postJoinListeners.push(active);
+          if (!active) throw new Error("synthetic-producer-detached-after-marker-join");
+        }
+        let body: unknown = {};
+        if (request.path === "/api/channels/connections")
+          body = request.method === "GET" ? { items: [] } : { connectionId: id, status: "pending-setup" };
+        else if (request.path === "/api/inventory/storage-locations")
+          body = { items: [{ is_archived: false, storage_location_id: "location" }] };
+        else if (request.path.endsWith("/activate")) body = { status: "active" };
+        else if (request.path.endsWith("/pause")) body = { status: "paused" };
+        else if (request.path.endsWith("/disconnect")) body = { status: "disconnected" };
+        else
+          body = {
+            state: unpaired ? "unpaired" : actions ? "paired" : currentUrl.endsWith(id) ? "code" : "unpaired",
+            pairingId: "synthetic-pairing",
+          };
+        return { status: 200, contentType: "application/json", body };
+      },
+    });
+    const frame = {
+      evaluate: async () => ({ url: `${staging}/account/channels/${id}`, top: true, markers: [marker] }),
+      parentFrame: () => null,
+      page: () => popup,
+    };
+    const popup = Object.assign(new EventEmitter(), {
+      url: () => `${staging}/account/channels/${id}`,
+      context: () => context,
+      mainFrame: () => frame,
+      waitForLoadState: async () => undefined,
+    });
+    const context = Object.assign(new EventEmitter(), {
+      pages: () => (actions > 1 ? [page, popup] : [page]),
+      serviceWorkers: () => [worker],
+      route: async (_pattern: string, listener: typeof route) => {
+        route = listener;
+      },
+      cookies: async () => [],
+      tracing: { start: async () => undefined, stop: async () => undefined },
+      close: async () => undefined,
+      waitForEvent: (event: string) => new Promise((resolve) => context.once(event, resolve)),
+      newCDPSession: async (target: unknown) => ({
+        send: async (method: string) =>
+          method === "Target.getTargets"
+            ? { targetInfos: [{ targetId: "source" }] }
+            : {
+                targetInfo: {
+                  targetId: target === page ? "source" : "popup",
+                  type: "page",
+                  browserContextId: "context",
+                  url: target === page ? currentUrl : popup.url(),
+                },
+              },
+        detach: async () => undefined,
+      }),
+      browser: () => ({
+        newBrowserCDPSession: async () => ({
+          send: async (method: string) => {
+            if (method === "Target.getTargets") return { targetInfos: [{ targetId: "source", url: currentUrl }] };
+            actions++;
+            if (actions === 1) change("paired-idle");
+            else {
+              sequence++;
+              context.emit("page", popup);
+            }
+            return {};
+          },
+          detach: async () => undefined,
+        }),
+      }),
+    });
+    vi.stubGlobal("chrome", chrome);
+    try {
+      const outcome = await runPairingDrill({
+        mode: "deployed",
+        smoke: false,
+        platformOrigin: staging,
+        deployRun: run,
+        deployCommit: commit,
+        dist,
+        clientId: stagingSynthetic.clientId,
+        artifactDigest: digest,
+        personaAlias: stagingSynthetic.personaAlias,
+        outputDir,
+        preflight: {
+          deploy: binding(),
+          rows: await stagingPreflightRows(staging, stagingSynthetic.clientId, fake.resolver),
+        },
+        signIn: async () => undefined,
+        resolver: fake.resolver,
+        fakeDocuments: {
+          sequence: () => sequence,
+          responses: () =>
+            sequence
+              ? [
+                  {
+                    sequence,
+                    marker,
+                    host: stagingHost,
+                    path: `/account/channels/${id}`,
+                    method: "GET",
+                    status: 200,
+                    session: true,
+                    completed: "finish",
+                  },
+                ]
+              : [],
+        },
+        launch: async () => context as unknown as BrowserContext,
+      }).then(
+        (result) => ({ receipt: result.receipt, error: undefined }),
+        (error: unknown) => ({ receipt: undefined, error }),
+      );
+      return { outcome, actions, postJoinListeners, context, page, popup, release: () => release() };
+    } finally {
+      clearInterval(ticker);
+      vi.useRealTimers();
+      await fake.close();
+      vi.unstubAllGlobals();
+      delete (globalThis as { connectorDrillLifecycle?: unknown }).connectorDrillLifecycle;
+      delete (globalThis as { connectorDrillDisplay?: unknown }).connectorDrillDisplay;
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  }
+  const expectReleased = (run: Awaited<ReturnType<typeof syntheticDrill>>) => {
+    expect(run.context.listenerCount("response")).toBe(0);
+    expect(run.context.listenerCount("page")).toBe(0);
+    expect(run.page.listenerCount("response")).toBe(0);
+    expect(run.popup.listenerCount("response")).toBe(0);
+  };
+  const pausedClaim = { phase: "paused", path: storedPath, status: 200, reservation: null, bodyCode: null };
+  const unpairedClaim = {
+    phase: "unpaired",
+    path: storedPath,
+    status: 401,
+    reservation: "unreadable",
+    bodyCode: "invalid-credential",
+  };
+  const pausedResponse = { phase: "paused", status: 200, body: "settled" };
   it.each([false, true])(
     "keeps the installed producer after the actual marker join until success/refusal (%s)",
     async (refuse) => {
-      // Synthetic browser API execution exercises driver lifetime, not real browser receipt proof.
-      const fake = await stagingFakePlatform();
-      const outputDir = mkdtempSync(join(tmpdir(), "connector-drill-subscription-"));
-      const marker = "8c3aee36-8c7d-4cf3-8802-57cb8f195144";
-      let title = "unpaired";
-      let unpaired = false;
-      let sequence = 0;
-      let actions = 0;
-      const postJoinListeners: number[] = [];
-      let route!: (route: unknown) => Promise<void>;
-      const changes: ((change: unknown, area: string) => void)[] = [];
-      const change = (state: string) => {
-        title = state;
-        for (const listener of changes) listener({ "channel-connector-profile": { newValue: { state } } }, "local");
-      };
-      const chrome = {
-        action: { getTitle: async () => title, getBadgeText: async () => (title === "paired-idle" ? "ON" : "!") },
-        storage: {
-          onChanged: { addListener: (listener: (typeof changes)[number]) => changes.push(listener) },
-          local: { get: async () => ({ "channel-connector-profile": { state: title } }) },
-        },
-        alarms: {
-          create: () => {
-            context.emit(
-              "response",
-              response({
-                status: unpaired ? 401 : 200,
-                json: async () => (unpaired ? { error: "invalid-credential" } : { reservation: refuse ? {} : null }),
-              }).value,
-            );
-            if (unpaired) {
-              change("cleanup-pending");
-              change("revoked");
-            }
-          },
-        },
-      };
-      const worker = {
-        url: () => "chrome-extension://synthetic/background.js",
-        evaluate: async (fn: (arg: unknown) => unknown, arg: unknown) => {
-          if (arg === "https://connector-drill.invalid/canary") {
-            await route({
-              request: () => ({ url: () => arg, serviceWorker: () => worker }),
-              abort: async () => undefined,
-            });
-            return;
-          }
-          return fn(arg);
-        },
-      };
-      let currentUrl = `${staging}/account/channels`;
-      const page = Object.assign(new EventEmitter(), {
-        url: () => currentUrl,
-        goto: async (url: string) => {
-          currentUrl = url;
-          return { status: () => 200 };
-        },
-        bringToFront: async () => undefined,
-        locator: (selector: string) => ({
-          click: async () => {
-            if (selector.includes("connector-unpair")) unpaired = true;
-          },
-        }),
-        evaluate: async (_fn: unknown, request: { method: string; path: string }) => {
-          if (actions === 2 && request.path.endsWith("/connector-pairing")) {
-            const active = context.listenerCount("response");
-            postJoinListeners.push(active);
-            if (!active) throw new Error("synthetic-producer-detached-after-marker-join");
-          }
-          let body: unknown = {};
-          if (request.path === "/api/channels/connections")
-            body = request.method === "GET" ? { items: [] } : { connectionId: id, status: "pending-setup" };
-          else if (request.path === "/api/inventory/storage-locations")
-            body = { items: [{ is_archived: false, storage_location_id: "location" }] };
-          else if (request.path.endsWith("/activate")) body = { status: "active" };
-          else if (request.path.endsWith("/pause")) body = { status: "paused" };
-          else if (request.path.endsWith("/disconnect")) body = { status: "disconnected" };
-          else
-            body = {
-              state: unpaired ? "unpaired" : actions ? "paired" : currentUrl.endsWith(id) ? "code" : "unpaired",
-              pairingId: "synthetic-pairing",
-            };
-          return { status: 200, contentType: "application/json", body };
-        },
-      });
-      const frame = {
-        evaluate: async () => ({ url: `${staging}/account/channels/${id}`, top: true, markers: [marker] }),
-        parentFrame: () => null,
-        page: () => popup,
-      };
-      const popup = Object.assign(new EventEmitter(), {
-        url: () => `${staging}/account/channels/${id}`,
-        context: () => context,
-        mainFrame: () => frame,
-        waitForLoadState: async () => undefined,
-      });
-      const context = Object.assign(new EventEmitter(), {
-        pages: () => (actions > 1 ? [page, popup] : [page]),
-        serviceWorkers: () => [worker],
-        route: async (_pattern: string, listener: typeof route) => {
-          route = listener;
-        },
-        cookies: async () => [],
-        tracing: { start: async () => undefined, stop: async () => undefined },
-        close: async () => undefined,
-        waitForEvent: (event: string) => new Promise((resolve) => context.once(event, resolve)),
-        newCDPSession: async (target: unknown) => ({
-          send: async (method: string) =>
-            method === "Target.getTargets"
-              ? { targetInfos: [{ targetId: "source" }] }
-              : {
-                  targetInfo: {
-                    targetId: target === page ? "source" : "popup",
-                    type: "page",
-                    browserContextId: "context",
-                    url: target === page ? currentUrl : popup.url(),
-                  },
-                },
-          detach: async () => undefined,
-        }),
-        browser: () => ({
-          newBrowserCDPSession: async () => ({
-            send: async (method: string) => {
-              if (method === "Target.getTargets") return { targetInfos: [{ targetId: "source", url: currentUrl }] };
-              actions++;
-              if (actions === 1) change("paired-idle");
-              else {
-                sequence++;
-                context.emit("page", popup);
-              }
-              return {};
-            },
-            detach: async () => undefined,
-          }),
-        }),
-      });
-      vi.stubGlobal("chrome", chrome);
-      try {
-        const outcome = await runPairingDrill({
-          mode: "deployed",
-          smoke: false,
-          platformOrigin: staging,
-          deployRun: run,
-          deployCommit: commit,
-          dist,
-          clientId: stagingSynthetic.clientId,
-          artifactDigest: digest,
-          personaAlias: stagingSynthetic.personaAlias,
-          outputDir,
-          preflight: {
-            deploy: binding(),
-            rows: await stagingPreflightRows(staging, stagingSynthetic.clientId, fake.resolver),
-          },
-          signIn: async () => undefined,
-          resolver: fake.resolver,
-          fakeDocuments: {
-            sequence: () => sequence,
-            responses: () =>
-              sequence
-                ? [
-                    {
-                      sequence,
-                      marker,
-                      host: stagingHost,
-                      path: `/account/channels/${id}`,
-                      method: "GET",
-                      status: 200,
-                      session: true,
-                      completed: "finish",
-                    },
-                  ]
-                : [],
-          },
-          launch: async () => context as unknown as BrowserContext,
-        }).then(
-          (result) => ({ receipt: result.receipt, error: undefined }),
-          (error: unknown) => ({ receipt: undefined, error }),
-        );
-        expect(actions).toBe(2);
-        expect(postJoinListeners.length).toBeGreaterThan(0);
-        expect(postJoinListeners.every((count) => count === 1)).toBe(true);
-        expect(codeOf(outcome.error)).toBe(refuse ? "connector-drill-paused-claim-refused" : undefined);
-        const evidence =
-          outcome.error instanceof PairingDrillRefusal ? outcome.error.evidence.deployed : outcome.receipt;
-        expect(evidence?.pages.filter((row) => row.fakeDocument)).toHaveLength(1);
-        expect(evidence?.claims.filter((row) => row.phase === "paused")).toHaveLength(2);
-        if (!refuse)
-          expect(outcome.receipt?.claims).toContainEqual(expect.objectContaining({ phase: "unpaired", status: 401 }));
-        expect(context.listenerCount("response")).toBe(0);
-        expect(context.listenerCount("page")).toBe(0);
-        expect(page.listenerCount("response")).toBe(0);
-        expect(popup.listenerCount("response")).toBe(0);
-      } finally {
-        await fake.close();
-        vi.unstubAllGlobals();
-        delete (globalThis as { connectorDrillLifecycle?: unknown }).connectorDrillLifecycle;
-        delete (globalThis as { connectorDrillDisplay?: unknown }).connectorDrillDisplay;
-        rmSync(outputDir, { recursive: true, force: true });
-      }
+      const run = await syntheticDrill({ pausedReservation: refuse });
+      expect(run.actions).toBe(2);
+      expect(run.postJoinListeners.length).toBeGreaterThan(0);
+      expect(run.postJoinListeners.every((count) => count === 1)).toBe(true);
+      expect(codeOf(run.outcome.error)).toBe(refuse ? "connector-drill-paused-claim-refused" : undefined);
+      const evidence =
+        run.outcome.error instanceof PairingDrillRefusal ? run.outcome.error.evidence.deployed : run.outcome.receipt;
+      expect(evidence?.pages.filter((row) => row.fakeDocument)).toHaveLength(1);
+      expect(evidence?.claims.filter((row) => row.phase === "paused")).toHaveLength(2);
+      if (!refuse)
+        expect(run.outcome.receipt?.claims).toContainEqual(expect.objectContaining({ phase: "unpaired", status: 401 }));
+      expectReleased(run);
     },
   );
+  it.each(["settled-then-revoked", "revoked-after-first-read", "event-after-revoked", "body-after-revoked"] as const)(
+    "consumes the browser's own post-Unpair 401 and the revocation in either order (%s)",
+    async (postUnpair) => {
+      const run = await syntheticDrill({ postUnpair });
+      expect(codeOf(run.outcome.error)).toBeUndefined();
+      expect(run.outcome.receipt?.claims).toEqual([pausedClaim, pausedClaim, unpairedClaim]);
+      expect(run.outcome.receipt?.lifecycle).toEqual(["paired-idle", "cleanup-pending", "revoked"]);
+      expect(run.outcome.receipt?.display.map(({ state }) => state)).toEqual([
+        "paired-idle",
+        "cleanup-pending",
+        "revoked",
+      ]);
+      // The response/body diagnostic is refusal evidence only.
+      expect(run.outcome.receipt).not.toHaveProperty("claimResponses");
+      expectReleased(run);
+    },
+  );
+  it.each([
+    ["missing", []],
+    ["post-boundary-200", [{ phase: "unpaired", status: 200, body: "settled" }]],
+    ["pre-boundary-late-401", [{ phase: "paused", status: 401, body: "settled" }]],
+  ] as const)(
+    "refuses %s browser authority at the leg deadline although the product revoked",
+    async (postUnpair, late) => {
+      const run = await syntheticDrill({ postUnpair });
+      expect(codeOf(run.outcome.error)).toBe("connector-drill-lifecycle-refused");
+      const { evidence } = run.outcome.error as PairingDrillRefusal;
+      expect(evidence.lifecycle).toEqual(["paired-idle", "cleanup-pending", "revoked"]);
+      expect(evidence.deployed?.claims).not.toContainEqual(unpairedClaim);
+      expect(evidence.deployed?.claimResponses).toEqual([pausedResponse, pausedResponse, ...late]);
+      expect(evidence.deployed?.steps.at(-1)).toMatchObject({ step: "disconnect", bodyCode: "disconnected" });
+      expect(evidence.deployed?.profile?.deleted).toBe(true);
+      expectReleased(run);
+    },
+  );
+  it("refuses a post-Unpair body still pending at the deadline and keeps its late settlement out of the next run", async () => {
+    const first = await syntheticDrill({ postUnpair: "body-unresolved" });
+    expect(codeOf(first.outcome.error)).toBe("connector-drill-lifecycle-refused");
+    const { evidence } = first.outcome.error as PairingDrillRefusal;
+    expect(evidence.deployed?.claims).toEqual([pausedClaim, pausedClaim]);
+    expect(evidence.deployed?.claimResponses).toEqual([
+      pausedResponse,
+      pausedResponse,
+      { phase: "unpaired", status: 401, body: "pending" },
+    ]);
+    expectReleased(first);
+    // The first run's body settles while the second run's own post-Unpair claim is in flight.
+    const second = await syntheticDrill({ onUnpairedFire: first.release });
+    expect(codeOf(second.outcome.error)).toBeUndefined();
+    expect(second.outcome.receipt?.claims).toEqual([pausedClaim, pausedClaim, unpairedClaim]);
+    expectReleased(second);
+  });
 });
 
 describe("fake response completion and main-document join", () => {

@@ -307,13 +307,33 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   expect(receipt.pages).toContainEqual(
     expect.objectContaining({ path: "/account/channels/<connectionId>", status: 200, host: stagingHost }),
   );
-  // The stored page is opened before Generate, after its form redirect, in the
-  // extension-created popup (bound to its document response), and for Unpair.
-  // Requiring four document rows makes the popup capture discriminating; the
-  // earlier observer rows alone are only three.
+  // The stored page's documents in flow order: opened before Generate, Generate's
+  // POST/303 and the GET it redirects to, the extension-created popup (the only
+  // marker-bearing document), opened again for Unpair, then Unpair's POST/303 and
+  // the GET it redirects to. A missing popup or redirect, a second marker or any
+  // extra document breaks the exact sequence of five GET/200 documents.
+  const storedDocuments = receipt.pages
+    .filter(({ path }) => path === "/account/channels/<connectionId>")
+    .map(({ method, status, locationHost, fakeDocument }) => ({
+      method,
+      status,
+      locationHost,
+      marker: fakeDocument !== undefined,
+    }));
+  const storedGet = { method: "GET", status: 200, locationHost: null, marker: false };
+  const storedRedirect = { method: "POST", status: 303, locationHost: stagingHost, marker: false };
+  expect(storedDocuments).toEqual([
+    storedGet,
+    storedRedirect,
+    storedGet,
+    { ...storedGet, marker: true },
+    storedGet,
+    storedRedirect,
+    storedGet,
+  ]);
   expect(
     receipt.pages.filter(({ path, status }) => path === "/account/channels/<connectionId>" && status === 200),
-  ).toHaveLength(4);
+  ).toHaveLength(5);
   expect(receipt.generateToClickMs).toBeLessThanOrEqual(600_000);
 
   // AC2: only the staging host was served, by Chromium, with the browser's cookie; everything else was aborted.
@@ -367,6 +387,7 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   console.log(
     `CONNECTOR_DRILL_BROWSER_LIFECYCLE ${JSON.stringify({ lifecycle: receipt.lifecycle, display: receipt.display })}`,
   );
+  console.log(`CONNECTOR_DRILL_STORED_DOCUMENTS ${JSON.stringify(storedDocuments)}`);
   console.log(`CONNECTOR_DRILL_FINAL_RECEIPT ${JSON.stringify(receipt)}`);
 });
 
