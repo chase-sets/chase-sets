@@ -193,5 +193,9 @@
     "refresh": "Refresh to see the result",
     "preview_first": "Preview this policy and let the preview finish before you activate it.",
     "changed": "Your settings changed since this preview. Preview again to activate them."
+  },
+  "auth": {
+    "sign_in_title": "Sign In | Marketplace",
+    "account_selection_title": "Select Account | Marketplace"
   }
 }

@@ -185,7 +185,7 @@ pub enum Failed {
     /// The API refused this request, but holds a result for its attempt: the same attempt was
     /// applied before (the form was posted again with other fields).
     AppliedBefore,
-    /// Not signed in any more: sign in at marketplace.
+    /// Not signed in any more: sign in again.
     SignIn,
     /// No answer, or one that says nothing about the attempt: the error page. The browser keeps
     /// its record and the next page checks it.

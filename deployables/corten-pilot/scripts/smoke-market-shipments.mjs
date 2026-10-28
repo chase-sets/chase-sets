@@ -1,5 +1,5 @@
 // Uses the account's shipment pages in a browser, against the real platform API, beside marketplace's.
-// - Signed out: a shipment's page sends the visitor to marketplace's sign-in, back to it.
+// - Signed out: a shipment's page sends the visitor to the pilot's sign-in, back to it.
 // - Without JavaScript, as the auth seed's collector: Shipments and a shipment of each status the
 //   seeds have say what marketplace's say, word for word; Open shipment opens each card's shipment.
 // - As the auth seed's seller: a shipment's page in each status says what marketplace's says, but
@@ -107,8 +107,8 @@ check(statuses.every((s) => one(bought, s) && one(sold, s)), `the seeds have a s
   await page.goto(`${base}/account/shipments/${id}`);
   const at = new URL(page.url());
   check(
-    at.origin === market && at.pathname === "/sign-in" && at.searchParams.get("returnTo") === `/account/shipments/${id}`,
-    `signed out, a shipment sends the visitor to marketplace's sign-in, back to it (${page.url()})`,
+    at.origin === base && at.pathname === "/sign-in" && at.searchParams.get("returnTo") === `/account/shipments/${id}`,
+    `signed out, a shipment sends the visitor to the pilot's sign-in, back to it (${page.url()})`,
   );
   await ctx.close();
 }

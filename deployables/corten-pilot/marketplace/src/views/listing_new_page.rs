@@ -678,7 +678,7 @@ fn Fees<'a>(t: ListingNewMsg, preview: &'a TermsPreview, currency: &'a str) -> i
 /// with another, coming `back` to the page asked for.
 #[component(css = NewListingPage)]
 pub fn ListingAccessRequired<'a>(t: ListingNewMsg, back: &'a str) -> impl Render {
-    let sign_in = on_marketplace(&format!("/sign-in?returnTo={}", crate::api::segment(back)));
+    let sign_in = url::SignIn { ask: crate::sign_in::Ask::back_to(back) };
     html! {
         <header class={Header}>
             <div class={Heading}>

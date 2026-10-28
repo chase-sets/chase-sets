@@ -31,6 +31,10 @@
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
+//! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
+//! | `GET /sign-in/magic?token=..` | a magic link's landing |
+//! | `GET /account/select`, `POST ..` | the account a sign-in acts for |
+//! | `POST /sign-out` | signing out |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
 //! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`;
@@ -45,7 +49,7 @@ use corten::{
 };
 
 use crate::{
-    api::{ApiError, Platform, segment},
+    api::{ApiError, Platform},
     auth::Viewer,
     text::Pilot,
     views,
@@ -108,6 +112,7 @@ pub type Shared = Arc<Config>;
 /// Every URL the pilot serves, by area. Each area's routes module names each route's handler and
 /// the caller every handler there takes.
 pub mod url {
+    pub use account_select::AccountSelect;
     pub use accounts::{Account, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
@@ -132,6 +137,7 @@ pub mod url {
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
+    pub use sign_in::{MagicLink, SignIn};
     pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
 
     /// The home page, public: marketplace's index route is its search route, so it is the search
@@ -777,6 +783,46 @@ pub mod url {
         }
     }
 
+    /// Signing in (see `sign_in`): the page and its writes, and a magic link's landing. Public: no
+    /// handler reads who is asking.
+    #[corten::routes(state = crate::app::Shared, area = SignIn)]
+    pub mod sign_in {
+        /// The page, at the step its address is on; every sign-in form posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/sign-in", get = crate::sign_in::page, post = crate::sign_in::write)]
+        pub struct SignIn {
+            #[route(query)]
+            pub ask: crate::sign_in::Ask,
+        }
+
+        /// Where a magic link's email points: its token signs the browser in.
+        #[derive(Clone, Debug, Default)]
+        #[route("/sign-in/magic", get = crate::sign_in::magic)]
+        pub struct MagicLink {
+            #[route(query)]
+            pub link: crate::sign_in::Link,
+        }
+    }
+
+    /// The account a sign-in acts for, when the user may act for more than one. Public: the
+    /// selection's cookie says whose it is.
+    #[corten::routes(state = crate::app::Shared, area = AccountSelect)]
+    pub mod account_select {
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/select", get = crate::sign_in::select_page, post = crate::sign_in::select)]
+        pub struct AccountSelect {
+            #[route(query)]
+            pub back: crate::sign_in::Back,
+        }
+    }
+
+    /// Signing out. Public: it ends whatever session the cookie names.
+    #[corten::routes(state = crate::app::Shared, area = SignOut)]
+    pub mod sign_out {
+        #[route("/sign-out", post = crate::sign_in::sign_out)]
+        pub struct SignOut;
+    }
+
     /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
     /// account cart).
     #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
@@ -807,13 +853,54 @@ pub mod url {
     }
 }
 
-/// Marketplace's sign-in, coming back to the screen the request was for (marketplace only returns
-/// to its own paths, and the pilot's are marketplace's): the path's first three segments
-/// (`/account/inventory/restock-decisions` for a write to one decision).
+/// The pilot's sign-in, coming back to the screen the request was for: the path's first three
+/// segments (`/account/inventory/restock-decisions` for a write to one decision).
 pub fn sign_in_at(path: &str) -> Option<Uri> {
     let page: String = path.split('/').filter(|s| !s.is_empty()).take(3).map(|s| format!("/{s}")).collect();
     let page = if page.is_empty() { "/".to_owned() } else { page };
-    views::marketplace(&format!("/sign-in?returnTo={}", segment(&page)))
+    sign_in_back_to(&page)
+}
+
+/// The pilot's sign-in, coming back to `page` (a path and its query).
+pub fn sign_in_back_to(page: &str) -> Option<Uri> {
+    url::SignIn { ask: crate::sign_in::Ask::back_to(page) }.href().parse().ok()
+}
+
+/// The start of every path the pilot serves: its areas' prefixes. Corten cannot say whether an
+/// app routes a path ([todd-skelton/corten#203](https://github.com/todd-skelton/corten/issues/203)), so this lists them; a path under one that the area
+/// does not route is the pilot's not-found page.
+const AREAS: &[&str] = &[
+    <url::search::Search as corten::route::Prefix>::PREFIX,
+    <url::categories::Categories as corten::route::Prefix>::PREFIX,
+    <url::accounts::AccountsArea as corten::route::Prefix>::PREFIX,
+    <url::listings::ListingsArea as corten::route::Prefix>::PREFIX,
+    <url::sets::Sets as corten::route::Prefix>::PREFIX,
+    <url::items::ItemsArea as corten::route::Prefix>::PREFIX,
+    <url::inventory::Inventory as corten::route::Prefix>::PREFIX,
+    <url::notifications::Notifications as corten::route::Prefix>::PREFIX,
+    <url::addresses::ShippingAddresses as corten::route::Prefix>::PREFIX,
+    <url::new_listing::NewListing as corten::route::Prefix>::PREFIX,
+    <url::seller_listings::SellerListings as corten::route::Prefix>::PREFIX,
+    <url::desk::Desk as corten::route::Prefix>::PREFIX,
+    <url::repricing::Repricing as corten::route::Prefix>::PREFIX,
+    <url::offer_matches::OfferMatches as corten::route::Prefix>::PREFIX,
+    <url::submitted_offers::SubmittedOffers as corten::route::Prefix>::PREFIX,
+    <url::purchases::Purchases as corten::route::Prefix>::PREFIX,
+    <url::sales::Sales as corten::route::Prefix>::PREFIX,
+    <url::shipments::Shipments as corten::route::Prefix>::PREFIX,
+    <url::sale_shipments::SaleShipments as corten::route::Prefix>::PREFIX,
+    <url::checkout::BuyCheckoutArea as corten::route::Prefix>::PREFIX,
+    <url::cart::Cart as corten::route::Prefix>::PREFIX,
+    <url::sign_in::SignIn as corten::route::Prefix>::PREFIX,
+    <url::account_select::AccountSelect as corten::route::Prefix>::PREFIX,
+];
+
+/// Whether `path` (a path, maybe with a query) is one of the pilot's pages: the home page, or a
+/// path under one of its areas' prefixes.
+pub fn serves(path: &str) -> bool {
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    path == "/"
+        || AREAS.iter().any(|prefix| path == *prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/')))
 }
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
@@ -868,6 +955,9 @@ pub fn app(config: Config) -> App {
         .area(|area| {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })
+        .area(|area| url::sign_in::area(area, shared.clone()).components(views::SIGN_IN))
+        .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
+        .area(|area| url::sign_out::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

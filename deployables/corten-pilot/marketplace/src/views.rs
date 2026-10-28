@@ -46,6 +46,7 @@ mod seller_listing_page;
 mod seller_listings_page;
 mod set_page;
 mod shipment_page;
+mod sign_in_page;
 mod submitted_offers_page;
 
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
@@ -76,6 +77,7 @@ pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
+pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts};
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
@@ -153,6 +155,9 @@ pub const SALE_SHIPMENTS: &[Component] = &[ShipmentPage, PackingPage, packing_pa
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];
+
+/// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet.
+pub const SIGN_IN: &[Component] = &[SignInPage];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]

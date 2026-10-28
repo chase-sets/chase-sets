@@ -14,10 +14,11 @@ pub use platform::{
 };
 
 use crate::{
-    api::{Identity, segment},
+    api::Identity,
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
         MANAGE, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PRICING_MANAGE, PRICING_VIEW, Shared, VIEW, sign_in_at,
+        sign_in_back_to,
     },
     views,
 };
@@ -59,22 +60,21 @@ async fn find(parts: &Parts, config: &Shared) -> Found {
     }
 }
 
-/// Where marketplace's sign-in comes back to: a page to itself, its query included (marketplace's
-/// `buildCurrentPath`); a write, which the pilot posts to an address of its own, to its screen.
+/// The sign-in for a request: back to a page itself, its query included (marketplace's
+/// `buildCurrentPath`); a write, which the pilot posts to an address of its own, back to its screen.
 fn back_to(parts: &Parts) -> Option<Uri> {
     if parts.method.is_safe() {
-        let page = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        views::marketplace(&format!("/sign-in?returnTo={}", segment(page)))
+        sign_in_back_to(parts.uri.path_and_query().map_or("/", |p| p.as_str()))
     } else {
         sign_in_at(parts.uri.path())
     }
 }
 
-/// Signing in at marketplace, coming back to `to`.
+/// Signing in (the pilot's sign-in), or, for a guest's checkout, marketplace's page: `to`.
 fn sign_in(to: Option<Uri>) -> Refused {
     match to {
         Some(to) => Refused::sign_in(&to),
-        None => Refused::unavailable("marketplace's sign-in address does not parse"),
+        None => Refused::unavailable("the sign-in address does not parse"),
     }
 }
 
@@ -93,7 +93,7 @@ impl Identify<Shared> for Session {
 
 /// A seller on the inventory screens: reading needs `inventory.view`, writing
 /// `inventory.manage`, as marketplace's actions require (the API checks both again). Anyone not
-/// signed in is sent to marketplace's sign-in, back to the screen.
+/// signed in is sent to the sign-in, back to the screen.
 #[derive(Clone, Debug, Hash)]
 pub struct Seller(pub Viewer);
 
@@ -110,7 +110,7 @@ impl Identify<Shared> for Seller {
 
 /// A seller on the Seller Desk home: anyone signed in, as marketplace's loader requires (the API
 /// checks the queue's permissions and answers 403 without them; the page then shows the queue as
-/// unavailable). Anyone not signed in is sent to marketplace's sign-in, back to the Desk.
+/// unavailable). Anyone not signed in is sent to the sign-in, back to the Desk.
 #[derive(Clone, Debug, Hash)]
 pub struct DeskSeller(pub Viewer);
 
@@ -126,7 +126,7 @@ impl Identify<Shared> for DeskSeller {
 
 /// A seller on the Seller Desk's repricing page (marketplace's `account-desk-repricing`): reading
 /// needs `pricing.view`, as the loader requires, and writing `pricing.manage`, as the action does
-/// (the API checks again). Anyone not signed in is sent to marketplace's sign-in, back to the page.
+/// (the API checks again). Anyone not signed in is sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct PricingManager(pub Viewer);
 
@@ -179,7 +179,7 @@ impl Identify<Shared> for CheckoutBuyer {
 
 /// An account on its own pages (the notification center): `accounts.view`, as marketplace's
 /// loaders and actions require (the API checks again). Anyone not signed in is sent to
-/// marketplace's sign-in, back to the notification center.
+/// the sign-in, back to the notification center.
 #[derive(Clone, Debug, Hash)]
 pub struct Member(pub Viewer);
 
@@ -196,7 +196,7 @@ impl Identify<Shared> for Member {
 
 /// An account on its shipping addresses: reading needs `accounts.view`, writing `accounts.manage`,
 /// as Identity's loader and action require (the API checks both again). Anyone not signed in is
-/// sent to marketplace's sign-in, back to the addresses.
+/// sent to the sign-in, back to the addresses.
 #[derive(Clone, Debug, Hash)]
 pub struct AddressOwner(pub Viewer);
 
@@ -214,7 +214,7 @@ impl Identify<Shared> for AddressOwner {
 
 /// A buyer on its purchases: reading needs `orders.view`, cancelling `orders.manage`, as
 /// marketplace's loader and action require (the API checks both again). Anyone not signed in is
-/// sent to marketplace's sign-in, back to the page.
+/// sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct OrderBuyer(pub Viewer);
 
@@ -270,7 +270,7 @@ impl Identify<Shared> for Shipper {
 /// A seller creating a listing: any account may open the page, which says when it may not
 /// manage listings (marketplace's "Account access required", `listings.view`); writing needs
 /// `listings.manage`, as marketplace's action requires (the API checks again). Anyone not signed
-/// in is sent to marketplace's sign-in, back to the page.
+/// in is sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct ListingSeller(pub Viewer);
 
@@ -287,7 +287,7 @@ impl Identify<Shared> for ListingSeller {
 
 /// A seller on one of its listings (marketplace's `account-listing`): reading needs
 /// `listings.view`, as its loader requires, and writing `listings.manage`, as its action does
-/// (the API checks again). Anyone not signed in is sent to marketplace's sign-in, back to the page.
+/// (the API checks again). Anyone not signed in is sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct ListingManager(pub Viewer);
 
@@ -309,7 +309,7 @@ impl Identify<Shared> for ListingManager {
 /// A seller on their offer matches (marketplace's `account-offer-matches` and
 /// `account-offer-match`): reading needs `offers.view` and `listings.view`, as their loaders
 /// require, and writing `offers.manage` too, as the action does (the API checks again). Anyone not
-/// signed in is sent to marketplace's sign-in, back to the page.
+/// signed in is sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct OfferReviewer(pub Viewer);
 
@@ -335,7 +335,7 @@ impl Identify<Shared> for OfferReviewer {
 /// action does (the API checks again). A reader without it sees the offers with no changes to make
 /// (marketplace shows them and the API refuses them:
 /// [chase-sets/chase-sets#10660](https://github.com/chase-sets/chase-sets/issues/10660)). Anyone not
-/// signed in is sent to marketplace's sign-in, back to the page.
+/// signed in is sent to the sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct OfferBuyer(pub Viewer);
 

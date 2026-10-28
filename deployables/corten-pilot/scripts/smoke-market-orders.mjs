@@ -1,5 +1,5 @@
 // Uses the account's order pages in a browser, against the real platform API, beside marketplace's.
-// - Signed out: a purchase's page sends the visitor to marketplace's sign-in, back to it.
+// - Signed out: a purchase's page sends the visitor to the pilot's sign-in, back to it.
 // - Without JavaScript, as the auth seed's collector: Purchases and two purchases' pages say what
 //   marketplace's say, word for word; Open order opens each card's purchase; with two to a page the
 //   pages are links that work without a script, and the second page has the API's next two.
@@ -86,7 +86,7 @@ check(Boolean(packed && cancelled && sold), `the seeds have a purchase being pac
   const { ctx, page } = await context({ javaScriptEnabled: false });
   await page.goto(`${base}/account/purchases/${packed.order_id}`);
   const at = new URL(page.url());
-  check(at.origin === market && at.pathname === "/sign-in" && at.searchParams.get("returnTo") === `/account/purchases/${packed.order_id}`, `signed out, a purchase sends the visitor to marketplace's sign-in, back to it (${page.url()})`);
+  check(at.origin === base && at.pathname === "/sign-in" && at.searchParams.get("returnTo") === `/account/purchases/${packed.order_id}`, `signed out, a purchase sends the visitor to the pilot's sign-in, back to it (${page.url()})`);
   await ctx.close();
 }
 

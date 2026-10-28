@@ -26,6 +26,12 @@
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
+// - marketplace/locales/sign_in.en.json: marketplace's sign-in, magic-link landing and account
+//   selection (auth.features.signIn.ui.signInPage.* as page.*, the auth host's and API's refusals as
+//   host.*, password.*, phone.*, magic_api.* and gate.*, the magic-link landing as magic.*, the
+//   account gate's context as context.*, account selection's refusals as selection_api.*, social
+//   sign-in's refusals as social.*, and auth.features.accountSelection.ui.accountSelectionPage.*
+//   as select.*).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, and checkout.shared.policyLinks.* as policy.*).
@@ -372,6 +378,29 @@ const outputs = [
       ])),
       // A line's language badge (`formatLanguageCodeLabel`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/sign_in.en.json",
+    json({
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.features.signIn.ui.signInPage.", "page"],
+        ["auth.support.routeSupport.authHost.", "host"],
+        ["auth.support.routeSupport.magicLinkLanding.", "magic"],
+        ["auth.support.apiSupport.passwordRoutes.", "password"],
+        ["auth.support.apiSupport.phoneCodeRoutes.", "phone"],
+        ["auth.support.apiSupport.magicLinkRoutes.", "magic_api"],
+        ["auth.support.apiSupport.registrationGates.", "gate"],
+        ["auth.support.apiSupport.accountSelectionRoutes.", "selection_api"],
+        ["auth.support.apiSupport.socialLoginRoutes.", "social"],
+        ["auth.support.apiSupport.support.authentication.required", "social.authentication.required"],
+        ["auth.routes.marketplace.accountGate.", "context"],
+        ["auth.features.accountSelection.ui.accountSelectionPage.", "select"],
+      ])),
+      // A social sign-in that found the display name taken (`socialLoginErrorMessage`'s identity_conflict).
+      ...(await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.api.display.name.already.taken", "social.identity.conflict"],
+      ])),
     }),
   ],
   [

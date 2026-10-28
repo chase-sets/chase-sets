@@ -5,7 +5,7 @@
 //! (`/items/{slug}`) and search (`/search`, `/categories/{slug}`), and the account's orders
 //! (`/account/purchases`, `/account/sales`) and shipments (`/account/shipments`,
 //! `/account/sales/shipments/{id}`) and shipping addresses (`/account/shipping-addresses`), and Create listing
-//! (`/account/listings/new`), the seller's listings (`/account/listings`) and each listing's page. See README.md.
+//! (`/account/listings/new`), the seller's listings (`/account/listings`) and each listing's page, and signing in (`/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out`). See README.md.
 mod accounts;
 mod addresses;
 mod api;
@@ -38,6 +38,7 @@ mod seller_listings;
 mod selling;
 mod sets;
 mod shipments;
+mod sign_in;
 mod submitted_offers;
 mod text;
 mod uploads;

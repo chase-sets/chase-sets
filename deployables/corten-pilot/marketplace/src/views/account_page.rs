@@ -256,7 +256,7 @@ fn Header<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl 
                     <p class={Muted}>{summary}</p>
                 </div>
                 <div class={Inline}>
-                    <a class={Secondary} href={&on_marketplace("/sign-in?returnTo=%2Faccount%2Fmessages")}>
+                    <a class={Secondary} href={url::SignIn { ask: crate::sign_in::Ask::back_to("/account/messages") }}>
                         {t.page_sign_in_to_contact_account()}
                     </a>
                     <a class={Ghost} href={&on_marketplace("/support")}>{t.page_report_account()}</a>
