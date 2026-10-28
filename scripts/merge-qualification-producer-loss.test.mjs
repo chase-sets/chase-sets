@@ -500,6 +500,54 @@ describe("producer dispatch-loss reconciliation", () => {
     expect(calls).toEqual([newest]);
   });
 
+  it("uses the production landing endpoint once for shared policy authority", async () => {
+    const repo = mkdtempSync(path.join(tmpdir(), "qualification-inventory-history-"));
+    try {
+      const git = (args, options = {}) => execFileSync("git", args, { ...options, cwd: repo, encoding: "utf8" });
+      git(["init", "-q"]);
+      git(["config", "user.email", "test@example.invalid"]);
+      git(["config", "user.name", "Test"]);
+      mkdirSync(path.join(repo, "scripts"));
+      writeFileSync(path.join(repo, "scripts/merge-qualification-policy.json"), JSON.stringify({ enabled: true }));
+      git(["add", "."]);
+      git(["commit", "-qm", "enabled"], {
+        env: { ...process.env, GIT_AUTHOR_DATE: "2026-07-21T08:00:00Z", GIT_COMMITTER_DATE: "2026-07-21T08:00:00Z" },
+      });
+      const revision = git(["rev-parse", "HEAD"]).trim();
+      git(["update-ref", "refs/remotes/origin/main", revision]);
+      const producers = [producer({ id: 4100 }), producer({ id: 4101 })];
+      const landingCalls = [];
+      const result = await inventoryMergeQualificationProducerAttempts({
+        repository: "chase-sets/chase-sets",
+        now: () => now,
+        execFile: (command, args, options) => git(args, options),
+        readPolicy: async () =>
+          JSON.stringify({
+            schemaVersion: "merge-qualification-policy/v1",
+            enabled: true,
+            owner: "synthetic-owner",
+            ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+            enabledAt: "2026-07-20T00:00:00Z",
+            expiresAt: "2026-08-10T00:00:00Z",
+          }),
+        requestJson: async (endpoint) => {
+          if (endpoint.includes("platform-pr.yml")) return { total_count: 2, workflow_runs: producers };
+          if (endpoint.includes("platform-merge-qualification.yml")) return { total_count: 0, workflow_runs: [] };
+          if (endpoint === `repos/chase-sets/chase-sets/commits/${revision}/pulls`) {
+            landingCalls.push(endpoint);
+            return [{ base: { ref: "main" }, merged_at: "2026-07-21T09:00:00Z", merge_commit_sha: revision }];
+          }
+          throw new Error(`unexpected endpoint ${endpoint}`);
+        },
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.attempts).toHaveLength(2);
+      expect(landingCalls).toHaveLength(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
 
   it("refuses a duplicate advisory identity and a non-completed producer", async () => {
     const duplicate = { display_title: "Merge Qualification producer 4000-1", id: 9001, run_attempt: 1 };
