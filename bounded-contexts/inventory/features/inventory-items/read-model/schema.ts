@@ -166,16 +166,15 @@ $migration$`,
     migrationId: "20261028_inventory_offline_sale_ledger_handoff",
     description: "Retire quantity-bearing offline-sale audit writes and reconcile retained ledger detail atomically.",
     statements: [],
-    dataStep: async (db) => {
-      const runMigrationQuery: BcSchemaMigrationClient["query"] = (text, values) => db.query(text, values);
+    dataStep: async (db: BcSchemaMigrationClient) => {
       const deadline = Date.now() + 60_000;
       async function query<Row = Record<string, unknown>>(sql: string) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
           throw new Error("60-second deadline exceeded");
         }
-        await runMigrationQuery("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
-        const result = await runMigrationQuery<Row>(sql);
+        await db.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
+        const result = await db.query<Row>(sql);
         if (Date.now() >= deadline) {
           throw new Error("60-second deadline exceeded");
         }

@@ -412,6 +412,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
             : { type: "ExpireInventoryHold", expiredAt: "2026-10-28T02:00:00Z" },
         context,
       });
+      await settle();
       if (terminal === "converted") {
         await services.holds.releaseHold(
           { accountId, holdId: hold.holdId, releaseReason: "order-cancelled" },
