@@ -286,7 +286,12 @@ describe("Terraform state database URL export", () => {
           sleep: async () => undefined,
         },
       ),
-    ).rejects.toMatchObject({ classification: "digitalocean-ca-request-transient", attempts: 2, code: "ECONNRESET" });
+    ).rejects.toMatchObject({
+      classification: "digitalocean-ca-request-failed",
+      failureClass: "transient",
+      attempts: 2,
+      code: "ECONNRESET",
+    });
     expect(attempts).toHaveLength(2);
 
     let invalidAttempts = 0;
@@ -421,7 +426,12 @@ describe("Terraform state database URL export", () => {
           sleep: async () => undefined,
         },
       ),
-    ).rejects.toMatchObject({ classification: "digitalocean-ca-request-transient", attempts: 2, status: 503 });
+    ).rejects.toMatchObject({
+      classification: "digitalocean-ca-request-rejected",
+      failureClass: "transient",
+      attempts: 2,
+      status: 503,
+    });
     expect(writes).toEqual([]);
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });

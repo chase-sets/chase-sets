@@ -60,7 +60,7 @@ export function buildManagedPostgresAuthorityFailure(options, error) {
     result: "failure",
     mode: options?.mode ?? "url-export",
     environment: options?.environmentName ?? "unknown",
-    class: fields.classification,
+    class: error?.failureClass ?? fields.classification,
     attempts: Number.isInteger(error?.attempts) ? error.attempts : (options?.retryAttempts ?? 1),
     ...(fields.status === undefined ? {} : { status: fields.status }),
     ...(fields.code === undefined ? {} : { code: fields.code }),
@@ -283,9 +283,10 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
       });
     } catch (error) {
       if (attempt === retryAttempts) {
-        throw trustError("digitalocean-ca-request-transient", "DigitalOcean database CA request failed.", {
+        throw trustError("digitalocean-ca-request-failed", "DigitalOcean database CA request failed.", {
           attempts: attempt,
           code: error?.code,
+          failureClass: "transient",
         });
       }
       await sleep(retryBackoffMs * attempt);
@@ -295,9 +296,9 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
     if (isTransientProviderStatus(response.status)) {
       if (attempt === retryAttempts) {
         throw trustError(
-          "digitalocean-ca-request-transient",
+          "digitalocean-ca-request-rejected",
           "DigitalOcean database CA provider request exhausted retries.",
-          { attempts: attempt, status: response.status },
+          { attempts: attempt, status: response.status, failureClass: "transient" },
         );
       }
       await sleep(retryBackoffMs * attempt);
