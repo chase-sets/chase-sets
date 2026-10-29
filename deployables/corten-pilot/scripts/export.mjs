@@ -165,11 +165,12 @@
 // - public/locales/compare.en.json: the compare pages' and Contact's English catalog
 //   (publicPresence.compare.*, each compare route's meta as meta.tcgplayer.* and meta.ebay.*,
 //   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
-// - public/favicon.svg: the design system's logo (chaseSetsLogoSvg), public-web's favicon.
+// - public/favicon.svg: the design system's logo (chaseSetsLogoSvg), public-web's favicon. Not
+//   committed (see GENERATED).
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
-//   for the tokens the pilot uses, in the format of Corten's `tokens!`.
+//   for the tokens the pilot uses, in the format of Corten's `tokens!`. Not committed (see GENERATED).
 // - <app>/static/fonts/: the three @fontsource files the screens use, in each app's static folder.
 //
 // <app>/locales/pilot.en.json is each app's own text (its shell and input checks) and is not exported.
@@ -1171,12 +1172,16 @@ const outputs = [
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];
+// Outputs that carry the brand foil's values are written on every run, --check included, and are not
+// committed: the structure gate (scripts/check-structure/brand-foil-sites.mjs) allows those values
+// only in the design system's registered carriers. Run this script before building the pilot.
+const GENERATED = new Set(["public/favicon.svg", "platform/tokens.json"]);
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;
 for (const [file, text] of outputs) {
   const target = path.join(pilot, file);
   if (existsSync(target) && readFileSync(target, "utf8") === text) continue;
-  if (check) {
+  if (check && !GENERATED.has(file)) {
     console.error(`${file} is out of date: run node --import tsx deployables/corten-pilot/scripts/export.mjs`);
     stale += 1;
   } else {

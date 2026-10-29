@@ -12,6 +12,7 @@
   "manage.state.route-denied": "You no longer have access to this action.",
   "manage.secret_unrecoverable": "The key was saved, but its secret cannot be recovered. Explicitly rotate it to create a new secret.",
   "manage.acknowledge_secret": "I have stored this secret",
+  "manage.another_change_in_progress": "Another account change is in progress. Wait for it to finish before trying again.",
   "page.audit.history.for.agreements.policies.and": "Audit history for agreements, policies, and acknowledgements.",
   "page.consent.history": "Consent History",
   "page.recorded": "Recorded",

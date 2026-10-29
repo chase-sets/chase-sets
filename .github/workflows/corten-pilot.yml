@@ -1,17 +1,37 @@
 name: Corten Pilot
 
 # The Corten pilot (deployables/corten-pilot) is a Cargo workspace of standalone Rust apps that are
-# not deployed and are not part of the platform gates. This job checks it on its own, only when it changes.
+# not deployed and are not part of the platform gates. This check is advisory: it is not a required
+# status check and does not run in the merge queue, so it never blocks a merge. It runs on changes to
+# the pilot and to every source its export reads (the React apps' text, nav and tokens), on main, and
+# once a day, so drift between main and the pilot shows up where it happens. A failure caused by a
+# change elsewhere is noted on that PR and fixed by the pilot's owner (deployables/corten-pilot/AGENTS.md).
 on:
   pull_request:
     paths:
       - "deployables/corten-pilot/**"
+      - "deployables/marketplace/**"
+      - "deployables/admin-web/**"
+      - "deployables/public-web/**"
+      - "bounded-contexts/**"
+      - "contracts/**"
+      - "packages/design-system/**"
+      - "infrastructure/platform-runtime/**"
       - ".github/workflows/corten-pilot.yml"
   push:
-    branches: ["pilot/corten"]
+    branches: ["main", "pilot/corten"]
     paths:
       - "deployables/corten-pilot/**"
+      - "deployables/marketplace/**"
+      - "deployables/admin-web/**"
+      - "deployables/public-web/**"
+      - "bounded-contexts/**"
+      - "contracts/**"
+      - "packages/design-system/**"
+      - "infrastructure/platform-runtime/**"
       - ".github/workflows/corten-pilot.yml"
+  schedule:
+    - cron: "17 11 * * *"
   workflow_dispatch: {}
 
 permissions: {}
@@ -38,11 +58,12 @@ jobs:
           # scripts/export.mjs imports admin-web's and marketplace's TypeScript sources through tsx.
           install: "true"
 
+      # Also writes the two uncommitted outputs that carry the brand foil (tokens.json, favicon.svg).
       - name: The exported text, tokens, nav and defaults match the React apps' sources
         run: node --import tsx scripts/export.mjs --check
 
       # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
-      # so the repo's TypeScript is put on the PATH and required here (README.md, Corten gaps).
+      # so the repo's TypeScript is put on the PATH and required here.
       - name: TypeScript on the PATH for corten check
         run: |
           set -euo pipefail

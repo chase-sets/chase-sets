@@ -47,8 +47,9 @@
   .wide { width: auto; min-width: 12rem; }
 }
 
-/* Update totals and its notice show once the page's script marks a changed field. */
-.stale-only { display: none; }
+/* Update totals and its notice show once the page's script marks a changed field. The banner's
+   own selector is named so it outranks `.banner`'s display, which comes later in this file. */
+.stale-only, .banner.stale-only { display: none; }
 [data-stale] .banner.stale-only { display: grid; }
 [data-stale] .button.stale-only { display: inline-flex; }
 [data-stale] .pay-only, [data-stale] .drawn { display: none; }

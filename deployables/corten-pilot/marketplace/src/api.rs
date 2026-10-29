@@ -1862,10 +1862,19 @@ impl CheckoutSessions for Caller<'_> {
     }
 
     async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError> {
-        let req = self.request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/confirm", segment(id)), CHECKOUT).json(body);
+        // Confirm creates the orders and starts the payment with the provider, which can take longer
+        // than the client's 10 s; cutting it off leaves orders without a payment. marketplace's
+        // action sets no timeout on this write.
+        let req = self
+            .request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/confirm", segment(id)), CHECKOUT)
+            .timeout(CONFIRM_TIMEOUT)
+            .json(body);
         self.write(req).await
     }
 }
+
+/// How long Pay now waits for Confirm (`confirm_checkout`).
+const CONFIRM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 const DISCOVERY: &str = "discovery";
 const PRICING: &str = "pricing";

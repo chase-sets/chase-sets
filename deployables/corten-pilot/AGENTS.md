@@ -1,14 +1,20 @@
 # Working on corten-pilot
 
 This is the Corten pilot (README.md): a Cargo workspace of Chase Sets screens ported to Corten,
-in front of the platform API: `admin/` (admin-web's postage policies and catalog dimensions and
-fields, each an `App::area` with its own stylesheet and the caller its routes module names), `marketplace/`
-(marketplace's storage locations) and `platform/`, the library both share. Keep it isolated: it is not deployed and is not part of the platform gates. Business
+in front of the platform API: `admin/`, `marketplace/` and `public/` (each screen an `App::area`
+with its own stylesheet and the caller its routes module names) and `platform/`, the library they
+share.
+
+Owner: Todd Skelton. The pilot is worked in its own Codex task (the "Corten pilot" thread), not by
+the delivery loop: a lane does not take pilot work, and a lane whose change makes the advisory
+`corten-pilot.yml` check fail notes it on its PR instead of fixing the pilot. Keep it isolated: it is
+not deployed and is not part of the platform gates. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
-apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` only on purpose, and
-add the reason to the README's pin table. Run `node --import tsx scripts/export.mjs --check`
-after changing text, nav or tokens the pilot exports.
+apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` only on purpose, in its
+own commit that says why. Run `node --import tsx deployables/corten-pilot/scripts/export.mjs`
+before building (it writes two files that are not committed) and with `--check` after changing
+text, nav or tokens the pilot exports.
 
 A Corten app: Rust renders every page with `html!`; the browser gets HTML, a small runtime and
 the handler scripts next to components. Run `corten dev` inside the app's directory while

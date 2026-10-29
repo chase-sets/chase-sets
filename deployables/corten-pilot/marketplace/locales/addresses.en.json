@@ -12,6 +12,7 @@
   "manage.state.route-denied": "You no longer have access to this action.",
   "manage.secret_unrecoverable": "The key was saved, but its secret cannot be recovered. Explicitly rotate it to create a new secret.",
   "manage.acknowledge_secret": "I have stored this secret",
+  "manage.another_change_in_progress": "Another account change is in progress. Wait for it to finish before trying again.",
   "action.validation": "Some details are invalid. Check the information you provided.",
   "action.not_found": "We couldn't find the information needed to complete this action.",
   "action.conflict": "This action conflicts with the current information.",

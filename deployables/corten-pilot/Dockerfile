@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 # One image per app in the workspace: docker build --build-arg APP=admin (or marketplace, public) .
+# Run scripts/export.mjs first: platform/tokens.json and public/favicon.svg are not committed.
 ARG APP=admin
 
 FROM rust:1-bookworm AS build
