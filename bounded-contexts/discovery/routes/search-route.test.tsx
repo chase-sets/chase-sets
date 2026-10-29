@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { createStaticHandler } from "react-router";
+import { useEffect, useState } from "react";
+import { RouterProvider, createMemoryRouter, createStaticHandler } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -224,12 +225,17 @@ describe("marketplace search route", () => {
       ["populated", searchDataWithResults().data],
     ]);
     let mode = "empty";
+    let secondaryFailure: "newest" | "categories" | null = "newest";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input));
-        if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
-        if (url.searchParams.get("sort") === "newest")
+        if (url.pathname.endsWith("/categories")) {
+          return secondaryFailure === "categories"
+            ? Response.json({ message: "categories unavailable" }, { status: 500 })
+            : Response.json({ items: [], total: 0, count: 0 });
+        }
+        if (secondaryFailure === "newest" && url.searchParams.get("sort") === "newest")
           return Response.json({ message: "new arrivals unavailable" }, { status: 500 });
         return Response.json(responses.get(mode));
       }),
@@ -242,30 +248,89 @@ describe("marketplace search route", () => {
     const populated = await load();
     expect(populated).toMatchObject({ searchFailed: false, data: { total: 1, items: [{ slug: "pikachu" }] } });
     expect(populated).toMatchObject({ homeMerchandising: null });
+
+    secondaryFailure = "newest";
+    const newArrivalsFailed = await loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as never);
+    expect(newArrivalsFailed).toMatchObject({
+      searchFailed: false,
+      data: { total: 1, items: [{ slug: "pikachu" }] },
+      homeMerchandising: { newArrivals: [] },
+    });
+    expect("type" in (newArrivalsFailed as object)).toBe(false);
+
+    secondaryFailure = "categories";
+    const categoriesFailed = await loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as never);
+    expect(categoriesFailed).toMatchObject({
+      searchFailed: false,
+      data: { total: 1, items: [{ slug: "pikachu" }] },
+      categories: [],
+    });
+    expect("type" in (categoriesFailed as object)).toBe(false);
   });
 
   it("search failure to successful navigation", async () => {
     let failed = true;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(String(input));
-        if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
-        if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
-        return Response.json(searchDataWithResults().data);
-      }),
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+      if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
+      return Response.json(searchDataWithResults().data);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let routeData: unknown;
+    let router: ReturnType<typeof createMemoryRouter>;
+    function RoutedSearch() {
+      const [, setVersion] = useState(0);
+      useEffect(() => {
+        const update = (state: typeof router.state) => {
+          routeData = state.loaderData.search;
+          setVersion((version) => version + 1);
+        };
+        update(router.state);
+        return router.subscribe(update);
+      }, []);
+      return <SearchRoute />;
+    }
+    router = createMemoryRouter(
+      [
+        {
+          id: "search",
+          path: "/search",
+          loader,
+          clientLoader,
+          Component: RoutedSearch,
+        },
+      ],
+      { initialEntries: ["/search?q=charizard"] },
     );
-    const request = { request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never;
-    const errorResult = await loader(request);
-    const errorPayload = payloadOf(errorResult);
-    expect(errorPayload).toMatchObject({ searchFailed: true, data: null });
-    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), errorPayload);
+    routeData = router.state.loaderData.search;
+    mockUseLoaderData.mockImplementation(() => routeData);
+    mockUseLocation.mockImplementation(() => router.state.location);
+    mockUseNavigate.mockImplementation(() => router.navigate);
+    mockUseNavigation.mockImplementation(() => router.state.navigation);
+    mockUseRevalidator.mockImplementation(() => ({ revalidate: router.revalidate, state: router.state.revalidation }));
+    mockUseSearchParams.mockImplementation(() => [new URLSearchParams(router.state.location.search), vi.fn()]);
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy());
     expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
+
+    const failedFetches = fetchMock.mock.calls.length;
     failed = false;
-    const successResult = await loader(request);
-    const successPayload = payloadOf(successResult);
-    expect(successPayload).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
-    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"), successPayload);
+    await act(async () => {
+      await router.navigate("/search?q=charizard", { replace: true });
+    });
+    await waitFor(() => expect(screen.queryByText("Search results could not load. Try again in a moment.")).toBeNull());
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(failedFetches);
+    expect(routeData).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
     expect(
       readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard")),
     ).toMatchObject({
