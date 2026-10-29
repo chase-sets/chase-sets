@@ -17,9 +17,8 @@
 //! copies them here as written; remove them once the API answers. The requirement groups and the
 //! steps are already Settlement's (`/payout-setup/progress`).
 //!
-//! Stripe's Connect sign-in needs `Cross-Origin-Opener-Policy: unsafe-none`, which a Corten area
-//! cannot send ([todd-skelton/corten#318](https://github.com/todd-skelton/corten/issues/318)):
-//! [`opener`] is a layer around the app that relaxes it on this page only.
+//! Stripe's Connect sign-in needs `Cross-Origin-Opener-Policy: unsafe-none`, which the payout
+//! setup area allows for its pages only (`allow_cross_origin_opener`, todd-skelton/corten#318).
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -28,12 +27,7 @@
 //! | `POST /account/desk/settings/session?which=` | JSON `{"secret"}` for `onboarding`, `management` or `notifications`, or `{"code","message"}` when Settlement refuses (`step_up_required` asks the seller to sign in again) |
 use corten::{
     Local,
-    axum::{
-        extract::Request,
-        http::{HeaderMap, HeaderValue, StatusCode},
-        middleware::Next as Inner,
-        response::Response,
-    },
+    axum::http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -48,7 +42,7 @@ use crate::{
     views::{self, Layout},
 };
 
-/// The page's path, which [`opener`] relaxes.
+/// The page's path.
 pub const PATH: &str = "/account/desk/settings";
 
 /// What the page's address carries, named as marketplace's: `mode=manage` for account management,
@@ -374,17 +368,4 @@ pub(crate) async fn session(
 
 fn refused(error: ApiError) -> Session {
     Session { secret: None, code: error.code().map(str::to_owned), message: error.refusal().map(str::to_owned) }
-}
-
-/// Stripe's Connect sign-in reports back through a popup, which `Cross-Origin-Opener-Policy:
-/// same-origin` cuts off; Stripe asks for `unsafe-none`, as marketplace sends on this page. A Corten
-/// area can only add CSP sources (todd-skelton/corten#318), so this layer, outside the app,
-/// relaxes it on the payout setup page and nowhere else. Remove it once an area can.
-pub async fn opener(req: Request, next: Inner) -> Response {
-    let setup = req.uri().path() == PATH;
-    let mut res = next.run(req).await;
-    if setup {
-        res.headers_mut().insert("cross-origin-opener-policy", HeaderValue::from_static("unsafe-none"));
-    }
-    res
 }

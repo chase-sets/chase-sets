@@ -1571,7 +1571,13 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
-        .area(|area| url::payout_setup::area(area, shared.clone()).components(views::PAYOUT_SETUP).policy(stripe_connect))
+        // Stripe's Connect sign-in reports back through a popup, which `same-origin` cuts off
+        // (todd-skelton/corten#318); the rest of the app keeps `same-origin`.
+        .area(|area| {
+            url::payout_setup::area(area, shared.clone())
+                .components(views::PAYOUT_SETUP)
+                .policy(|p| stripe_connect(p).allow_cross_origin_opener())
+        })
         // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
@@ -1594,8 +1600,6 @@ pub fn app(config: Config) -> App {
         .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::sign_out::area(area, shared.clone()))
         .error_page(views::error_page, shared)
-        // Stripe's Connect sign-in on payout setup (todd-skelton/corten#318).
-        .layer(corten::axum::middleware::from_fn(crate::payout_setup::opener))
 }
 
 /// Marketplace's sign-in, for a session the API says has ended (the callers' `identify` sends the rest
