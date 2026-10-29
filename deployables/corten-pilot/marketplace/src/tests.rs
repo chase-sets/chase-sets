@@ -13450,6 +13450,24 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
             }
             (StatusCode::ACCEPTED, Json(import_job("job_run", "queued"))).into_response()
         }
+        ("POST", fix) if fix.starts_with("/imb_1/rows/") && fix.ends_with("/resolve") => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            if sent["storageLocationId"] == "loc_old" {
+                return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
+            }
+            // row_2 resolved; row_4 (another that needs the seller) is left when row_2 was the one fixed.
+            let mut detail = import_batch("imb_1", "ready-to-commit", 4, 2, 2, 0);
+            let mut rows = vec![
+                import_row("row_1", 1, "accepted", "resolved", Some("prd_1"), &[]),
+                import_row("row_2", 2, "accepted", "resolved", Some("prd_2"), &[]),
+                import_row("row_3", 3, "rejected", "resolved", Some("prd_3"), &["Quantity must be a whole number."]),
+            ];
+            if fix == "/imb_1/rows/row_2/resolve" {
+                rows.push(import_row("row_4", 4, "rejected", "unresolved", None, &["No catalog product matches this row."]));
+            }
+            detail["rows"] = json!(rows);
+            committed(StatusCode::OK, "inventory", "51", detail)
+        }
         ("POST", commit) if commit.ends_with("/commit") => {
             if attempt.is_empty() {
                 return Some(refusal(
@@ -13539,7 +13557,10 @@ async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(shown.contains("Review batch 1 rows need you"), "only the unresolved rejected row: {shown}");
-    assert!(html.contains("/account/inventory/imports/imb_1?resolveRowId=row_2"), "Resolve opens marketplace at the row: {html}");
+    assert!(
+        html.contains(r#"href="/account/inventory/imports/imb_1?resolveRowId=row_2""#),
+        "Resolve opens the drawer here: {html}"
+    );
     assert!(shown.contains("1 accepted rows are ready to commit. Commit accepted rows"), "{shown}");
     assert!(html.contains(r#"action="/account/inventory/imports/imb_1/commit""#), "{html}");
     assert!(
@@ -13700,5 +13721,87 @@ async fn the_csv_downloads_pass_on_the_apis_file_and_nothing_else() {
         assert_eq!(body, "sku,quantity\r\nA-1,2\r\n");
     }
     let (status, _, _) = pilot.send(get("/account/inventory/imports/template.csv", Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next_row() {
+    let pilot = Pilot::new().await;
+    // Opened on a row that needs the seller: its errors, where it is in the queue, its own words searched.
+    let at = format!("{IMPORTS_SCREEN}/imb_1?resolveRowId=row_2");
+    let (status, _, html) = pilot.send(get(&at, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#" id="fix-dialog" class="#) && html.contains("aria-describedby=\"import-fix-progress\" open "),
+        "{html}"
+    );
+    let shown = text(&html);
+    assert!(shown.contains("Resolve import row 2 Close Row 1 of 1 to resolve No catalog product matches this row."), "{shown}");
+    assert!(
+        html.contains(r#"method="post" action="/account/inventory/imports/imb_1?resolveRowId=row_2" data-patch"#),
+        "the picker's GETs read the batch: {html}"
+    );
+    assert!(
+        html.contains(r#"formaction="/account/inventory/imports/imb_1/rows/row_2/resolve" disabled"#),
+        "Apply alone posts: {html}"
+    );
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_1">Close</a>"#), "Close goes back to the batch: {html}");
+    // Resolve opens the drawer here, not on marketplace.
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_1?resolveRowId=row_2""#), "{html}");
+
+    // A row that does not need the seller, or one unknown: no drawer.
+    for row in ["row_1", "row_3", "row_9"] {
+        let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_1?resolveRowId={row}"), Some("seller"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!html.contains("fix-dialog"), "{row}: {html}");
+    }
+
+    // Find, then Choose: the picker's steps are GETs of the batch page with the drawer open.
+    let (_, _, html) = pilot.send(get(&format!("{at}&q=twilight&redraw=1"), Some("seller"))).await;
+    assert!(html.contains(r#"name="choose" value="cat_etb""#), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{at}&choose=cat_card&storageLocationId=loc_main"), Some("seller"))).await;
+    assert!(html.contains(r#"name="option.dim_form""#) && html.contains(r#"name="option.dim_condition""#), "{html}");
+    assert!(html.contains(r#"<option value="loc_main" selected>"#), "the location kept: {html}");
+    assert!(!html.contains("/rows/row_2/resolve\" disabled"), "every required option has its first: {html}");
+
+    // Apply: the API's body, then the next row that needs the seller.
+    let body = "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0";
+    let (status, headers, _) =
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1?resolveRowId=row_4");
+    let sent = import_calls(&pilot).into_iter().find(|c| c.path.ends_with("/resolve")).unwrap();
+    assert_eq!(sent.path, format!("{IMPORT_BATCHES}/imb_1/rows/row_2/resolve"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "catalogItemId": "cat_card", "storageLocationId": "loc_main", "selectedOptions": [
+            { "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" },
+        ] })
+    );
+
+    // The last row fixed closes the drawer.
+    let body = "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0";
+    let (status, headers, _) =
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1");
+}
+
+#[tokio::test]
+async fn a_fix_that_is_incomplete_or_refused_is_the_drawer_again_and_a_reader_cannot_send_one() {
+    let pilot = Pilot::new().await;
+    let fix = format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve");
+    let (status, _, html) = pilot.send(post(&fix, "seller", "catalogItemId=&storageLocationId=loc_main&offset=0", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
+    assert!(!import_calls(&pilot).iter().any(|c| c.path.ends_with("/resolve")), "not sent without an item");
+
+    let body = "catalogItemId=cat_etb&storageLocationId=loc_old&offset=0";
+    let (status, _, html) = pilot.send(post(&fix, "seller", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Storage location is archived."), "{}", text(&html));
+    assert!(html.contains(r#"<p class="#) && html.contains("Twilight Masquerade Elite Trainer Box"), "the item kept: {html}");
+
+    let (status, _, _) = pilot.send(post(&fix, "reader", "catalogItemId=cat_etb&storageLocationId=loc_main", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }

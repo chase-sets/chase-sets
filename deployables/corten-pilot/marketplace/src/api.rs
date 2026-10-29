@@ -6903,6 +6903,9 @@ pub struct ImportRow {
     pub resolution_status: String,
     pub catalog_item_id: Option<String>,
     pub product_id: Option<String>,
+    /// The options the row named, as the API takes them.
+    pub selected_options: Vec<Selected>,
+    pub storage_location_id: Option<String>,
     pub listing_price_amount: Option<String>,
     pub listing_price_currency_code: Option<String>,
     pub listing_quantity_cap: Option<i64>,
@@ -6984,6 +6987,15 @@ pub struct NewImport {
     pub source_filename: Option<String>,
 }
 
+/// A row's fix (`resolveRow`'s body): the catalog item, its options and where the stock is.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowFix {
+    pub catalog_item_id: String,
+    pub selected_options: Vec<Selected>,
+    pub storage_location_id: String,
+}
+
 /// The import screen's calls.
 pub trait Imports {
     /// The 25 latest batches (`limit=25&offset=0`, as marketplace's loader reads them).
@@ -6997,6 +7009,9 @@ pub trait Imports {
     /// Start committing a batch's accepted rows, as `attempt` (`Inventory-Mutation-Attempt`, which
     /// the API requires).
     async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError>;
+    /// Resolve a rejected row to a catalog item, its options and a storage location: the batch
+    /// as it now is, or the API's refusal (400).
+    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportBatchDetail, ApiError>;
     /// The storage locations a row or a batch may name (`limit=100&offset=0`, not archived).
     async fn import_locations(&self) -> Result<LocationList, ApiError>;
     /// The native template or the account's inventory as CSV (`templates/native-csv`,
@@ -7030,6 +7045,11 @@ impl Imports for Caller<'_> {
         let path = format!("{IMPORTS}/{}/commit", segment(id));
         let req = self.request(Method::POST, &path, INVENTORY).header(ATTEMPT_HEADER, attempt).json(&serde_json::json!({}));
         Ok(self.write(req).await?.0)
+    }
+
+    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportBatchDetail, ApiError> {
+        let path = format!("{IMPORTS}/{}/rows/{}/resolve", segment(batch), segment(row));
+        Ok(self.write(self.request(Method::POST, &path, INVENTORY).json(body)).await?.0)
     }
 
     async fn import_locations(&self) -> Result<LocationList, ApiError> {

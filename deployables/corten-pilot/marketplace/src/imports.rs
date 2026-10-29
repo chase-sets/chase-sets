@@ -31,10 +31,11 @@ use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{ApiError, ImportBatch, ImportBatchDetail, ImportRow, Imports as _, Location, NewImport},
+    api::{ApiError, ImportBatch, ImportBatchDetail, ImportRow, Imports as _, Location, NewImport, RowFix},
     app::{Shared, read_failed, url},
     auth::{Seller, Viewer},
-    listing_new::first,
+    items::Raw,
+    listing_new::{self, Catalog, Draft, first},
     recovery::valid_attempt,
     text::ImportsMsg,
     uploads::{self, Limits, Over},
@@ -58,6 +59,9 @@ pub struct Place {
     pub job_id: Option<String>,
     pub offset: Option<String>,
     pub after_write: Option<String>,
+    /// The row the resolution drawer is open on (marketplace's `resolveRowId`).
+    #[serde(rename = "resolveRowId")]
+    pub resolve_row_id: Option<String>,
 }
 
 impl Place {
@@ -69,12 +73,103 @@ impl Place {
     fn job(&self) -> Option<&str> {
         self.job_id.as_deref().map(str::trim).filter(|j| !j.is_empty())
     }
+
+    fn resolving(&self) -> Option<&str> {
+        self.resolve_row_id.as_deref().map(str::trim).filter(|r| !r.is_empty())
+    }
 }
 
 /// A batch's page at `offset`, with nothing else.
 pub fn batch_href(batch: &str, offset: u64) -> String {
     let place = Place { offset: (offset > 0).then(|| offset.to_string()), ..Place::default() };
     url::ImportBatch { batch, place }.href()
+}
+
+/// A batch's page at `offset` with the drawer open on `row`, or closed.
+pub fn resolve_href(batch: &str, offset: u64, row: Option<&str>) -> String {
+    let place =
+        Place { offset: (offset > 0).then(|| offset.to_string()), resolve_row_id: row.map(str::to_owned), ..Place::default() };
+    url::ImportBatch { batch, place }.href()
+}
+
+/// The drawer's fields (`ImportRowResolutionForm`): the picker's, which are Create listing's
+/// (`q`, `choose`, `change`, `redraw`, `catalogItemId` and `option.<dimension>`), the storage
+/// location, and the row page to come back to.
+#[derive(Deserialize, Fields)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub struct FixFields {
+    pub q: String,
+    pub choose: String,
+    pub change: String,
+    pub redraw: String,
+    pub catalog_item_id: String,
+    pub storage_location_id: String,
+    pub offset: String,
+}
+
+/// The resolution drawer, open on a row that still needs the seller (`activeResolutionRow`).
+#[derive(Clone, Debug, Serialize)]
+pub struct Fixing {
+    pub row: ImportRow,
+    /// Its place among the rows that need the seller, from 1, and how many there are.
+    pub position: usize,
+    pub total: usize,
+    #[serde(skip)]
+    pub catalog: Catalog,
+    #[serde(skip)]
+    pub draft: Draft,
+    pub storage_location_id: String,
+    /// The API's refusal of the fix last sent, or why it was not sent.
+    pub error: Option<String>,
+}
+
+impl Fixing {
+    /// The chosen catalog item with every option it needs (`canApplyRowFix`).
+    pub fn ready(&self) -> Option<(&crate::api::CatalogItem, &crate::items::Picks)> {
+        self.catalog.ready()
+    }
+}
+
+/// The picker's draft for `row`: what the form sent, else the row's own item and options, else
+/// its name or note to search for (`initialCatalogItemPickerState`).
+fn row_draft(row: &ImportRow, raw: &Raw) -> Draft {
+    let f = FixFields::FIELDS;
+    let sent = [f.q, f.choose, f.change, f.catalog_item_id, f.redraw].iter().any(|name| raw.contains_key(name.as_str()));
+    if sent {
+        return Draft::read(raw);
+    }
+    let mut draft = Draft::read(&Raw::new());
+    match &row.catalog_item_id {
+        Some(item) => {
+            draft.catalog_item_id = item.clone();
+            draft.options = row.selected_options.iter().map(|s| (s.dimension_id.clone(), s.option_id.clone())).collect();
+        }
+        None => {
+            let name = row.external_reference.as_ref().and_then(|r| r.display_name.as_deref());
+            draft.q = name.or(row.row_note.as_deref()).unwrap_or_default().trim().to_owned();
+        }
+    }
+    draft
+}
+
+/// The drawer for the row the address names, if it still needs the seller; a row already
+/// resolved closes it, as marketplace's stale link does.
+async fn fixing(
+    caller: &crate::api::Caller<'_>,
+    detail: &ImportBatchDetail,
+    row_id: Option<&str>,
+    raw: &Raw,
+    error: Option<String>,
+) -> Option<Fixing> {
+    let open = unresolved(detail);
+    let position = open.iter().position(|row| Some(row.row_id.as_str()) == row_id)?;
+    let row = open[position].clone();
+    let draft = row_draft(&row, raw);
+    let catalog = listing_new::catalog(caller, &draft).await;
+    let sent = first(raw, FixFields::FIELDS.storage_location_id.as_str());
+    let storage_location_id = if sent.is_empty() { row.storage_location_id.clone().unwrap_or_default() } else { sent };
+    Some(Fixing { position: position + 1, total: open.len(), row, catalog, draft, storage_location_id, error })
 }
 
 /// The upload form's fields, in marketplace's names.
@@ -137,6 +232,8 @@ pub struct ImportsScreen {
     pub job: Option<JobNotice>,
     pub upload: Upload,
     pub offset: u64,
+    /// The resolution drawer, when the address opens it on a row that needs the seller.
+    pub fixing: Option<Fixing>,
 }
 
 impl ImportsScreen {
@@ -209,7 +306,7 @@ fn draw(req: &Req, viewer: &Viewer, screen: &ImportsScreen, reads_again: bool, s
             <ReadAgain after={std::time::Duration::from_secs(2)} />
         }
     };
-    let view = html! { <views::ImportsPage t={t} p={req.t()} screen={screen} /> };
+    let view = html! { <views::ImportsPage t={t} p={req.t()} m={req.t()} screen={screen} /> };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_inventory_import_marketplace()} head={head}>{view}</Layout>
     };
@@ -237,7 +334,16 @@ pub(crate) async fn list(
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let running = job.as_ref().is_some_and(|j| !j.failed);
-    let screen = ImportsScreen { batches, locations, detail: None, pending: false, job, upload: Upload::default(), offset: 0 };
+    let screen = ImportsScreen {
+        batches,
+        locations,
+        detail: None,
+        pending: false,
+        job,
+        upload: Upload::default(),
+        offset: 0,
+        fixing: None,
+    };
     draw(&req, &viewer, &screen, running, StatusCode::OK)
 }
 
@@ -247,6 +353,7 @@ pub(crate) async fn batch(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::ImportBatch<'_>>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let (id, place) = (route.batch, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
@@ -274,7 +381,11 @@ pub(crate) async fn batch(
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let running = job.as_ref().is_some_and(|j| !j.failed);
-    let screen = ImportsScreen { batches, locations, detail, pending, job, upload: Upload::default(), offset };
+    let fixing = match &detail {
+        Some(detail) => fixing(&plain, detail, place.resolving(), &raw, None).await,
+        None => None,
+    };
+    let screen = ImportsScreen { batches, locations, detail, pending, job, upload: Upload::default(), offset, fixing };
     draw(&req, &viewer, &screen, running || pending, StatusCode::OK)
 }
 
@@ -345,7 +456,7 @@ async fn refuse(req: &Req, viewer: &Viewer, caller: &crate::api::Caller<'_>, upl
         Ok(lists) => lists,
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    let screen = ImportsScreen { batches, locations, detail: None, pending: false, job: None, upload, offset: 0 };
+    let screen = ImportsScreen { batches, locations, detail: None, pending: false, job: None, upload, offset: 0, fixing: None };
     draw(req, viewer, &screen, false, status)
 }
 
@@ -380,13 +491,73 @@ pub(crate) async fn commit(
                     (Err(error), _) | (_, Err(error)) => return read_failed(&req, Some(&viewer), error, None),
                 };
                 let upload = Upload { error: Some(message), ..Upload::default() };
-                let screen =
-                    ImportsScreen { batches, locations, detail: Some(detail), pending: false, job: None, upload, offset: 0 };
+                let screen = ImportsScreen {
+                    batches,
+                    locations,
+                    detail: Some(detail),
+                    pending: false,
+                    job: None,
+                    upload,
+                    offset: 0,
+                    fixing: None,
+                };
                 draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
             }
             _ => read_failed(&req, Some(&viewer), error, None),
         },
     }
+}
+
+/// Apply a row's fix (`resolve-row`): the batch at the next row that needs the seller, or with the
+/// drawer closed once none is left (`resolveRowRedirectTarget`). The picker's steps (Find,
+/// Choose, Change, Update options) are GETs of the batch page, so only Apply posts here. A fix
+/// without its item, every option it needs and a location, or one the API refuses, is the drawer
+/// again with why (422).
+pub(crate) async fn resolve(
+    req: Req,
+    Caller(Seller(viewer)): Caller<Seller>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::ImportResolve<'_>>,
+    Form(raw): Form<Raw>,
+) -> HtmlResult {
+    let (id, row_id) = (route.batch, route.row);
+    let f = FixFields::FIELDS;
+    let offset = first(&raw, f.offset.as_str()).parse().unwrap_or(0);
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let catalog = listing_new::catalog(&caller, &Draft::read(&raw)).await;
+    let location = first(&raw, f.storage_location_id.as_str());
+    let fix = catalog.ready().filter(|_| !location.is_empty()).map(|(item, picks)| RowFix {
+        catalog_item_id: item.catalog_item_id.clone(),
+        selected_options: item.product_schema.as_ref().map(|s| listing_new::entries(s, picks)).unwrap_or_default(),
+        storage_location_id: location.clone(),
+    });
+    let refused = match fix {
+        Some(fix) => match caller.resolve_import_row(&id, &row_id, &fix).await {
+            Ok(detail) => {
+                let next = unresolved(&detail).first().map(|row| row.row_id.clone());
+                let place = Place { offset: (offset > 0).then(|| offset.to_string()), resolve_row_id: next, ..Place::default() };
+                return req.redirect(&url::ImportBatch { batch: &id, place });
+            }
+            Err(error) => match error.refusal() {
+                Some(message) if error.status() != Some(StatusCode::FORBIDDEN) => message.to_owned(),
+                _ => return read_failed(&req, Some(&viewer), error, None),
+            },
+        },
+        None => {
+            let p: crate::text::Pilot = req.t();
+            p.listing_new_choose_options().to_owned()
+        }
+    };
+    let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&caller));
+    let ((batches, locations), detail) = match (lists, detail) {
+        (Ok(lists), Ok(detail)) => (lists, detail),
+        (Err(error), _) | (_, Err(error)) => return read_failed(&req, Some(&viewer), error, None),
+    };
+    let fixing = fixing(&caller, &detail, Some(&row_id), &raw, Some(refused)).await;
+    let upload = Upload::default();
+    let screen = ImportsScreen { batches, locations, detail: Some(detail), pending: false, job: None, upload, offset, fixing };
+    draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
 /// The native template, as the API sends it.

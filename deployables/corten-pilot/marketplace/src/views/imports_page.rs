@@ -13,12 +13,15 @@ use corten::{
     prelude::*,
 };
 
-use super::on_marketplace;
+use super::{inventory_page::Picker, listing_new_page::handlers as picker, on_marketplace};
 use crate::{
     api::{ImportBatch, ImportRow, segment},
     app::url,
-    imports::{CommitFields, ImportFields, ImportsScreen, MODES, SOURCES, batch_href, commit_ready, needs_seller, unresolved},
-    text::{ImportsMsg, Pilot},
+    imports::{
+        CommitFields, FixFields, Fixing, ImportFields, ImportsScreen, MODES, SOURCES, batch_href, commit_ready, needs_seller,
+        resolve_href, unresolved,
+    },
+    text::{ImportsMsg, InventoryMsg, Pilot},
 };
 
 /// A source's name (`localizedImportSourceLabel`).
@@ -59,14 +62,9 @@ fn money(t: ImportsMsg, amount: Option<&str>, currency: Option<&str>) -> String 
     }
 }
 
-/// Marketplace's batch page at the row, where its resolution drawer opens (not ported yet).
-fn resolve_href(batch: &str, row: &str) -> String {
-    on_marketplace(&format!("/account/inventory/imports/{}?resolveRowId={}", segment(batch), segment(row)))
-}
-
 /// The page.
 #[component(css)]
-pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen) -> impl Render {
+pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a ImportsScreen) -> impl Render {
     let detail = screen.detail.as_ref();
     let expired = detail.is_some_and(|d| d.batch.status == "expired");
     html! {
@@ -120,6 +118,9 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen) -> im
             match detail {
                 Some(detail) => {
                     <Review t={t} p={p} screen={screen} detail={detail} />
+                    if let Some(fixing) = &screen.fixing {
+                        <FixDialog t={t} p={p} m={m} screen={screen} batch={&detail.batch.batch_id} fixing={fixing} />
+                    }
                 }
                 None => {
                     <Recent t={t} batches={&screen.batches} />
@@ -247,7 +248,11 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
                 <div class={Notice} data-tone="warning">
                     <p class={Strong}>{t.page_rows_need_you(open.len())}</p>
                     <p class={Muted}>{t.page_resolve_rows_in_place()}</p>
-                    <p><a class={Button} href={resolve_href(&batch.batch_id, &first.row_id)}>{t.page_resolve_rows()}</a></p>
+                    <p>
+                        <a class={Button} href={resolve_href(&batch.batch_id, screen.offset, Some(&first.row_id))}>
+                            {t.page_resolve_rows()}
+                        </a>
+                    </p>
                 </div>
             }
             if let Some(count) = ready {
@@ -277,7 +282,13 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
                     </thead>
                     <tbody>
                         for row in &detail.rows {
-                            <Row t={t} row={row} batch={&batch.batch_id} resolve={needs_seller(row, &batch.source_key)} />
+                            <Row
+                                t={t}
+                                row={row}
+                                batch={&batch.batch_id}
+                                offset={screen.offset}
+                                resolve={needs_seller(row, &batch.source_key)}
+                            />
                         }
                     </tbody>
                 </table>
@@ -298,7 +309,7 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
 
 /// A row: a table row from 64rem, a card on a phone, each cell labelled there.
 #[component(css = ImportsPage)]
-fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, resolve: bool) -> impl Render {
+fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, offset: u64, resolve: bool) -> impl Render {
     let reference = row.external_reference.as_ref();
     let name = reference.and_then(|r| r.display_name.as_deref().or(Some(r.external_key.as_str()))).unwrap_or(t.page_native_row());
     let detail = match reference {
@@ -340,7 +351,7 @@ fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, resolve: bool) -> 
             </td>
             <td data-label={t.page_errors_and_outcomes()}>
                 if resolve {
-                    <a class={(Button, Small)} href={resolve_href(batch, &row.row_id)}>{t.page_resolve_row()}</a>
+                    <a class={(Button, Small)} href={resolve_href(batch, offset, Some(&row.row_id))}>{t.page_resolve_row()}</a>
                 }
                 if !row.validation_errors.is_empty() {
                     for message in &row.validation_errors {
@@ -425,3 +436,96 @@ fn Recent<'a>(t: ImportsMsg, batches: &'a [ImportBatch]) -> impl Render {
 fn when(t: ImportsMsg, at: &str) -> String {
     parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
 }
+
+/// The row resolution drawer (`SideSheet` with `ImportRowResolutionForm`), drawn open on the batch
+/// page and modal once it joins the page; Close and Escape go back to the batch. One form whose
+/// action is the batch page with the drawer open on the row: the picker's steps (its buttons are
+/// `formmethod="get"`) read it again, as a page without a script and in place with one, and Apply
+/// alone posts, to the resolve route (its `formaction`).
+#[component(css = ImportsPage)]
+fn FixDialog<'a>(
+    t: ImportsMsg,
+    p: Pilot,
+    /// The picker's words: the inventory page's.
+    m: InventoryMsg,
+    screen: &'a ImportsScreen,
+    batch: &'a str,
+    fixing: &'a Fixing,
+) -> impl Render {
+    let f = FixFields::FIELDS;
+    let row = &fixing.row;
+    let close = resolve_href(batch, screen.offset, None);
+    let here = resolve_href(batch, screen.offset, Some(&row.row_id));
+    let back = refs();
+    let ready = fixing.ready().is_some();
+    html! {
+        <dialog
+            id={FixDialogId}
+            class={Dialog}
+            aria-labelledby="import-fix-title"
+            aria-describedby="import-fix-progress"
+            open
+            on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+        >
+            <div class={DialogHead}>
+                <h2 id="import-fix-title" class={PartTitle}>{t.page_resolve_import_row(row.row_number)}</h2>
+                <a ref={back} class={(Button, Ghost, Small)} href={&close}>{t.page_close()}</a>
+            </div>
+            <p id="import-fix-progress" class={Muted}>{t.page_resolve_progress(fixing.position, fixing.total)}</p>
+            if !row.validation_errors.is_empty() {
+                <ul class={Errors}>
+                    for message in &row.validation_errors {
+                        <li class={Small}>{message}</li>
+                    }
+                </ul>
+            }
+            if let Some(error) = &fixing.error {
+                <p class={ErrorText} role="alert">{error}</p>
+            }
+            <form
+                id={FixFormId}
+                class={Fix}
+                method="post"
+                action={&here}
+                data-patch
+                on:change={picker::redraw(event)}
+                on:input={picker::find(event)}
+            >
+                <input type="hidden" name={f.offset} value={screen.offset.to_string()}>
+                <input type="hidden" name="resolveRowId" value={&row.row_id}>
+                <Picker t={m} p={p} draft={&fixing.draft} catalog={&fixing.catalog} />
+                <label class={Field}>
+                    <span class={Label}>{m.list_storage_location()}</span>
+                    <select name={f.storage_location_id} required>
+                        <option value="" selected={fixing.storage_location_id.is_empty()}>{t.page_choose_location()}</option>
+                        for location in &screen.locations {
+                            <option
+                                value={&location.storage_location_id}
+                                selected={location.storage_location_id == fixing.storage_location_id}
+                            >
+                                {&location.name}
+                            </option>
+                        }
+                    </select>
+                </label>
+                <p class={Actions}>
+                    <button
+                        type="submit"
+                        class={Button}
+                        formaction={url::ImportResolve { batch, row: &row.row_id }}
+                        disabled={!ready}
+                    >
+                        {t.page_apply_row_fix()}
+                    </button>
+                    <a class={(Button, Secondary)} href={&close}>{t.page_close()}</a>
+                </p>
+            </form>
+        </dialog>
+    }
+}
+
+#[derive(Id)]
+pub struct FixDialogId;
+
+#[derive(Id)]
+pub struct FixFormId;

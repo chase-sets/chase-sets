@@ -14,6 +14,7 @@ const OWN: &[&str] = &[
     <url::Locations as Route>::PATH,
     <url::Restock as Route>::PATH,
     <url::Inventory as Route>::PATH,
+    <url::Imports as Route>::PATH,
     <url::Desk as Route>::PATH,
     <url::Money as Route>::PATH,
     <url::Search as Route>::PATH,

@@ -13,7 +13,7 @@ use corten::{
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace};
+use super::listing_page::options;
 use crate::{
     api::{FeeLockRow, ListingPage, ListingRow, SellerMetrics, StatusCounts},
     app::url,
@@ -161,7 +161,7 @@ pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a Listin
             </div>
             <p class={Actions}>
                 <a class={Button} href={url::NewListing}>{t.list_create_listing()}</a>
-                <a class={(Button, Secondary)} href={&on_marketplace("/account/inventory/imports")}>{t.list_advanced_import()}</a>
+                <a class={(Button, Secondary)} href={url::Imports::default()}>{t.list_advanced_import()}</a>
             </p>
         </header>
         <div class={Notes} role="status" aria-live="polite">

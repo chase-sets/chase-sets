@@ -150,8 +150,8 @@ pub mod url {
     pub use desk_offers::DeskOffers;
     pub use home::Home;
     pub use inventory::{
-        Archive, ImportBatch, ImportCommit, ImportExport, ImportTemplate, Imports, Inventory, Location, Locations, OfflineSale,
-        Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
+        Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
+        OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
     };
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
@@ -541,6 +541,13 @@ pub mod url {
             pub batch: &'a str,
             #[route(query)]
             pub place: crate::imports::Place,
+        }
+
+        /// Resolve a rejected row: its catalog item, options and storage location.
+        #[route("/account/inventory/imports/{batch}/rows/{row}/resolve", post = crate::imports::resolve)]
+        pub struct ImportResolve<'a> {
+            pub batch: &'a str,
+            pub row: &'a str,
         }
 
         /// Commit a batch's accepted rows.

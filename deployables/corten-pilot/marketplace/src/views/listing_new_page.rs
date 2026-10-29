@@ -310,8 +310,8 @@ fn ProductPart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> 
                 <summary class={Strong}>{t.page_advanced_inventory_and_limits()}</summary>
                 <div class={Column}>
                     <p class={Links}>
-                        <a href={&on_marketplace("/account/inventory")}>{t.page_inventory()}</a>
-                        <a href={&on_marketplace("/account/inventory/imports")}>{t.page_import()}</a>
+                        <a href={url::Inventory::default()}>{t.page_inventory()}</a>
+                        <a href={url::Imports::default()}>{t.page_import()}</a>
                         <a href={url::Locations::default()}>{t.page_locations()}</a>
                     </p>
                     if screen.supply.is_empty() {

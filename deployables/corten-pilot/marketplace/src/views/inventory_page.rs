@@ -15,7 +15,7 @@ use crate::{
     auth::Viewer,
     inventory_list::{CHANNELS, CreateItem, InventoryScreen, ItemFields, Outcome, SaleDraft, SaleInput, Verified},
     items,
-    listing_new::{Catalog, OPTION},
+    listing_new::{Catalog, Draft, OPTION},
     recovery::{Family, Status},
     text::{InventoryMsg, Msg, Pilot},
 };
@@ -133,7 +133,7 @@ pub fn CreateItemForm<'a>(
                     <input type="hidden" name={f.return_to} value={back}>
                 }
                 <div class={Column}>
-                    <Picker t={t} p={p} create={create} />
+                    <Picker t={t} p={p} draft={&create.draft} catalog={&create.catalog} />
                     {e.message(f.q)}
                 </div>
                 <div class={Column}>
@@ -210,10 +210,9 @@ pub fn CreateItemForm<'a>(
 /// The catalog picker (Create listing's, in the Inventory context's words): the chosen item with
 /// its options, or the search and its matches. Each step is a GET of the page.
 #[component(css = InventoryPage)]
-fn Picker<'a>(t: InventoryMsg, p: Pilot, create: &'a CreateItem) -> impl Render {
+pub fn Picker<'a>(t: InventoryMsg, p: Pilot, draft: &'a Draft, catalog: &'a Catalog) -> impl Render {
     let f = ItemFields::FIELDS;
-    let draft = &create.draft;
-    let status = match &create.catalog {
+    let status = match catalog {
         Catalog::Idle => None,
         Catalog::Matches(_) => Some(t.list_choose_the_visible_catalog_item()),
         Catalog::NoMatch => Some(t.list_no_active_catalog_items_matched()),
@@ -221,7 +220,7 @@ fn Picker<'a>(t: InventoryMsg, p: Pilot, create: &'a CreateItem) -> impl Render 
         Catalog::Chosen { .. } => None,
     };
     html! {
-        if let Catalog::Chosen { item, picks, reset } = &create.catalog {
+        if let Catalog::Chosen { item, picks, reset } = catalog {
             <div class={Chosen}>
                 <input type="hidden" name={f.catalog_item_id} value={&item.catalog_item_id}>
                 <p class={Label}>{t.list_catalog_item()}</p>
@@ -315,7 +314,7 @@ fn Picker<'a>(t: InventoryMsg, p: Pilot, create: &'a CreateItem) -> impl Render 
                     {status.unwrap_or(t.list_search_for_a_catalog_item_then())}
                 </p>
             </div>
-            if let Catalog::Matches(found) = &create.catalog {
+            if let Catalog::Matches(found) = catalog {
                 <ul class={Matches}>
                     for item in found {
                         <li class={Match}>

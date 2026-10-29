@@ -117,3 +117,24 @@
   .line td::before { content: none; }
   .end { text-align: right; }
 }
+
+/* The row resolution drawer: a dialog as wide as the screen allows up to 36rem, scrolling inside
+   itself on a short screen. The picker inside is the inventory page's, styled there. */
+.dialog {
+  width: min(36rem, calc(100vw - 2 * var(--space-4)));
+  max-height: calc(100dvh - 2 * var(--space-4));
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.dialog[open] { display: grid; gap: var(--space-3); }
+.dialog::backdrop { background: var(--color-overlay); }
+.dialog-head { display: flex; gap: var(--space-2); align-items: center; justify-content: space-between; }
+.errors { margin: 0; padding-inline-start: var(--space-4); display: grid; gap: var(--space-1); }
+.error-text { margin: 0; color: var(--color-danger); font-weight: 600; overflow-wrap: anywhere; }
+.fix { display: grid; gap: var(--space-3); min-width: 0; }
+.fix select { min-height: 2.75rem; }
