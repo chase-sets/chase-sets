@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
@@ -698,8 +698,16 @@ describe("manifest host-registration predicate parity", () => {
 });
 
 describe("real repository execution membership", () => {
-  it("census work stays source-bounded", async () => {
-    const { inventory } = await validateJsonImportAttributes();
+  let realCensus;
+  let realCensusInvocations = 0;
+
+  beforeAll(async () => {
+    realCensusInvocations += 1;
+    realCensus = await validateJsonImportAttributes();
+  });
+
+  it("census work stays source-bounded", () => {
+    const { inventory } = realCensus;
     const { work } = inventory;
     const parseSources = new Set([
       ...work.manifestCandidates,
@@ -709,6 +717,7 @@ describe("real repository execution membership", () => {
     console.info(
       JSON.stringify({
         censusWork: {
+          invocations: realCensusInvocations,
           gitSubprocesses: work.gitSubprocesses,
           wholeTreeScans: work.wholeTreeScans,
           indexCandidates: work.indexCandidates.length,
@@ -735,6 +744,7 @@ describe("real repository execution membership", () => {
         },
       }),
     );
+    expect(realCensusInvocations).toBe(1);
     expect(
       work.fullParses.length,
       "full parses exceed source-derived manifest ancestor/config ceiling",
@@ -903,9 +913,10 @@ describe("real repository execution membership", () => {
     );
   });
 
-  it("derives the exact real census and execution partition within the default timeout", async () => {
-    const result = await validateJsonImportAttributes();
+  it("derives the exact real census and execution partition with deterministic work bounds", () => {
+    const result = realCensus;
 
+    expect(realCensusInvocations).toBe(1);
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
     expect(result.inventory.declarations).toHaveLength(135);
