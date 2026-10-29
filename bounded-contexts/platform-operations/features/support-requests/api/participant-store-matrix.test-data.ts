@@ -65,6 +65,38 @@ async function seedAcceptance(store: EventStore, id: string) {
   });
 }
 export function participantStoreMatrix(makeStore: () => EventStore) {
+  it("participant response derives resolution after hashing", async () => {
+    const store = makeStore();
+    const f = participantFixture(store);
+    const resolutions = [
+      ["accept-return", "return-for-refund"],
+      ["offer-partial-refund", "partial-refund"],
+      ["offer-replacement", "replacement"],
+    ] as const;
+
+    for (const [responseType, resolutionType] of resolutions) {
+      const id = `sup_derived_${responseType}`;
+      await seedCase(store, id);
+      const result = await f.executeParticipant(
+        "record-response",
+        {
+          responseType,
+          summary: "Offer",
+          ...(responseType === "offer-partial-refund" ? { refundAmount: "6.00" } : {}),
+        },
+        id,
+        `${attemptId}_${responseType}`,
+        seller,
+      );
+      const history = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+      expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+        responseType,
+        resolutionType,
+      });
+      expect(result.offerId).toBeTruthy();
+    }
+  });
+
   it("equivalent currency form amounts replay one response and offer with a canonical receipt hash", async () => {
     const store = makeStore();
     const id = "sup_money_form";

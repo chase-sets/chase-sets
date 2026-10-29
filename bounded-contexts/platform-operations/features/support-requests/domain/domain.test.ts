@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideSupportRequest,
   evolveSupportRequest,
+  expectedOfferResolution,
   initialSupportRequestState,
   type SupportRequestEvent,
   type SupportRequestState,
@@ -243,6 +244,12 @@ function openWithAffectedLineItems(
 }
 
 describe("support request domain", () => {
+  it("maps offer response types to their canonical resolutions", () => {
+    expect(expectedOfferResolution("accept-return")).toBe("return-for-refund");
+    expect(expectedOfferResolution("offer-partial-refund")).toBe("partial-refund");
+    expect(expectedOfferResolution("offer-replacement")).toBe("replacement");
+    expect(expectedOfferResolution("provide-tracking")).toBeNull();
+  });
   it.each([
     "product-not-received",
     "product-not-as-described",

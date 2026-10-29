@@ -16,6 +16,7 @@ import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -44,6 +45,7 @@ import {
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
 import { getSupportFlowDefinition, type SupportFlowDefinition } from "../domain/flow-catalog";
+import { attemptId, openBody, participantFixture, requestHash } from "./participant-attempt.test-support";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -51,6 +53,35 @@ function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
     audit: { performedByUserId: parseTypedId(actor.userId, "usr"), forAccountId: parseTypedId(actor.accountId, "acc") },
   };
 }
+
+it("participant response derives resolution after hashing", async () => {
+  const fixture = participantFixture();
+  const opened = await fixture.executeParticipant("open-support-request", {
+    ...openBody,
+    flowType: "product-not-as-described",
+  });
+  const seller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
+  fixture.setActor(seller);
+  const body = { responseType: "offer-replacement", summary: "Offer" };
+  const response = await fixture.app.request(`/support-requests/${opened.id}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": `${attemptId}_route_derived`,
+      "X-Support-Request-Hash": requestHash("record-response", body),
+    },
+    body: JSON.stringify(body),
+  });
+
+  expect(response.status).toBe(200);
+  const history = await readCompleteStream(fixture.eventStore, {
+    streamId: `support.support-request-${opened.id}`,
+  });
+  expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+    responseType: "offer-replacement",
+    resolutionType: "replacement",
+  });
+});
 
 describe("Support evidence submissions use one reference boundary", () => {
   const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
