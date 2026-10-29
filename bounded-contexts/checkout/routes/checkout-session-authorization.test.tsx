@@ -222,7 +222,20 @@ async function settleRouter() {
   });
 }
 
+function routeNativeSubmit(event: SubmitEvent) {
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  const formData = new FormData(event.target as HTMLFormElement);
+  const submitter = event.submitter as HTMLButtonElement | null;
+  if (submitter?.name) formData.set(submitter.name, submitter.value);
+  void router!.navigate(router!.state.location.pathname + router!.state.location.search, {
+    formMethod: "post",
+    formData,
+  });
+}
+
 async function mount(initialEntry: string) {
+  document.addEventListener("submit", routeNativeSubmit);
   router = createMemoryRouter(
     [
       {
@@ -294,6 +307,7 @@ describe("checkout session authorization through the data router", () => {
     router?.dispose();
     router = undefined;
     unmount = undefined;
+    document.removeEventListener("submit", routeNativeSubmit);
     cleanup();
     requestSubmitSpy?.mockRestore();
     requestSubmitSpy = undefined;
@@ -365,16 +379,8 @@ describe("checkout session authorization through the data router", () => {
     expect(payButtons.length).toBeGreaterThan(0);
     expect((payButtons[0] as HTMLButtonElement).disabled).toBe(false);
 
+    expectNoCheckoutWrites();
     await userEvent.click(payButtons[0]);
-    const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement;
-    const formData = new FormData(form);
-    formData.set("intent", payButtons[0].getAttribute("value") ?? "confirm-checkout");
-    await act(async () => {
-      await router!.navigate(router!.state.location.pathname + router!.state.location.search, {
-        formMethod: "post",
-        formData,
-      });
-    });
     await settleRouter();
 
     expect(mockSelectShippingOption).toHaveBeenCalledTimes(1);
