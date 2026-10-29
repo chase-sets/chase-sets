@@ -18,9 +18,15 @@
 //! The counts and the rows are drawn again on each change to the account's offers
 //! (`<corten-live>` on `account:{id}:offers`).
 //!
+//! An offer's own page (`account-offer-submitted`, `/account/offers/submitted/{id}`): its overview
+//! (price and status, options, quantity, the accepting seller's reputation, the price lines and
+//! where it is), and Pause, Resume and Withdraw for it, which post to the page and answer it with
+//! the outcome, read after the write. An offer that is not the account's is a 404; one whose read
+//! has not caught up with the write the address follows is marketplace's "Preparing submitted
+//! offer" with Refresh, read again in 2 s.
+//!
 //! Not ported yet: market following (`MarketFollowingOfferControls`, an offer's buyer policy:
-//! preview, authorize, pause and stop) and an offer's own page, which Open leaves for on
-//! marketplace.
+//! preview, authorize, pause and stop), on the list and on an offer's page.
 use corten::{
     LiveResponse,
     axum::{
@@ -34,7 +40,7 @@ use platform::{realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
 use crate::{
-    api::{ApiError, LifecycleOutcome, SubmittedOfferCalls as _, SubmittedOffers},
+    api::{ApiError, LifecycleOutcome, SubmittedOffer, SubmittedOfferCalls as _, SubmittedOffers},
     app::{OFFERS_MANAGE, Shared, read_failed, sign_in},
     auth::{OfferBuyer, Viewer},
     text::{Pilot, SubmittedOffersMsg},
@@ -62,6 +68,21 @@ impl Place {
     pub fn of(status: Option<&str>) -> Place {
         Place { status: status.map(str::to_owned) }
     }
+}
+
+/// An offer page's address: the receipt of the write it follows.
+#[derive(Clone, Debug, Default, Deserialize, Route)]
+#[route(query)]
+pub struct OfferPlace {
+    pub after_write: Option<String>,
+}
+
+/// What an offer's page shows.
+pub struct OfferScreen {
+    pub offer: SubmittedOffer,
+    pub manage: bool,
+    pub outcomes: Option<Vec<LifecycleOutcome>>,
+    pub refusal: Option<String>,
 }
 
 /// A lifecycle change: one row's (`row`), or the checked offers' (`lifecycleAction`, `offerIds`).
@@ -284,4 +305,148 @@ pub(crate) async fn live(
         })
         .filter_map(std::future::ready);
     corten::live(fragments)
+}
+
+/// What an offer's read came to: the offer, not the account's, or still catching up with the
+/// write the address follows (`classifyPostWriteDestinationResult`'s `recover`).
+enum OfferRead {
+    Found(Box<SubmittedOffer>),
+    NotFound,
+    Preparing,
+}
+
+async fn read_offer(config: &Shared, headers: &HeaderMap, id: &str, receipt: Option<&Receipt>) -> Result<OfferRead, ApiError> {
+    match config.platform.caller(headers, config.proto, receipt).submitted_offer(id).await {
+        Ok(Some(offer)) => Ok(OfferRead::Found(Box::new(offer))),
+        // Not found after a write: the read has not caught up with it yet (`loadAfterWrite`'s isNotFound).
+        Ok(None) if receipt.is_some() => Ok(OfferRead::Preparing),
+        Ok(None) => Ok(OfferRead::NotFound),
+        Err(error) if receipt.is_some() && error.catching_up() => Ok(OfferRead::Preparing),
+        Err(error) => Err(error),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render_offer(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    receipt: Option<Receipt>,
+    outcomes: Option<Vec<LifecycleOutcome>>,
+    refusal: Option<String>,
+    status: StatusCode,
+) -> HtmlResult {
+    let t: SubmittedOffersMsg = req.t();
+    let mut offer = match read_offer(config, headers, id, receipt.as_ref()).await {
+        Ok(OfferRead::Found(offer)) => *offer,
+        Ok(OfferRead::NotFound) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
+        Ok(OfferRead::Preparing) => {
+            let here = crate::app::url::SubmittedOffer { id, place: OfferPlace { after_write: receipt.map(|r| r.param()) } };
+            // After a change, go to the address that carries the receipt, so reading again (and
+            // Refresh) waits for the write rather than reading the post's address.
+            if outcomes.is_some() {
+                return req.redirect(&here);
+            }
+            let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
+            let page = html! {
+                <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={head}>
+                    <views::SubmittedOfferPreparing t={t} refresh={here.href()} />
+                </Layout>
+            };
+            return req.page(page);
+        }
+        Err(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    if let Some(outcomes) = &outcomes {
+        let mut list = SubmittedOffers { items: vec![offer], ..SubmittedOffers::default() };
+        overlay(&mut list, outcomes);
+        offer = list.items.remove(0);
+    }
+    let manage = viewer.actor.can(OFFERS_MANAGE);
+    let screen = OfferScreen { offer, manage, outcomes, refusal };
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
+            <views::SubmittedOfferPage t={t} p={req.t()} screen={&screen} />
+        </Layout>
+    };
+    if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+}
+
+/// An offer's page, read after the write its address names.
+pub(crate) async fn detail(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
+) -> HtmlResult {
+    let receipt = Receipt::from_param(route.place.after_write.as_deref());
+    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, StatusCode::OK).await
+}
+
+/// Pause, Resume or Withdraw this offer (`row` is `{action}:{offer id}`, as the list's): the page
+/// again with the outcome, read after the write.
+pub(crate) async fn change_one(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
+    Form(form): Form<LifecycleForm>,
+) -> HtmlResult {
+    let id = route.id.to_string();
+    let p: Pilot = req.t();
+    let action = match form.row.split_once(':') {
+        Some((action, offer)) if offer == id && ACTIONS.contains(&action) => action.to_owned(),
+        _ => {
+            let message = p.submitted_offers_unknown_action().to_owned();
+            return render_offer(
+                &req,
+                &viewer,
+                &config,
+                &headers,
+                &id,
+                None,
+                None,
+                Some(message),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        }
+    };
+    let ids = [id.clone()];
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (outcomes, receipt) = match caller.change_offer(&id, &action).await {
+        Ok((outcome, receipt)) => (vec![outcome], receipt),
+        Err(error) => match error.status() {
+            Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),
+            Some(StatusCode::SERVICE_UNAVAILABLE) if error.code() == Some("offer_lifecycle_closed") => {
+                (rejected(&ids, "offer_lifecycle_closed"), None)
+            }
+            Some(StatusCode::NOT_FOUND | StatusCode::CONFLICT) => {
+                (rejected(&ids, error.code().unwrap_or("request_failed")), None)
+            }
+            Some(status) if status.is_client_error() => {
+                let t: SubmittedOffersMsg = req.t();
+                let message =
+                    error.refusal().map(str::to_owned).unwrap_or_else(|| t.lifecycle_outcome_request_failed(&id).to_string());
+                return render_offer(
+                    &req,
+                    &viewer,
+                    &config,
+                    &headers,
+                    &id,
+                    None,
+                    None,
+                    Some(message),
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                )
+                .await;
+            }
+            _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        },
+    };
+    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, StatusCode::OK).await
 }

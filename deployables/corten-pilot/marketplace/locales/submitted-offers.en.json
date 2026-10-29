@@ -1,5 +1,17 @@
 {
   "price_incomplete": "Price incomplete",
+  "recovery.no.payment.or.sale.changed": "No payment or sale changed while these offer details finish updating.",
+  "recovery.recover.offer": "Recover offer details",
+  "recovery.refresh.offer": "Refresh offer",
+  "detail.back.to.submitted.offers": "Back to submitted offers",
+  "detail.no.seller.feedback.yet": "No account feedback yet",
+  "detail.offer.price": "Offer price: ",
+  "detail.offers": "Offers",
+  "detail.quantity.requested": "Quantity requested: ",
+  "detail.review.the.details.of.your.submitted": "Review the details of your submitted offer.",
+  "detail.seller.reputation": "Seller reputation",
+  "detail.submitted.offer.overview": "Submitted Offer Overview",
+  "detail.this.submitted.offer.is.marketplace.wide": "This submitted offer is marketplace-wide. Accounts can review it when they publish matching active supply.",
   "list.actions": "Actions",
   "list.browse.marketplace": "Browse marketplace",
   "list.item": "Item",
@@ -66,5 +78,12 @@
   "lifecycle.outcome.offer_lifecycle_closed": "{offer}: Pause, Resume and Withdraw are not open yet. Try again later.",
   "lifecycle.outcome.request_failed": "{offer}: could not change. Try again.",
   "route.submitted.offers.marketplace": "Submitted Offers | Marketplace",
-  "route.track.offers.you.have.submitted.against": "Track offers you have submitted against marketplace inventory."
+  "route.track.offers.you.have.submitted.against": "Track offers you have submitted against marketplace inventory.",
+  "detail_route.review.pricing.demand.and.status.for": "Review pricing, demand, and status for one submitted offer.",
+  "detail_route.submitted.offer.marketplace": "Submitted Offer | Marketplace",
+  "detail_route.submitted.offer.not.found": "Submitted offer not found.",
+  "detail_route.submitted.offer.preparing": "Preparing submitted offer",
+  "detail_route.submitted.offer.preparing.description": "We're preparing your submitted offer details. Try again in a moment.",
+  "detail_route.feedback.description": "Tell us how the offer submission workflow worked for you.",
+  "detail_route.feedback.title": "How was making this offer?"
 }

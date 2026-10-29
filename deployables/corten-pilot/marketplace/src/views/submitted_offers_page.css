@@ -125,8 +125,10 @@
   box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 0.08);
 }
 .bar output:empty { display: none; }
-/* With the script, the bar shows once an offer is checked; without it, it is always there. */
+/* With the script, the bar shows once an offer is checked; without it, it is always there, so it
+   stays at the end of the list instead of sticking over the rows above it. */
 .bulk[data-picked="0"] .bar { display: none; }
+.bulk:not([data-picked]) .bar { position: static; box-shadow: none; }
 .dialog {
   width: min(32rem, calc(100vw - 2 * var(--space-4)));
   padding: var(--space-5);
@@ -159,4 +161,25 @@
 }
 @media (min-width: 80rem) {
   .offers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* An offer's page: the card and the price lines one above the other, side by side from 64rem;
+   the price lines' total set apart; where the offer is as two steps, the current one marked. */
+.overview { display: grid; gap: var(--space-3); min-width: 0; }
+.total { padding-block-start: var(--space-2); border-top: 1px solid var(--color-border); }
+.steps { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.step {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: 0.25rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.step p { margin: 0; }
+.step[data-state="current"] { border-inline-start-color: var(--color-primary); }
+.step[data-state="complete"] { border-inline-start-color: var(--color-success); }
+.step[data-state="upcoming"] { opacity: 0.75; }
+@media (min-width: 64rem) {
+  .overview { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
 }

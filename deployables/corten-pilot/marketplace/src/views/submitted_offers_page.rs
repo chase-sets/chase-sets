@@ -13,11 +13,11 @@ use corten::{
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace};
+use super::listing_page::options;
 use crate::{
     api::{LifecycleOutcome, OfferStatusCounts, SubmittedOffer},
     app::url,
-    submitted_offers::{LifecycleForm, OffersScreen, Place, STATUSES, actions},
+    submitted_offers::{LifecycleForm, OfferPlace, OfferScreen, OffersScreen, Place, STATUSES, actions},
     text::{Pilot, SubmittedOffersMsg},
 };
 
@@ -256,7 +256,7 @@ fn OfferRow<'a>(t: SubmittedOffersMsg, p: Pilot, offer: &'a SubmittedOffer, mana
     let f = LifecycleForm::FIELDS;
     let title = offer.item_title.as_str();
     let id = offer.offer_id.as_str();
-    let open = on_marketplace(&format!("/account/offers/submitted/{}", platform::api::segment(id)));
+    let open = url::SubmittedOffer { id, place: OfferPlace::default() };
     let seller = offer.accepted_seller_account_id.as_deref().filter(|_| offer.status == "accepted");
     html! {
         if manage {
@@ -409,5 +409,201 @@ fn outcome_line(t: SubmittedOffersMsg, outcome: &LifecycleOutcome, offer: &str) 
         (_, Some("offer_conflict")) => t.lifecycle_outcome_offer_conflict(offer).to_string(),
         (_, Some("offer_lifecycle_closed")) => t.lifecycle_outcome_offer_lifecycle_closed(offer).to_string(),
         _ => t.lifecycle_outcome_request_failed(offer).to_string(),
+    }
+}
+
+/// A label written as a prefix (`Offer price: `) used as a term.
+fn term(label: &str) -> &str {
+    label.trim_end_matches([':', ' '])
+}
+
+/// One offer's page (marketplace's `MarketplaceSubmittedOfferDetailPage`): the header with Back to
+/// submitted offers; Manage this Offer (the paused notice, what the change did, and Pause, Resume
+/// or Withdraw, Withdraw asking first) for a reader with `offers.manage`; and the overview: the
+/// offer's card (price and status, options, quantity, that it is marketplace-wide, the accepting
+/// seller), the price lines, and where it is. Marketplace's protection module repeats the
+/// overview's own sentences and is left out. One column; the card and the price lines side by side
+/// from 64rem.
+#[component(css = SubmittedOffersPage)]
+pub fn SubmittedOfferPage<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a OfferScreen) -> impl Render {
+    let f = LifecycleForm::FIELDS;
+    let offer = &screen.offer;
+    let id = offer.offer_id.as_str();
+    let title = offer.item_title.as_str();
+    let status = offer.status.as_str();
+    let available: &[&str] = if screen.manage { actions(status) } else { &[] };
+    let seller = offer.accepted_seller_account_id.as_deref().filter(|_| status == "accepted");
+    let price = money(t, offer);
+    let open = matches!(status, "submitted" | "paused");
+    let here = url::SubmittedOffer { id, place: OfferPlace::default() };
+    html! {
+        <header class={Header}>
+            <div class={Heading}>
+                <p class={Eyebrow}>{t.detail_offers()}</p>
+                <h1 class={Title}>{title}</h1>
+                <p class={Muted}>{t.detail_review_the_details_of_your_submitted()}</p>
+            </div>
+            <a class={(Button, Secondary)} href={url::SubmittedOffers::default()}>{t.detail_back_to_submitted_offers()}</a>
+        </header>
+        if let Some(message) = &screen.refusal {
+            <div class={Banner} data-tone="danger" role="alert">
+                <p class={Strong}>{t.list_offer_status_issue()}</p>
+                <p>{message}</p>
+            </div>
+        }
+        if !available.is_empty() || screen.outcomes.is_some() {
+            <section class={Section} aria-labelledby="offer-manage-title">
+                <h2 id="offer-manage-title" class={PartTitle}>{t.lifecycle_manage_title()}</h2>
+                if status == "paused" {
+                    <div class={Banner} data-tone="warning">
+                        <p class={Strong}>{status_label(t, status)}</p>
+                        <p>{t.lifecycle_paused_notice()}</p>
+                    </div>
+                }
+                if let Some(outcomes) = &screen.outcomes {
+                    <Outcomes t={t} outcomes={outcomes} offers={std::slice::from_ref(offer)} />
+                }
+                if !available.is_empty() {
+                    <form class={Row} method="post" action={&here}>
+                        for action in available {
+                            match *action {
+                                "withdraw" => {
+                                    <button
+                                        class={(Button, Secondary)}
+                                        type="button"
+                                        command="show-modal"
+                                        commandfor={WithdrawId(id)}
+                                    >
+                                        {t.lifecycle_withdraw_offer()}
+                                    </button>
+                                    <dialog id={WithdrawId(id)} class={Dialog} aria-labelledby={WithdrawTitleId(id)}>
+                                        <h2 id={WithdrawTitleId(id)} class={PartTitle}>
+                                            {t.lifecycle_withdraw_confirm_title_one()}
+                                        </h2>
+                                        <p class={Muted}>{title}</p>
+                                        <p class={Muted}>{t.lifecycle_withdraw_confirm_description()}</p>
+                                        <p class={Row}>
+                                            <button
+                                                class={(Button, Secondary)}
+                                                type="button"
+                                                command="close"
+                                                commandfor={WithdrawId(id)}
+                                            >
+                                                {t.lifecycle_withdraw_confirm_cancel()}
+                                            </button>
+                                            <button class={Button} type="submit" name={f.row} value={format!("withdraw:{id}")}>
+                                                {t.lifecycle_withdraw()}
+                                            </button>
+                                        </p>
+                                    </dialog>
+                                }
+                                "pause" => {
+                                    <button class={Button} type="submit" name={f.row} value={format!("pause:{id}")}>
+                                        {t.lifecycle_pause_offer()}
+                                    </button>
+                                }
+                                _ => {
+                                    <button class={Button} type="submit" name={f.row} value={format!("resume:{id}")}>
+                                        {t.lifecycle_resume_offer()}
+                                    </button>
+                                }
+                            }
+                        }
+                    </form>
+                }
+            </section>
+        }
+        <section class={Section} aria-labelledby="offer-overview-title">
+            <h2 id="offer-overview-title" class={PartTitle}>{t.detail_submitted_offer_overview()}</h2>
+            <div class={Overview}>
+                <article class={Card}>
+                    <div class={Main}>
+                        <p class={Strong}>{title}</p>
+                        <p class={Badges}>
+                            <span class={Strong}>{&price}</span>
+                            <span class={Badge} data-tone={tone(status)}>{status_label(t, status)}</span>
+                        </p>
+                        if let Some(subtitle) = &offer.item_subtitle {
+                            <p class={Hint}>{subtitle}</p>
+                        }
+                        if offer.product_summary.is_some() {
+                            <p class={Tags}>
+                                for option in options(offer.product_summary.as_deref()) {
+                                    <span class={Tag}>{option}</span>
+                                }
+                            </p>
+                        }
+                    </div>
+                    <dl class={Lines}>
+                        <div>
+                            <dt>{term(t.detail_quantity_requested())}</dt>
+                            <dd>{offer.quantity_requested}</dd>
+                        </div>
+                        if let Some(seller) = seller {
+                            <div>
+                                <dt>{t.detail_seller_reputation()}</dt>
+                                <dd><Seller t={t} p={p} offer={offer} seller={seller} /></dd>
+                            </div>
+                        }
+                    </dl>
+                    <p class={Hint}>{t.detail_this_submitted_offer_is_marketplace_wide()}</p>
+                </article>
+                <div class={Card}>
+                    <dl class={Lines}>
+                        <div>
+                            <dt>{term(t.detail_offer_price())}</dt>
+                            <dd>{&price}</dd>
+                        </div>
+                        <div>
+                            <dt>{term(t.detail_quantity_requested())}</dt>
+                            <dd>{offer.quantity_requested}</dd>
+                        </div>
+                        <div class={Total}>
+                            <dt>{term(t.detail_offer_price())}</dt>
+                            <dd class={Strong}>{&price}</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+            <ol class={Steps}>
+                <li class={Step} data-state={if open { "current" } else { "complete" }} aria-current={open.then_some("step")}>
+                    <p class={Strong}>{status_label(t, status)}</p>
+                    <p class={Hint}>{t.detail_this_submitted_offer_is_marketplace_wide()}</p>
+                </li>
+                <li class={Step} data-state="upcoming">
+                    <p class={Strong}>{t.detail_submitted_offer_overview()}</p>
+                    <p class={Hint}>{t.detail_review_the_details_of_your_submitted()}</p>
+                </li>
+            </ol>
+        </section>
+    }
+}
+
+/// An offer whose read has not caught up with the write the address follows
+/// (`MarketplaceOfferDetailRecoveryPage`): Refresh offer and Back to submitted offers; the page reads
+/// itself again in 2 s.
+#[component(css = SubmittedOffersPage)]
+pub fn SubmittedOfferPreparing(t: SubmittedOffersMsg, refresh: String) -> impl Render {
+    html! {
+        <header class={Header}>
+            <div class={Heading}>
+                <p class={Eyebrow}>{t.detail_submitted_offer_overview()}</p>
+                <h1 class={Title}>{t.detail_route_submitted_offer_preparing()}</h1>
+                <p class={Muted}>{t.detail_route_submitted_offer_preparing_description()}</p>
+            </div>
+        </header>
+        <section class={Section} aria-labelledby="offer-recover-title">
+            <h2 id="offer-recover-title" class={PartTitle}>{t.recovery_recover_offer()}</h2>
+            <div class={Card} role="status">
+                <p class={Strong}>{t.detail_route_submitted_offer_preparing()}</p>
+                <p class={Muted}>{t.recovery_no_payment_or_sale_changed()}</p>
+                <p class={Row}>
+                    <a class={Button} href={&refresh}>{t.recovery_refresh_offer()}</a>
+                    <a class={(Button, Secondary)} href={url::SubmittedOffers::default()}>
+                        {t.detail_back_to_submitted_offers()}
+                    </a>
+                </p>
+            </div>
+        </section>
     }
 }

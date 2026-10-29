@@ -108,7 +108,7 @@ pub use sessions_page::{SessionPage, SessionsPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
-pub use submitted_offers_page::{SubmittedOffersPage, submitted_offers_live_parts};
+pub use submitted_offers_page::{SubmittedOfferPage, SubmittedOfferPreparing, SubmittedOffersPage, submitted_offers_live_parts};
 pub use support_list_page::SupportListPage;
 pub use support_page::SupportPage;
 pub use team_page::TeamPage;

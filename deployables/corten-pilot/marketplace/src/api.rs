@@ -5536,6 +5536,9 @@ struct BulkLifecycleAnswer {
 pub trait SubmittedOfferCalls {
     /// The first 100 of the account's offers, in `status` (all for none), as marketplace reads them.
     async fn submitted_offers(&self, status: Option<&str>) -> Result<SubmittedOffers, ApiError>;
+    /// One of the account's offers (`SubmittedOfferDetail`), or `None` when it is not the
+    /// account's (the API's 404).
+    async fn submitted_offer(&self, id: &str) -> Result<Option<SubmittedOffer>, ApiError>;
     /// Pause, Resume or Withdraw (`action`) one offer: its outcome, and the write's receipt.
     async fn change_offer(&self, id: &str, action: &str) -> Result<(LifecycleOutcome, Option<Receipt>), ApiError>;
     /// The same for several offers at once (up to 250), each with its outcome.
@@ -5549,6 +5552,14 @@ impl SubmittedOfferCalls for Caller<'_> {
             path.push_str(&format!("&status={}", segment(status)));
         }
         self.read(&path, MARKETPLACE).await
+    }
+
+    async fn submitted_offer(&self, id: &str) -> Result<Option<SubmittedOffer>, ApiError> {
+        match self.read(&format!("{ACCOUNT}/offers/submitted/{}", segment(id)), MARKETPLACE).await {
+            Ok(offer) => Ok(Some(offer)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     async fn change_offer(&self, id: &str, action: &str) -> Result<(LifecycleOutcome, Option<Receipt>), ApiError> {

@@ -480,7 +480,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
-    if let Some(answer) = submitted_offers(&method, &uri, &body) {
+    if let Some(answer) = submitted_offers(&method, &uri, &headers, &body) {
         return answer;
     }
     // Before Ordering's and the listing page's, whose paths begin the same.
@@ -8706,7 +8706,7 @@ fn submitted_offer(id: &str, title: &str, status: &str, version: u64) -> Value {
 /// `off_paused` (Charizard) and `off_taken` (Mewtwo, accepted). One offer's change answers with
 /// its next version; `off_taken` is final (409), and an unknown offer is not found. The bulk change
 /// answers each offer, and is closed (503) when it names `off_closed`.
-fn submitted_offers(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+fn submitted_offers(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const SUBMITTED: &str = "/api/marketplace/account/offers/submitted";
     let rest = uri.path().strip_prefix(SUBMITTED)?;
     let all = [
@@ -8754,9 +8754,36 @@ fn submitted_offers(method: &Method, uri: &Uri, body: &str) -> Option<Response> 
                 json!({ "action": sent["action"], "items": items, "total": ids.len() }),
             )
         }
+        // An offer's page: the account's three, read after a write at 71 (73 is still catching up).
+        ("GET", one) => {
+            if waits_for(headers).as_deref() == Some("73") {
+                return Some(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_freshness_timeout",
+                    "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+                ));
+            }
+            match all.into_iter().find(|o| format!("/{}", o["offer_id"].as_str().unwrap_or_default()) == one) {
+                Some(mut offer) => {
+                    if waits_for(headers).as_deref() == Some("71") && offer["offer_id"] == "off_open" {
+                        offer["status"] = json!("paused");
+                        offer["last_stream_version"] = json!(4);
+                    }
+                    Json(offer).into_response()
+                }
+                None => refusal(StatusCode::NOT_FOUND, "not_found", "Submitted offer not found."),
+            }
+        }
         ("POST", "/off_open/pause") => change("off_open", 4, "paused", "changed"),
         ("POST", "/off_open/withdraw") => change("off_open", 4, "withdrawn", "changed"),
         ("POST", "/off_paused/resume") => change("off_paused", 6, "submitted", "changed"),
+        // A change whose read is still behind (73).
+        ("POST", "/off_paused/withdraw") => committed(
+            StatusCode::OK,
+            "marketplace",
+            "73",
+            json!({ "id": "off_paused", "version": 6, "status": "withdrawn", "outcome": "changed" }),
+        ),
         ("POST", rest) if rest.starts_with("/off_taken/") => {
             refusal(StatusCode::CONFLICT, "offer_transition_rejected", "Offer is final.")
         }
@@ -8783,7 +8810,7 @@ async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
         assert!(page.contains(words), "{words:?} in {page}");
     }
     // Each offer opens on marketplace's page, until the pilot has one.
-    assert!(html.contains(r#"href="http://localhost:7753/account/offers/submitted/off_open""#), "{html}");
+    assert!(html.contains(r#"href="/account/offers/submitted/off_open""#), "Open is the pilot's page: {html}");
     assert!(html.contains(r#"<corten-live src="/account/offers/submitted/live"></corten-live>"#), "{html}");
     // An open offer pauses, a paused one resumes, each withdraws after its dialog; an accepted one
     // is final. Each can be checked for the bulk bar.
@@ -10382,8 +10409,8 @@ async fn a_password_starts_the_session_and_goes_back_to_the_pilot_or_marketplace
         ("%2Faccount%2Fmessages", "http://localhost:7753/account/messages"),
         // Under an area the pilot has, but a page it does not route (`Req::serves`): marketplace's.
         ("%2Faccount%2Flistings%2Fprices%2Fbulk", "http://localhost:7753/account/listings/prices/bulk"),
-        ("%2Faccount%2Foffers%2Fsubmitted%2Fofr_1", "http://localhost:7753/account/offers/submitted/ofr_1"),
         // A route the pilot has: its page, with the query.
+        ("%2Faccount%2Foffers%2Fsubmitted%2Fofr_1", "/account/offers/submitted/ofr_1"),
         ("%2Faccount%2Finventory%2Fitems%2Finv_1%3FledgerKind%3Dadjusted", "/account/inventory/items/inv_1?ledgerKind=adjusted"),
         // No return address, or one that leaves the site: the pilot's account page.
         ("", "/account"),
@@ -13804,4 +13831,118 @@ async fn a_fix_that_is_incomplete_or_refused_is_the_drawer_again_and_a_reader_ca
 
     let (status, _, _) = pilot.send(post(&fix, "reader", "catalogItemId=cat_etb&storageLocationId=loc_main", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn an_offers_page_shows_its_overview_and_the_changes_its_status_allows() {
+    let pilot = Pilot::new().await;
+    // The list's Open is the pilot's page now.
+    let (_, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert!(html.contains(r#"href="/account/offers/submitted/off_open""#), "{html}");
+
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Offers Pikachu Review the details of your submitted offer. Back to submitted offers"), "{shown}");
+    assert!(shown.contains("Manage this Offer Pause Offer Withdraw Offer"), "{shown}");
+    assert!(
+        shown.contains("Submitted Offer Overview Pikachu $17.75 Open Jungle 60/64 Raw Excellent Quantity requested 2"),
+        "{shown}"
+    );
+    assert!(shown.contains("Offer price $17.75 Quantity requested 2 Offer price $17.75"), "{shown}");
+    assert!(html.contains(r#"method="post" action="/account/offers/submitted/off_open""#), "{html}");
+    assert!(
+        html.contains(r#"name="row" value="pause:off_open""#) && html.contains(r#"name="row" value="withdraw:off_open""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"data-state="current" aria-current="step""#), "an open offer's step is current: {html}");
+    assert!(!shown.contains("Seller reputation"), "{shown}");
+
+    let (_, _, html) = pilot.send(get("/account/offers/submitted/off_paused", Some("trader"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Manage this Offer Paused Sellers cannot see or accept this Offer until you resume it."), "{shown}");
+    assert!(html.contains(r#"value="resume:off_paused""#) && !html.contains(r#"value="pause:off_paused""#), "{html}");
+
+    // Accepted: final, with the seller's reputation and no changes.
+    let (_, _, html) = pilot.send(get("/account/offers/submitted/off_taken", Some("trader"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Seller reputation acc_maker"), "{shown}");
+    assert!(!shown.contains("Manage this Offer") && html.contains(r#"data-state="complete""#), "{html}");
+
+    // A reader without offers.manage sees the overview only.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!text(&html).contains("Manage this Offer"), "{html}");
+
+    let (status, _, _) = pilot.send(get("/account/offers/submitted/off_gone", Some("trader"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get("/account/offers/submitted/off_open", Some("lookout"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get("/account/offers/submitted/off_open", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Foffers%2Fsubmitted%2Foff_open"));
+}
+
+#[tokio::test]
+async fn an_offers_change_is_its_own_command_and_the_page_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let page = "/account/offers/submitted/off_open";
+    let (status, _, html) = pilot.send(post(page, "trader", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let sent: Vec<_> = calls.iter().filter(|c| c.method == Method::POST && c.path.contains("/offers/submitted")).collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].path, "/api/marketplace/account/offers/submitted/off_open/pause");
+    let read = calls.iter().rev().find(|c| c.method == Method::GET && c.path.ends_with("/offers/submitted/off_open")).unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("71"), "read after the change");
+    let shown = text(&html);
+    assert!(shown.contains("Offer changes") && shown.contains("Pikachu: now Paused"), "{shown}");
+    assert!(html.contains(r#"value="resume:off_open""#), "its status is now paused: {html}");
+
+    // A final offer's change is refused as that offer's outcome.
+    let (status, _, html) =
+        pilot.send(post("/account/offers/submitted/off_taken", "trader", "row=withdraw%3Aoff_taken", false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Offer changes"), "{}", text(&html));
+
+    // Another offer's row, or an unknown action, is refused before the API; a reader cannot change it.
+    let before = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::POST).count();
+    let (status, _, _) = pilot.send(post(page, "trader", "row=pause%3Aoff_paused", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post(page, "trader", "row=archive%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post(page, "lister", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::POST).count(), before);
+}
+
+#[tokio::test]
+async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let raw = serde_json::value::RawValue::from_string(
+        r#"[{"sourceContextName":"marketplace","maxGlobalPosition":"73","eventIds":["e1"]}]"#.to_owned(),
+    )
+    .unwrap();
+    let receipt = platform::receipt::Receipt::of_metadata(Some("73"), &raw).unwrap().param();
+    let to = {
+        use corten::prelude::*;
+        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt) };
+        crate::app::url::SubmittedOffer { id: "off_open", place }.href()
+    };
+    let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Preparing submitted offer We&#39;re preparing your submitted offer details."), "{shown}");
+    assert!(shown.contains("Refresh offer Back to submitted offers"), "{shown}");
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert!(html.contains(&format!(r#"href="{}""#, to.replace('&', "&amp;"))), "Refresh keeps the receipt: {html}");
+
+    // A change whose read is behind goes to the address with its receipt, which reads again from there.
+    let (status, headers, _) =
+        pilot.send(post("/account/offers/submitted/off_paused", "trader", "row=withdraw%3Aoff_paused", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers["location"].to_str().unwrap();
+    assert!(location.starts_with("/account/offers/submitted/off_paused?after_write="), "{location}");
+    let (_, _, html) = pilot.send(get(location, Some("trader"))).await;
+    assert!(text(&html).contains("Preparing submitted offer"), "{html}");
 }

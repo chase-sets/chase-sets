@@ -178,7 +178,7 @@ pub mod url {
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, SignIn};
-    pub use submitted_offers::{SubmittedOffers, SubmittedOffersLive};
+    pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
@@ -1042,6 +1042,14 @@ pub mod url {
 
         /// The status counts and the rows, drawn again on each change to the account's offers.
         #[derive(Clone, Debug, Default)]
+        /// One offer: its overview, and Pause, Resume and Withdraw for it.
+        #[route("/account/offers/submitted/{id}", get = crate::submitted_offers::detail, post = crate::submitted_offers::change_one)]
+        pub struct SubmittedOffer<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::submitted_offers::OfferPlace,
+        }
+
         #[route("/account/offers/submitted/live", get = crate::submitted_offers::live)]
         pub struct SubmittedOffersLive {
             #[route(query)]
