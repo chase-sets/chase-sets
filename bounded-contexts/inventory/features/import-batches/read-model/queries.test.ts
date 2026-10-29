@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { getImportBatch, listImportBatches, type InventoryImportBatch } from "./queries";
+import { inventoryImportSourceProfiles } from "../domain/import-source-profiles";
 
 const rejectedBatch: InventoryImportBatch = {
   batch_id: "imb_rejected",
@@ -178,6 +179,35 @@ class ImportBatchReadModelDb implements PgQueryable {
 }
 
 describe("inventory import batch read model queries", () => {
+  it.each(inventoryImportSourceProfiles)(
+    "getImportBatch projects needs_seller for $sourceKey",
+    async ({ sourceKey }) => {
+      const stored = new ImportBatchReadModelDb();
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
+          const result = await stored.query<Record<string, unknown>>(sql, values);
+          return {
+            ...result,
+            rows: result.rows.map((row) =>
+              row.row_id
+                ? { ...row, resolution_status: "resolved", product_id: "valid-product" }
+                : { ...row, source_key: sourceKey },
+            ) as Row[],
+          };
+        },
+      };
+      const detail = await getImportBatch(db, "imb_rejected", "acc_1");
+      expect(detail?.rows[0]?.needs_seller).toBe(sourceKey === "saved-list");
+    },
+  );
+  it("getImportBatch projects needs_seller", async () => {
+    const rejected = await getImportBatch(new ImportBatchReadModelDb(), "imb_rejected", "acc_1");
+    expect(rejected?.rows[0]).toMatchObject({ needs_seller: true });
+    expect(rejected).toMatchObject({ can_commit: false, commit_ready_count: 0 });
+    const mixed = await getImportBatch(new ImportBatchReadModelDb(), "imb_mixed", "acc_1");
+    expect(mixed?.rows.map((row) => row.needs_seller)).toEqual([false, true]);
+    expect(mixed).toMatchObject({ can_commit: false, commit_ready_count: 0 });
+  });
   it("normalizes rejected-only persisted batches back to reviewable status", async () => {
     const db = new ImportBatchReadModelDb();
 

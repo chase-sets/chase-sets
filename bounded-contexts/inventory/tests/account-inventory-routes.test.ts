@@ -61,6 +61,61 @@ function commitHeaders(position = "42") {
 }
 
 describe("marketplace inventory routes", () => {
+  it.each(["imr_api_next", null])("resolve-row redirects from next_needs_seller_row_id: %s", async (nextRowId) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        if (String(input).includes("/api/auth/session"))
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        return Promise.resolve(
+          jsonResponse({
+            next_needs_seller_row_id: nextRowId,
+            rows: [
+              {
+                row_id: "imr_local_wrong",
+                status: "rejected",
+                resolution_status: "unresolved",
+                product_id: null,
+                committed_at: null,
+                needs_seller: true,
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    const body = new URLSearchParams({
+      intent: "resolve-row",
+      batchId: "imb_1",
+      rowId: "imr_fixed",
+      catalogItemId: "cat_1",
+      storageLocationId: "loc_1",
+      selectedOptions: "[]",
+    });
+    const result = await inventoryImportsAction({
+      request: new Request("http://localhost/account/inventory/imports/imb_1", {
+        method: "POST",
+        body,
+      }),
+      params: { batchId: "imb_1" },
+      context: undefined,
+    } as never);
+    expect((result as Response).headers.get("Location")).toBe(
+      nextRowId ? "/account/inventory/imports/imb_1?resolveRowId=imr_api_next" : "/account/inventory/imports/imb_1",
+    );
+  });
   it("loads inventory items and locations through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
