@@ -784,7 +784,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const releaseDuplicate = deferred();
         const appended: Runtime[] = [];
         const appendClients = new Set<number>();
-        const replicaAppendCommitted = deferred();
+        const replicaAppendSettled = deferred();
         const opened: Partial<Record<"order" | "admitted" | "first" | "duplicate", boolean>> = {};
         let firstHeld = false;
         let duplicateHeld = false;
@@ -801,14 +801,18 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
             (statement.runtime === firstAppender ? firstAppended : secondAppended).resolve();
             return result;
           }
-          if (statement.runtime === "replica" && statement.sql === "COMMIT" && appendClients.has(statement.client)) {
+          if (
+            statement.runtime === "replica" &&
+            (statement.sql === "COMMIT" || statement.sql === "ROLLBACK") &&
+            appendClients.has(statement.client)
+          ) {
             const result = await run();
-            replicaAppendCommitted.resolve();
+            replicaAppendSettled.resolve();
             return result;
           }
           if (statement.runtime === "replica" && isAttemptLock(statement) && !duplicateHeld) {
             duplicateHeld = true;
-            await bounded(replicaAppendCommitted.promise);
+            await bounded(replicaAppendSettled.promise);
             duplicateAdmitted.resolve();
             opened.duplicate = await bounded(releaseDuplicate.promise);
             return run();
