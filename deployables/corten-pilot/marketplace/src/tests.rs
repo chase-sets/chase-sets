@@ -9665,10 +9665,71 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
             }
             committed(StatusCode::CREATED, "pricing", "42", json!({ "policyId": "pol_3" }))
         }
+        ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
+        ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
+        ("GET", "/pol_2") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
+        ("GET", "/pol_1/activity") => {
+            let query = uri.query().unwrap_or_default();
+            let row = |id: &str, outcome: &str, skip: Value, frozen: u64| {
+                json!({
+                    "listingId": id, "evaluationId": format!("ev_{id}"), "policyId": "pol_1",
+                    "productKey": { "catalogItemId": "ci_1", "productId": "p_1" }, "evaluatedAt": "2026-10-29T08:00:00.000Z",
+                    "trace": { "listingId": id, "ruleIndex": 1, "outcome": outcome, "skipReason": skip,
+                               "anchor": { "source": "market-estimate", "stratum": "market-estimate" }, "exhaustedAnchors": [],
+                               "flags": [], "clamps": { "floor": true }, "targetPriceAmount": "9.80", "currentPriceAmount": "10.00" },
+                    "floorBindingSince": null, "frozenUntil": if frozen > 0 { json!("2026-10-30T08:00:00.000Z") } else { Value::Null },
+                    "affectedListingCount": frozen,
+                })
+            };
+            let mut counts = serde_json::Map::new();
+            for filter in crate::repricing_policy::FILTERS {
+                counts.insert(filter.into(), json!(0));
+            }
+            counts.insert("changed".into(), json!(2));
+            counts.insert("floor-binding".into(), json!(1));
+            counts.insert("budget-exhausted".into(), json!(4));
+            let page = |rows: Vec<Value>, next: Value| Json(json!({ "rows": rows, "next": next, "filterCounts": counts })).into_response();
+            if query.contains("filter=command-error") {
+                refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try later.")
+            } else if query.contains("after=lst_2") {
+                page(vec![row("lst_3", "changed", Value::Null, 0)], Value::Null)
+            } else if query.contains("filter=floor-binding") {
+                page(vec![row("lst_1", "changed", Value::Null, 0)], Value::Null)
+            } else {
+                page(vec![row("lst_1", "changed", Value::Null, 0), row("lst_2", "skipped", json!("budget-exhausted"), 3)], json!("lst_2"))
+            }
+        }
         ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
+        ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
         ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
+    })
+}
+
+/// `pol_1` as Pricing folds it: two rules, the first with conditions, an anchor chain and one
+/// setting the pilot has no words for, the default with a pricing goal.
+fn repricing_policy_stand() -> Value {
+    json!({
+        "policyId": "pol_1", "accountId": "acct_1", "name": "Track", "scope": { "kind": "all-listings" },
+        "excludedListingIds": ["lst_8", "lst_9"], "maxChangesPerDay": 250, "status": "active",
+        "createdAt": "2026-10-20T08:00:00.000Z", "updatedAt": "2026-10-28T08:00:00.000Z",
+        "rules": [
+            { "conditions": [{ "type": "item-grading", "grading": "graded" }, { "type": "quantity-at-least", "quantity": 2 }],
+              "directive": { "currencyCode": "USD",
+                "anchorChain": [{ "source": "lowest-competing-ask" }, { "source": "market-estimate" }],
+                "offset": { "mode": "percent", "percent": -2 }, "floor": { "mode": "absolute", "amount": "4.00" },
+                "ceiling": null, "tolerance": { "mode": "absolute", "amount": "0.25" }, "rounding": { "mode": "charm" },
+                "maxMovePercent": 15, "terminal": { "kind": "a-new-terminal" } } },
+            { "conditions": [],
+              "directive": { "currencyCode": "USD",
+                "anchorChain": [{ "source": "curve-objective", "goalId": "fixed-percentile", "goalVersion": 1, "parameters": { "percentile": 40 } }],
+                "offset": { "mode": "percent", "percent": 5 },
+                "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "3.00" },
+                "ceiling": { "mode": "percent", "percent": 30 }, "tolerance": { "mode": "percent", "percent": 1.5 },
+                "rounding": { "mode": "increment", "incrementAmount": "0.05" }, "maxMovePercent": null,
+                "terminal": { "kind": "pause", "reason": "my own words" } } },
+        ],
     })
 }
 
@@ -9751,6 +9812,132 @@ async fn pause_and_resume_go_back_to_the_list_with_their_receipt_and_a_list_catc
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("That change didn&#39;t go through") || html.contains("That change didn't go through"), "{html}");
     assert!(html.contains("That policy is gone."));
+}
+
+#[tokio::test]
+async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (status, headers, _) = pilot.send(get(page, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fdesk%2Frepricing%2Fpol_1"));
+    let (status, _, _) = pilot.send(get(page, Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no pricing.view");
+
+    let (status, _, html) = pilot.send(get(page, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html).replace("&#39;", "'");
+    for expected in [
+        "Track",
+        "Active",
+        "All listings",
+        "3 of 250 account-wide changes today",
+        "Rule 1",
+        "Graded items \u{b7} Quantity of at least 2",
+        "Lowest manual listing, then Market estimate",
+        "-2% from the anchor",
+        "Skip moves under $0.25",
+        "End prices in .99",
+        "15% of the current price",
+        "A setting this page can't show yet",
+        "Every listing in scope",
+        "Pricing goal: Price at the 40th market percentile",
+        "+5% from the anchor",
+        "Cost basis plus 10%, or $3.00 without a cost basis",
+        "30% above the anchor",
+        "Skip moves under 1.5% of the current price",
+        "Round to the nearest $0.05",
+        "Pause repricing for the listing",
+        "Changed \u{b7} 2",
+        "Floor-binding \u{b7} 1",
+        "$10.00 \u{2192} $9.80",
+        "Frozen \u{b7} 3 listings",
+        "Show more activity",
+    ] {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    assert!(!words.contains("my own words"), "a pause's reason is the seller's own text and is not shown");
+    assert!(html.contains("/account/desk/repricing/pol_1?after=lst_2"), "the next page");
+    assert!(html.contains("/account/desk/repricing/pol_1?filter=floor-binding"), "a filter is an address");
+    assert!(
+        html.contains(r#"value="pause-policy""#)
+            && html.contains(r#"value="delete-policy""#)
+            && html.contains(r#"value="engage-halt""#)
+    );
+    assert!(html.contains(r#"action="/account/desk/repricing/pol_1""#), "every write posts to the page");
+    assert!(html.contains("/account/desk/repricing/pol_1?edit=1"), "Edit opens marketplace's editor");
+    let calls = pricing_calls(&pilot);
+    let read = |path: &str| calls.iter().any(|(m, p, _)| *m == Method::GET && p == path);
+    assert!(
+        read("/api/marketplace/account/repricing-policies/pol_1") && read("/api/marketplace/account/repricing-policies/budget")
+    );
+
+    // The list's policies open this page.
+    let (_, _, list) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert!(list.contains(r#"href="/account/desk/repricing/pol_1""#), "{list}");
+
+    // A filter is sent to Pricing; one the pilot does not know is all; failed activity says so.
+    let (_, _, html) = pilot.send(get(&format!("{page}?filter=floor-binding"), Some("pricer"))).await;
+    assert!(html.contains(r#"data-repricing-activity-filter="floor-binding""#) && !html.contains("lst_2"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{page}?filter=everything"), Some("pricer"))).await;
+    assert!(html.contains(r#"data-repricing-activity-filter="all""#) && html.contains("lst_2"));
+    let (status, _, html) = pilot.send(get(&format!("{page}?filter=command-error"), Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).replace("&#39;", "'").contains("Activity couldn't load") && text(&html).contains("Track"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{page}?after=lst_2"), Some("pricer"))).await;
+    assert!(html.contains("lst_3") && !html.contains("Show more activity"));
+
+    // A reader sees the policy and changes nothing; a policy that is not there is a 404.
+    let (status, _, html) = pilot.send(get(page, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Paused by halt"));
+    assert!(
+        !html.contains("pause-policy")
+            && !html.contains("delete-policy")
+            && !html.contains("engage-halt")
+            && !html.contains("edit=1")
+    );
+    let (status, _, _) = pilot.send(post(page, "price_reader", "intent=pause-policy", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/account/desk/repricing/pol_9", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_the_list() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (status, headers, _) = pilot.send(post(page, "pricer", "intent=pause-policy", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/desk/repricing/pol_1?after_write="), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Track"));
+
+    let (_, headers, _) = pilot.send(post(page, "pricer", "intent=delete-policy", false)).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/desk/repricing?afterWrite="), "{to}");
+    assert!(pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_1/delete")));
+
+    let (_, headers, _) = pilot.send(post(page, "pricer", "intent=engage-halt", false)).await;
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), page, "the halt goes back without a receipt");
+    assert!(pricing_calls(&pilot).iter().any(|(m, p, b)| *m == Method::POST && p.ends_with("/halt") && b.contains("true")));
+
+    // A policy just changed that the read does not have yet: the change is saved, read again.
+    let (_, headers, _) = pilot.send(post("/account/desk/repricing/pol_2", "pricer", "intent=resume-policy", false)).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Your change is saved") && html.contains("data-corten-read-again"), "{html}");
+
+    // A refusal is drawn on the page with Pricing's words; an unknown intent says so.
+    let (status, _, html) = pilot.send(post(page, "pricer", "intent=resume-policy", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let words = text(&html).replace("&#39;", "'");
+    assert!(words.contains("That change didn't go through") && words.contains("That policy is gone."), "{html}");
+    let (status, _, _) = pilot.send(post(page, "pricer", "intent=revise-policy", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

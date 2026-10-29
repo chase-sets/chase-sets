@@ -164,3 +164,21 @@
 .live { display: block; }
 .reconnecting { display: none; }
 .live[status="reconnecting"] .reconnecting { display: block; }
+
+/* A policy's page: its settings and each rule's as name and value pairs, side by side from 40rem;
+   the activity's filters as a row of links that wraps; Pause or Resume as a form in the header's row. */
+.inline { display: contents; }
+.pairs { display: grid; gap: var(--space-2); margin: 0; min-width: 0; }
+.pairs > div { display: grid; gap: var(--space-1); min-width: 0; padding-block: var(--space-2); border-top: 1px solid var(--color-border); }
+.pairs > div:first-child { border-top: 0; padding-block-start: 0; }
+.pairs dt { color: var(--color-text-secondary); font-size: 0.875rem; }
+.pairs dd { margin: 0; overflow-wrap: anywhere; }
+@media (min-width: 40rem) {
+  .pairs > div { grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr); gap: var(--space-3); }
+}
+.rules { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.rules h3 { font-size: 1rem; }
+.table td .hint { display: block; margin-block-start: var(--space-1); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.chip { padding: 0.25rem 0.75rem; font-size: 0.875rem; font-weight: 500; }
+.chip[aria-current="true"] { border-color: var(--color-primary); background: var(--color-primary-soft, var(--color-surface-2)); font-weight: 600; }

@@ -39,6 +39,7 @@ mod payout_setup;
 mod public_listing;
 mod recovery;
 mod repricing;
+mod repricing_policy;
 mod restock;
 mod review;
 mod reviews;

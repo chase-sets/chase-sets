@@ -5831,6 +5831,225 @@ pub struct RepricingCategory {
     pub name: String,
 }
 
+/// A repricing policy as Pricing folds it (`RepricingPolicyState`): what its page shows.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingPolicy {
+    pub name: Option<String>,
+    pub scope: Option<RepricingScope>,
+    #[serde(default)]
+    pub excluded_listing_ids: Vec<String>,
+    #[serde(default)]
+    pub rules: Vec<RepricingRule>,
+    pub max_changes_per_day: Option<u64>,
+    /// `active`, `paused` or `deleted`.
+    pub status: String,
+    pub updated_at: Option<String>,
+}
+
+/// A rule: the conditions a listing must meet, and how it is priced (`RepricingRule`). The first
+/// rule a listing meets prices it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RepricingRule {
+    #[serde(default)]
+    pub conditions: Vec<RepricingCondition>,
+    pub directive: RepricingDirective,
+}
+
+/// A rule's condition (`RepricingRuleCondition`). One Pricing adds later reads as `Other` rather
+/// than failing the page, and the page says it cannot show it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum RepricingCondition {
+    #[serde(rename_all = "camelCase")]
+    Category {
+        category_id: String,
+    },
+    ItemGrading {
+        grading: String,
+    },
+    QuantityAtLeast {
+        quantity: f64,
+    },
+    ListingAgeAtLeast {
+        days: f64,
+    },
+    CostBasisPresent,
+    CostBasisAbsent,
+    CompetingListingCountAtLeast {
+        count: f64,
+    },
+    #[serde(rename_all = "camelCase")]
+    ScheduleWindow {
+        #[serde(default)]
+        days_of_week: Vec<u8>,
+        start_time: String,
+        end_time: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// How a rule prices a listing (`RepricingRuleDirective`). Its amounts are in `currency_code`; a
+/// historical rule without one shows them bare.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingDirective {
+    pub currency_code: Option<String>,
+    #[serde(default)]
+    pub anchor_chain: Vec<RepricingAnchor>,
+    pub offset: RepricingOffset,
+    pub floor: RepricingFloor,
+    pub ceiling: Option<RepricingCeiling>,
+    pub tolerance: RepricingTolerance,
+    pub rounding: RepricingRounding,
+    pub max_move_percent: Option<f64>,
+    pub terminal: RepricingTerminal,
+}
+
+/// Where a rule's price starts (`RepricingAnchor`), tried in the chain's order.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "source", rename_all = "kebab-case")]
+pub enum RepricingAnchor {
+    MarketEstimate,
+    LowestCompetingAsk {
+        /// `any` for a listing of any kind, else manual listings only.
+        strata: Option<String>,
+        band: Option<RepricingBand>,
+    },
+    CompPercentile {
+        percentile: f64,
+    },
+    LastSold,
+    #[serde(rename_all = "camelCase")]
+    CurveObjective {
+        goal_id: String,
+        #[serde(default)]
+        parameters: BTreeMap<String, f64>,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// How far below the market estimate a listing of any kind may anchor.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingBand {
+    pub min_percent_of_ground: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum RepricingOffset {
+    Percent {
+        percent: f64,
+    },
+    Absolute {
+        amount: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum RepricingFloor {
+    Absolute {
+        amount: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    CostBasisPlusMargin {
+        margin_percent: f64,
+        absolute_fallback_amount: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum RepricingCeiling {
+    Absolute {
+        amount: String,
+    },
+    Percent {
+        percent: f64,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum RepricingTolerance {
+    Percent {
+        percent: f64,
+    },
+    Absolute {
+        amount: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum RepricingRounding {
+    None,
+    Charm,
+    #[serde(rename_all = "camelCase")]
+    Increment {
+        increment_amount: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// What a rule does when no anchor in its chain has a price (`RepricingTerminalBehavior`). A
+/// pause's reason is the seller's own text and is not shown.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RepricingTerminal {
+    Hold,
+    Pause,
+    FallbackPrice {
+        amount: String,
+    },
+    PriceAtFloor,
+    NotifyOnly,
+    #[serde(other)]
+    Other,
+}
+
+/// The account's changes today (`RepricingBudget`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingBudget {
+    pub changes_used: u64,
+}
+
+/// A listing's latest evaluation by a policy (`RepricingActivityRow`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepricingActivityRow {
+    pub listing_id: String,
+    pub evaluated_at: String,
+    pub trace: RepricingTrace,
+    pub frozen_until: Option<String>,
+    /// How many of the product's listings the spiral breaker froze.
+    #[serde(default)]
+    pub affected_listing_count: u64,
+}
+
+/// A page of a policy's activity, the cursor of the next, and each filter's count.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RepricingActivityPage {
+    pub rows: Vec<RepricingActivityRow>,
+    pub next: Option<String>,
+    pub filter_counts: BTreeMap<String, u64>,
+}
+
 /// A refused dry run or write: the API's error and the messages its `details` carry
 /// (`pricingValidationMessages`).
 #[derive(Debug)]
@@ -5883,6 +6102,15 @@ pub trait RepricingCalls {
     /// `pause` or `resume` a policy.
     async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
     async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
+    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError>;
+    async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
+    /// A page of the policy's activity under `filter`, after the listing `after`.
+    async fn repricing_activity(
+        &self,
+        id: &str,
+        filter: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<RepricingActivityPage, ApiError>;
 }
 
 impl RepricingCalls for Caller<'_> {
@@ -5947,6 +6175,28 @@ impl RepricingCalls for Caller<'_> {
         let req =
             self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING).json(&serde_json::json!({ "engaged": engaged }));
         Ok(pricing_answer(req).await?.1)
+    }
+
+    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError> {
+        self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await
+    }
+
+    async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {
+        self.read(&format!("{REPRICING}/budget"), PRICING).await
+    }
+
+    async fn repricing_activity(
+        &self,
+        id: &str,
+        filter: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<RepricingActivityPage, ApiError> {
+        let query: Vec<String> = [("filter", filter), ("after", after)]
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| format!("{key}={}", segment(value))))
+            .collect();
+        let query = if query.is_empty() { String::new() } else { format!("?{}", query.join("&")) };
+        self.read(&format!("{REPRICING}/{}/activity{query}", segment(id)), PRICING).await
     }
 }
 

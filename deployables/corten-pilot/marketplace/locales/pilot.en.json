@@ -212,7 +212,9 @@
     "apply": "Apply",
     "refresh": "Refresh to see the result",
     "preview_first": "Preview this policy and let the preview finish before you activate it.",
-    "changed": "Your settings changed since this preview. Preview again to activate them."
+    "changed": "Your settings changed since this preview. Preview again to activate them.",
+    "policy_actions": "Policy actions",
+    "unknown_setting": "A setting this page can't show yet"
   },
   "auth": {
     "sign_in_title": "Sign In | Marketplace",

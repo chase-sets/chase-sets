@@ -173,7 +173,7 @@ pub mod url {
     pub use payout_setup::{PayoutSetup, PayoutSetupSession};
     pub use purchase_reviews::PurchaseReview;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
-    pub use repricing::{Repricing, RepricingDryRunLive};
+    pub use repricing::{Repricing, RepricingDryRunLive, RepricingPolicy};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
@@ -1011,8 +1011,9 @@ pub mod url {
     }
 
     /// The Seller Desk's repricing page (marketplace's `account-desk-repricing`): the policies, the
-    /// halt, the dry runs and the preset editor, its writes, and a dry run's status relayed live
-    /// (see `repricing`). Every handler takes a `PricingManager`.
+    /// halt, the dry runs and the preset editor, its writes, a dry run's status relayed live (see
+    /// `repricing`), and a policy's page (`account-desk-repricing-policy`). Every handler takes a
+    /// `PricingManager`.
     #[corten::routes(state = crate::app::Shared, area = Repricing, caller = crate::auth::PricingManager)]
     pub mod repricing {
         /// The page, and the editor when the address opens it; every write posts to it.
@@ -1021,6 +1022,18 @@ pub mod url {
         pub struct Repricing {
             #[route(query)]
             pub place: crate::repricing::Place,
+        }
+
+        /// A policy's page, and its writes (see `repricing_policy`).
+        #[route(
+            "/account/desk/repricing/{id}",
+            get = crate::repricing_policy::page,
+            post = crate::repricing_policy::write
+        )]
+        pub struct RepricingPolicy<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::repricing_policy::Place,
         }
 
         /// A dry run's part, drawn again on each status its stream sends, for the editor at `place`.

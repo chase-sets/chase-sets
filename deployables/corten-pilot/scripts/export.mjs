@@ -130,7 +130,8 @@
 //   resolution words as resolution.*, and support.routes.marketplace.accountSupport.* as list_route.*.
 // - marketplace/locales/repricing.en.json: the Seller Desk repricing page's English catalog
 //   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
-//   editor.* and activity.*, the route's words as route.*, and the two links' labels).
+//   editor.* and activity.*, a policy's page's .policyDetail.*, .policyBody.* and .goal.* as detail.*,
+//   body.* and goal.*, the route's words as route.*, and the two links' labels).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -1031,6 +1032,9 @@ const outputs = [
         ["pricing.features.repricingPolicies.ui.policyList.", "list"],
         ["pricing.features.repricingPolicies.ui.editor.", "editor"],
         ["pricing.features.repricingPolicies.ui.activity.", "activity"],
+        ["pricing.features.repricingPolicies.ui.policyDetail.", "detail"],
+        ["pricing.features.repricingPolicies.ui.policyBody.", "body"],
+        ["pricing.features.repricingPolicies.ui.goal.", "goal"],
         ["pricing.routes.marketplace.accountDeskRepricing.", "route"],
         ["pricing.features.pricingHealth.title", "pricing_health"],
         ["pricing.features.recommendations.ui.recommendationListPage.recommendations", "recommendations"],

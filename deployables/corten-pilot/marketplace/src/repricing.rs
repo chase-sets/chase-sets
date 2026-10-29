@@ -21,8 +21,9 @@
 //! the form applies a choice as it changes (search's pattern); a text field waits for Apply or
 //! Enter.
 //!
-//! Not ported: the structured and advanced rule editors (Open up this preset), a policy's own page
-//! and its activity (marketplace's, which a policy's name opens), and revising a policy.
+//! A policy's own page and its activity are `repricing_policy`, which a policy's name opens.
+//!
+//! Not ported: the structured and advanced rule editors (Open up this preset) and revising a policy.
 use std::time::Duration;
 
 use corten::{
@@ -488,7 +489,7 @@ fn ended(error: &ApiError) -> bool {
 /// What Pricing refused a write for, to draw where it was posted: its validation details, else
 /// its message, else `fallback`. A refusal of the page itself is the answer instead: signed out
 /// goes to sign in, and Pricing failing is a 502.
-fn messages(req: &Req, refusal: PricingRefusal, fallback: &str) -> Result<Vec<String>, Box<HtmlResult>> {
+pub(crate) fn messages(req: &Req, refusal: PricingRefusal, fallback: &str) -> Result<Vec<String>, Box<HtmlResult>> {
     match refusal.error.status() {
         Some(StatusCode::UNAUTHORIZED) => Err(Box::new(sign_in(req))),
         Some(status) if status.is_client_error() => Ok(if refusal.details.is_empty() {

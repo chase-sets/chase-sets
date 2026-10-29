@@ -15,9 +15,14 @@ use corten::{
 };
 
 use crate::{
-    api::{RepricingDryRun, RepricingPolicyRow, RepricingScope, RepricingTrace, segment},
+    api::{
+        RepricingActivityRow, RepricingAnchor, RepricingCeiling, RepricingCondition, RepricingDryRun, RepricingFloor,
+        RepricingHalt, RepricingOffset, RepricingPolicyRow, RepricingRounding, RepricingRule, RepricingScope, RepricingTerminal,
+        RepricingTolerance, RepricingTrace, segment,
+    },
     app::url,
     repricing::{DryRunView, EditorPart, EditorScreen, Floor, Place, Policies, Preset, RepricingScreen, Traces, WriteForm},
+    repricing_policy::{ALWAYS_COUNTED, FILTERS, Place as PolicyPlace, PolicyForm, PolicyScreen},
     text::{Pilot, RepricingMsg},
 };
 
@@ -32,6 +37,9 @@ pub struct DryRunPartId;
 /// The halt's confirmation.
 #[derive(Id, Clone, Copy)]
 pub struct HaltDialogId;
+/// A policy's Delete confirmation.
+#[derive(Id, Clone, Copy)]
+pub struct DeleteDialogId;
 
 /// No arguments, for a message found by its key that takes none.
 const NONE: [(&str, &str); 0] = [];
@@ -83,9 +91,9 @@ fn scope(t: RepricingMsg, scope: Option<&RepricingScope>) -> String {
 }
 
 /// The day's changes against the cap (`repricingBudgetLabel`).
-fn budget(t: RepricingMsg, policy: &RepricingPolicyRow) -> String {
-    let used = count(t, policy.changes_used_today);
-    match policy.max_changes_per_day {
+fn budget(t: RepricingMsg, used: u64, cap: Option<u64>) -> String {
+    let used = count(t, used);
+    match cap {
         Some(cap) => t.shared_budget_capped(&used, &count(t, cap)).to_string(),
         None => t.shared_budget_uncapped(&used).to_string(),
     }
@@ -100,9 +108,9 @@ fn dry_run_status(t: RepricingMsg, status: &str) -> (&'static str, &'static str)
     }
 }
 
-/// A policy's own page, marketplace's (not ported).
+/// A policy's own page.
 fn policy_href(id: &str) -> String {
-    super::on_marketplace(&format!("/account/desk/repricing/{}", segment(id)))
+    url::RepricingPolicy { id, place: PolicyPlace::default() }.href()
 }
 
 /// A sample's result: its skip reason when it skipped, else its outcome (`repricingResultCopyKey`).
@@ -193,7 +201,14 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
                 }
             </div>
         }
-        <HaltPart t={t} screen={screen} />
+        <HaltPart
+            t={t}
+            halt={&screen.halt}
+            failed={screen.halt_failed}
+            manage={screen.manage}
+            action={url::Repricing::default().href()}
+            intent={WriteForm::FIELDS.intent}
+        />
         if let Some(editor) = &screen.editor {
             <EditorSection t={t} p={p} part={editor} />
         }
@@ -203,9 +218,16 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
 }
 
 /// The halt: a warning while engaged, and its switch, which asks first (`RepricingHaltControl`).
+/// Its confirmation posts `intent` to `action`. A halt that could not be read has its switch off.
 #[component(css = RepricingPage)]
-fn HaltPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
-    let halt = &screen.halt;
+fn HaltPart<'a>(
+    t: RepricingMsg,
+    halt: &'a RepricingHalt,
+    failed: bool,
+    manage: bool,
+    action: String,
+    intent: FieldName,
+) -> impl Render {
     let engaged = halt.engaged;
     let since = halt.engaged_at.as_deref().map(|at| when(t, at)).unwrap_or_default();
     let (title, description) = if engaged {
@@ -213,12 +235,11 @@ fn HaltPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
     } else {
         (t.shared_halt_released_title().to_owned(), t.shared_halt_released_description().to_owned())
     };
-    let (ask, asked, confirm, intent) = if engaged {
+    let (ask, asked, confirm, value) = if engaged {
         (t.shared_halt_release_title(), t.shared_halt_release_description(), t.shared_halt_release_confirm(), "release-halt")
     } else {
         (t.shared_halt_engage_title(), t.shared_halt_engage_description(), t.shared_halt_engage_confirm(), "engage-halt")
     };
-    let f = WriteForm::FIELDS;
     html! {
         <section
             class={(Banner, Halt)}
@@ -230,13 +251,13 @@ fn HaltPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
                 <h2 id="repricing-halt-title" class={PartTitle}>{&title}</h2>
                 <p>{&description}</p>
             </div>
-            if screen.manage {
+            if manage {
                 <button
                     type="button"
                     class={(Button, Secondary)}
                     role="switch"
                     aria-checked={if engaged { "true" } else { "false" }}
-                    disabled={screen.halt_failed}
+                    disabled={failed}
                     command="show-modal"
                     commandfor={HaltDialogId}
                 >
@@ -250,11 +271,11 @@ fn HaltPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render {
                 >
                     <h2 id="repricing-halt-ask" class={PartTitle}>{ask}</h2>
                     <p id="repricing-halt-asked" class={Muted}>{asked}</p>
-                    <form class={Actions} method="post" action={url::Repricing::default()}>
+                    <form class={Actions} method="post" action={&action}>
                         <button type="button" class={(Button, Secondary)} command="close" commandfor={HaltDialogId}>
                             {t.shared_cancel()}
                         </button>
-                        <button type="submit" class={(Button, Caution)} name={f.intent} value={intent}>{confirm}</button>
+                        <button type="submit" class={(Button, Caution)} name={intent} value={value}>{confirm}</button>
                     </form>
                 </dialog>
             }
@@ -344,7 +365,7 @@ fn PolicyRow<'a>(
             <th scope="row" data-label={t.list_column_name()}><a href={&policy_href(id)}>{name}</a></th>
             <td data-label={t.list_column_status()}><span class={Badge} data-tone={tone}>{label}</span></td>
             <td data-label={t.list_column_scope()}>{scope(t, policy.scope.as_ref())}</td>
-            <td data-label={t.list_column_budget()}>{budget(t, policy)}</td>
+            <td data-label={t.list_column_budget()}>{budget(t, policy.changes_used_today, policy.max_changes_per_day)}</td>
             if manage {
                 <td class={Act}>
                     if let Some((value, words)) = change {
@@ -875,6 +896,431 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                     <p class={Reconnecting}>{t.editor_preview_reconnecting()}</p>
                     <noscript><p><a href={&again}>{p.repricing_refresh()}</a></p></noscript>
                 </div>
+            }
+        </section>
+    }
+}
+
+/// A number as marketplace writes it into a message: a whole number without a fraction.
+fn num(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { n.to_string() }
+}
+
+/// A rule's condition in words (`conditionLabel`).
+fn condition(t: RepricingMsg, p: Pilot, condition: &RepricingCondition) -> String {
+    match condition {
+        RepricingCondition::Category { category_id } => t.body_condition_category(category_id).to_string(),
+        RepricingCondition::ItemGrading { grading } if grading == "graded" => t.body_condition_graded().to_owned(),
+        RepricingCondition::ItemGrading { .. } => t.body_condition_raw().to_owned(),
+        RepricingCondition::QuantityAtLeast { quantity } => t.body_condition_quantity_at_least(&num(*quantity)).to_string(),
+        RepricingCondition::ListingAgeAtLeast { days } => t.body_condition_listing_age_at_least(&num(*days)).to_string(),
+        RepricingCondition::CostBasisPresent => t.body_condition_cost_basis_present().to_owned(),
+        RepricingCondition::CostBasisAbsent => t.body_condition_cost_basis_absent().to_owned(),
+        RepricingCondition::CompetingListingCountAtLeast { count } => {
+            t.body_condition_competing_listing_count_at_least(&num(*count)).to_string()
+        }
+        RepricingCondition::ScheduleWindow { days_of_week, start_time, end_time } => {
+            t.body_condition_schedule_window(start_time, end_time, &days_of_week.len().to_string()).to_string()
+        }
+        RepricingCondition::Other => p.repricing_unknown_setting().to_owned(),
+    }
+}
+
+/// A pricing goal in words (`repricingGoalLabel`); one the pilot does not know is its id.
+fn goal(t: RepricingMsg, id: &str, parameters: &std::collections::BTreeMap<String, f64>) -> String {
+    let at = |key: &str| parameters.get(key).map(|n| num(*n)).unwrap_or_default();
+    match id {
+        "fixed-percentile" => t.goal_fixed_percentile(&at("percentile")).to_string(),
+        "target-horizon" => t.goal_target_horizon(&at("horizonDays")).to_string(),
+        "profit-per-day" => t.goal_profit_per_day().to_owned(),
+        "hold-value" => t.goal_hold_value().to_owned(),
+        "cash-target" => t.goal_cash_target(&at("amount"), &at("days")).to_string(),
+        other => other.to_owned(),
+    }
+}
+
+/// An anchor in words (`anchorLabel`).
+fn anchor_words(t: RepricingMsg, p: Pilot, anchor: &RepricingAnchor) -> String {
+    match anchor {
+        RepricingAnchor::MarketEstimate => t.body_anchor_market_estimate().to_owned(),
+        RepricingAnchor::LowestCompetingAsk { strata: Some(strata), band } if strata == "any" => {
+            let percent = band.as_ref().map(|band| num(band.min_percent_of_ground)).unwrap_or_default();
+            t.body_anchor_lowest_any_listing(&percent).to_string()
+        }
+        RepricingAnchor::LowestCompetingAsk { .. } => t.body_anchor_lowest_manual_listing().to_owned(),
+        RepricingAnchor::CompPercentile { percentile } => t.body_anchor_comp_percentile(&num(*percentile)).to_string(),
+        RepricingAnchor::LastSold => t.body_anchor_last_sold().to_owned(),
+        RepricingAnchor::CurveObjective { goal_id, parameters } => {
+            t.body_anchor_curve_objective(&goal(t, goal_id, parameters)).to_string()
+        }
+        RepricingAnchor::Other => p.repricing_unknown_setting().to_owned(),
+    }
+}
+
+/// The anchor chain: each anchor, then the next (`anchorChainLabel`).
+fn anchor_chain(t: RepricingMsg, p: Pilot, chain: &[RepricingAnchor]) -> String {
+    let mut words = chain.iter().rev().map(|anchor| anchor_words(t, p, anchor));
+    let Some(last) = words.next() else {
+        return t.activity_anchor_none().to_owned();
+    };
+    words.fold(last, |rest, first| t.body_anchor_then(&first, &rest).to_string())
+}
+
+/// A rule's summary (`summarizeRepricingRule`): each setting's name and words.
+fn rule_summary(t: RepricingMsg, p: Pilot, rule: &RepricingRule) -> Vec<(&'static str, String)> {
+    let d = &rule.directive;
+    let cur = d.currency_code.as_deref();
+    let unknown = || p.repricing_unknown_setting().to_owned();
+    let when = if rule.conditions.is_empty() {
+        t.body_condition_none().to_owned()
+    } else {
+        rule.conditions.iter().map(|c| condition(t, p, c)).collect::<Vec<_>>().join(" \u{b7} ")
+    };
+    let offset = match &d.offset {
+        RepricingOffset::Percent { percent } => {
+            let signed = if *percent > 0.0 { format!("+{}", num(*percent)) } else { num(*percent) };
+            t.body_offset_percent(&signed).to_string()
+        }
+        RepricingOffset::Absolute { amount } => t.body_offset_absolute(&money(t, amount, cur)).to_string(),
+        RepricingOffset::Other => unknown(),
+    };
+    let floor = match &d.floor {
+        RepricingFloor::Absolute { amount } => money(t, amount, cur),
+        RepricingFloor::CostBasisPlusMargin { margin_percent, absolute_fallback_amount } => {
+            t.body_floor_cost_basis_plus_margin(&num(*margin_percent), &money(t, absolute_fallback_amount, cur)).to_string()
+        }
+        RepricingFloor::Other => unknown(),
+    };
+    let ceiling = match &d.ceiling {
+        None => t.body_ceiling_none().to_owned(),
+        Some(RepricingCeiling::Absolute { amount }) => money(t, amount, cur),
+        Some(RepricingCeiling::Percent { percent }) => t.body_ceiling_percent(&num(*percent)).to_string(),
+        Some(RepricingCeiling::Other) => unknown(),
+    };
+    let tolerance = match &d.tolerance {
+        RepricingTolerance::Percent { percent } => t.body_tolerance_percent(&num(*percent)).to_string(),
+        RepricingTolerance::Absolute { amount } => t.body_tolerance_absolute(&money(t, amount, cur)).to_string(),
+        RepricingTolerance::Other => unknown(),
+    };
+    let rounding = match &d.rounding {
+        RepricingRounding::None => t.body_rounding_none().to_owned(),
+        RepricingRounding::Charm => t.body_rounding_charm().to_owned(),
+        RepricingRounding::Increment { increment_amount } => {
+            t.body_rounding_increment(&money(t, increment_amount, cur)).to_string()
+        }
+        RepricingRounding::Other => unknown(),
+    };
+    let max_move = match d.max_move_percent {
+        None => t.body_max_move_none().to_owned(),
+        Some(percent) => t.body_max_move_percent(&num(percent)).to_string(),
+    };
+    let terminal = match &d.terminal {
+        RepricingTerminal::Hold => t.body_terminal_hold().to_owned(),
+        RepricingTerminal::Pause => t.body_terminal_pause().to_owned(),
+        RepricingTerminal::FallbackPrice { amount } => t.body_terminal_fallback_price(&money(t, amount, cur)).to_string(),
+        RepricingTerminal::PriceAtFloor => t.body_terminal_price_at_floor().to_owned(),
+        RepricingTerminal::NotifyOnly => t.body_terminal_notify_only().to_owned(),
+        RepricingTerminal::Other => unknown(),
+    };
+    vec![
+        (t.body_rule_when(), when),
+        (t.body_rule_anchor(), anchor_chain(t, p, &d.anchor_chain)),
+        (t.body_rule_offset(), offset),
+        (t.body_rule_floor(), floor),
+        (t.body_rule_ceiling(), ceiling),
+        (t.body_rule_tolerance(), tolerance),
+        (t.body_rule_rounding(), rounding),
+        (t.body_rule_max_move(), max_move),
+        (t.body_rule_terminal(), terminal),
+    ]
+}
+
+/// A filter's name: a skip reason's words, or the filter's own (`repricingActivityFilterCopyKeys`).
+fn filter_name(t: RepricingMsg, filter: &str) -> String {
+    let own = matches!(filter, "changed" | "paused-for-missing-input" | "floor-binding" | "spiral-breaker");
+    let group = if own { "activity.filter_name" } else { "activity.skip" };
+    keyed(t, &format!("{group}.{}", filter.replace('-', "_")))
+}
+
+/// A sample's outcome tone (`outcomeTone`).
+fn outcome_tone(outcome: &str) -> &'static str {
+    match outcome {
+        "changed" => "success",
+        "pause-requested" => "warning",
+        "notify-only" => "info",
+        _ => "neutral",
+    }
+}
+
+/// The current price, and the target when it moves (`priceLabel`).
+fn price(t: RepricingMsg, trace: &RepricingTrace, currency: Option<&str>) -> String {
+    let current = money(t, &trace.current_price_amount, currency);
+    match trace.target_price_amount.as_deref() {
+        Some(target) if target != trace.current_price_amount => {
+            t.activity_price_change(&current, &money(t, target, currency)).to_string()
+        }
+        _ => current,
+    }
+}
+
+/// Shown instead of a policy while a change just saved is still reaching it
+/// (`PricingRepricingPolicyCatchingUpPage`); the page reads itself again in 2 s.
+#[component(css = RepricingPage)]
+pub fn RepricingPolicyCatchingUp(t: RepricingMsg, refresh: String) -> impl Render {
+    html! {
+        <header class={Header}>
+            <p class={Eyebrow}>{t.detail_eyebrow()}</p>
+            <h1 class={Title}>{t.shared_catching_up_title()}</h1>
+            <nav class={Row}>
+                <a class={(Button, Secondary)} href={url::Repricing::default()}>{t.detail_back()}</a>
+            </nav>
+        </header>
+        <div class={Banner} data-tone="info" role="status" data-repricing-catching-up="true">
+            <p class={Strong}>{t.shared_catching_up_title()}</p>
+            <p>{t.detail_catching_up_description()}</p>
+            <p><a href={&refresh}>{t.shared_catching_up_refresh()}</a></p>
+        </div>
+    }
+}
+
+/// A policy's page (`PricingRepricingPolicyDetailPage`): the header with its actions, what a write
+/// was refused for, the halt, the settings, the rules and the activity. Every action is a form;
+/// Delete and the halt ask first in a dialog. Edit opens marketplace's editor (not ported).
+#[component(css = RepricingPage)]
+pub fn RepricingPolicyPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a PolicyScreen) -> impl Render {
+    let policy = &screen.policy;
+    let (label, tone) = status(t, &policy.status, screen.halt.engaged);
+    let name = policy.name.as_deref().unwrap_or(t.list_unnamed());
+    let here = policy_href(&screen.id);
+    let edit = super::on_marketplace(&format!("/account/desk/repricing/{}?edit=1", segment(&screen.id)));
+    let deletable = policy.status != "deleted";
+    let change = match policy.status.as_str() {
+        "active" => Some(("pause-policy", t.shared_pause())),
+        "paused" => Some(("resume-policy", t.shared_resume())),
+        _ => None,
+    };
+    let f = PolicyForm::FIELDS;
+    let cap = policy.max_changes_per_day.map_or_else(|| t.detail_field_cap_none().to_owned(), |cap| count(t, cap));
+    let updated = policy.updated_at.as_deref().map(|at| when(t, at)).unwrap_or_default();
+    let settings = [
+        (t.detail_field_status(), label.to_owned()),
+        (t.detail_field_scope(), scope(t, policy.scope.as_ref())),
+        (t.detail_field_exclusions(), count(t, policy.excluded_listing_ids.len() as u64)),
+        (t.detail_field_cap(), cap),
+        (t.detail_field_budget(), budget(t, screen.changes_used_today, policy.max_changes_per_day)),
+        (t.detail_field_updated(), updated),
+    ];
+    html! {
+        <header class={Header}>
+            <p class={Eyebrow}>{t.detail_eyebrow()}</p>
+            <h1 class={Title}>{name}</h1>
+            <p><span class={Badge} data-tone={tone} data-repricing-policy-status={&policy.status}>{label}</span></p>
+            <nav class={Row} aria-label={p.repricing_policy_actions()}>
+                <a class={(Button, Secondary)} href={url::Repricing::default()}>{t.detail_back()}</a>
+                if screen.manage && deletable {
+                    <a class={(Button, Secondary)} href={&edit}>{t.editor_revise()}</a>
+                    if let Some((value, words)) = change {
+                        <form class={Inline} method="post" action={&here}>
+                            <button type="submit" class={(Button, Secondary)} name={f.intent} value={value}>{words}</button>
+                        </form>
+                    }
+                    <button type="button" class={(Button, Caution)} command="show-modal" commandfor={DeleteDialogId}>
+                        {t.detail_delete()}
+                    </button>
+                }
+            </nav>
+            if screen.manage && deletable {
+                <dialog
+                    id={DeleteDialogId}
+                    class={Dialog}
+                    aria-labelledby="repricing-delete-ask"
+                    aria-describedby="repricing-delete-asked"
+                >
+                    <h2 id="repricing-delete-ask" class={PartTitle}>{t.detail_delete_title()}</h2>
+                    <p id="repricing-delete-asked" class={Muted}>{t.detail_delete_description()}</p>
+                    <form class={Actions} method="post" action={&here}>
+                        <button type="button" class={(Button, Secondary)} command="close" commandfor={DeleteDialogId}>
+                            {t.shared_cancel()}
+                        </button>
+                        <button type="submit" class={(Button, Caution)} name={f.intent} value="delete-policy">
+                            {t.detail_delete_confirm()}
+                        </button>
+                    </form>
+                </dialog>
+            }
+        </header>
+        if let Some(details) = &screen.refusal {
+            <div class={Banner} data-tone="danger" role="alert">
+                <p class={Strong}>{t.shared_action_error_title()}</p>
+                <ul class={Plain}>
+                    for detail in details {
+                        <li>{detail}</li>
+                    }
+                </ul>
+            </div>
+        }
+        <HaltPart
+            t={t}
+            halt={&screen.halt}
+            failed={screen.halt_failed}
+            manage={screen.manage}
+            action={here.clone()}
+            intent={f.intent}
+        />
+        <section class={Section} aria-labelledby="repricing-settings-title">
+            <div class={Tight}>
+                <h2 id="repricing-settings-title" class={PartTitle}>{t.detail_settings_title()}</h2>
+                <p class={Muted}>{t.detail_settings_description()}</p>
+            </div>
+            <dl class={Pairs} data-repricing-policy-settings="true">
+                for (key, value) in &settings {
+                    <div>
+                        <dt>{*key}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                }
+            </dl>
+        </section>
+        <section class={Section} aria-labelledby="repricing-rules-title">
+            <div class={Tight}>
+                <h2 id="repricing-rules-title" class={PartTitle}>{t.detail_rules_title()}</h2>
+                <p class={Muted}>{t.detail_rules_description()}</p>
+            </div>
+            <ol class={Rules} data-repricing-policy-rules="true">
+                for (index, rule) in policy.rules.iter().enumerate() {
+                    <li class={Card}>
+                        <h3 class={Strong}>{t.body_rule(&(index + 1).to_string())}</h3>
+                        <dl class={Pairs}>
+                            for (key, value) in rule_summary(t, p, rule) {
+                                <div>
+                                    <dt>{key}</dt>
+                                    <dd>{&value}</dd>
+                                </div>
+                            }
+                        </dl>
+                    </li>
+                }
+            </ol>
+        </section>
+        <ActivityPart t={t} screen={screen} />
+    }
+}
+
+/// The policy's activity (`PricingRepricingActivityPanel`): the three counts always shown, a link
+/// per filter with its count, the rows, and Show more activity. Each is an address, so it works
+/// without a script.
+#[component(css = RepricingPage)]
+fn ActivityPart<'a>(t: RepricingMsg, screen: &'a PolicyScreen) -> impl Render {
+    let at = |filter: Option<&str>, after: Option<&str>| {
+        url::RepricingPolicy {
+            id: &screen.id,
+            place: PolicyPlace { filter: filter.map(str::to_owned), after: after.map(str::to_owned), ..PolicyPlace::default() },
+        }
+        .href()
+    };
+    let counts = screen.activity.as_ref().map(|page| &page.filter_counts);
+    let rows: &[RepricingActivityRow] = screen.activity.as_ref().map_or(&[], |page| &page.rows);
+    let next = screen.activity.as_ref().and_then(|page| page.next.as_deref());
+    let currency = |rule: usize| screen.policy.rules.get(rule).and_then(|r| r.directive.currency_code.as_deref());
+    let counted = |filter: &str| count(t, counts.and_then(|counts| counts.get(filter)).copied().unwrap_or_default());
+    let stats: Vec<(String, String)> = ALWAYS_COUNTED.iter().map(|f| (filter_name(t, f), counted(f))).collect();
+    let chips: Vec<(String, String, bool)> = FILTERS
+        .iter()
+        .map(|f| {
+            (at(Some(f), None), t.activity_filter_label(&filter_name(t, f), &counted(f)).to_string(), screen.filter == Some(*f))
+        })
+        .collect();
+    let shown = counts.is_some();
+    html! {
+        <section
+            class={Section}
+            aria-labelledby="repricing-activity-title"
+            data-repricing-activity-filter={screen.filter.unwrap_or("all")}
+        >
+            <div class={Tight}>
+                <h2 id="repricing-activity-title" class={PartTitle}>{t.activity_title()}</h2>
+                <p class={Muted}>{t.activity_description()}</p>
+            </div>
+            if shown {
+                <dl class={Stats} data-repricing-activity-counts="true">
+                    for (name, value) in &stats {
+                        <div class={Stat}>
+                            <dt>{name}</dt>
+                            <dd>{value}</dd>
+                        </div>
+                    }
+                </dl>
+                <nav class={Chips} aria-label={t.activity_filters_label()}>
+                    <a
+                        class={(Button, Secondary, Chip)}
+                        href={&at(None, None)}
+                        aria-current={screen.filter.is_none().then_some("true")}
+                    >
+                        {t.activity_filter_all()}
+                    </a>
+                    for (href, label, current) in &chips {
+                        <a class={(Button, Secondary, Chip)} href={href} aria-current={current.then_some("true")}>
+                            {label}
+                        </a>
+                    }
+                </nav>
+            }
+            if screen.activity.is_none() {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.activity_error_title()}</p>
+                    <p>{t.activity_error_description()}</p>
+                </div>
+            } else if rows.is_empty() {
+                <div class={(Card, Empty)} data-repricing-activity-empty="true">
+                    <p class={Strong}>{t.activity_empty_title()}</p>
+                    <p class={Muted}>{t.activity_empty_description()}</p>
+                </div>
+            } else {
+                <table class={Table} data-repricing-activity="true">
+                    <caption class={Hidden}>{t.activity_caption()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.activity_column_listing()}</th>
+                            <th scope="col">{t.activity_column_result()}</th>
+                            <th scope="col">{t.activity_column_anchor()}</th>
+                            <th scope="col" class={Number}>{t.activity_column_price()}</th>
+                            <th scope="col">{t.activity_column_clamps()}</th>
+                            <th scope="col">{t.activity_column_evaluated()}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for row in rows {
+                            <tr data-repricing-activity-row={&row.listing_id}>
+                                <th scope="row" class={Code} data-label={t.activity_column_listing()}>{&row.listing_id}</th>
+                                <td data-label={t.activity_column_result()}>
+                                    <span class={Badge} data-tone={outcome_tone(&row.trace.outcome)}>
+                                        {result(t, &row.trace)}
+                                    </span>
+                                    if row.affected_listing_count > 0 {
+                                        " "
+                                        <span class={Badge} data-tone="warning">
+                                            {t.activity_frozen(&count(t, row.affected_listing_count))}
+                                        </span>
+                                        if let Some(until) = &row.frozen_until {
+                                            <span class={Hint}>{t.activity_frozen_until(&when(t, until))}</span>
+                                        }
+                                    }
+                                </td>
+                                <td data-label={t.activity_column_anchor()}>{anchor(t, &row.trace)}</td>
+                                <td class={Number} data-label={t.activity_column_price()}>
+                                    {price(t, &row.trace, currency(row.trace.rule_index))}
+                                </td>
+                                <td data-label={t.activity_column_clamps()}>{clamps(t, &row.trace)}</td>
+                                <td data-label={t.activity_column_evaluated()}>{when(t, &row.evaluated_at)}</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            if let Some(next) = next.filter(|_| screen.activity.is_some()) {
+                <p class={Row}>
+                    <a class={(Button, Secondary)} href={&at(screen.filter, Some(next))}>{t.activity_more()}</a>
+                </p>
             }
         </section>
     }
