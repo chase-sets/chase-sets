@@ -63,7 +63,8 @@
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
 //   the packing page's .shipmentPackingPage.* as packing.* and .accountSaleShipmentPacking.* as
-//   pack_route.*).
+//   pack_route.*, and the packing slips' .packingSlipPage.* as slip.* and
+//   .accountSaleShipmentPackingSlips.* as slips_route.*).
 // - marketplace/locales/addresses.en.json: the shipping addresses page's English catalog
 //   (identity.features.shippingAddresses.ui.shippingAddressPage.* and .errors.*, Identity's account-management
 //   states and address choice, identity.accountManagement.*, the route's words,
@@ -745,6 +746,8 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
         ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
         ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
+        ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
+        ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
       ]),
     ),
   ],

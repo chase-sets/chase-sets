@@ -5712,6 +5712,9 @@ fn fulfillment(method: &Method, uri: &Uri) -> Option<Response> {
         let items = [shipment("shp_done", "delivered", Some("1ZDONE")), shipment("SHP-TEE49CFY", "awaiting-package", None)];
         return Some(Json(json!({ "items": items, "total": 2, "count": 2 })).into_response());
     }
+    if seller && rest == "/packing-slips" {
+        return Some(packing_slips(uri));
+    }
     let mut detail = match rest.strip_prefix('/')? {
         "shp_gone" => return Some(refusal(StatusCode::NOT_FOUND, "shipment_not_found", "Shipment not found.")),
         "shp_down" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
@@ -5747,6 +5750,37 @@ fn fulfillment(method: &Method, uri: &Uri) -> Option<Response> {
     Some(Json(detail).into_response())
 }
 
+/// The stand-in's packing slips (`listSellerPackingSlips`): a slip per id `shipmentIds` names,
+/// `shp_done` with where it goes and where from, `shp_down` failing the batch and `shp_gone`
+/// left out, as the API leaves out a shipment that is not the seller's.
+fn packing_slips(uri: &Uri) -> Response {
+    let sent = uri.query().and_then(|q| q.strip_prefix("shipmentIds=")).unwrap_or_default();
+    let sent = percent_encoding::percent_decode_str(sent).decode_utf8_lossy().into_owned();
+    let ids: Vec<&str> = sent.split(',').filter(|id| !id.is_empty()).collect();
+    if ids.contains(&"shp_down") {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    let items: Vec<Value> = ids
+        .iter()
+        .filter(|id| **id != "shp_gone")
+        .map(|id| {
+            let mut slip = shipment(id, "awaiting-package", None);
+            if *id == "shp_done" {
+                slip["shipping_destination_snapshot"] = json!({
+                    "name": "Collector Zero", "company": null, "line1": "1 Main St", "line2": "Apt 4",
+                    "city": "Chicago", "state": "IL", "postalCode": "60601", "country": "US",
+                });
+                slip["shipping_origin_snapshot"] = json!({
+                    "name": "Chase Sets", "company": "Chase Sets LLC", "line1": "9 Dock Rd", "line2": null,
+                    "city": "Austin", "state": "TX", "postalCode": "78701", "country": "US",
+                });
+            }
+            slip
+        })
+        .collect();
+    Json(json!({ "count": items.len(), "items": items })).into_response()
+}
+
 /// The calls the pilot made to Fulfillment.
 fn shipment_calls(pilot: &Pilot) -> Vec<Call> {
     let calls = pilot.stand.calls.lock().unwrap();
@@ -5759,11 +5793,86 @@ async fn the_shipments_sign_in_and_need_fulfillment_view() {
     let (status, headers, _) = pilot.send(get("/account/shipments/shp_done", None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/sign-in?returnTo=%2Faccount%2Fshipments%2Fshp_done");
-    for page in ["/account/shipments", "/account/sales/shipments/shp_done"] {
+    for page in
+        ["/account/shipments", "/account/sales/shipments/shp_done", "/account/sales/shipments/packing-slips?shipmentIds=shp_done"]
+    {
         let (status, _, _) = pilot.send(get(page, Some("seller"))).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{page}: an account without fulfillment.view");
     }
     assert!(shipment_calls(&pilot).is_empty(), "nothing is read for who may not see it");
+}
+
+#[tokio::test]
+async fn the_packing_slips_print_each_shipment_named_once_in_the_format_chosen() {
+    let pilot = Pilot::new().await;
+    let page = "/account/sales/shipments/packing-slips?shipmentIds=shp_done,%20shp_two&shipmentIds=shp_done&shipmentIds=&shipmentIds=shp_gone&format=thermal-4x6";
+    let (status, _, html) = pilot.send(get(page, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let paths: Vec<_> = shipment_calls(&pilot).into_iter().map(|c| c.path).collect();
+    assert_eq!(
+        paths,
+        [format!("{SELLER_SHIPMENTS}/packing-slips?shipmentIds=shp_done%2Cshp_two%2Cshp_gone")],
+        "every value split at commas, trimmed, each id once, in one read"
+    );
+    let shown = text(&html);
+    assert!(
+        shown.contains("Seller Packing slips 2 packing slips ready to print. Format Letter Thermal 4x6 Change format Print"),
+        "{shown}"
+    );
+    assert!(shown.contains("Packing slip Order: ORD-D116ACF7 Shipment shp_done"), "{shown}");
+    assert!(
+        shown.contains("Ship to Collector Zero 1 Main St Apt 4 Chicago, IL 60601 US Ship from Chase Sets Chase Sets LLC 9 Dock Rd Austin, TX 78701 US"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("Items Item Product Qty Twilight Masquerade Elite Trainer Box Sealed Elite Trainer Box Standard Qty: 1 Charizard Raw / Near Mint Qty: 1"),
+        "{shown}"
+    );
+    assert!(shown.contains("Packing slips do not include prices or payment details."), "{shown}");
+    // A slip without its addresses has no Ship from, and its Ship to is empty, as marketplace's.
+    assert_eq!(shown.matches("Ship from").count(), 1, "{shown}");
+    assert_eq!(html.matches("data-packing-slip-page").count(), 2, "{html}");
+    assert!(html.contains(r#"data-format="thermal-4x6""#), "{html}");
+    assert!(html.contains(r#"<option value="thermal-4x6" selected>"#), "{html}");
+    assert!(
+        html.contains(r#"<form class="#) && html.contains(r#"method="get" action="/account/sales/shipments/packing-slips""#),
+        "{html}"
+    );
+    for id in ["shp_done", "shp_two"] {
+        assert!(html.contains(&format!(r#"<input type="hidden" name="shipmentIds" value="{id}">"#)), "{id}: {html}");
+    }
+    // Print is the script's: without it the button stays hidden.
+    assert!(html.contains("ui.reveal(") || html.contains(".reveal("), "{html}");
+    // Anything else asked for is letter.
+    let (_, _, html) =
+        pilot.send(get("/account/sales/shipments/packing-slips?shipmentIds=shp_done&format=a4", Some("shipper"))).await;
+    assert!(html.contains(r#"data-format="letter""#) && html.contains(r#"<option value="letter" selected>"#), "{html}");
+    // A data client gets the slips.
+    let mut req = get("/account/sales/shipments/packing-slips?shipmentIds=shp_done", Some("shipper"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["format"], "letter", "{body}");
+    assert_eq!(screen["data"]["slips"][0]["shipping_origin_snapshot"]["city"], "Austin", "{body}");
+}
+
+#[tokio::test]
+async fn the_packing_slips_need_a_shipment_and_a_read_that_answers() {
+    let pilot = Pilot::new().await;
+    for page in
+        ["/account/sales/shipments/packing-slips", "/account/sales/shipments/packing-slips?shipmentIds=%20,%20&format=letter"]
+    {
+        let (status, _, html) = pilot.send(get(page, Some("shipper"))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{page}");
+        assert!(text(&html).contains("No shipments selected."), "{page}: {}", text(&html));
+    }
+    assert!(shipment_calls(&pilot).is_empty(), "nothing is read without a shipment");
+    let (status, _, _) = pilot.send(get("/account/sales/shipments/packing-slips?shipmentIds=shp_down", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, headers, _) = pilot.send(get("/account/sales/shipments/packing-slips?shipmentIds=shp_done", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
 }
 
 #[tokio::test]
@@ -5821,9 +5930,7 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
     let shown = text(&html);
     assert!(shown.contains("Seller Shipment shp_done Order ORD-D116ACF7 with Collector Zero Print packing slip Back"), "{shown}");
     assert!(
-        html.contains(
-            r#"href="http://localhost:7753/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#
-        ),
+        html.contains(r#"href="/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#),
         "{html}"
     );
     assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back</a>"#), "{html}");

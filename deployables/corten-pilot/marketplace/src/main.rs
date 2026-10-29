@@ -31,6 +31,7 @@ mod offer_matches;
 mod order_review;
 mod orders;
 mod packing;
+mod packing_slips;
 mod payment;
 mod payment_methods;
 mod public_listing;

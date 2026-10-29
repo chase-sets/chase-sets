@@ -42,3 +42,8 @@
   background: var(--color-surface);
   box-shadow: var(--shadow-md);
 }
+
+/* A printed page is its content: the top bar is for the screen. */
+@media print {
+  .bar { display: none; }
+}

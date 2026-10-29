@@ -42,6 +42,7 @@ mod offer_matches_page;
 mod order_page;
 mod order_review_page;
 mod packing_page;
+mod packing_slips_page;
 mod page_actions;
 mod payment_methods_page;
 mod payment_page;
@@ -87,6 +88,7 @@ pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_liv
 pub use order_page::{OrderList, OrderPage};
 pub use order_review_page::OrderReviewPage;
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
+pub use packing_slips_page::PackingSlipsPage;
 pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
@@ -223,9 +225,17 @@ pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offe
 pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
 /// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
-/// The seller's: a shipment's page, and the packing page with its script, which the shipment
-/// page's Start packing form also uses. Not the buyer's, whose pages never pack.
-pub const SALE_SHIPMENTS: &[Component] = &[ShipmentPage, PackingPage, packing_page::handlers::COMPONENT, corten_ui::CopyButton];
+/// The seller's: a shipment's page, the packing page with its script, which the shipment page's
+/// Start packing form also uses, and the packing slips with Print's. Not the buyer's, whose pages
+/// never pack.
+pub const SALE_SHIPMENTS: &[Component] = &[
+    ShipmentPage,
+    PackingPage,
+    packing_page::handlers::COMPONENT,
+    corten_ui::CopyButton,
+    PackingSlipsPage,
+    packing_slips_page::handlers::COMPONENT,
+];
 
 /// A listing's public page (`/listings`).
 pub const LISTING: &[Component] = &[ListingPage];

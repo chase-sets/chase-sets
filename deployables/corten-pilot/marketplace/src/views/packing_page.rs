@@ -13,7 +13,7 @@ use corten::{
 };
 use corten_ui::CopyButton;
 
-use super::{listing_page::options, on_marketplace, order_page::display_reference};
+use super::{listing_page::options, order_page::display_reference};
 use crate::{
     api::{AddressSnapshot, ShipmentDetail, ShipmentLine},
     app::url,
@@ -87,7 +87,7 @@ fn item_count(t: ShipmentsMsg, quantity: u64, lines: u64) -> String {
 
 /// Where it goes, a line each (`addressLines`). The API's snapshot may be empty (`{}`), so each
 /// part may be missing.
-fn address_lines(address: &AddressSnapshot) -> Vec<String> {
+pub(super) fn address_lines(address: &AddressSnapshot) -> Vec<String> {
     let part = |value: &Option<String>| value.as_deref().map(str::trim).unwrap_or_default().to_owned();
     let place = format!("{}, {} {}", part(&address.city), part(&address.state), part(&address.postal_code));
     let place = place.trim_matches(|c: char| c == ',' || c.is_whitespace()).to_owned();
@@ -576,10 +576,7 @@ fn Footer<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, s: &'a
     let (packed, all) = counted(s);
     let f = PackInput::FIELDS;
     let action = url::Pack { id }.href();
-    let slip = on_marketplace(&format!(
-        "/account/sales/shipments/packing-slips?shipmentIds={}&format=letter",
-        crate::api::segment(&s.shipment_id)
-    ));
+    let slip = crate::packing_slips::href(&s.shipment_id);
     html! {
         <div id={PackingFooterId} class={Footer}>
             <div class={Stack}>
@@ -627,10 +624,7 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
     let buyer = s.buyer_display_name.as_deref().unwrap_or(&s.buyer_account_id);
     let address = s.shipping_destination_snapshot.as_ref().map(address_lines).unwrap_or_default();
     let copied = address.join("\n");
-    let slip = on_marketplace(&format!(
-        "/account/sales/shipments/packing-slips?shipmentIds={}&format=letter",
-        crate::api::segment(&s.shipment_id)
-    ));
+    let slip = crate::packing_slips::href(&s.shipment_id);
     let (note, label) = refs();
     html! {
         <div class={Cards}>

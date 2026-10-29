@@ -38,6 +38,11 @@ body {
   font: 400 1rem/1.5 var(--font-body);
 }
 main { max-width: 72rem; margin: 0 auto; padding: var(--space-6); }
+/* Printed, a page is on white paper and its content uses the page's own margins. */
+@media print {
+  body { background: #ffffff; }
+  main { max-width: none; margin: 0; padding: 0; }
+}
 a { color: var(--color-primary); }
 :focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 

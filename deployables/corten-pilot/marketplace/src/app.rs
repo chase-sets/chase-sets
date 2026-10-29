@@ -167,7 +167,7 @@ pub mod url {
     pub use repricing::{Repricing, RepricingDryRunLive};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_reviews::SaleReview;
-    pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
+    pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use security::Security;
@@ -1116,6 +1116,15 @@ pub mod url {
         /// The command center, on marketplace.
         #[route("/account/sales/shipments", get = crate::shipments::command_center)]
         pub struct SaleShipments;
+
+        /// Packing slips to print (Fulfillment's `account-sale-shipment-packing-slips`): the
+        /// shipments `shipmentIds` names (each value may be a comma-separated list), in `format`.
+        #[route("/account/sales/shipments/packing-slips", get = crate::packing_slips::page)]
+        pub struct PackingSlips<'a> {
+            #[serde(rename = "shipmentIds")]
+            pub shipment_ids: &'a [&'a str],
+            pub format: Option<&'a str>,
+        }
 
         /// A shipment the seller sends, read after the write whose receipt it carries.
         #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]

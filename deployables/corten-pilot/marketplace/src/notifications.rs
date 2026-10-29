@@ -162,7 +162,7 @@ fn served_here(href: &str) -> bool {
     ];
     let path = href.split(['?', '#']).next().unwrap_or_default();
     if let Some(rest) = path.strip_prefix("/account/sales/shipments") {
-        return rest.strip_prefix('/').is_some_and(|id| !id.is_empty() && !id.contains('/') && id != "packing-slips");
+        return rest.strip_prefix('/').is_some_and(|id| !id.is_empty() && !id.contains('/'));
     }
     HERE.iter().any(|p| path.starts_with(p))
 }
@@ -466,12 +466,9 @@ mod tests {
         assert_eq!(open_href("/account/purchases/ord_1").as_deref(), Some("/account/purchases/ord_1"));
         assert_eq!(open_href("/account/shipments/shp_1").as_deref(), Some("/account/shipments/shp_1"));
         assert_eq!(open_href("/account/sales/shipments/shp_1").as_deref(), Some("/account/sales/shipments/shp_1"));
-        for marketplaces in [
-            "/account/sales/shipments",
-            "/account/sales/shipments/shp_1/packing",
-            "/account/sales/shipments/packing-slips?shipmentIds=shp_1",
-            "/account/offers",
-        ] {
+        let slips = "/account/sales/shipments/packing-slips?shipmentIds=shp_1";
+        assert_eq!(open_href(slips).as_deref(), Some(slips));
+        for marketplaces in ["/account/sales/shipments", "/account/sales/shipments/shp_1/packing", "/account/offers"] {
             assert_eq!(open_href(marketplaces), Some(format!("http://localhost:7753{marketplaces}")), "{marketplaces}");
         }
         assert_eq!(open_href("https://example.com/x"), None);

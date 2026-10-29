@@ -3473,6 +3473,9 @@ pub trait Shipments {
     async fn shipments(&self, side: Side) -> Result<ShipmentList, ApiError>;
     /// One shipment, as `side` sees it.
     async fn shipment(&self, side: Side, id: &str) -> Result<ShipmentDetail, ApiError>;
+    /// The seller's shipments `ids` as packing slips (`listSellerPackingSlips`); the API takes
+    /// 1 to 100.
+    async fn packing_slips(&self, ids: &[String]) -> Result<PackingSlipBatch, ApiError>;
 }
 
 impl Shipments for Caller<'_> {
@@ -3483,6 +3486,18 @@ impl Shipments for Caller<'_> {
     async fn shipment(&self, side: Side, id: &str) -> Result<ShipmentDetail, ApiError> {
         self.read(&format!("{}/{}", side.shipments(), segment(id)), FULFILLMENT).await
     }
+
+    async fn packing_slips(&self, ids: &[String]) -> Result<PackingSlipBatch, ApiError> {
+        let ids = segment(&ids.join(","));
+        self.read(&format!("{}/packing-slips?shipmentIds={ids}", Side::Seller.shipments()), FULFILLMENT).await
+    }
+}
+
+/// Packing slips (`FulfillmentPackingSlipBatch`): each a shipment's detail.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PackingSlipBatch {
+    pub items: Vec<ShipmentDetail>,
 }
 
 /// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API
@@ -3610,8 +3625,9 @@ pub struct ShipmentDetail {
     pub updated_at: String,
     pub total_quantity: u64,
     pub line_count: u64,
-    /// Where it goes (the packing page's Ship to).
+    /// Where it goes (the packing page's Ship to), and where from (the packing slip's Ship from).
     pub shipping_destination_snapshot: Option<AddressSnapshot>,
+    pub shipping_origin_snapshot: Option<AddressSnapshot>,
     pub shipping_plan_snapshot: Option<PackagePlanSnapshot>,
     pub lines: Vec<ShipmentLine>,
     pub exceptions: Vec<ShipmentException>,

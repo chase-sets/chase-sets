@@ -165,10 +165,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
         Side::Buyer => crate::app::url::Shipments.href(),
         Side::Seller => on_marketplace("/account/sales/shipments"),
     };
-    let slip = on_marketplace(&format!(
-        "/account/sales/shipments/packing-slips?shipmentIds={}&format=letter",
-        crate::api::segment(&s.shipment_id)
-    ));
+    let slip = crate::packing_slips::href(&s.shipment_id);
     let on_market = on_marketplace(&format!("/account/sales/shipments/{}", crate::api::segment(&s.shipment_id)));
     let start = crate::app::url::PackingStart { id: &s.shipment_id }.href();
     let packing = crate::app::url::Packing { id: &s.shipment_id, place: Default::default() }.href();
