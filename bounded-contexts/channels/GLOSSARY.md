@@ -8,12 +8,6 @@ they do not imply shipped connection behavior.
 
 A **Sales Channel** is an external or native commerce surface connected to an Account.
 
-## `channels.receipt.lookup`
-
-`channels.receipt.lookup` is the Channels permission carried by the staging receipt
-lookup service actor for the bounded eBay account-deletion receipt lookup operation.
-It authorizes only that operation; human sessions and cookies never satisfy it.
-
 ## Channel Connection
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.
@@ -457,3 +451,9 @@ A **Missed-Sale Gap** is a returned external sale line whose exact external Chan
 ## Channel Outbound Hold
 
 A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, failing Channel Health, and the operator kill switch. Eligible inline reconciliation continues bounded sale acquisition and verified recording while suppressing its own channel-state reads and repair/repush work. Independently verified inbound sale recording remains admitted.
+
+## `channels.receipt.lookup`
+
+`channels.receipt.lookup` is the Channels permission carried by the staging receipt
+lookup service actor for the bounded eBay account-deletion receipt lookup operation.
+It authorizes only that operation; human sessions and cookies never satisfy it.
