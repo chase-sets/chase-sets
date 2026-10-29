@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EXPORT_OUTCOME" = "failure" ] && [ ! -f "$FAILURE_ARTIFACT" ]; then
-            printf '%s\n' '{"result":"failure","mode":"url-export","environment":"'"$TARGET_ENVIRONMENT"'","class":"managed-postgres-authority-export-failed","attempts":3}' > "$FAILURE_ARTIFACT"
+            printf '%s\n' '{"result":"failure","mode":"url-export","environment":"'"$TARGET_ENVIRONMENT"'","class":"managed-postgres-authority-export-failed","attempts":0}' > "$FAILURE_ARTIFACT"
           fi
           if [ "$EXPORT_OUTCOME" = "failure" ]; then
             exit 1

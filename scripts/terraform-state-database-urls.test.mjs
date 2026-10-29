@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,10 +10,12 @@ import {
   fetchDigitalOceanManagedPostgresCa,
   githubEnvLinesForDatabaseUrls,
   managedPostgresClusterIdFromTerraformState,
+  main,
   parseTerraformStateDatabaseUrlArgs,
   reconcileManagedPostgresCaSecret,
   writeManagedPostgresCa,
 } from "./terraform-state-database-urls.mjs";
+import { parse as parseYaml } from "yaml";
 
 const caPath = "/runner/temp/digitalocean-managed-postgres-ca.pem";
 const certificate = "-----BEGIN CERTIFICATE-----\nZmFrZS1jYQ==\n-----END CERTIFICATE-----\n";
@@ -151,7 +153,18 @@ describe("Terraform state database URL export", () => {
 
   it("parses CLI and environment options", () => {
     const options = parseTerraformStateDatabaseUrlArgs(
-      ["--state", "state.json", "--contexts", "payments, settlement"],
+      [
+        "--state",
+        "state.json",
+        "--contexts",
+        "payments, settlement",
+        "--retry-attempts",
+        "3",
+        "--retry-backoff-ms",
+        "250",
+        "--failure-output",
+        "failure.json",
+      ],
       {
         GITHUB_ENV: "github.env",
         RUNNER_TEMP: "/runner/temp",
@@ -169,7 +182,11 @@ describe("Terraform state database URL export", () => {
       environmentName: "production",
       contexts: ["payments", "settlement"],
       connectionMode: "direct",
+      retryAttempts: 3,
+      retryBackoffMs: 250,
+      failureOutputPath: "failure.json",
     });
+    expect(parseTerraformStateDatabaseUrlArgs(["--retry-attempts", "6"], {}).retryAttempts).toBe(1);
   });
 
   it("writes GitHub env output and masks every derived URL", async () => {
@@ -218,6 +235,29 @@ describe("Terraform state database URL export", () => {
   });
 
   it("retrieves only the authoritative CA and reports bounded provider failures", async () => {
+    const networkError = await fetchDigitalOceanManagedPostgresCa(
+      {
+        clusterId: "cluster-123",
+        digitalOceanToken: "token-value",
+        retryAttempts: 2,
+      },
+      {
+        fetch: async () => {
+          const error = Object.assign(new TypeError("fetch failed"), {
+            cause: Object.assign(new Error("connect"), { code: "ECONNRESET" }),
+          });
+          throw error;
+        },
+        sleep: async () => undefined,
+      },
+    ).catch((error) => error);
+    expect(
+      buildManagedPostgresAuthorityFailure({ mode: "url-export", environmentName: "production" }, networkError),
+    ).toMatchObject({
+      attempts: 2,
+      code: "ECONNRESET",
+    });
+
     await expect(
       fetchDigitalOceanManagedPostgresCa(
         { clusterId: "cluster-123", digitalOceanToken: "token-value" },
@@ -279,8 +319,9 @@ describe("Terraform state database URL export", () => {
         {
           fetch: async () => {
             attempts.push("network");
-            const error = new Error("secret body");
-            error.code = "ECONNRESET";
+            const error = Object.assign(new TypeError("fetch failed"), {
+              cause: Object.assign(new Error("connect"), { code: "ECONNRESET" }),
+            });
             throw error;
           },
           sleep: async () => undefined,
@@ -436,6 +477,149 @@ describe("Terraform state database URL export", () => {
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });
 
+  it("reports actual CA request counts for no-request and downstream failures", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "managed-postgres-failure-"));
+    tempDirectories.push(directory);
+    const statePath = join(directory, "state.json");
+    const envPath = join(directory, "github.env");
+    const caPathForTest = join(directory, "ca.pem");
+    const failurePath = join(directory, "failure.json");
+    await writeFile(statePath, JSON.stringify({ resources: [] }));
+
+    const noRequestExit = await main(
+      [
+        "--state",
+        statePath,
+        "--github-env",
+        envPath,
+        "--ca-path",
+        caPathForTest,
+        "--failure-output",
+        failurePath,
+        "--retry-attempts",
+        "3",
+      ],
+      { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" },
+      { errorLog: () => undefined },
+    );
+    expect(noRequestExit).toBe(1);
+    expect(JSON.parse(await readFile(failurePath, "utf8"))).toMatchObject({ attempts: 0 });
+
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        resources: [
+          {
+            type: "digitalocean_database_cluster",
+            name: "postgres",
+            instances: [{ attributes: { id: "cluster-123" } }],
+          },
+        ],
+      }),
+    );
+    let exhaustedRequests = 0;
+    const exhaustedExit = await main(
+      [
+        "--state",
+        statePath,
+        "--github-env",
+        envPath,
+        "--ca-path",
+        caPathForTest,
+        "--failure-output",
+        failurePath,
+        "--retry-attempts",
+        "3",
+      ],
+      { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" },
+      {
+        fetch: async () => {
+          exhaustedRequests += 1;
+          return { ok: false, status: 503, text: async () => "provider body" };
+        },
+        sleep: async () => undefined,
+        errorLog: () => undefined,
+      },
+    );
+    expect(exhaustedExit).toBe(1);
+    expect(exhaustedRequests).toBe(3);
+    expect(JSON.parse(await readFile(failurePath, "utf8"))).toMatchObject({ attempts: 3, status: 503 });
+
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        resources: [
+          {
+            type: "digitalocean_database_cluster",
+            name: "postgres",
+            instances: [{ attributes: { id: "cluster-123" } }],
+          },
+        ],
+      }),
+    );
+    let requests = 0;
+    await expect(
+      exportTerraformStateDatabaseUrls(
+        {
+          statePath,
+          githubEnvPath: envPath,
+          caPath: caPathForTest,
+          digitalOceanToken: "synthetic-token",
+          retryAttempts: 3,
+        },
+        {
+          readFile: async (path) => (path === statePath ? readFile(path, "utf8") : certificate),
+          fetch: async () => {
+            requests += 1;
+            return {
+              ok: true,
+              status: 200,
+              headers: { get: () => "application/json" },
+              text: async () => JSON.stringify({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
+            };
+          },
+          rm: async () => undefined,
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "managed-postgres-state-invalid", attempts: 1 });
+    expect(requests).toBe(1);
+  });
+
+  it("serializes main failures to the artifact and redacts error messages from stderr", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "managed-postgres-main-"));
+    tempDirectories.push(directory);
+    const statePath = join(directory, "state.json");
+    const failurePath = join(directory, "failure.json");
+    await writeFile(statePath, JSON.stringify({ resources: [] }));
+    const stderr = [];
+
+    await expect(
+      main(
+        [
+          "--state",
+          statePath,
+          "--github-env",
+          join(directory, "github.env"),
+          "--ca-path",
+          join(directory, "ca.pem"),
+          "--failure-output",
+          failurePath,
+        ],
+        { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" },
+        { errorLog: (line) => stderr.push(line) },
+      ),
+    ).resolves.toBe(1);
+
+    expect(JSON.parse(await readFile(failurePath, "utf8"))).toEqual({
+      result: "failure",
+      mode: "url-export",
+      environment: "staging",
+      class: "terraform-state-missing-cluster-id",
+      attempts: 0,
+    });
+    expect(stderr).toEqual(['{"classification":"terraform-state-missing-cluster-id"}']);
+  });
+
   it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
       "catalog-completion-report.yml",
@@ -463,6 +647,7 @@ describe("Terraform state database URL export", () => {
       new URL("../.github/actions/export-managed-postgres-authority/action.yml", import.meta.url),
       "utf8",
     );
+    const action = parseYaml(actionSource);
     const consumers = workflows
       .filter(({ source }) => source.includes("uses: ./.github/actions/export-managed-postgres-authority"))
       .sort((left, right) => left.name.localeCompare(right.name));
@@ -497,6 +682,9 @@ describe("Terraform state database URL export", () => {
     expect(actionSource).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
     expect(actionSource).toContain('--retry-attempts "$AUTHORITY_RETRY_ATTEMPTS"');
     expect(actionSource).toContain('--retry-backoff-ms "$AUTHORITY_RETRY_BACKOFF_MS"');
+    expect(action.inputs["retry-attempts"].default).toBe("1");
+    expect(action.inputs["retry-backoff-ms"].default).toBe("0");
+    expect(action.inputs["failure-output-path"].default).toBe("");
   });
 
   it("pre-query failure artifact flow opts only growth evidence into CA retry and retention", async () => {
@@ -518,7 +706,22 @@ describe("Terraform state database URL export", () => {
     expect(growthSource).toContain("postgres-growth-authority-export-failure.json");
     expect(growthSource).toContain("Gate Postgres growth on authority export");
     expect(growthSource).toContain("if: ${{ always() }}");
-    expect(growthSource).toContain("exit 1");
+    const workflow = parseYaml(growthSource);
+    const job = workflow.jobs["growth-evidence"];
+    const steps = job.steps;
+    const exportIndex = steps.findIndex(({ id }) => id === "export-authority");
+    const gate = steps.find(({ name }) => name === "Gate Postgres growth on authority export");
+    const growth = steps.find(({ id }) => id === "growth");
+    const summary = steps.find(({ name }) => name === "Summarize Postgres growth evidence");
+    const uploads = steps.filter(({ name }) => name?.startsWith("Upload Postgres growth"));
+    expect(gate.if).toBe("${{ always() }}");
+    expect(steps.indexOf(gate)).toBeGreaterThan(exportIndex);
+    expect(gate.run).toMatch(/if \[ "\$EXPORT_OUTCOME" = "failure" \]; then[\s\S]*exit 1/);
+    expect(gate.run).toContain('"attempts":0');
+    expect(growth.if).toBeUndefined();
+    expect(summary.if).toBe("${{ always() }}");
+    expect(uploads).toHaveLength(2);
+    expect(uploads.every(({ if: condition }) => condition === "${{ always() }}")).toBe(true);
     expect(growthSource).toContain("if-no-files-found: ignore");
   });
 

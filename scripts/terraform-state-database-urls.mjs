@@ -61,7 +61,7 @@ export function buildManagedPostgresAuthorityFailure(options, error) {
     mode: options?.mode ?? "url-export",
     environment: options?.environmentName ?? "unknown",
     class: error?.failureClass ?? fields.classification,
-    attempts: Number.isInteger(error?.attempts) ? error.attempts : (options?.retryAttempts ?? 1),
+    attempts: Number.isInteger(error?.attempts) ? error.attempts : 0,
     ...(fields.status === undefined ? {} : { status: fields.status }),
     ...(fields.code === undefined ? {} : { code: fields.code }),
   };
@@ -79,11 +79,19 @@ export async function reconcileManagedPostgresCaSecret(options, dependencies = {
   }
 
   let operationError;
+  let attemptsMade = 0;
   try {
     const state = parseTerraformState(await read(options.statePath, "utf8"));
     const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
     const certificate = await fetchDigitalOceanManagedPostgresCa(
-      { clusterId, digitalOceanToken: options.digitalOceanToken },
+      {
+        clusterId,
+        digitalOceanToken: options.digitalOceanToken,
+        onAttempt: (attempt) => {
+          attemptsMade = attempt;
+          dependencies.onAttempt?.(attempt);
+        },
+      },
       dependencies,
     );
     await writeCa(options.caPath, certificate);
@@ -99,6 +107,7 @@ export async function reconcileManagedPostgresCaSecret(options, dependencies = {
     return { digest };
   } catch (error) {
     operationError = error;
+    if (!Number.isInteger(error?.attempts) && attemptsMade > 0) error.attempts = attemptsMade;
     throw error;
   } finally {
     try {
@@ -124,6 +133,7 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
     throw trustError("managed-postgres-export-input-invalid", errors.join("\n"));
   }
 
+  let attemptsMade = 0;
   try {
     const state = parseTerraformState(await read(options.statePath, "utf8"));
     const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
@@ -133,6 +143,10 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
         digitalOceanToken: options.digitalOceanToken,
         retryAttempts: options.retryAttempts,
         retryBackoffMs: options.retryBackoffMs,
+        onAttempt: (attempt) => {
+          attemptsMade = attempt;
+          dependencies.onAttempt?.(attempt);
+        },
       },
       dependencies,
     );
@@ -152,6 +166,7 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
     return urls;
   } catch (error) {
     await remove(options.caPath, { force: true }).catch(() => undefined);
+    if (!Number.isInteger(error?.attempts) && attemptsMade > 0) error.attempts = attemptsMade;
     throw error;
   }
 }
@@ -274,6 +289,7 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
   let attemptsMade = 0;
   for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
     attemptsMade = attempt;
+    options.onAttempt?.(attempt);
     try {
       response = await request(`${apiBaseUrl}/databases/${encodeURIComponent(options.clusterId)}/ca`, {
         headers: {
@@ -285,7 +301,7 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
       if (attempt === retryAttempts) {
         throw trustError("digitalocean-ca-request-failed", "DigitalOcean database CA request failed.", {
           attempts: attempt,
-          code: error?.code,
+          code: error?.code ?? error?.cause?.code,
           failureClass: "transient",
         });
       }
@@ -472,14 +488,14 @@ function parseBoundedInteger(value, fallback, minimum, maximum) {
   return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
 }
 
-async function main(argv, env = process.env) {
+export async function main(argv, env = process.env, dependencies = {}) {
   let options;
   try {
     options = parseTerraformStateDatabaseUrlArgs(argv, env);
     if (options.mode === "trust-only-kubernetes-secret") {
-      await reconcileManagedPostgresCaSecret(options);
+      await reconcileManagedPostgresCaSecret(options, dependencies);
     } else if (options.mode === "url-export") {
-      await exportTerraformStateDatabaseUrls(options);
+      await exportTerraformStateDatabaseUrls(options, dependencies);
     } else {
       throw trustError("managed-postgres-authority-mode-invalid", "Unsupported managed Postgres authority mode.");
     }
@@ -488,12 +504,13 @@ async function main(argv, env = process.env) {
     const fields = safeFailureFields(error?.classification ?? "managed-postgres-trust-export-failed", error);
     const failure = buildManagedPostgresAuthorityFailure(options, error);
     if (options?.failureOutputPath) {
-      await writeFile(options.failureOutputPath, `${JSON.stringify(failure)}\n`, {
+      const writeFailure = dependencies.writeFile ?? writeFile;
+      await writeFailure(options.failureOutputPath, `${JSON.stringify(failure)}\n`, {
         encoding: "utf8",
         mode: 0o600,
       }).catch(() => undefined);
     }
-    console.error(JSON.stringify(fields));
+    (dependencies.errorLog ?? console.error)(JSON.stringify(fields));
     return 1;
   }
 }
