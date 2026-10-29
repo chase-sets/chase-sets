@@ -136,6 +136,33 @@ describe("catalog API durable job client", () => {
     });
   });
 
+  it("parses publication-precondition refusals with missing field IDs", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "publication-precondition",
+            reason_code: "publication-precondition",
+            message: "Missing required field values: fld_name, fld_set.",
+            missingFieldIds: ["fld_name", "fld_set"],
+          },
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = createCatalogApiClient({ baseUrl: "http://catalog.test/api/catalog", fetch });
+
+    const error = await client.publishCatalogItem("cat_1").catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(CatalogItemPublicationApiError);
+    expect(error).toMatchObject({
+      code: "publication-precondition",
+      readiness: "precondition",
+      missingFieldIds: ["fld_name", "fld_set"],
+      message: "Missing required field values: fld_name, fld_set.",
+    });
+  });
+
   it("reconnects job event streams with the last durable event id", async () => {
     const completedResult = {
       requested: 1,

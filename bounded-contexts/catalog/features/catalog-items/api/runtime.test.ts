@@ -10,6 +10,7 @@ import {
 } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
+import type { ItemFieldValue } from "../domain/domain";
 import { resolveCatalogItemDisplayIdentity } from "../read-model/display-identity";
 import { createCatalogItemRuntime } from "./runtime";
 
@@ -56,7 +57,7 @@ describe("Catalog Item publication runtime", () => {
     await expect(
       harness.services.commandHandler({
         streamId: "catalog.item-cat_1",
-        command: { type: "PublishCatalogItem" },
+        command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
         context,
       }),
     ).rejects.toMatchObject({
@@ -78,7 +79,7 @@ describe("Catalog Item publication runtime", () => {
     await expect(
       harness.services.commandHandler({
         streamId: "catalog.item-cat_1",
-        command: { type: "PublishCatalogItem" },
+        command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
         context,
       }),
     ).rejects.toMatchObject({
@@ -86,6 +87,43 @@ describe("Catalog Item publication runtime", () => {
       message: "Missing required field values: fld_name, fld_set.",
       missingFieldIds: ["fld_name", "fld_set"],
     });
+    expect(harness.appends).toHaveLength(0);
+  });
+
+  it("uses aggregate field values when the bulk projection is ahead", async () => {
+    const harness = await createHarness("current", false, rawItem, {
+      blueprintFieldRules: [{ fieldId: "fld_name", required: true }],
+      projectedFieldValues: [{ fieldId: "fld_name", value: "Charizard" }],
+    });
+
+    await expect(
+      harness.services.commandHandler({
+        streamId: "catalog.item-cat_1",
+        command: { type: "PublishCatalogItem" },
+        context,
+      }),
+    ).rejects.toMatchObject({
+      code: "publication-precondition",
+      message: "Missing required field values: fld_name.",
+      missingFieldIds: ["fld_name"],
+    });
+    expect(harness.appends).toHaveLength(0);
+  });
+
+  it("uses aggregate field values when the bulk projection is behind", async () => {
+    const fieldValue = { fieldId: "fld_name" as never, value: "Charizard" } as ItemFieldValue;
+    const harness = await createHarness("current", false, rawItem, {
+      blueprintFieldRules: [{ fieldId: "fld_name", required: true }],
+      aggregateFieldValues: [fieldValue],
+    });
+
+    await expect(
+      harness.services.commandHandler({
+        streamId: "catalog.item-cat_1",
+        command: { type: "PublishCatalogItem" },
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "display-identity-outdated" });
     expect(harness.appends).toHaveLength(0);
   });
 
@@ -126,7 +164,7 @@ describe("Catalog Item publication runtime", () => {
     await expect(
       missing.services.commandHandler({
         streamId: "catalog.item-cat_1",
-        command: { type: "PublishCatalogItem" },
+        command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
         context,
       }),
     ).rejects.toMatchObject({ code: "display-identity-unavailable" });
@@ -170,6 +208,8 @@ async function createHarness(
   publication: {
     blueprintStatus?: string;
     blueprintFieldRules?: unknown;
+    projectedFieldValues?: unknown;
+    aggregateFieldValues?: readonly ItemFieldValue[];
   } = {},
 ) {
   const publicationOptions = {
@@ -178,7 +218,7 @@ async function createHarness(
     ...publication,
   };
   const appends: AppendToStreamInput[] = [];
-  const stored = aggregateHistory();
+  const stored = aggregateHistory(publicationOptions.aggregateFieldValues);
   const eventStore: EventStore = {
     readStream: async (input: ReadStreamInput) => {
       const from = (input.fromVersion ?? 1) - 1;
@@ -234,6 +274,7 @@ async function createHarness(
           rows: [
             {
               ...item,
+              field_values: publicationOptions.projectedFieldValues ?? item.field_values,
               blueprint_name: "Pokemon Card",
               blueprint_status: publicationOptions.blueprintStatus,
               blueprint_field_rules: publicationOptions.blueprintFieldRules,
@@ -316,7 +357,7 @@ function factFromGuardParams(params?: readonly unknown[]) {
   };
 }
 
-function aggregateHistory(): StoredEvent[] {
+function aggregateHistory(fieldValues: readonly ItemFieldValue[] = []): StoredEvent[] {
   return [
     storedEvent(1, "catalog.catalog-item.created", {
       itemId: "cat_1",
@@ -326,6 +367,9 @@ function aggregateHistory(): StoredEvent[] {
       description: localizedTextMapFromEnglish(""),
     }),
     storedEvent(2, "catalog.catalog-item.blueprint-assigned", { blueprintId: "bpr_card" }),
+    ...fieldValues.map((fieldValue, index) =>
+      storedEvent(3 + index, "catalog.catalog-item.field-value-set", fieldValue),
+    ),
   ];
 }
 

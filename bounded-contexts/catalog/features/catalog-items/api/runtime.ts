@@ -338,7 +338,7 @@ function createCatalogItemCommandHandler(
     if (!bulkRow) {
       throw new CatalogItemPublicationError("unavailable");
     }
-    const precondition = publicationPreconditionForRow(bulkRow);
+    const precondition = publicationPreconditionForRow({ ...bulkRow, field_values: loaded.state.fieldValues });
     if (precondition) {
       throw new CatalogItemPublicationPreconditionError(precondition.reason, precondition.missingFieldIds);
     }
