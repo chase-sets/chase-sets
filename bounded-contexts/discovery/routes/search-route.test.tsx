@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { useEffect, useState } from "react";
-import { RouterProvider, createMemoryRouter, createStaticHandler } from "react-router";
+import { RouterProvider, createMemoryRouter, createStaticHandler, type RouteObject } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -299,18 +299,15 @@ describe("marketplace search route", () => {
       }, []);
       return <SearchRoute />;
     }
-    router = createMemoryRouter(
-      [
-        {
-          id: "search",
-          path: "/search",
-          loader,
-          clientLoader,
-          Component: RoutedSearch,
-        },
-      ],
-      { initialEntries: ["/search?q=charizard"] },
-    );
+    type SearchRouteObject = RouteObject & { clientLoader: typeof clientLoader };
+    const searchRoute: SearchRouteObject = {
+      id: "search",
+      path: "/search",
+      loader,
+      clientLoader,
+      Component: RoutedSearch,
+    };
+    router = createMemoryRouter([searchRoute], { initialEntries: ["/search?q=charizard"] });
     routeData = router.state.loaderData.search;
     mockUseLoaderData.mockImplementation(() => routeData);
     mockUseLocation.mockImplementation(() => router.state.location);
