@@ -36,22 +36,48 @@ describe("toBlockedPayoutAttentionItems", () => {
 });
 
 describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
-  it("loads only failed payouts and carries the projected failure reason", async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          payout_id: "pay-1",
-          display_reference: "PO-1",
-          failure_reason: "identity-verification-required",
-          provider_failure_message: null,
-          updated_at: "2026-07-12T00:00:00.000Z",
-        },
-      ],
-    }));
+  it("loads all blocked kinds from the complete Settlement summary", async () => {
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("COUNT(*)")
+        ? { rows: [{ count: "1" }] }
+        : {
+            rows: [
+              {
+                payout_id: "pay-1",
+                account_id: "acct-1",
+                amount: "25.00",
+                requested_amount: "25.00",
+                fee_amount: "0.32",
+                net_amount: "24.68",
+                currency_code: "usd",
+                destination_reference: null,
+                note: null,
+                display_reference: "PO-1",
+                status: "failed",
+                provider_transfer_reference: null,
+                provider_payout_reference: null,
+                provider_status: "failed",
+                provider_failure_code: null,
+                provider_failure_message: null,
+                requested_at: "2026-07-12T00:00:00.000Z",
+                updated_at: "2026-07-12T00:00:00.000Z",
+                sent_at: null,
+                completed_at: null,
+                failed_at: "2026-07-12T00:00:00.000Z",
+                failure_reason: "identity-verification-required",
+                last_provider_event_at: null,
+                last_reconciled_at: null,
+                retry_count: 0,
+                next_retry_at: null,
+                retry_reason: null,
+              },
+            ],
+          },
+    );
 
     const items = await createBlockedPayoutAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
 
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'failed'"), ["acct-1"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("account_id = $1"), ["acct-1"]);
     expect(items[0]?.summary.params).toEqual({ reference: "PO-1", reason: "identity-verification-required" });
   });
 });

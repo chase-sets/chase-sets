@@ -115,19 +115,18 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const limit = Number(c.req.query("limit") ?? 50);
-    const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listPayouts({
-      accountId: access.actor.accountId,
-      limit,
-      offset,
-    });
+    const summary = services.getPayoutSummary
+      ? await services.getPayoutSummary({
+          accountId: access.actor.accountId,
+          canRequestPayouts: access.actor.permissions.includes("payouts.request"),
+        })
+      : await services.listPayouts({
+          accountId: access.actor.accountId,
+          limit: Number(c.req.query("limit") ?? 50),
+          offset: Number(c.req.query("offset") ?? 0),
+        });
 
-    return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
-    });
+    return c.json(summary);
   });
 
   app.get("/payouts/quick-amounts", async (c) => {

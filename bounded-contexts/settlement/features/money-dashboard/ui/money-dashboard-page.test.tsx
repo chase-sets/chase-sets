@@ -6,6 +6,11 @@ import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import {
+  selectBlockedPayoutSummaryRows,
+  selectNextPayoutSummary,
+  type SettlementPayoutSummary,
+} from "../../payouts/read-model/payout-summary";
 import type { SettlementPayoutRow } from "../../payouts/read-model/queries";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { SettlementWalletAdjustmentAccountDetailRow } from "../../wallets/read-model/wallet-adjustment-queries";
@@ -87,13 +92,32 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
   };
 }
 
+function dashboardSummary(
+  items: readonly SettlementPayoutRow[],
+  availability: SettlementPayoutSummary["availability"] = {
+    can_request: true,
+    unavailable_reasons: [],
+    unavailable_reason_details: [],
+  },
+): SettlementPayoutSummary {
+  return {
+    items,
+    total: items.length,
+    count: items.length,
+    completeness: { kind: "complete", total: items.length },
+    next_payout: selectNextPayoutSummary(items),
+    blocked_payouts: selectBlockedPayoutSummaryRows(items, "2026-07-15T12:00:00.000Z"),
+    availability,
+  };
+}
+
 describe("SettlementMoneyDashboardPage", () => {
   it("renders money actions and keeps the payout-request entity elevated", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[
+        payoutSummary={dashboardSummary([
           payout(),
           payout({
             payout_id: "next",
@@ -108,11 +132,9 @@ describe("SettlementMoneyDashboardPage", () => {
             failed_at: null,
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
-        ]}
+        ])}
         payoutReadiness={readiness}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts
       />,
@@ -139,11 +161,15 @@ describe("SettlementMoneyDashboardPage", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[]}
+        payoutSummary={dashboardSummary([], {
+          can_request: false,
+          unavailable_reasons: ["payout-setup-incomplete"],
+          unavailable_reason_details: [
+            { code: "payout-setup-incomplete", message: "Finish payout setup in Chase Sets before requesting funds." },
+          ],
+        })}
         payoutReadiness={{ ...readiness, status: "not-started", provider_reference: null }}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
       />,
@@ -158,11 +184,9 @@ describe("SettlementMoneyDashboardPage", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[]}
+        payoutSummary={dashboardSummary([])}
         payoutReadiness={readiness}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
         actionState={{
@@ -206,11 +230,9 @@ describe("SettlementMoneyDashboardPage", () => {
       <SettlementMoneyDashboardPage
         wallet={{ ...wallet, available_balance_amount: "999999.00" }}
         entries={[]}
-        payouts={[]}
+        payoutSummary={dashboardSummary([])}
         payoutReadiness={readiness}
         quickAmounts={{ ...quickAmounts, full_available_amount: "999.99" }}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
       />,
@@ -293,11 +315,9 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
             adjustment_display_reference: null,
           },
         ]}
-        payouts={[]}
+        payoutSummary={dashboardSummary([])}
         payoutReadiness={readiness}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts={false}
         canSetupPayouts={false}
         canReconcilePayouts={false}
       />,
@@ -313,7 +333,7 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[ledgerEntry]}
-        payouts={[
+        payoutSummary={dashboardSummary([
           payout({
             payout_id: "next",
             display_reference: "PYO-NEXT",
@@ -322,12 +342,10 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
             failed_at: null,
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
-        ]}
+        ])}
         payoutReadiness={readiness}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
         selectedWalletAdjustment={selectedWalletAdjustment}
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
       />,
@@ -365,11 +383,9 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[payout()]}
+        payoutSummary={dashboardSummary([payout()])}
         payoutReadiness={readiness}
         quickAmounts={quickAmounts}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
       />,

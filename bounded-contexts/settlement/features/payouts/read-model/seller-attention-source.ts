@@ -12,6 +12,8 @@ import {
 } from "@chase-sets/seller-attention-queue";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SettlementPayoutRow } from "./queries";
+import { listPayoutSummaryRows } from "./queries";
+import { selectBlockedPayoutSummaryRows } from "./payout-summary";
 
 export type BlockedPayoutKind = "failed" | "missing-provider-reference" | "stale-requested";
 export type BlockedPayoutNextAction = "retry" | "run-reconciliation";
@@ -31,62 +33,18 @@ export type BlockedPayoutAttentionRow = Readonly<{
   observedAt: string;
 }>;
 
-const STALE_REQUESTED_AFTER_MS = 15 * 60 * 1_000;
-
-function isStaleRequested(row: SettlementPayoutRow, now: string) {
-  return row.status === "requested" && Date.parse(now) - Date.parse(row.updated_at) >= STALE_REQUESTED_AFTER_MS;
-}
-
-function failedReason(row: SettlementPayoutRow) {
-  return row.failure_reason ?? row.provider_failure_code ?? "recent-payout-failure";
-}
-
 export function selectBlockedPayoutAttentionRows(
   payouts: readonly SettlementPayoutRow[],
   context: SellerAttentionContext,
 ): readonly BlockedPayoutAttentionRow[] {
-  return payouts.flatMap((payout): readonly BlockedPayoutAttentionRow[] => {
-    if (payout.status === "failed") {
-      return [
-        {
-          payoutId: payout.payout_id,
-          reference: payout.display_reference,
-          blockReason: failedReason(payout),
-          kind: "failed",
-          nextAction: "retry",
-          observedAt: payout.failed_at ?? payout.updated_at,
-        },
-      ];
-    }
-
-    if (isStaleRequested(payout, context.now)) {
-      return [
-        {
-          payoutId: payout.payout_id,
-          reference: payout.display_reference,
-          blockReason: "payout-reconciliation-required",
-          kind: "stale-requested",
-          nextAction: "run-reconciliation",
-          observedAt: payout.updated_at,
-        },
-      ];
-    }
-
-    if (payout.status === "in-transit" && !payout.provider_payout_reference) {
-      return [
-        {
-          payoutId: payout.payout_id,
-          reference: payout.display_reference,
-          blockReason: "payout-reconciliation-required",
-          kind: "missing-provider-reference",
-          nextAction: "run-reconciliation",
-          observedAt: payout.updated_at,
-        },
-      ];
-    }
-
-    return [];
-  });
+  return selectBlockedPayoutSummaryRows(payouts, context.now).map((row) => ({
+    payoutId: row.payout_id,
+    reference: row.reference,
+    blockReason: row.block_reason,
+    kind: row.kind,
+    nextAction: row.next_action,
+    observedAt: row.observed_at,
+  }));
 }
 
 // Pure mapping: blocked payout rows → attention items.
@@ -120,27 +78,9 @@ export function createBlockedPayoutAttentionSource(
 export function createBlockedPayoutAttentionSourceFromReadModel(db: PgQueryable): SellerAttentionSource {
   return createBlockedPayoutAttentionSource({
     loadBlockedPayoutRows: async (context) => {
-      const result = await db.query<{
-        payout_id: string;
-        display_reference: string;
-        failure_reason: string | null;
-        provider_failure_message: string | null;
-        updated_at: string;
-      }>(
-        `SELECT payout_id, display_reference, failure_reason, provider_failure_message, updated_at
-         FROM settlement_payout_pages
-         WHERE account_id = $1
-           AND status = 'failed'
-         ORDER BY updated_at ASC, payout_id ASC`,
-        [context.accountId],
-      );
-
-      return result.rows.map((row) => ({
-        payoutId: row.payout_id,
-        reference: row.display_reference || row.payout_id,
-        blockReason: row.failure_reason ?? row.provider_failure_message ?? "Payout failed",
-        observedAt: row.updated_at,
-      }));
+      const result = await listPayoutSummaryRows(db, context.accountId);
+      if (result.completeness.kind !== "complete") return [];
+      return selectBlockedPayoutAttentionRows(result.items, context);
     },
   });
 }
