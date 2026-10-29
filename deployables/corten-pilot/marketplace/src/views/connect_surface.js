@@ -26,7 +26,9 @@ function loadConnect() {
     script.src = CONNECT_JS;
     script.async = true;
     script.addEventListener("load", () =>
-      page.StripeConnect && typeof page.StripeConnect.init === "function" ? resolve(page.StripeConnect) : reject(new Error()),
+      page.StripeConnect && typeof page.StripeConnect.init === "function"
+        ? resolve(page.StripeConnect)
+        : reject(new Error()),
     );
     script.addEventListener("error", () => {
       loading = null;
@@ -51,7 +53,11 @@ class Refused extends Error {
  * @param {string} session @param {string} noSession
  */
 async function secret(session, noSession) {
-  const response = await fetch(session, { method: "POST", credentials: "same-origin", headers: { accept: "application/json" } });
+  const response = await fetch(session, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { accept: "application/json" },
+  });
   /** @type {{ secret?: string | null, code?: string | null, message?: string | null }} */
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.secret) throw new Refused(body.code ?? null, body.message || noSession);

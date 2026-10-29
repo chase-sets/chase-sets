@@ -26,7 +26,11 @@ function check(ok, what) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
@@ -58,28 +62,46 @@ for (const javaScriptEnabled of [true, false]) {
   const answer = await page.goto(screen);
   check(answer?.status() === 200, `${label}: the page answers 200 (${answer?.status()})`);
   await hydrated(page, javaScriptEnabled);
-  check((await page.locator("h1").textContent())?.trim() === "Repricing policies", `${label}: the page renders in the shell`);
+  check(
+    (await page.locator("h1").textContent())?.trim() === "Repricing policies",
+    `${label}: the page renders in the shell`,
+  );
   const list = await (await page.request.get(policies)).json();
   const rows = await page.locator("[data-repricing-policy]").count();
   const empty = await page.locator('[data-repricing-policies-empty="true"]').count();
-  check(list.length === 0 ? empty === 1 : rows === list.length, `${label}: the API's policies (${list.length}), each a row (${rows}) or the empty state`);
+  check(
+    list.length === 0 ? empty === 1 : rows === list.length,
+    `${label}: the API's policies (${list.length}), each a row (${rows}) or the empty state`,
+  );
 
   // The halt: engaged through its confirmation, then released the same way.
   const halt = await (await page.request.get(`${policies}/halt`)).json();
   const banner = page.locator("[data-repricing-halt]");
-  check((await banner.getAttribute("data-repricing-halt")) === (halt.engaged ? "engaged" : "released"), `${label}: the halt is the API's (${halt.engaged})`);
+  check(
+    (await banner.getAttribute("data-repricing-halt")) === (halt.engaged ? "engaged" : "released"),
+    `${label}: the halt is the API's (${halt.engaged})`,
+  );
   if (javaScriptEnabled && !halt.engaged) {
     await page.getByRole("switch", { name: "Halt all repricing" }).click();
     const dialog = page.getByRole("dialog", { name: "Halt all repricing?" });
     check(await dialog.isVisible(), `${label}: the switch asks first`);
     await Promise.all([page.waitForURL(screen), dialog.getByRole("button", { name: "Halt repricing" }).click()]);
     await page.locator('[data-repricing-halt="engaged"]').waitFor();
-    check((await (await page.request.get(`${policies}/halt`)).json()).engaged === true, `${label}: the halt is engaged`);
+    check(
+      (await (await page.request.get(`${policies}/halt`)).json()).engaged === true,
+      `${label}: the halt is engaged`,
+    );
     check((await page.getByText("Repricing is halted").count()) === 1, `${label}: the page says repricing is halted`);
     await page.getByRole("switch", { name: "Halt all repricing" }).click();
-    await Promise.all([page.waitForURL(screen), page.getByRole("dialog").getByRole("button", { name: "Release halt" }).click()]);
+    await Promise.all([
+      page.waitForURL(screen),
+      page.getByRole("dialog").getByRole("button", { name: "Release halt" }).click(),
+    ]);
     await page.locator('[data-repricing-halt="released"]').waitFor();
-    check((await (await page.request.get(`${policies}/halt`)).json()).engaged === false, `${label}: the halt is released again`);
+    check(
+      (await (await page.request.get(`${policies}/halt`)).json()).engaged === false,
+      `${label}: the halt is released again`,
+    );
   }
 
   // The editor: Create opens it at its address with the account's currency and floor.
@@ -91,23 +113,40 @@ for (const javaScriptEnabled of [true, false]) {
   const one = prerequisites.listingCurrencyCodes.length === 1 ? prerequisites.listingCurrencyCodes[0] : "";
   check(currency === one, `${label}: the currency is the account's one (${currency})`);
   const floor = await page.locator('select[name="floor"]').inputValue();
-  check(floor === (prerequisites.hasCostBasis ? "cost-basis-plus-margin" : "absolute"), `${label}: the floor starts from the cost basis (${floor})`);
-  const scope = await page.request.post(`${policies}/scope-preview`, { data: { scope: { kind: "all-listings" }, excludedListingIds: [] } });
+  check(
+    floor === (prerequisites.hasCostBasis ? "cost-basis-plus-margin" : "absolute"),
+    `${label}: the floor starts from the cost basis (${floor})`,
+  );
+  const scope = await page.request.post(`${policies}/scope-preview`, {
+    data: { scope: { kind: "all-listings" }, excludedListingIds: [] },
+  });
   const matching = (await scope.json()).matching;
-  check((await page.locator('[data-repricing-scope="true"] dd').first().textContent())?.trim() === String(matching), `${label}: the scope matches the API's ${matching}`);
+  check(
+    (await page.locator('[data-repricing-scope="true"] dd').first().textContent())?.trim() === String(matching),
+    `${label}: the scope matches the API's ${matching}`,
+  );
 
   // A strategy chosen applies at once with a script, and by Apply without one. With a script the
   // GET swaps the page in place (todd-skelton/corten#190): the window that chose it is still there.
-  if (javaScriptEnabled) await page.evaluate(() => { /** @type {any} */ (window).__smokeSameWindow = true; });
+  if (javaScriptEnabled)
+    await page.evaluate(() => {
+      /** @type {any} */ (window).__smokeSameWindow = true;
+    });
   await page.locator('select[name="preset"]').selectOption("beat-lowest");
   if (!javaScriptEnabled) await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/preset=beat-lowest/);
   // The runtime moves to the address before it swaps the page in: wait for the new page.
   await page.locator('input[name="from"][value="beat-lowest"]').waitFor({ state: "attached" });
   await hydrated(page, javaScriptEnabled);
-  check((await page.locator('input[name="name"]').inputValue()) === "Beat the lowest listing", `${label}: a new strategy brings its name`);
+  check(
+    (await page.locator('input[name="name"]').inputValue()) === "Beat the lowest listing",
+    `${label}: a new strategy brings its name`,
+  );
   if (javaScriptEnabled) {
-    check(await page.evaluate(() => /** @type {any} */ (window).__smokeSameWindow === true), `${label}: and applies in place, without loading the page`);
+    check(
+      await page.evaluate(() => /** @type {any} */ (window).__smokeSameWindow === true),
+      `${label}: and applies in place, without loading the page`,
+    );
   }
   check((await page.locator('input[name="knob"]').inputValue()) === "2", `${label}: and its undercut`);
   const amount = page.locator('input[name="fallback"], input[name="amount"]');
@@ -120,9 +159,16 @@ for (const javaScriptEnabled of [true, false]) {
   await finished(page, javaScriptEnabled);
   const run = await (await page.request.get(`${policies}/dry-runs/${encodeURIComponent(id)}`)).json();
   check(run.status === "completed", `${label}: the dry run completed (${run.status})`);
-  check(run.body.rules[0].directive.offset.percent === -2 && run.body.rules[0].directive.anchorChain[0].source === "lowest-competing-ask", `${label}: the API ran the compiled preset`);
+  check(
+    run.body.rules[0].directive.offset.percent === -2 &&
+      run.body.rules[0].directive.anchorChain[0].source === "lowest-competing-ask",
+    `${label}: the API ran the compiled preset`,
+  );
   const changed = await page.locator('[data-repricing-changed="true"]').textContent();
-  check(changed?.trim() === String(run.summary?.outcomes?.changed ?? 0), `${label}: the changed count is the API's (${changed})`);
+  check(
+    changed?.trim() === String(run.summary?.outcomes?.changed ?? 0),
+    `${label}: the changed count is the API's (${changed})`,
+  );
   check(await page.locator('[data-repricing-activate="true"]').isEnabled(), `${label}: Activate is on for this run`);
 
   // A setting changed after the preview: the run no longer previews it.
@@ -130,9 +176,15 @@ for (const javaScriptEnabled of [true, false]) {
   if (javaScriptEnabled) await page.locator('input[name="knob"]').dispatchEvent("change");
   else await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/knob=3/);
-  await page.locator('[data-repricing-stale="true"]').waitFor({ state: "attached" }).catch(() => {});
+  await page
+    .locator('[data-repricing-stale="true"]')
+    .waitFor({ state: "attached" })
+    .catch(() => {});
   await hydrated(page, javaScriptEnabled);
-  check((await page.locator('[data-repricing-stale="true"]').count()) === 1, `${label}: the page says the settings changed since the preview`);
+  check(
+    (await page.locator('[data-repricing-stale="true"]').count()) === 1,
+    `${label}: the page says the settings changed since the preview`,
+  );
   check(await page.locator('[data-repricing-activate="true"]').isDisabled(), `${label}: and Activate is off`);
   check(problems.length === 0, `${label}: no console errors (${problems.join(" | ")})`);
   await ctx.close();
@@ -148,20 +200,32 @@ for (const javaScriptEnabled of [true, false]) {
   await page.waitForURL(/dryRun=/);
   await page.locator("[data-repricing-run]").waitFor({ state: "attached" });
   await finished(page, true);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
-  const columns = await page.locator("[data-repricing-editor] > div:last-child").evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
+  const columns = await page
+    .locator("[data-repricing-editor] > div:last-child")
+    .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
   check(columns === 1, `the editor is one column on a phone (${columns})`);
-  const headers = await page.locator("table thead").evaluateAll((heads) => heads.filter((h) => h.getBoundingClientRect().height > 1).length);
+  const headers = await page
+    .locator("table thead")
+    .evaluateAll((heads) => heads.filter((h) => h.getBoundingClientRect().height > 1).length);
   check(headers === 0, `each table is a card per row (${headers} header rows shown)`);
   const small = await page
     .locator("main a, main button, main select, main input:not([type=checkbox]):not([type=hidden])")
-    .evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().height < 44).map((el) => el.textContent?.trim() || el.getAttribute("name")));
+    .evaluateAll((els) =>
+      els
+        .filter((el) => el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().height < 44)
+        .map((el) => el.textContent?.trim() || el.getAttribute("name")),
+    );
   check(small.length === 0, `every control is at least 44 px tall (${small.join(", ") || "all"})`);
   const weak = await page.locator("main a, main button").evaluateAll((els) => {
     const rgb = (value) => (value.match(/[\d.]+/g) ?? []).map(Number);
     const luminance = ([r, g, b]) =>
-      [r, g, b].map((c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+      [r, g, b]
+        .map((c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
     return els
       .filter((el) => el.getBoundingClientRect().height > 0)
       .map((el) => ({ text: el.textContent?.trim(), style: getComputedStyle(el) }))
@@ -173,7 +237,10 @@ for (const javaScriptEnabled of [true, false]) {
       .filter(({ ratio }) => ratio < 4.5)
       .map(({ text, ratio }) => `${text} ${ratio.toFixed(2)}:1`);
   });
-  check(weak.length === 0, `every button's text is readable on its background (${weak.join(", ") || "all at least 4.5:1"})`);
+  check(
+    weak.length === 0,
+    `every button's text is readable on its background (${weak.join(", ") || "all at least 4.5:1"})`,
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }

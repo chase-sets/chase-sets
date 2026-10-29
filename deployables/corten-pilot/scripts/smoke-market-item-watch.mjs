@@ -42,7 +42,9 @@ async function eventually(read, done) {
   return value;
 }
 
-const read = await (await fetch(`${api}/api/marketplace/items/${slug}`, { headers: { "chase-sets-read-target-context": "discovery" } })).json();
+const read = await (
+  await fetch(`${api}/api/marketplace/items/${slug}`, { headers: { "chase-sets-read-target-context": "discovery" } })
+).json();
 // Raw and Near Mint: a product with listings and an offer in the seed.
 const choice = "dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint";
 const watchPage = `${base}/items/${slug}?market=watch&${choice}`;
@@ -50,20 +52,32 @@ const watchPage = `${base}/items/${slug}?market=watch&${choice}`;
 const browser = await chromium.launch();
 const elsewhere = [];
 async function context({ javaScriptEnabled, state, viewport }) {
-  const ctx = await browser.newContext({ javaScriptEnabled, ...(state ? { storageState: state } : {}), ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    javaScriptEnabled,
+    ...(state ? { storageState: state } : {}),
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
-  const theirs = (text) => !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()));
+  const theirs = (text) =>
+    !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()),
+  );
   page.on("pageerror", (e) => !theirs(String(e)) && problems.push(String(e)));
   page.on("response", (r) => {
-    if (r.status() === 404 || r.status() >= 500) (r.url().startsWith(base) ? problems : elsewhere).push(`${r.status()} ${r.request().method()} ${r.url()}`);
+    if (r.status() === 404 || r.status() >= 500)
+      (r.url().startsWith(base) ? problems : elsewhere).push(`${r.status()} ${r.request().method()} ${r.url()}`);
   });
   return { ctx, page, problems };
 }
 const rail = (page) => page.locator('[aria-labelledby="rail-title"]');
-const fold = (page, name) => rail(page).locator("details").filter({ hasText: new RegExp(`^\\s*${name}`) });
+const fold = (page, name) =>
+  rail(page)
+    .locator("details")
+    .filter({ hasText: new RegExp(`^\\s*${name}`) });
 const created = [];
 
 try {
@@ -75,18 +89,30 @@ try {
     check(new URL(await tab.getAttribute("href"), base).origin === base, "Watch is the pilot's own tab");
     await tab.click();
     check((await rail(page).locator("#rail-title").textContent()) === "Watch", "the rail is the Watch card");
-    check((await rail(page).innerText()).includes("Alerts are created after account registration"), "a guest is told an alert needs an account");
+    check(
+      (await rail(page).innerText()).includes("Alerts are created after account registration"),
+      "a guest is told an alert needs an account",
+    );
     const listings = fold(page, "Watch listings");
     check((await listings.getAttribute("open")) !== null, "Watch listings is open");
-    check((await listings.locator('input[name="currency"]').inputValue()) === "USD", "its currency starts as the listings'");
+    check(
+      (await listings.locator('input[name="currency"]').inputValue()) === "USD",
+      "its currency starts as the listings'",
+    );
     await listings.locator('input[name="threshold"]').fill("300");
     await listings.getByRole("button", { name: "Set listing alert" }).click();
     await page.waitForURL((u) => u.href.startsWith(`${web}/register`));
     const back = new URL(new URL(page.url()).searchParams.get("returnTo") ?? "/", web);
     const intent = back.searchParams.get("claimProductAlertIntent");
-    check(back.pathname === `/items/${slug}` && back.searchParams.get("market") === "watch" && Boolean(intent), `it lands on marketplace's registration, back to the Watch tab with the claim (${intent})`);
+    check(
+      back.pathname === `/items/${slug}` && back.searchParams.get("market") === "watch" && Boolean(intent),
+      `it lands on marketplace's registration, back to the Watch tab with the claim (${intent})`,
+    );
     const owner = (await ctx.cookies()).find((c) => c.name === "chase_sets_anonymous_product_alerts")?.value;
-    check(Boolean(owner?.startsWith("anon_cmd_")), `the guest's owner is kept in marketplace's cookie (${owner?.slice(0, 9)}...)`);
+    check(
+      Boolean(owner?.startsWith("anon_cmd_")),
+      `the guest's owner is kept in marketplace's cookie (${owner?.slice(0, 9)}...)`,
+    );
     check((await page.locator("body").innerText()).length > 0, "marketplace's registration loads");
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);
     await ctx.close();
@@ -101,12 +127,17 @@ try {
     await offers.locator("summary").click();
     // The browser holds a threshold with a third decimal itself; the server refuses one too.
     await offers.locator('input[name="threshold"]').fill("1.234");
-    check(await offers.locator('input[name="threshold"]').evaluate((e) => e.validity.stepMismatch), "a threshold of 1.234 does not pass the field's step");
+    check(
+      await offers.locator('input[name="threshold"]').evaluate((e) => e.validity.stepMismatch),
+      "a threshold of 1.234 does not pass the field's step",
+    );
     const refused = await page.evaluate(async (url) => {
       const form = document.querySelector('[aria-labelledby="rail-title"] form input[name="side"][value="offer"]').form;
       const body = new URLSearchParams(new FormData(form));
       body.set("threshold", "1.234");
-      return (await fetch(url, { method: "POST", body, headers: { "content-type": "application/x-www-form-urlencoded" } })).status;
+      return (
+        await fetch(url, { method: "POST", body, headers: { "content-type": "application/x-www-form-urlencoded" } })
+      ).status;
     }, `${base}/items/${slug}/watch`);
     check(refused === 422, `and the server refuses it (${refused})`);
     await offers.locator('input[name="threshold"]').fill("15");
@@ -124,13 +155,22 @@ try {
       alert?.market_side === "offer" && alert?.threshold_amount === "15.00" && alert?.threshold_currency_code === "USD",
       `the account has the offer alert at 15.00 USD (${alert?.alert_id})`,
     );
-    check(alert?.catalog_catalog_item_id === read.catalog_item_id && alert?.product_summary === "Raw / Near Mint", `with the catalog's product and words (${alert?.product_summary})`);
+    check(
+      alert?.catalog_catalog_item_id === read.catalog_item_id && alert?.product_summary === "Raw / Near Mint",
+      `with the catalog's product and words (${alert?.product_summary})`,
+    );
     await banner.getByRole("link", { name: "Manage alerts" }).click();
     await page.waitForURL((u) => u.href.startsWith(`${base}/account/notifications`));
     const settings = new URL(page.url());
-    check(settings.searchParams.get("section") === "product-alerts" && settings.hash === "#product-alerts", `Manage alerts opens the pilot's alert settings at the alerts (${settings.search}${settings.hash})`);
+    check(
+      settings.searchParams.get("section") === "product-alerts" && settings.hash === "#product-alerts",
+      `Manage alerts opens the pilot's alert settings at the alerts (${settings.search}${settings.hash})`,
+    );
     const listed = await page.locator("#product-alerts").innerText();
-    check(listed.includes("Raw / Near Mint") && listed.includes("Offers - at or above $15.00"), "and lists the new alert");
+    check(
+      listed.includes("Raw / Near Mint") && listed.includes("Offers - at or above $15.00"),
+      "and lists the new alert",
+    );
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);
     await ctx.close();
   }
@@ -143,9 +183,16 @@ try {
     for (let left = await closed.count(); left > 0; left--) await closed.first().click();
     const { wide, small } = await page.evaluate(() => ({
       wide: document.documentElement.scrollWidth > window.innerWidth,
-      small: Array.from(document.querySelectorAll('[aria-labelledby="rail-title"] :is(a, button, input:not([type="hidden"]), summary), nav[aria-label="Choose market intent"] a'))
+      small: Array.from(
+        document.querySelectorAll(
+          '[aria-labelledby="rail-title"] :is(a, button, input:not([type="hidden"]), summary), nav[aria-label="Choose market intent"] a',
+        ),
+      )
         .filter((e) => e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().height < 40)
-        .map((e) => `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`),
+        .map(
+          (e) =>
+            `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`,
+        ),
     }));
     const who = state ? "collector" : "guest";
     check(!wide, `390 px (${who}): nothing scrolls sideways`);
@@ -160,6 +207,9 @@ try {
   }
   await browser.close();
 }
-if (elsewhere.length) console.log(`note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`);
+if (elsewhere.length)
+  console.log(
+    `note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`,
+  );
 console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

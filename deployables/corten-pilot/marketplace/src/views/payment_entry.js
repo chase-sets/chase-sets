@@ -231,7 +231,6 @@ export async function confirm(scope, parts, watch, couldNotComplete, stillLoadin
   }
 }
 
-
 /**
  * Read the status part at `href` and apply it; it asks to be read again while the status is
  * unchanged.

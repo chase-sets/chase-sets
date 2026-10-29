@@ -24,7 +24,11 @@ function check(ok, what) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
@@ -66,27 +70,51 @@ for (const javaScriptEnabled of [true, false]) {
   const orders = await apiRead(page, "/sales/order-capacity");
   check(queue !== null, "the API answers the queue");
   const rows = page.locator("[data-seller-desk-item]");
-  check((await page.getByText(`${queue.rollup.total} to handle`).count()) === 1, `${label}: the count is the API's (${queue.rollup.total})`);
+  check(
+    (await page.getByText(`${queue.rollup.total} to handle`).count()) === 1,
+    `${label}: the count is the API's (${queue.rollup.total})`,
+  );
   const ids = await rows.evaluateAll((items) => items.map((item) => item.getAttribute("data-seller-desk-item")));
-  check(JSON.stringify(ids) === JSON.stringify(queue.items.map((item) => item.id)), `${label}: a row per item, in the API's order (${ids.length})`);
+  check(
+    JSON.stringify(ids) === JSON.stringify(queue.items.map((item) => item.id)),
+    `${label}: a row per item, in the API's order (${ids.length})`,
+  );
   for (const item of queue.items) {
     const href = await page.locator(`[data-seller-desk-item="${item.id}"] a`).getAttribute("href");
     const own = expected(item.deepLink.href);
-    check(own ? href === own || base + href === own : href?.startsWith("http://localhost:7753"), `${label}: ${item.id} links to ${href}`);
+    check(
+      own ? href === own || base + href === own : href?.startsWith("http://localhost:7753"),
+      `${label}: ${item.id} links to ${href}`,
+    );
   }
   const summaries = await rows.locator("p:nth-child(2)").allTextContents();
-  check(summaries.every((s) => s.trim() !== "" && !/\{[A-Za-z]+\}/.test(s)), `${label}: every summary is filled in`);
+  check(
+    summaries.every((s) => s.trim() !== "" && !/\{[A-Za-z]+\}/.test(s)),
+    `${label}: every summary is filled in`,
+  );
   const unavailable = queue.sources.filter((source) => source.status === "unavailable");
   const banner = page.locator('[data-seller-desk-degraded="true"]');
-  check((await banner.count()) === (unavailable.length > 0 ? 1 : 0), `${label}: the degraded banner when the API marks a source unavailable (${unavailable.length})`);
+  check(
+    (await banner.count()) === (unavailable.length > 0 ? 1 : 0),
+    `${label}: the degraded banner when the API marks a source unavailable (${unavailable.length})`,
+  );
   if (unavailable.length > 0) {
     const said = (await banner.textContent()) ?? "";
     check((await banner.locator("li").count()) === unavailable.length, `${label}: one line per unavailable source`);
-    check(!unavailable.some((source) => source.reason && said.includes(source.reason)), `${label}: without the API's internal reason (chase-sets/chase-sets#8766)`);
+    check(
+      !unavailable.some((source) => source.reason && said.includes(source.reason)),
+      `${label}: without the API's internal reason (chase-sets/chase-sets#8766)`,
+    );
   }
   const tiles = await page.locator("dl dd").allTextContents();
-  check(tiles[0]?.trim() === String(counts?.statusCounts?.active ?? "Unavailable"), `${label}: active listings is the API's (${tiles[0]})`);
-  check(tiles[1]?.trim() === String(orders?.open_order_count ?? "Unavailable"), `${label}: open orders to ship is Ordering's (${tiles[1]})`);
+  check(
+    tiles[0]?.trim() === String(counts?.statusCounts?.active ?? "Unavailable"),
+    `${label}: active listings is the API's (${tiles[0]})`,
+  );
+  check(
+    tiles[1]?.trim() === String(orders?.open_order_count ?? "Unavailable"),
+    `${label}: open orders to ship is Ordering's (${tiles[1]})`,
+  );
   check(problems.length === 0, `${label}: no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }
@@ -96,17 +124,23 @@ for (const javaScriptEnabled of [true, false]) {
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
   await page.goto(desk);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
   const columns = await page.locator("dl").evaluate((dl) => getComputedStyle(dl).gridTemplateColumns.split(" ").length);
   check(columns === 1, `the counts stack on a phone (${columns} column)`);
-  const small = await page.locator("main a").evaluateAll((links) => links.filter((a) => a.getBoundingClientRect().height < 44).length);
+  const small = await page
+    .locator("main a")
+    .evaluateAll((links) => links.filter((a) => a.getBoundingClientRect().height < 44).length);
   check(small === 0, `every link is at least 44 px tall (${small} not)`);
   // A link drawn as a button keeps its text readable on its own background (WCAG AA, 4.5:1).
   const weak = await page.locator("main a").evaluateAll((links) => {
     const rgb = (value) => (value.match(/[\d.]+/g) ?? []).map(Number);
     const luminance = ([r, g, b]) =>
-      [r, g, b].map((c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+      [r, g, b]
+        .map((c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
     return links
       .map((a) => ({ text: a.textContent?.trim(), style: getComputedStyle(a) }))
       .filter(({ style }) => (rgb(style.backgroundColor)[3] ?? 1) > 0 && style.backgroundColor !== "rgba(0, 0, 0, 0)")
@@ -117,7 +151,10 @@ for (const javaScriptEnabled of [true, false]) {
       .filter(({ ratio }) => ratio < 4.5)
       .map(({ text, ratio }) => `${text} ${ratio.toFixed(2)}:1`);
   });
-  check(weak.length === 0, `every button-like link's text is readable on its background (${weak.join(", ") || "all at least 4.5:1"})`);
+  check(
+    weak.length === 0,
+    `every button-like link's text is readable on its background (${weak.join(", ") || "all at least 4.5:1"})`,
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }

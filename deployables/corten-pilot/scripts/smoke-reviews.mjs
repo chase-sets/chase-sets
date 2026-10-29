@@ -16,8 +16,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -41,7 +44,8 @@ const lists = {
 console.log(`Reputation: ${newest.length} newest, ${lists.received.length} received, ${lists.written.length} written`);
 const reportable = (r) => r.status === "active" && r.revealed_at !== null && !r.held;
 const details = {};
-for (const r of [...lists.received, ...lists.written]) details[r.review_id] = await read(`/api/marketplace/reviews/${r.review_id}`);
+for (const r of [...lists.received, ...lists.written])
+  details[r.review_id] = await read(`/api/marketplace/reviews/${r.review_id}`);
 
 async function detail(page, label, id) {
   const r = details[id];
@@ -53,15 +57,25 @@ async function detail(page, label, id) {
   const order = `/account/${role === "buyer" ? "purchases" : "sales"}/${r.order_id}`;
   const back = `/account/reviews/${owns ? "written" : "received"}?role=${role}`;
   const links = await page.$$eval("main header a", (els) => els.map((e) => e.getAttribute("href")));
-  check(links.includes(order) && links.includes(back), `${label} ${id}: View order outcome and Back (${links.join(", ")})`);
+  check(
+    links.includes(order) && links.includes(back),
+    `${label} ${id}: View order outcome and Back (${links.join(", ")})`,
+  );
   const main = await text(page, "main");
   if (r.status === "withdrawn") check(main.includes("Review withdrawn"), `${label} ${id}: says it was withdrawn`);
-  else if (r.rating === null) check(main.includes(r.held ? "Review paused" : "A review is pending"), `${label} ${id}: stands in`);
+  else if (r.rating === null)
+    check(main.includes(r.held ? "Review paused" : "A review is pending"), `${label} ${id}: stands in`);
   else check(main.includes(r.author_display_name ?? r.author_account_id), `${label} ${id}: names its author`);
   const mayReport = r.rating !== null && reportable(r) && r.feedback_redacted_at === null;
-  check((await page.locator(`#report-review-dialog-${id}`).count()) === (mayReport ? 1 : 0), `${label} ${id}: Report review only where it may be sent (${mayReport})`);
+  check(
+    (await page.locator(`#report-review-dialog-${id}`).count()) === (mayReport ? 1 : 0),
+    `${label} ${id}: Report review only where it may be sent (${mayReport})`,
+  );
   const mayReply = r.subject_account_id === accountId && reportable(r) && r.reply_id === null;
-  check((await page.locator("#reply-feedback").count()) === (mayReply ? 1 : 0), `${label} ${id}: Respond only for the account reviewed, once (${mayReply})`);
+  check(
+    (await page.locator("#reply-feedback").count()) === (mayReply ? 1 : 0),
+    `${label} ${id}: Respond only for the account reviewed, once (${mayReply})`,
+  );
 }
 
 const browser = await chromium.launch();
@@ -72,14 +86,21 @@ async function context(options = {}) {
   page.setDefaultTimeout(30_000);
   const problems = [];
   // The not-found check asks for a 404 on purpose; the browser logs that load as an error.
-  page.on("console", (m) => m.type() === "error" && !m.location().url.endsWith("/rev_not_this_accounts") && problems.push(m.text()));
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !m.location().url.endsWith("/rev_not_this_accounts") && problems.push(m.text()),
+  );
   page.on("pageerror", (e) => problems.push(String(e)));
   return { ctx, page, problems };
 }
 const text = (page, selector) =>
   page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim() ?? "", selector);
-const anchors = (page) => page.$$eval('li[id^="review-anchor-"]', (els) => els.map((e) => e.id.slice("review-anchor-".length)));
-const dialogs = (page) => page.$$eval('dialog[id^="report-review-dialog-"]', (els) => els.map((e) => e.id.slice("report-review-dialog-".length)));
+const anchors = (page) =>
+  page.$$eval('li[id^="review-anchor-"]', (els) => els.map((e) => e.id.slice("review-anchor-".length)));
+const dialogs = (page) =>
+  page.$$eval('dialog[id^="report-review-dialog-"]', (els) =>
+    els.map((e) => e.id.slice("report-review-dialog-".length)),
+  );
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 async function pages(page, label) {
@@ -93,22 +114,52 @@ async function pages(page, label) {
   if (seller) check(main.includes(Number.parseFloat(seller).toFixed(1)), `${label}: the seller average ${seller}`);
   const rated = newest.filter((r) => r.rating !== null).map((r) => r.review_id);
   check(same(await anchors(page), rated), `${label}: each newest revealed review (${rated.length})`);
-  check(same(await dialogs(page), newest.filter((r) => r.rating !== null && reportable(r)).map((r) => r.review_id)), `${label}: Report review only where it may be sent`);
+  check(
+    same(
+      await dialogs(page),
+      newest.filter((r) => r.rating !== null && reportable(r)).map((r) => r.review_id),
+    ),
+    `${label}: Report review only where it may be sent`,
+  );
 
   for (const which of ["received", "written", "received?role=seller"]) {
     res = await page.goto(`${base}/account/reviews/${which}`);
     check(res?.status() === 200, `${label} ${which}: answers 200 (${res?.status()})`);
     const items = lists[which];
-    check(same(await anchors(page), items.map((r) => r.review_id)), `${label} ${which}: each review Reputation lists (${items.length})`);
-    check(same(await dialogs(page), items.filter((r) => r.rating !== null && reportable(r)).map((r) => r.review_id)), `${label} ${which}: Report review only where it may be sent`);
+    check(
+      same(
+        await anchors(page),
+        items.map((r) => r.review_id),
+      ),
+      `${label} ${which}: each review Reputation lists (${items.length})`,
+    );
+    check(
+      same(
+        await dialogs(page),
+        items.filter((r) => r.rating !== null && reportable(r)).map((r) => r.review_id),
+      ),
+      `${label} ${which}: Report review only where it may be sent`,
+    );
     const body = await text(page, "main");
     for (const r of items) {
-      if (r.status === "withdrawn") check(body.includes("Review withdrawn"), `${label} ${which}: ${r.review_id} says it was withdrawn`);
-      else if (r.rating === null) check(body.includes(r.held ? "Review paused" : "A review is pending"), `${label} ${which}: ${r.review_id} stands in`);
+      if (r.status === "withdrawn")
+        check(body.includes("Review withdrawn"), `${label} ${which}: ${r.review_id} says it was withdrawn`);
+      else if (r.rating === null)
+        check(
+          body.includes(r.held ? "Review paused" : "A review is pending"),
+          `${label} ${which}: ${r.review_id} stands in`,
+        );
     }
-    if (items.length === 0) check(body.includes(which.startsWith("received") ? "No received reviews yet" : "No written reviews yet"), `${label} ${which}: none says so`);
+    if (items.length === 0)
+      check(
+        body.includes(which.startsWith("received") ? "No received reviews yet" : "No written reviews yet"),
+        `${label} ${which}: none says so`,
+      );
     const current = await text(page, 'main a[aria-current="page"]');
-    check(current === (which.includes("role=seller") ? "As seller" : "All"), `${label} ${which}: the current role is marked (${current})`);
+    check(
+      current === (which.includes("role=seller") ? "As seller" : "All"),
+      `${label} ${which}: the current role is marked (${current})`,
+    );
   }
   for (const id of Object.keys(details)) await detail(page, label, id);
   const missing = await page.goto(`${base}/account/reviews/rev_not_this_accounts`);
@@ -120,9 +171,15 @@ try {
     const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
     await pages(page, "390 px");
     const opened = lists.received.find((r) => r.rating !== null) ?? lists.written.find((r) => r.rating !== null);
-    for (const path of ["/account/reviews", "/account/reviews/received", ...(opened ? [`/account/reviews/${opened.review_id}`] : [])]) {
+    for (const path of [
+      "/account/reviews",
+      "/account/reviews/received",
+      ...(opened ? [`/account/reviews/${opened.review_id}`] : []),
+    ]) {
       await page.goto(`${base}${path}`);
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
       check(overflow <= 0, `${path}: nothing scrolls sideways at 390 px (${overflow})`);
       const small = await page.$$eval("main button, main a[class]", (els) =>
         els.filter((e) => e.offsetParent && e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 60)),

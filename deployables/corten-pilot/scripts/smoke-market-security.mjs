@@ -16,8 +16,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -34,14 +37,24 @@ const userId = session.actor.userId;
 const userUrl = `${api}/api/identity/users/${userId}`;
 const readUser = async () => (await fetch(userUrl, { headers: { cookie } })).json();
 const keys = async () =>
-  ((await (await fetch(`${api}/api/identity/api-keys`, { headers: { cookie } })).json()).items ?? []).filter((k) => k.user_id === userId);
+  ((await (await fetch(`${api}/api/identity/api-keys`, { headers: { cookie } })).json()).items ?? []).filter(
+    (k) => k.user_id === userId,
+  );
 const original = await readUser();
 const before = new Set((await keys()).map((k) => k.api_key_id));
 const stamp = Date.now().toString(36);
 const first = `Pilot smoke ${stamp}`;
 const second = `Pilot smoke ${stamp} nojs`;
 const givenSynthetic = `Pilot ${stamp}`;
-const methodWords = { password: "Password", "magic-link": "Magic link", passkey: "Passkey", "sms-code": "SMS code", "social-login": "Social login", google: "Google login", facebook: "Facebook login" };
+const methodWords = {
+  password: "Password",
+  "magic-link": "Magic link",
+  passkey: "Passkey",
+  "sms-code": "SMS code",
+  "social-login": "Social login",
+  google: "Google login",
+  facebook: "Facebook login",
+};
 
 const browser = await chromium.launch();
 async function context(options = {}) {
@@ -56,8 +69,13 @@ async function context(options = {}) {
   return { ctx, page, problems };
 }
 const main = (page) => page.evaluate(() => document.querySelector("main")?.innerText.replace(/\s+/g, " ") ?? "");
-const secret = (page) => page.locator("main pre code").innerText({ timeout: 2000 }).catch(() => "");
-const posted = (page) => page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/account/security");
+const secret = (page) =>
+  page
+    .locator("main pre code")
+    .innerText({ timeout: 2000 })
+    .catch(() => "");
+const posted = (page) =>
+  page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/account/security");
 /** Whether the key named `name` comes to read `status` on the page, as the page reads itself again. */
 async function reads(page, name, status) {
   for (let i = 0; i < 30; i += 1) {
@@ -86,8 +104,14 @@ try {
     check((await page.title()) === "Security | Marketplace", `the title (${await page.title()})`);
     const text = await main(page);
     const methods = original.auth_methods.map((m) => methodWords[m] ?? m).join(", ");
-    check(text.includes(`Enabled Methods ${original.auth_methods.length} ${methods}`), `the sign-in methods (${methods})`);
-    check((await page.getByLabel("Display Name").inputValue()) === original.display_name, "Update Profile has the display name");
+    check(
+      text.includes(`Enabled Methods ${original.auth_methods.length} ${methods}`),
+      `the sign-in methods (${methods})`,
+    );
+    check(
+      (await page.getByLabel("Display Name").inputValue()) === original.display_name,
+      "Update Profile has the display name",
+    );
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(wide <= 0, `nothing scrolls sideways at 390 px (${wide})`);
     const short = await page.evaluate(() =>
@@ -117,24 +141,39 @@ try {
     await create.getByRole("button", { name: "Create API Key" }).click();
     const res = await answer;
     await page.getByText("API key secret created").waitFor();
-    check(res.status() === 200 && (res.headers()["cache-control"] ?? "").includes("no-store"), `the create is answered 200 with no-store (${res.status()}, ${res.headers()["cache-control"]})`);
+    check(
+      res.status() === 200 && (res.headers()["cache-control"] ?? "").includes("no-store"),
+      `the create is answered 200 with no-store (${res.status()}, ${res.headers()["cache-control"]})`,
+    );
     check(page.url() === `${base}/account/security`, "the secret's page is the page's own address, with nothing in it");
     const issued = await secret(page);
     check(issued.length > 12, "the page shows the full secret");
     const copy = page.getByRole("button", { name: "Copy" });
     check(await copy.isVisible(), "with the script, Copy is shown");
     await copy.click();
-    await page.getByRole("button", { name: "Copied" }).waitFor({ timeout: 5000 }).catch(() => {});
+    await page
+      .getByRole("button", { name: "Copied" })
+      .waitFor({ timeout: 5000 })
+      .catch(() => {});
     const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
     check(copied === issued, "Copy put the secret on the clipboard");
 
     await page.reload();
     await page.waitForLoadState();
     const again = await main(page);
-    check(!(await secret(page)) && again.includes("its secret cannot be recovered"), "a reload sends the same attempt and says the secret cannot be shown again");
-    await page.getByRole("link", { name: "I have stored this secret" }).click().catch(() => page.goto(`${base}/account/security`));
+    check(
+      !(await secret(page)) && again.includes("its secret cannot be recovered"),
+      "a reload sends the same attempt and says the secret cannot be shown again",
+    );
+    await page
+      .getByRole("link", { name: "I have stored this secret" })
+      .click()
+      .catch(() => page.goto(`${base}/account/security`));
     await page.waitForLoadState();
-    check(page.url() === `${base}/account/security` && !(await secret(page)), "leaving the secret loads the page without it");
+    check(
+      page.url() === `${base}/account/security` && !(await secret(page)),
+      "leaving the secret loads the page without it",
+    );
     check(await reads(page, first, "Active"), "the new key reads Active");
 
     const row = page.locator("main li", { hasText: first });
@@ -147,7 +186,7 @@ try {
     const revoke = page.locator("main li", { hasText: first });
     await revoke.getByRole("button", { name: "Revoke", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    check(await dialog.isVisible() && (await dialog.innerText()).includes(`Revoke ${first}?`), "Revoke asks first");
+    check((await dialog.isVisible()) && (await dialog.innerText()).includes(`Revoke ${first}?`), "Revoke asks first");
     await dialog.getByRole("button", { name: "Confirm revoke" }).click();
     await page.waitForURL(/saved=/);
     check(await reads(page, first, "Revoked"), "the key comes to read Revoked");
@@ -158,7 +197,10 @@ try {
     await page.getByText("Your change was saved").waitFor();
     check(await settled(givenSynthetic), "Update Profile saves the given name");
     await page.goto(`${base}/account/security`);
-    await page.locator("main form", { has: page.getByRole("button", { name: "Update Profile" }) }).getByLabel("Given Name").fill(original.given_name);
+    await page
+      .locator("main form", { has: page.getByRole("button", { name: "Update Profile" }) })
+      .getByLabel("Given Name")
+      .fill(original.given_name);
     await page.getByRole("button", { name: "Update Profile" }).click();
     await page.getByText("Your change was saved").waitFor();
     check(await settled(original.given_name), "and puts it back");
@@ -174,7 +216,10 @@ try {
     await create.getByLabel("API Key Name").fill(second);
     await create.getByRole("button", { name: "Create API Key" }).click();
     await page.waitForLoadState();
-    check((await main(page)).includes("API key secret created") && (await secret(page)).length > 12, "without a script, the create shows the secret");
+    check(
+      (await main(page)).includes("API key secret created") && (await secret(page)).length > 12,
+      "without a script, the create shows the secret",
+    );
     check(!(await page.getByRole("button", { name: "Copy" }).isVisible()), "and no Copy it could not work");
     await page.goto(`${base}/account/security`);
     check(await reads(page, second, "Active"), "the second key reads Active");
@@ -214,11 +259,19 @@ try {
     console.log(`revoked a key the run left active through the API (${res.status})`);
   }
   const now = await readUser();
-  if (now.display_name !== original.display_name || now.given_name !== original.given_name || now.family_name !== original.family_name) {
+  if (
+    now.display_name !== original.display_name ||
+    now.given_name !== original.given_name ||
+    now.family_name !== original.family_name
+  ) {
     const res = await fetch(userUrl, {
       method: "PUT",
       headers: { cookie, "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
-      body: JSON.stringify({ displayName: original.display_name, givenName: original.given_name, familyName: original.family_name }),
+      body: JSON.stringify({
+        displayName: original.display_name,
+        givenName: original.given_name,
+        familyName: original.family_name,
+      }),
     });
     console.log(`restored the names through the API (${res.status})`);
   }

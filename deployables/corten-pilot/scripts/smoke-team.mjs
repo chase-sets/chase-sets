@@ -14,8 +14,11 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/marketplace-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/marketplace-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 const MEMBER = "mbr_seed_support_membership";
 let failures = 0;
 
@@ -90,17 +93,26 @@ try {
       `every member of the account and no other (${shownMembers.join(", ")})`,
     );
     check(
-      shownInvitations.length === invitations.length && invitations.every((i) => shownInvitations.includes(i.invitation_id)),
+      shownInvitations.length === invitations.length &&
+        invitations.every((i) => shownInvitations.includes(i.invitation_id)),
       `every invitation of the account and no other (${shownInvitations.length})`,
     );
     check((await text(page, row(MEMBER))).includes("Manager · Active"), "the manager's row says Manager · Active");
-    const statuses = { pending: "Pending", accepted: "Accepted", cancelled: "Cancelled", declined: "Declined", expired: "Expired" };
+    const statuses = {
+      pending: "Pending",
+      accepted: "Accepted",
+      cancelled: "Cancelled",
+      declined: "Declined",
+      expired: "Expired",
+    };
     let summaries = true;
     for (const i of invitations) {
       summaries &&= (await text(page, `li[data-invitation="${i.invitation_id}"]`)).includes(statuses[i.status] ?? "?");
     }
     check(summaries, "each invitation says its status");
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
     check(overflow <= 0, `nothing scrolls sideways at 390 px (${overflow})`);
     const small = await page.$$eval("main button, main select, main input:not([type=hidden])", (els) =>
       els.filter((e) => e.offsetParent && e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 60)),
@@ -122,7 +134,10 @@ try {
     const { ctx, page, problems } = await context();
     await page.goto(`${base}/account/team`);
     await changeRole(page, "viewer");
-    check((await text(page, "main [role=status]")).includes("Your change was saved"), "with a script, the page says it was saved");
+    check(
+      (await text(page, "main [role=status]")).includes("Your change was saved"),
+      "with a script, the page says it was saved",
+    );
     check(await shows(page, "Viewer · Active"), "and the row shows Viewer");
     check(await settled("viewer"), "Identity has the member as a Viewer");
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
@@ -133,7 +148,10 @@ try {
     const { ctx, page } = await context({ javaScriptEnabled: false });
     await page.goto(`${base}/account/team`);
     await changeRole(page, "manager");
-    check((await text(page, "main [role=status]")).includes("Your change was saved"), "without a script, the page says it was saved");
+    check(
+      (await text(page, "main [role=status]")).includes("Your change was saved"),
+      "without a script, the page says it was saved",
+    );
     check(await shows(page, "Manager · Active"), "and the row shows Manager again");
     check(await settled("manager"), "Identity has the member as a Manager again");
     await ctx.close();
@@ -153,7 +171,9 @@ try {
       headers: { cookie, "content-type": "application/json", "idempotency-key": randomUUID() },
       body: JSON.stringify({ roleKey: original }),
     });
-    console.log(`restored the role through the API (${res.status}): ${(await settled(original)) ? "ok" : "STILL NOT RESTORED"}`);
+    console.log(
+      `restored the role through the API (${res.status}): ${(await settled(original)) ? "ok" : "STILL NOT RESTORED"}`,
+    );
   }
 }
 console.log(failures ? `${failures} failed` : "all passed");

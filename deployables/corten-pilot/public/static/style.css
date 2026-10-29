@@ -24,23 +24,49 @@
 }
 
 /* color-scheme is a property, not a token: the same selectors as the dark theme in tokens.json. */
-:root { color-scheme: light; }
-[data-theme="dark"] { color-scheme: dark; }
+:root {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark; }
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
 }
 
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   background: var(--color-background);
   color: var(--color-text);
   font: 400 1rem/1.5 var(--font-body);
 }
-main { max-width: 72rem; margin: 0 auto; padding: var(--space-8) var(--space-6); }
-@media (max-width: 40rem) { main { padding: var(--space-6) var(--space-4); } }
-h1, h2, h3 { font-family: var(--font-display); }
-a { color: var(--color-primary); }
-:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
-
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+@media (max-width: 40rem) {
+  main {
+    padding: var(--space-6) var(--space-4);
+  }
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+}
+a {
+  color: var(--color-primary);
+}
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}

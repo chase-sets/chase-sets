@@ -23,7 +23,11 @@ function check(ok, what) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   const problems = [];
@@ -40,15 +44,29 @@ const read = async (page, path) => {
 for (const javaScriptEnabled of [true, false]) {
   const label = javaScriptEnabled ? "with JavaScript" : "without JavaScript";
   const { ctx, page, problems } = await context(javaScriptEnabled);
-  const [flows, purchases, sales] = await Promise.all([read(page, "flows"), read(page, "purchases"), read(page, "sales")]);
+  const [flows, purchases, sales] = await Promise.all([
+    read(page, "flows"),
+    read(page, "purchases"),
+    read(page, "sales"),
+  ]);
   check(flows && purchases && sales, `${label}: the API answers the list reads`);
   const answer = await page.goto(`${base}/account/support`);
   check(answer?.status() === 200, `${label}: the page answers 200 (${answer?.status()})`);
   if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   const rows = async (title) =>
-    page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) }).locator("tbody tr").count();
-  check((await rows("Buyer requests")) === purchases.items.length, `${label}: a row per buyer case (${purchases.items.length})`);
-  check((await rows("Seller requests")) === sales.items.length, `${label}: a row per seller case (${sales.items.length})`);
+    page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: title, exact: true }) })
+      .locator("tbody tr")
+      .count();
+  check(
+    (await rows("Buyer requests")) === purchases.items.length,
+    `${label}: a row per buyer case (${purchases.items.length})`,
+  );
+  check(
+    (await rows("Seller requests")) === sales.items.length,
+    `${label}: a row per seller case (${sales.items.length})`,
+  );
   check((await rows("Available flows")) === flows.items.length, `${label}: a row per flow (${flows.items.length})`);
   const cases = [...purchases.items, ...sales.items];
   for (const c of cases.slice(0, 5)) {
@@ -62,20 +80,35 @@ for (const javaScriptEnabled of [true, false]) {
     const lookup = await read(page, `orders/${encodeURIComponent(open.order_id)}`);
     await page.goto(`${base}/account/support?orderId=${encodeURIComponent(open.order_id)}`);
     if (lookup?.existingOpenRequest) {
-      check(await page.getByText("A case is already open for this order").isVisible(), `${label}: ${open.order_id}: the case already open`);
-      check((await page.locator('a[href="#existing-case"]').count()) === 1, `${label}: View existing case links in the page`);
+      check(
+        await page.getByText("A case is already open for this order").isVisible(),
+        `${label}: ${open.order_id}: the case already open`,
+      );
+      check(
+        (await page.locator('a[href="#existing-case"]').count()) === 1,
+        `${label}: View existing case links in the page`,
+      );
       check((await page.locator('[name="step"]').count()) === 0, `${label}: no intake beside it`);
     } else if (lookup) {
       const boxes = await page.locator('input[name="line"]').count();
-      check(boxes === lookup.lines.length, `${label}: ${open.order_id}: a box per line (${boxes} of ${lookup.lines.length})`);
+      check(
+        boxes === lookup.lines.length,
+        `${label}: ${open.order_id}: a box per line (${boxes} of ${lookup.lines.length})`,
+      );
     } else {
-      check((await page.locator('[data-tone="danger"]').count()) > 0, `${label}: ${open.order_id}: the lookup's refusal is shown`);
+      check(
+        (await page.locator('[data-tone="danger"]').count()) > 0,
+        `${label}: ${open.order_id}: the lookup's refusal is shown`,
+      );
     }
   } else {
     console.log(`skip ${label}: no open case to look an order up by`);
   }
   const missing = await page.goto(`${base}/account/support?orderId=ord_does_not_exist`);
-  check(missing?.status() === 200, `${label}: an order the API does not know is the page with its words (${missing?.status()})`);
+  check(
+    missing?.status() === 200,
+    `${label}: an order the API does not know is the page with its words (${missing?.status()})`,
+  );
   check((await page.locator('[data-tone="danger"]').count()) > 0, `${label}: and says so`);
   check(problems.length === 0, `${label}: no console errors (${problems.join(" | ")})`);
 
@@ -98,11 +131,17 @@ for (const javaScriptEnabled of [true, false]) {
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
   await page.goto(`${base}/account/support`);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
   const small = await page
     .locator("main a, main button, main label")
-    .evaluateAll((controls) => controls.filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40).map((c) => c.textContent?.trim()));
+    .evaluateAll((controls) =>
+      controls
+        .filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40)
+        .map((c) => c.textContent?.trim()),
+    );
   check(small.length === 0, `every link, button and label is at least 40 px tall (${small.join(", ") || "all"})`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/support-list-390.png", fullPage: true });
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);

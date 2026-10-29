@@ -26,7 +26,11 @@ function check(ok, what) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   const problems = [];
@@ -55,26 +59,52 @@ for (const javaScriptEnabled of [true, false]) {
   const entries = (await settlement(page, "/wallet/entries"))?.items ?? [];
   const readiness = await settlement(page, "/payout-readiness");
   const figures = await page.locator("dl dd").allTextContents();
-  check(figures[0]?.trim() === usd(wallet.available_balance_amount), `${label}: the balance is Settlement's (${figures[0]})`);
+  check(
+    figures[0]?.trim() === usd(wallet.available_balance_amount),
+    `${label}: the balance is Settlement's (${figures[0]})`,
+  );
   check(figures[1]?.includes(usd(wallet.pending_balance_amount)), `${label}: and what is pending (${figures[1]})`);
   const failed = payouts.filter((p) => p.status === "failed").map((p) => p.payout_id);
   const lost = payouts.filter((p) => p.status === "in-transit" && !p.provider_payout_reference).map((p) => p.payout_id);
-  const quiet = payouts.filter((p) => p.status === "requested" && Date.now() - Date.parse(p.updated_at) >= 15 * 60_000).map((p) => p.payout_id);
-  const blocked = await page.locator("[data-blocked-payout]").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-blocked-payout")));
+  const quiet = payouts
+    .filter((p) => p.status === "requested" && Date.now() - Date.parse(p.updated_at) >= 15 * 60_000)
+    .map((p) => p.payout_id);
+  const blocked = await page
+    .locator("[data-blocked-payout]")
+    .evaluateAll((rows) => rows.map((r) => r.getAttribute("data-blocked-payout")));
   check(
     JSON.stringify(blocked.toSorted()) === JSON.stringify([...failed, ...lost, ...quiet].toSorted()),
     `${label}: the blocked payouts, by marketplace's rule (${blocked.join(", ") || "none"})`,
   );
-  const rows = await page.locator("[data-payout]").evaluateAll((items) => items.map((i) => i.getAttribute("data-payout")));
-  check(JSON.stringify(rows) === JSON.stringify(payouts.map((p) => p.payout_id)), `${label}: a row per payout, in the API's order (${rows.length})`);
-  const activity = await page.getByRole("heading", { name: "Wallet activity" }).locator("xpath=..").locator("li").count();
-  check(activity === Math.max(entries.length, 0), `${label}: a row per wallet movement (${activity} of ${entries.length})`);
-  const ready = readiness.status === "ready" && Boolean(readiness.updated_at) && Number(wallet.available_balance_amount) > 0;
+  const rows = await page
+    .locator("[data-payout]")
+    .evaluateAll((items) => items.map((i) => i.getAttribute("data-payout")));
+  check(
+    JSON.stringify(rows) === JSON.stringify(payouts.map((p) => p.payout_id)),
+    `${label}: a row per payout, in the API's order (${rows.length})`,
+  );
+  const activity = await page
+    .getByRole("heading", { name: "Wallet activity" })
+    .locator("xpath=..")
+    .locator("li")
+    .count();
+  check(
+    activity === Math.max(entries.length, 0),
+    `${label}: a row per wallet movement (${activity} of ${entries.length})`,
+  );
+  const ready =
+    readiness.status === "ready" && Boolean(readiness.updated_at) && Number(wallet.available_balance_amount) > 0;
   const preview = page.getByRole("button", { name: "Preview payout" });
-  check((await preview.isDisabled()) === !ready, `${label}: Request a payout is ${ready ? "on" : "off while payout setup is unfinished"}`);
+  check(
+    (await preview.isDisabled()) === !ready,
+    `${label}: Request a payout is ${ready ? "on" : "off while payout setup is unfinished"}`,
+  );
   if (!ready) {
     check((await page.getByText("Why this payout is unavailable").count()) > 0, `${label}: and says why`);
-    check((await page.getByText("Finish payout setup", { exact: true }).count()) > 0, `${label}: payout setup needs attention`);
+    check(
+      (await page.getByText("Finish payout setup", { exact: true }).count()) > 0,
+      `${label}: payout setup needs attention`,
+    );
   }
   check(problems.length === 0, `${label}: no console errors (${problems.join(" | ")})`);
 
@@ -100,7 +130,10 @@ for (const javaScriptEnabled of [true, false]) {
     const form = document.createElement("form");
     form.method = "post";
     form.action = "/account/desk/money";
-    for (const [name, value] of [["intent", "preview-payout"], ["amount", "$5.00"]]) {
+    for (const [name, value] of [
+      ["intent", "preview-payout"],
+      ["amount", "$5.00"],
+    ]) {
       const input = Object.assign(document.createElement("input"), { type: "hidden", name, value });
       form.append(input);
     }
@@ -135,7 +168,10 @@ for (const javaScriptEnabled of [true, false]) {
     check(!(await dialog.isVisible()), "Escape closes it");
   }
   const answer = await page.goto(`${money}?drawer=wallet-adjustment&entity=WADJ-NOT-THERE`);
-  check(answer?.status() === 200 && (await page.locator("dialog[open]").count()) === 0, "an adjustment the account has not is the page without it");
+  check(
+    answer?.status() === 200 && (await page.locator("dialog[open]").count()) === 0,
+    "an adjustment the account has not is the page without it",
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }
@@ -145,13 +181,22 @@ for (const javaScriptEnabled of [true, false]) {
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
   await page.goto(money);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
-  const columns = await page.locator("main dl").first().evaluate((dl) => getComputedStyle(dl).gridTemplateColumns.split(" ").length);
+  const columns = await page
+    .locator("main dl")
+    .first()
+    .evaluate((dl) => getComputedStyle(dl).gridTemplateColumns.split(" ").length);
   check(columns === 1, `the figures stack on a phone (${columns} column)`);
   const small = await page
     .locator("main a, main button, main input:not([type=hidden]), main summary")
-    .evaluateAll((controls) => controls.filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40).map((c) => c.textContent?.trim() || c.getAttribute("name")));
+    .evaluateAll((controls) =>
+      controls
+        .filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40)
+        .map((c) => c.textContent?.trim() || c.getAttribute("name")),
+    );
   check(small.length === 0, `every control is at least 40 px tall (${small.join(", ") || "all"})`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/money-390.png", fullPage: true });
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);

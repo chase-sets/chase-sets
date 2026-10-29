@@ -1,5 +1,9 @@
 /* public-web's error and not-found page (MarketplaceEmptyState in a narrow Page). */
-.narrow { width: 100%; max-width: 40rem; margin: 0 auto; }
+.narrow {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+}
 .empty {
   display: grid;
   gap: var(--space-3);
@@ -9,10 +13,28 @@
   border-radius: var(--radius-lg);
   text-align: center;
 }
-.title { margin: 0; font: 600 1.5rem/1.25 var(--font-display); overflow-wrap: anywhere; }
-.muted { margin: 0; color: var(--color-text-secondary); overflow-wrap: anywhere; }
-.cue { margin: 0; color: var(--color-text-secondary); font-size: 0.875rem; }
-.detail { max-width: 100%; margin: 0; overflow-x: auto; font-size: 0.75rem; text-align: start; }
+.title {
+  margin: 0;
+  font: 600 1.5rem/1.25 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.cue {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.detail {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  text-align: start;
+}
 .button {
   display: inline-flex;
   align-items: center;
@@ -25,4 +47,6 @@
   font-weight: 600;
   text-decoration: none;
 }
-.button:hover { background: var(--color-primary-hover); }
+.button:hover {
+  background: var(--color-primary-hover);
+}

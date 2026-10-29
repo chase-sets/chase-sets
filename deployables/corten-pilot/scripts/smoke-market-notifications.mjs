@@ -36,7 +36,9 @@ const cookie = JSON.parse(readFileSync(state, "utf8"))
 const alertsApi = `${api}/api/marketplace/account/product-alerts`;
 const writes = { cookie, "content-type": "application/json", origin: market };
 const preference = async (key) =>
-  (await (await fetch(`${api}/api/notifications/preferences`, { headers: { cookie } })).json()).items.find((p) => p.key === key)?.enabled;
+  (await (await fetch(`${api}/api/notifications/preferences`, { headers: { cookie } })).json()).items.find(
+    (p) => p.key === key,
+  )?.enabled;
 
 const browser = await chromium.launch();
 async function context(options = {}) {
@@ -59,22 +61,37 @@ const main = (page) => page.evaluate(() => document.querySelector("main")?.inner
   await page.goto(`${base}/account/notifications`);
   const ours = await main(page);
   const unread = (text) => text.match(/(\d+) unread/)?.[1];
-  check(unread(ours) !== undefined && unread(ours) === unread(theirs), `the unread count: ${unread(ours)} (marketplace ${unread(theirs)})`);
+  check(
+    unread(ours) !== undefined && unread(ours) === unread(theirs),
+    `the unread count: ${unread(ours)} (marketplace ${unread(theirs)})`,
+  );
   const first = await page.locator("#feed article").first().locator("p").first().innerText();
   check(theirs.includes(first), `the first notification is marketplace's too: ${first}`);
   for (const words of ["Notifications", "Recent updates", "Mark all read"]) {
-    check(ours.includes(words) === theirs.includes(words), `${words}: ${ours.includes(words)} (marketplace ${theirs.includes(words)})`);
+    check(
+      ours.includes(words) === theirs.includes(words),
+      `${words}: ${ours.includes(words)} (marketplace ${theirs.includes(words)})`,
+    );
   }
   await page.getByRole("link", { name: /Settings/ }).click();
   const settings = await main(page);
-  check(settings.includes("Delivery settings") && settings.includes("Product alerts"), "Settings is a link to the delivery settings and the alerts");
-  check(await page.getByRole("switch").count() === 3 && !/\bsms\b|\brcs\b/.test(settings), `three channels, no bare sms or rcs (${await page.getByRole("switch").count()})`);
+  check(
+    settings.includes("Delivery settings") && settings.includes("Product alerts"),
+    "Settings is a link to the delivery settings and the alerts",
+  );
+  check(
+    (await page.getByRole("switch").count()) === 3 && !/\bsms\b|\brcs\b/.test(settings),
+    `three channels, no bare sms or rcs (${await page.getByRole("switch").count()})`,
+  );
   // The switch without a script: a post, then the settings again.
   const was = await preference("email");
   await page.getByRole("switch", { name: "Email notifications" }).click();
   await page.waitForLoadState();
   check((await preference("email")) === !was, `without a script, the switch turns email ${was ? "off" : "on"}`);
-  check((await page.getByRole("switch", { name: "Email notifications" }).getAttribute("aria-checked")) === String(!was), "and the page says so");
+  check(
+    (await page.getByRole("switch", { name: "Email notifications" }).getAttribute("aria-checked")) === String(!was),
+    "and the page says so",
+  );
   await page.getByRole("switch", { name: "Email notifications" }).click();
   await page.waitForLoadState();
   check((await preference("email")) === was, "and back again");
@@ -91,23 +108,51 @@ try {
   page.on("framenavigated", (f) => f === page.mainFrame() && navigations.push(f.url()));
   // The section's reads again: GETs of the settings with a receipt, as a patch.
   let readsAgain = 0;
-  page.on("request", (r) => r.method() === "GET" && r.url().includes("afterWrite=") && r.headers()["corten"] === "action" && (readsAgain += 1));
+  page.on(
+    "request",
+    (r) =>
+      r.method() === "GET" &&
+      r.url().includes("afterWrite=") &&
+      r.headers()["corten"] === "action" &&
+      (readsAgain += 1),
+  );
   const email = page.getByRole("switch", { name: "Email notifications" });
   const was = (await email.getAttribute("aria-checked")) === "true";
   await email.click();
-  await page.waitForFunction((v) => document.querySelector("#preference-email [role=switch]")?.getAttribute("aria-checked") === v, String(!was));
+  await page.waitForFunction(
+    (v) => document.querySelector("#preference-email [role=switch]")?.getAttribute("aria-checked") === v,
+    String(!was),
+  );
   check((await preference("email")) === !was, "with a script, the switch turns email the other way, drawn in place");
   await page.getByRole("switch", { name: "Email notifications" }).click();
-  await page.waitForFunction((v) => document.querySelector("#preference-email [role=switch]")?.getAttribute("aria-checked") === v, String(was));
+  await page.waitForFunction(
+    (v) => document.querySelector("#preference-email [role=switch]")?.getAttribute("aria-checked") === v,
+    String(was),
+  );
   check((await preference("email")) === was, "and back again");
-  check((await page.evaluate(() => document.activeElement?.getAttribute("role"))) === "switch", "focus stays on the switch");
+  check(
+    (await page.evaluate(() => document.activeElement?.getAttribute("role"))) === "switch",
+    "focus stays on the switch",
+  );
 
   // An alert for the smoke, through the API.
-  const item = await (await fetch(`${api}/api/marketplace/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp`, { headers: { "chase-sets-read-target-context": "discovery" } })).json();
+  const item = await (
+    await fetch(`${api}/api/marketplace/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp`, {
+      headers: { "chase-sets-read-target-context": "discovery" },
+    })
+  ).json();
   const created = await fetch(alertsApi, {
     method: "POST",
     headers: writes,
-    body: JSON.stringify({ marketSide: "listing", catalogItemId: item.catalog_item_id, productId: `${item.catalog_item_id}::smoke`, selectedOptions: [], productSummary: "Corten pilot smoke alert", thresholdAmount: "12.34", thresholdCurrencyCode: "USD" }),
+    body: JSON.stringify({
+      marketSide: "listing",
+      catalogItemId: item.catalog_item_id,
+      productId: `${item.catalog_item_id}::smoke`,
+      selectedOptions: [],
+      productSummary: "Corten pilot smoke alert",
+      thresholdAmount: "12.34",
+      thresholdCurrencyCode: "USD",
+    }),
   });
   made = (await created.json()).id;
   check(created.status === 201 && Boolean(made), `an alert for the smoke (${created.status} ${made})`);
@@ -120,13 +165,27 @@ try {
   }
   check((await card().innerText()).includes("Listings - at or below $12.34"), "the alert is listed with its threshold");
   const before = navigations.length;
-  for (const [button, status] of [["Pause", "paused"], ["Resume", "active"]]) {
+  for (const [button, status] of [
+    ["Pause", "paused"],
+    ["Resume", "active"],
+  ]) {
     await card().getByRole("button", { name: button }).click();
-    await page.waitForFunction((s) => [...document.querySelectorAll("#product-alerts article")].some((a) => a.textContent.includes("Corten pilot smoke alert") && a.textContent.includes(s)), status);
+    await page.waitForFunction(
+      (s) =>
+        [...document.querySelectorAll("#product-alerts article")].some(
+          (a) => a.textContent.includes("Corten pilot smoke alert") && a.textContent.includes(s),
+        ),
+      status,
+    );
     check(true, `${button} draws the alert ${status} in place`);
   }
   await card().getByRole("button", { name: "Delete" }).click();
-  await page.waitForFunction(() => ![...document.querySelectorAll("#product-alerts article")].some((a) => a.textContent.includes("Corten pilot smoke alert")));
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("#product-alerts article")].some((a) =>
+        a.textContent.includes("Corten pilot smoke alert"),
+      ),
+  );
   check(true, "Delete takes it out of the list in place");
   made = null;
   // A write whose read has not caught up is read again in place, so no write navigates.
@@ -142,7 +201,10 @@ try {
   if ((await unread.count()) > 0) {
     const was = await count();
     await unread.last().getByRole("button", { name: "Mark read" }).click();
-    await page.waitForFunction((n) => Number(document.querySelector("#feed")?.textContent.match(/(\d+) unread/)?.[1]) === n - 1, was);
+    await page.waitForFunction(
+      (n) => Number(document.querySelector("#feed")?.textContent.match(/(\d+) unread/)?.[1]) === n - 1,
+      was,
+    );
     check(true, `Mark read draws the feed again in place: ${was} then ${was - 1} unread`);
   } else {
     console.log("note no unread notification left to mark read");
@@ -157,7 +219,10 @@ try {
 }
 
 // Layout.
-for (const [width, height] of [[1280, 900], [390, 844]]) {
+for (const [width, height] of [
+  [1280, 900],
+  [390, 844],
+]) {
   for (const path of ["/account/notifications", "/account/notifications?view=settings"]) {
     const { ctx, page, problems } = await context({ viewport: { width, height } });
     await page.goto(`${base}${path}`);
@@ -166,14 +231,21 @@ for (const [width, height] of [[1280, 900], [390, 844]]) {
       const small = [];
       for (const el of document.querySelectorAll("main a, main button")) {
         const r = el.getBoundingClientRect();
-        if (r.width > 0 && r.height < 40) small.push(`${el.tagName} ${el.textContent.trim().slice(0, 24)} ${Math.round(r.height)}`);
+        if (r.width > 0 && r.height < 40)
+          small.push(`${el.tagName} ${el.textContent.trim().slice(0, 24)} ${Math.round(r.height)}`);
       }
       return { overflow: document.documentElement.scrollWidth - window.innerWidth, small };
     });
     check(layout.overflow <= 0, `${path} at ${width} px: nothing scrolls sideways (${layout.overflow})`);
-    check(layout.small.length === 0, `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+    check(
+      layout.small.length === 0,
+      `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`,
+    );
     check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
-    await page.screenshot({ path: `${process.env.TEMP}/pilot-notifications-${path.includes("settings") ? "settings" : "feed"}-${width}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${process.env.TEMP}/pilot-notifications-${path.includes("settings") ? "settings" : "feed"}-${width}.png`,
+      fullPage: true,
+    });
     await ctx.close();
   }
 }

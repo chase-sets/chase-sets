@@ -40,7 +40,11 @@ const seller = session(sellerState);
 const collector = session(collectorState);
 async function call(cookie, method, path, body) {
   const headers = { cookie, "content-type": "application/json", "chase-sets-read-target-context": "marketplace" };
-  const res = await fetch(`${api}/api/marketplace/account${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(`${api}/api/marketplace/account${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 const matches = async () => (await call(seller, "GET", "/offers/matches?limit=100&offset=0")).body?.items ?? [];
@@ -67,7 +71,14 @@ async function submit(price) {
     itemSubtitle: o.item_subtitle,
     selectedOptions: o.selected_options,
     productSummary: o.product_summary,
-    shippingDestinationSnapshot: { name: "Pilot Smoke", line1: "1 Test St", city: "Austin", state: "TX", postalCode: "78701", country: "US" },
+    shippingDestinationSnapshot: {
+      name: "Pilot Smoke",
+      line1: "1 Test St",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+    },
     priceAmount: price,
     priceCurrencyCode: "USD",
     quantityRequested: 1,
@@ -116,13 +127,23 @@ try {
     );
     check(short.length === 0, `every control is at least 40 px tall (${short.join(", ") || "all"})`);
     const text = await main(page);
-    const missing = ["Best match snapshot", "Checkout Sell List", "Best Offer Matches"].filter((w) => !text.includes(w));
-    check(missing.length === 0, `the snapshot, the Sell List card and the matches are drawn (${missing.join(", ") || "all"}; ${text.slice(0, 80)})`);
+    const missing = ["Best match snapshot", "Checkout Sell List", "Best Offer Matches"].filter(
+      (w) => !text.includes(w),
+    );
+    check(
+      missing.length === 0,
+      `the snapshot, the Sell List card and the matches are drawn (${missing.join(", ") || "all"}; ${text.slice(0, 80)})`,
+    );
     await page.goto(`${base}/account/offers/matches/${probe}`);
     const detail = await main(page);
-    check(detail.includes("Offer Match Overview") && detail.includes("Seller net"), "a match's page shows its overview and the acceptance terms");
+    check(
+      detail.includes("Offer Match Overview") && detail.includes("Seller net"),
+      "a match's page shows its overview and the acceptance terms",
+    );
     const bar = await page.evaluate(() => {
-      const accept = [...document.querySelectorAll("main button")].find((b) => b.textContent.includes("Accept offer match"));
+      const accept = [...document.querySelectorAll("main button")].find((b) =>
+        b.textContent.includes("Accept offer match"),
+      );
       const r = accept?.getBoundingClientRect();
       return r ? Math.round(innerHeight - r.bottom) : null;
     });
@@ -135,21 +156,38 @@ try {
   {
     const { ctx, page, problems } = await context();
     await page.goto(`${base}/account/offers/matches`);
-    await page.waitForFunction(() => document.querySelector("corten-live")?.getAttribute("status") === "live", null, { timeout: 15_000 }).catch(() => {});
+    await page
+      .waitForFunction(() => document.querySelector("corten-live")?.getAttribute("status") === "live", null, {
+        timeout: 15_000,
+      })
+      .catch(() => {});
     const loads = [];
     page.on("load", () => loads.push(1));
     const now = (await matches()).find((o) => o.offer_id === probe)?.price_amount ?? PRICES[0];
     const next = now === PRICES[0] ? PRICES[1] : PRICES[0];
-    const moved = await call(collector, "PATCH", `/offers/submitted/${probe}/price`, { priceAmount: next, priceCurrencyCode: "USD" });
+    const moved = await call(collector, "PATCH", `/offers/submitted/${probe}/price`, {
+      priceAmount: next,
+      priceCurrencyCode: "USD",
+    });
     check(moved.status === 200, `the collector changes the offer's price (${moved.status})`);
     const row = page.locator("li", { has: page.locator(`a[href$="/${probe}"]`) });
-    await row.getByText(`$${next}`).first().waitFor({ timeout: 20_000 }).then(
-      () => check(loads.length === 0, "its row is drawn again live, without a reload"),
-      () => check(false, "its row is drawn again live, without a reload (it was not)"),
-    );
+    await row
+      .getByText(`$${next}`)
+      .first()
+      .waitFor({ timeout: 20_000 })
+      .then(
+        () => check(loads.length === 0, "its row is drawn again live, without a reload"),
+        () => check(false, "its row is drawn again live, without a reload (it was not)"),
+      );
     await page.goto(`${base}/account/offers/matches/${probe}`);
-    await Promise.all([page.waitForURL((u) => u.pathname === "/account/sell-list", { waitUntil: "commit" }), page.getByRole("button", { name: "Add selected offer to Sell List" }).click()]);
-    check(new URL(page.url()).searchParams.has("afterWrite"), "Add selected offer to Sell List goes to the sell list with the write's receipt");
+    await Promise.all([
+      page.waitForURL((u) => u.pathname === "/account/sell-list", { waitUntil: "commit" }),
+      page.getByRole("button", { name: "Add selected offer to Sell List" }).click(),
+    ]);
+    check(
+      new URL(page.url()).searchParams.has("afterWrite"),
+      "Add selected offer to Sell List goes to the sell list with the write's receipt",
+    );
     added = await lineFor(probe);
     check(Boolean(added), "and the sell list has the offer's line");
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
@@ -160,17 +198,26 @@ try {
   {
     const { ctx, page, problems } = await context({ javaScriptEnabled: false });
     const res = await page.goto(`${base}/account/offers/matches`);
-    check(res?.status() === 200 && (await main(page)).includes("Best Offer Matches"), "the list is drawn without a script");
+    check(
+      res?.status() === 200 && (await main(page)).includes("Best Offer Matches"),
+      "the list is drawn without a script",
+    );
     if (added) await call(seller, "POST", `/sell-list/${added}/remove`, {});
     await page.goto(`${base}/account/offers/matches/${probe}`);
-    await Promise.all([page.waitForURL((u) => u.pathname === "/account/sell-list", { waitUntil: "commit" }), page.locator("main").getByRole("button", { name: "Add selected offer to Sell List" }).click()]);
+    await Promise.all([
+      page.waitForURL((u) => u.pathname === "/account/sell-list", { waitUntil: "commit" }),
+      page.locator("main").getByRole("button", { name: "Add selected offer to Sell List" }).click(),
+    ]);
     added = await lineFor(probe);
     check(Boolean(added), "Add selected offer to Sell List posts without a script");
     if (decline) {
       const fresh = await submit(PRICES[0]);
       check(Boolean(fresh && (await until((o) => o.offer_id === fresh))), "a second synthetic offer is a match");
       await page.goto(`${base}/account/offers/matches/${fresh}`);
-      await Promise.all([page.waitForNavigation(), page.locator("main").getByRole("button", { name: "Decline" }).click()]);
+      await Promise.all([
+        page.waitForNavigation(),
+        page.locator("main").getByRole("button", { name: "Decline" }).click(),
+      ]);
       check(new URL(page.url()).pathname === "/account/offers/matches", "Decline goes back to the list");
       const gone = !(await matches()).some((o) => o.offer_id === fresh);
       check(gone && !(await main(page)).includes(`/${fresh}`), "and the declined offer is not a match");

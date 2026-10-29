@@ -7,7 +7,12 @@
   justify-content: space-between;
   margin-block-end: var(--space-5);
 }
-.heading { display: grid; gap: var(--space-1); max-width: 48rem; min-width: 0; }
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
 .eyebrow {
   margin: 0;
   color: var(--color-primary);
@@ -16,10 +21,23 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.title { margin: 0; font: 600 1.875rem/1.2 var(--font-display); overflow-wrap: anywhere; }
-.muted { margin: 0; color: var(--color-text-secondary); }
-.strong { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.status:empty { display: none; }
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.status:empty {
+  display: none;
+}
 .banner {
   display: grid;
   gap: var(--space-1);
@@ -29,24 +47,68 @@
   border-radius: var(--radius-lg);
   background: var(--color-info-soft);
 }
-.banner p { margin: 0; }
-.banner[data-tone="warning"] { border-color: var(--color-warning); background: var(--color-warning-soft); }
-.banner[data-tone="danger"] { border-color: var(--color-danger); background: var(--color-danger-soft); }
-.part { display: grid; gap: var(--space-3); margin-block: var(--space-6); }
-.part-title { margin: 0; font: 600 1.125rem/1.4 var(--font-display); }
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.part {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-6);
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
 .tinted {
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface-2);
 }
-.form { display: grid; gap: var(--space-3); min-width: 0; }
-.controls { display: grid; gap: var(--space-4); min-width: 0; margin: 0; padding: 0; border: 0; }
-.grid { display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
-.field { display: grid; gap: var(--space-1); min-width: 0; }
-.label { font-size: 0.875rem; font-weight: 600; }
-.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.actions form { display: contents; }
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.actions form {
+  display: contents;
+}
 .button {
   display: inline-flex;
   align-items: center;
@@ -58,10 +120,28 @@
   font-weight: 600;
   text-decoration: none;
 }
-.secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border-strong); }
-.danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-danger-contrast); }
-.ghost { background: transparent; border-color: transparent; color: var(--color-text); }
-.list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text);
+}
+.list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .card {
   display: grid;
   gap: var(--space-3);
@@ -72,7 +152,12 @@
   background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
-.card-head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
 .badge {
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
@@ -81,9 +166,18 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
-.lines { display: grid; gap: 0.125rem; color: var(--color-text-secondary); font-size: 0.875rem; font-style: normal; overflow-wrap: anywhere; }
+.lines {
+  display: grid;
+  gap: 0.125rem;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
 /* On a phone each card's actions share the row and are easy to hit. */
-.card > .actions > * { flex: 1 1 9rem; }
+.card > .actions > * {
+  flex: 1 1 9rem;
+}
 .empty {
   display: grid;
   gap: var(--space-1);
@@ -100,7 +194,10 @@
   border-radius: var(--radius-md);
   background: var(--color-warning-soft);
 }
-.choice p { margin: 0; overflow-wrap: anywhere; }
+.choice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .dialog {
   width: min(40rem, calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -112,11 +209,27 @@
   color: var(--color-text);
   box-shadow: var(--shadow-overlay);
 }
-.dialog[open] { display: grid; gap: var(--space-3); }
-.dialog::backdrop { background: var(--color-overlay); }
-.dialog-head { display: flex; gap: var(--space-3); align-items: center; justify-content: space-between; }
-.dialog > .actions { justify-content: flex-end; }
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+.dialog > .actions {
+  justify-content: flex-end;
+}
 @media (min-width: 48rem) {
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .card > .actions > * { flex: 0 0 auto; }
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .card > .actions > * {
+    flex: 0 0 auto;
+  }
 }

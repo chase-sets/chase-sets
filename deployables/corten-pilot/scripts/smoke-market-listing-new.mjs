@@ -13,8 +13,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/marketplace-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/marketplace-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 const ITEM = "inv_seed_twilight_masquerade_elite_trainer_box";
 let failures = 0;
 
@@ -49,7 +52,14 @@ async function context(options = {}) {
   const problems = [];
   // The refusal this smoke asks for is a 422, which Chrome logs as a failed load; marketplace's
   // listing page, where a create goes, has its own smoke.
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 422") && page.url().startsWith(base) && problems.push(m.text()));
+  page.on(
+    "console",
+    (m) =>
+      m.type() === "error" &&
+      !m.text().includes("status of 422") &&
+      page.url().startsWith(base) &&
+      problems.push(m.text()),
+  );
   page.on("pageerror", (e) => page.url().startsWith(base) && problems.push(String(e)));
   return { ctx, page, problems };
 }
@@ -59,7 +69,9 @@ const main = (page) => page.evaluate(() => document.querySelector("main")?.inner
 const picture = await (async () => {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 900 } });
   const page = await ctx.newPage();
-  await page.setContent('<body style="margin:0;background:linear-gradient(135deg,#4f46e5,#f59e0b)"><h1 style="font:bold 96px sans-serif;color:white;padding:80px">Pilot smoke</h1></body>');
+  await page.setContent(
+    '<body style="margin:0;background:linear-gradient(135deg,#4f46e5,#f59e0b)"><h1 style="font:bold 96px sans-serif;color:white;padding:80px">Pilot smoke</h1></body>',
+  );
   const png = await page.screenshot({ type: "png" });
   await ctx.close();
   return png;
@@ -68,13 +80,17 @@ const picture = await (async () => {
 // The layout on a phone.
 {
   const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
-  const res = await page.goto(`${base}/account/listings/new?inventoryItemId=${ITEM}&priceAmount=${price(0)}&priceCurrencyCode=USD&preview=1`);
+  const res = await page.goto(
+    `${base}/account/listings/new?inventoryItemId=${ITEM}&priceAmount=${price(0)}&priceCurrencyCode=USD&preview=1`,
+  );
   check(res?.status() === 200, `the page answers 200 (${res?.status()})`);
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(wide <= 0, `nothing scrolls sideways at 390 px (${wide})`);
   const short = await page.evaluate(() =>
     [...document.querySelectorAll("main input, main select, main button, main summary")]
-      .filter((e) => e.offsetParent !== null && e.type !== "hidden" && e.type !== "file" && !e.closest("[aria-hidden=true]"))
+      .filter(
+        (e) => e.offsetParent !== null && e.type !== "hidden" && e.type !== "file" && !e.closest("[aria-hidden=true]"),
+      )
       .filter((e) => e.getBoundingClientRect().height < 40)
       .map((e) => e.textContent?.trim() || e.getAttribute("name")),
   );
@@ -108,15 +124,23 @@ const picture = await (async () => {
   check(loads === 0 && (await main(page)).includes(`$${price(1)}`), "Preview fees draws the preview in place");
 
   // Not a picture: refused, and nothing created.
-  await page.locator("input[type=file]").setInputFiles({ name: "notes.png", mimeType: "image/png", buffer: Buffer.from("not a picture") });
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({ name: "notes.png", mimeType: "image/png", buffer: Buffer.from("not a picture") });
   await page.getByRole("button", { name: "Save as draft" }).click();
   await page.getByText("Each photo must be a JPEG, PNG or WebP image.").waitFor();
-  check((await page.getByLabel("Price", { exact: true }).inputValue()) === price(1), "a file that is not a picture is refused with the form as typed");
+  check(
+    (await page.getByLabel("Price", { exact: true }).inputValue()) === price(1),
+    "a file that is not a picture is refused with the form as typed",
+  );
   const input = page.locator("input[type=file]");
   const kept = await input.evaluate((el) => ({
     invalid: el.getAttribute("aria-invalid"),
     files: Array.from(el.files ?? []).map((f) => f.name),
-    described: (el.getAttribute("aria-describedby") ?? "").split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? "").join(" "),
+    described: (el.getAttribute("aria-describedby") ?? "")
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" "),
   }));
   check(
     kept.invalid === "true" && kept.files.join() === "notes.png" && kept.described.includes("JPEG, PNG or WebP"),
@@ -128,10 +152,16 @@ const picture = await (async () => {
   await page.waitForURL(/\/account\/listings\/lst_/, { waitUntil: "commit", timeout: 150_000 });
   const to = page.url();
   created.push(idFrom(to));
-  check(to.includes("evidenceEvent=upload_completed") && to.includes("afterWrite="), `Save as draft goes to the listing (${to})`);
+  check(
+    to.includes("evidenceEvent=upload_completed") && to.includes("afterWrite="),
+    `Save as draft goes to the listing (${to})`,
+  );
   const read = await listing(created.at(-1));
   const photos = (read.evidence ?? []).filter((p) => p.status === "active").map((p) => p.originalFilename);
-  check(read.status === "draft" && read.price_amount === price(1), `the API has the draft at ${price(1)} (${read.status}, ${read.price_amount})`);
+  check(
+    read.status === "draft" && read.price_amount === price(1),
+    `the API has the draft at ${price(1)} (${read.status}, ${read.price_amount})`,
+  );
   check(photos.length === 1 && photos[0] === "front.png", `with its one photo (${photos.join(", ")})`);
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();

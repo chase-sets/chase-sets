@@ -37,7 +37,11 @@ const seller = session(sellerState);
 const collector = session(collectorState);
 async function call(cookie, method, path, body) {
   const headers = { cookie, "content-type": "application/json", "chase-sets-read-target-context": "marketplace" };
-  const res = await fetch(`${api}/api/marketplace/account${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(`${api}/api/marketplace/account${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 const mine = async () => (await call(seller, "GET", "/offers/submitted?limit=100&offset=0")).body?.items ?? [];
@@ -54,7 +58,8 @@ const until = async (ready) => {
 const PRICES = ["1.01", "1.02"];
 let probe = (await mine()).find((o) => PRICES.includes(o.price_amount) && ["submitted", "paused"].includes(o.status));
 if (!probe) {
-  const open = (await call(collector, "GET", "/offers/submitted?limit=100&offset=0&status=submitted")).body?.items ?? [];
+  const open =
+    (await call(collector, "GET", "/offers/submitted?limit=100&offset=0&status=submitted")).body?.items ?? [];
   const products = [...new Map(open.map((o) => [o.product_id, o])).values()].slice(0, 4);
   check(products.length > 0, "the collector has an open offer to copy a product from");
   let res = null;
@@ -66,7 +71,14 @@ if (!probe) {
       itemSubtitle: source.item_subtitle,
       selectedOptions: source.selected_options,
       productSummary: source.product_summary,
-      shippingDestinationSnapshot: { name: "Pilot Smoke", line1: "1 Test St", city: "Austin", state: "TX", postalCode: "78701", country: "US" },
+      shippingDestinationSnapshot: {
+        name: "Pilot Smoke",
+        line1: "1 Test St",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+      },
       priceAmount: PRICES[0],
       priceCurrencyCode: "USD",
       quantityRequested: 1,
@@ -74,7 +86,10 @@ if (!probe) {
     // The seller's own listing's product is refused (400); try the next.
     if (res.status !== 400) break;
   }
-  check(res?.status === 201, `the seller submits a synthetic offer (${res?.status} ${JSON.stringify(res?.body?.error ?? "")})`);
+  check(
+    res?.status === 201,
+    `the seller submits a synthetic offer (${res?.status} ${JSON.stringify(res?.body?.error ?? "")})`,
+  );
   probe = res?.status === 201 ? await until((o) => o.offer_id === res.body.id) : null;
 }
 check(Boolean(probe), `the synthetic offer is listed (${probe?.offer_id})`);
@@ -114,13 +129,18 @@ try {
     );
     check(short.length === 0, `every control is at least 40 px tall (${short.join(", ") || "all"})`);
     const text = await main(page);
-    check(/All \(\d+\) Open \(\d+\) Paused \(\d+\) Withdrawn \(\d+\) Accepted \(\d+\)/.test(text), "the status filter shows each status's count");
+    check(
+      /All \(\d+\) Open \(\d+\) Paused \(\d+\) Withdrawn \(\d+\) Accepted \(\d+\)/.test(text),
+      "the status filter shows each status's count",
+    );
     check((await row(page).count()) === 1, "the synthetic offer has its row, with a box");
     const bar = await page.getByRole("button", { name: "Pause selected" }).isVisible();
     check(!bar, "the bulk bar waits for a checked offer");
     await row(page).locator("input[type=checkbox]").check();
     check(await page.getByText(/1 Offers? selected/).isVisible(), "checking it shows the bar with its count");
-    const wideAfter = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    const wideAfter = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
     check(wideAfter <= 0, `the bar does not scroll sideways (${wideAfter})`);
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
     await ctx.close();
@@ -136,26 +156,42 @@ try {
     page.on("load", () => loads.push(1));
     const now = (await mine()).find((o) => o.offer_id === id)?.price_amount ?? PRICES[0];
     const next = now === PRICES[0] ? PRICES[1] : PRICES[0];
-    const moved = await call(seller, "PATCH", `/offers/submitted/${id}/price`, { priceAmount: next, priceCurrencyCode: "USD" });
+    const moved = await call(seller, "PATCH", `/offers/submitted/${id}/price`, {
+      priceAmount: next,
+      priceCurrencyCode: "USD",
+    });
     check(moved.status === 200, `the offer's price changes (${moved.status})`);
-    await row(page).getByText(`$${next}`).first().waitFor({ timeout: 20_000 }).then(
-      () => check(loads.length === 0, "its row is drawn again live, without a reload"),
-      () => check(false, "its row is drawn again live, without a reload (it was not)"),
-    );
-    await row(page).getByRole("button", { name: /^Pause / }).click();
+    await row(page)
+      .getByText(`$${next}`)
+      .first()
+      .waitFor({ timeout: 20_000 })
+      .then(
+        () => check(loads.length === 0, "its row is drawn again live, without a reload"),
+        () => check(false, "its row is drawn again live, without a reload (it was not)"),
+      );
+    await row(page)
+      .getByRole("button", { name: /^Pause / })
+      .click();
     await page.waitForLoadState();
     const said = await main(page);
     closed = said.includes("are not open yet");
     if (closed) {
-      console.log("note the API has not opened Pause, Resume and Withdraw (503 offer_lifecycle_closed): no state changes");
-      check(said.includes("0 changed, 0 already in that state, 1 could not change"), "Pause says the offer could not change, and why");
+      console.log(
+        "note the API has not opened Pause, Resume and Withdraw (503 offer_lifecycle_closed): no state changes",
+      );
+      check(
+        said.includes("0 changed, 0 already in that state, 1 could not change"),
+        "Pause says the offer could not change, and why",
+      );
       check((await row(page).innerText()).includes("Open"), "and its row is still Open");
     } else {
       check(said.includes(": now Paused"), "Pause says the offer is now Paused");
       check((await row(page).innerText()).includes("Paused"), "and its row says Paused");
       await page.goto(`${base}/account/offers/submitted?status=paused`);
       check((await row(page).count()) === 1, "Paused shows it");
-      await row(page).getByRole("button", { name: /^Resume / }).click();
+      await row(page)
+        .getByRole("button", { name: /^Resume / })
+        .click();
       await page.waitForLoadState();
       check((await main(page)).includes(": now Open"), "Resume says the offer is Open again");
       await row(page).locator("input[type=checkbox]").check();
@@ -172,17 +208,24 @@ try {
     const { ctx, page } = await context(sellerState, { javaScriptEnabled: false });
     await page.goto(`${base}/account/offers/submitted`);
     if (!closed) {
-      await row(page).getByRole("button", { name: /^Resume / }).click();
+      await row(page)
+        .getByRole("button", { name: /^Resume / })
+        .click();
       await page.waitForLoadState();
       check((await main(page)).includes(": now Open"), "Resume posts without a script");
     }
-    await row(page).getByRole("button", { name: /^Withdraw / }).click();
+    await row(page)
+      .getByRole("button", { name: /^Withdraw / })
+      .click();
     const dialog = page.locator(`dialog:has(button[value="withdraw:${id}"])`);
     check(await dialog.isVisible(), "Withdraw opens its dialog without a script");
     await dialog.getByRole("button", { name: "Withdraw" }).click();
     await page.waitForLoadState();
     const said = await main(page);
-    check(said.includes(closed ? "are not open yet" : ": now Withdrawn"), `and withdrawing from it posts (${closed ? "refused: closed" : "Withdrawn"})`);
+    check(
+      said.includes(closed ? "are not open yet" : ": now Withdrawn"),
+      `and withdrawing from it posts (${closed ? "refused: closed" : "Withdrawn"})`,
+    );
     await ctx.close();
   }
 
@@ -200,7 +243,9 @@ try {
   const left = (await mine()).find((o) => o.offer_id === id);
   if (left && left.status !== "withdrawn") {
     const res = await call(seller, "POST", `/offers/submitted/${id}/withdraw`, {});
-    console.log(`withdrawing the synthetic offer after the run answered ${res.status}${res.status === 503 ? " (closed: it stays open for the next run)" : ""}`);
+    console.log(
+      `withdrawing the synthetic offer after the run answered ${res.status}${res.status === 503 ? " (closed: it stays open for the next run)" : ""}`,
+    );
   }
 }
 console.log(failures === 0 ? "all passed" : `FAIL (${failures})`);

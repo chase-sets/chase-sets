@@ -1,13 +1,49 @@
 /* One narrow column on every screen (marketplace's Container width="narrow"). Every link and button
    is at least --control-height tall, and nothing is wider than the screen. */
-.page { display: grid; gap: var(--space-4); max-width: 30rem; margin-inline: auto; min-width: 0; }
-.header { display: grid; gap: var(--space-2); min-width: 0; }
-.title { margin: 0; font: 600 1.5rem/1.25 var(--font-display); overflow-wrap: anywhere; }
-.name { margin: 0; font: 600 1.125rem/1.4 var(--font-display); overflow-wrap: anywhere; }
-.muted { margin: 0; color: var(--color-text-secondary); overflow-wrap: anywhere; }
-.strong { margin: 0; font-weight: 600; }
-.tight { display: grid; gap: var(--space-1); min-width: 0; }
-.row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; min-width: 0; }
+.page {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 30rem;
+  margin-inline: auto;
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font: 600 1.5rem/1.25 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.name {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.tight {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
 .banner {
   display: grid;
   gap: var(--space-1);
@@ -16,9 +52,18 @@
   border-radius: var(--radius-lg);
   background: var(--color-info-soft, var(--color-surface-2));
 }
-.banner p { margin: 0; overflow-wrap: anywhere; }
-.banner[data-tone="danger"] { border-color: var(--color-danger); background: var(--color-danger-soft); }
-.banner[data-tone="success"] { border-color: var(--color-success); background: var(--color-success-soft); }
+.banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
 .card {
   display: grid;
   gap: var(--space-3);
@@ -29,12 +74,35 @@
   background: var(--color-surface);
   box-shadow: var(--shadow-sm, none);
 }
-.flush { box-shadow: none; background: var(--color-surface-2); }
-.plain { display: grid; gap: var(--space-1); margin: 0; padding-inline-start: var(--space-4); font-size: 0.875rem; }
-.form { display: grid; gap: var(--space-3); min-width: 0; }
-.form button, .row .button { width: 100%; }
-.field { display: grid; gap: var(--space-1); min-width: 0; }
-.label { font-size: 0.875rem; font-weight: 600; }
+.flush {
+  box-shadow: none;
+  background: var(--color-surface-2);
+}
+.plain {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  font-size: 0.875rem;
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.form button,
+.row .button {
+  width: 100%;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
 /* style.css sizes the text inputs; a password is one too. */
 .input {
   width: 100%;
@@ -60,9 +128,18 @@
   text-align: center;
   text-decoration: none;
 }
-.secondary { border-color: var(--color-border); background: var(--color-surface); color: var(--color-text); }
-.secondary:hover:not(:disabled) { background: var(--color-surface-2); }
-.row .small { width: auto; min-width: var(--control-height); }
+.secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.secondary:hover:not(:disabled) {
+  background: var(--color-surface-2);
+}
+.row .small {
+  width: auto;
+  min-width: var(--control-height);
+}
 /* The methods: a segmented control of links, one row, each an equal share. */
 .methods {
   display: grid;
@@ -88,7 +165,11 @@
   text-decoration: none;
   overflow-wrap: anywhere;
 }
-.choice[aria-current="true"] { background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm, none); }
+.choice[aria-current="true"] {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm, none);
+}
 /* "Recommended", beside the passkey's copy. */
 .badge {
   display: inline-flex;
@@ -100,7 +181,14 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
-.row:has(> .badge) { justify-content: flex-start; flex-wrap: nowrap; align-items: flex-start; }
+.row:has(> .badge) {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
 @media (min-width: 30rem) {
-  .row .button:not(.small) { width: auto; flex: 1 1 0; }
+  .row .button:not(.small) {
+    width: auto;
+    flex: 1 1 0;
+  }
 }

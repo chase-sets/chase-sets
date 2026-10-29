@@ -90,6 +90,7 @@ function tally(sel) {
   const checked = rows.filter((row) => row.checked);
   for (const button of Array.from(sel.form.querySelectorAll("button[data-requires]"))) {
     const status = button.getAttribute("data-requires");
-    /** @type {HTMLButtonElement} */ (button).disabled = n === 0 || checked.some((row) => row.dataset.status !== status);
+    /** @type {HTMLButtonElement} */ (button).disabled =
+      n === 0 || checked.some((row) => row.dataset.status !== status);
   }
 }

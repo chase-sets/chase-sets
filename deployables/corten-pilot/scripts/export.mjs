@@ -198,7 +198,9 @@ const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase(
  * for one key.
  */
 async function catalog(file, exportName, rules) {
-  const all = (await import(pathToFileURL(path.join(repo, "contracts/localization/locales/en", file)).href))[exportName];
+  const all = (await import(pathToFileURL(path.join(repo, "contracts/localization/locales/en", file)).href))[
+    exportName
+  ];
   const out = {};
   for (const [key, text] of Object.entries(all)) {
     let name;
@@ -212,7 +214,9 @@ async function catalog(file, exportName, rules) {
     if (!name) continue;
     // An argument is {name} as the catalog has it; any other brace is text, which `messages!`
     // takes doubled.
-    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) => (arg ? brace : brace + brace));
+    out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}|[{}]/g, (brace, arg) =>
+      arg ? brace : brace + brace,
+    );
   }
   return out;
 }
@@ -248,7 +252,8 @@ function adminNav() {
   return contributions("admin-web", "primary-nav")
     .filter(({ item }) => item.section)
     .map(({ context, item }) => {
-      if (item.parentKey) throw new Error(`${context}: ${item.key} has a parentKey, which the pilot's nav does not compose`);
+      if (item.parentKey)
+        throw new Error(`${context}: ${item.key} has a parentKey, which the pilot's nav does not compose`);
       return { section: item.section, ...keep(item) };
     });
 }
@@ -385,8 +390,12 @@ const article = (a) => ({
  */
 async function developers() {
   const load = (file) => import(pathToFileURL(path.join(repo, file)).href);
-  const { developerArticles } = await load("bounded-contexts/public-presence/features/developer-portal/domain/generated/articles.ts");
-  const { mcpToolCatalog } = await load("bounded-contexts/public-presence/features/developer-portal/domain/generated/mcp-tool-catalog.ts");
+  const { developerArticles } = await load(
+    "bounded-contexts/public-presence/features/developer-portal/domain/generated/articles.ts",
+  );
+  const { mcpToolCatalog } = await load(
+    "bounded-contexts/public-presence/features/developer-portal/domain/generated/mcp-tool-catalog.ts",
+  );
   const { SUPPORTED_MCP_PROTOCOL_VERSIONS } = await load("infrastructure/platform-runtime/mcp-protocol.ts");
   const { publicPolicyHrefsByKey } = await load("contracts/public-docs/policy-corpus.ts");
   return {
@@ -420,7 +429,9 @@ async function help() {
     pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/help/domain/generated/articles.ts")).href
   );
   const { publicPolicyValueWhitelist } = await import(
-    pathToFileURL(path.join(repo, "bounded-contexts/public-presence/features/help/domain/public-policy-value-whitelist.mjs")).href
+    pathToFileURL(
+      path.join(repo, "bounded-contexts/public-presence/features/help/domain/public-policy-value-whitelist.mjs"),
+    ).href
   );
   return {
     articles: helpArticles.map(article),
@@ -488,7 +499,9 @@ const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
-const { defaultPostagePolicy } = await import(pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href);
+const { defaultPostagePolicy } = await import(
+  pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
+);
 const { moneyStatusLabels } = await import(pathToFileURL(path.join(repo, "contracts/http/money-status.ts")).href);
 const outputs = [
   [
@@ -552,7 +565,10 @@ const outputs = [
         ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
         ["inventory.recovery.", "recovery"],
         ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
-        ["inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship", "route.description"],
+        [
+          "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship",
+          "route.description",
+        ],
       ]),
     ),
   ],
@@ -565,7 +581,9 @@ const outputs = [
         ["inventory.routes.marketplace.accountInventoryRestockDecisions.description", "route.description"],
       ])),
       // What marketplace's resource route says when the read after a write fails for good.
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.routeResource.unverified", "unverified"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.routeResource.unverified", "unverified"],
+      ])),
     }),
   ],
   [
@@ -578,7 +596,9 @@ const outputs = [
         ["inventory.features.inventoryItems.ui.inventoryItemDetailPage.", "item"],
         ["inventory.routes.marketplace.accountInventoryItem.", "item_route"],
       ])),
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.languageCode.", "language"],
+      ])),
     }),
   ],
   [
@@ -601,7 +621,9 @@ const outputs = [
         ["checkout.routes.accountCart.", "route"],
       ])),
       // A line's language badge (`formatLanguageCodeLabel`).
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.languageCode.", "language"],
+      ])),
     }),
   ],
   [
@@ -949,7 +971,9 @@ const outputs = [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
         ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
       ])),
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.languageCode.", "language"],
+      ])),
     }),
   ],
   [
@@ -961,13 +985,17 @@ const outputs = [
         ["marketplace.features.listings.api.route.error.", "error"],
         ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.languageCode.", "language"],
+      ])),
     }),
   ],
   [
     "marketplace/locales/desk.en.json",
     json({
-      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [["marketplace.features.sellerDesk.", ""]])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.sellerDesk.", ""],
+      ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [
         ["channels.manualSync.attention.", "manual"],
         ["channels.attention.reason.", "channel_reason"],
@@ -994,14 +1022,23 @@ const outputs = [
         ["settlement.features.payouts.ui.sellerFeesAndDeductions", "payout.seller_fees"],
         ["settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.", "adjustment_status"],
         ["settlement.features.wallets.ui.walletAdjustmentAccountCopy.direction.", "adjustment_direction"],
-        ["settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.", "reason"],
+        [
+          "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.",
+          "reason",
+        ],
       ])),
-      ...Object.fromEntries(Object.entries(moneyStatusLabels).map(([code, text]) => [`status.${code.replaceAll("-", "_")}`, text])),
+      ...Object.fromEntries(
+        Object.entries(moneyStatusLabels).map(([code, text]) => [`status.${code.replaceAll("-", "_")}`, text]),
+      ),
     }),
   ],
   [
     "marketplace/locales/payment.en.json",
-    json(await catalog("payments.ts", "paymentsEnglishTranslations", [["payments.routes.marketplace.accountPayment.", ""]])),
+    json(
+      await catalog("payments.ts", "paymentsEnglishTranslations", [
+        ["payments.routes.marketplace.accountPayment.", ""],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/payment_methods.en.json",
@@ -1056,7 +1093,9 @@ const outputs = [
         ["pricing.features.pricingHealth.", "health"],
       ])),
       // A recommendation's item language (`formatLanguageCodeLabel`).
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
+        ["localization.languageCode.", "language"],
+      ])),
     }),
   ],
   [
@@ -1102,7 +1141,9 @@ const outputs = [
         ["pricing.features.publicMarketPages.ui.marketPriceHistoryPage.", "page"],
         ["pricing.features.publicMarketPages.routes.marketPriceHistory.", "route"],
       ])),
-      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.appRoot.", "root"]])),
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.appRoot.", "root"],
+      ])),
     }),
   ],
   [
@@ -1174,7 +1215,8 @@ const outputs = [
   ],
   [
     "public/favicon.svg",
-    (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href)).chaseSetsLogoSvg,
+    (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href))
+      .chaseSetsLogoSvg,
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],

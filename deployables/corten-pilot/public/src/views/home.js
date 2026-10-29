@@ -63,7 +63,13 @@ function bridge() {
       navigator.sendBeacon(ENDPOINT, new Blob([body], { type: "application/json" }));
       return;
     }
-    fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body, credentials: "same-origin", keepalive: true }).catch(() => undefined);
+    fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      credentials: "same-origin",
+      keepalive: true,
+    }).catch(() => undefined);
   });
 }
 
@@ -81,7 +87,11 @@ const variantOf = (role) => (role === "buy" ? "seller_first_v2" : "seller_first_
 
 /** @param {HTMLElement} root */
 function state(root) {
-  return { role: root.dataset.role ?? "both", interest: root.dataset.interest ?? "low-sales-fees", variant: root.dataset.variant ?? "seller_first_v1" };
+  return {
+    role: root.dataset.role ?? "both",
+    interest: root.dataset.interest ?? "low-sales-fees",
+    variant: root.dataset.variant ?? "seller_first_v1",
+  };
 }
 
 /** @param {HTMLElement} root */
@@ -108,8 +118,10 @@ function choose(root, role, interest) {
     const input = /** @type {HTMLInputElement} */ (radio);
     input.checked = input.value === role;
   }
-  for (const select of Array.from(root.querySelectorAll('select[name="role"]'))) /** @type {HTMLSelectElement} */ (select).value = role;
-  for (const select of Array.from(root.querySelectorAll('select[name="interests"]'))) /** @type {HTMLSelectElement} */ (select).value = interest;
+  for (const select of Array.from(root.querySelectorAll('select[name="role"]')))
+    /** @type {HTMLSelectElement} */ (select).value = role;
+  for (const select of Array.from(root.querySelectorAll('select[name="interests"]')))
+    /** @type {HTMLSelectElement} */ (select).value = interest;
 }
 
 /** The section a form's field is in (hero or final_cta). @param {Element} field */
@@ -136,7 +148,9 @@ const fieldName = (name) => (name === "marketing_consent" ? "marketingConsent" :
  */
 export function start(root) {
   bridge();
-  const checked = /** @type {HTMLInputElement | null} */ (root.querySelector('input[type="radio"][name="role"]:checked'));
+  const checked = /** @type {HTMLInputElement | null} */ (
+    root.querySelector('input[type="radio"][name="role"]:checked')
+  );
   const interest = /** @type {HTMLSelectElement | null} */ (root.querySelector('select[name="interests"]'));
   root.dataset.role = checked?.value ?? "both";
   root.dataset.interest = interest?.value ?? heroInterest(root.dataset.role);
@@ -147,7 +161,12 @@ export function start(root) {
   const { role, variant } = state(root);
   track("landing_page_view", { ...source(root), variant });
   if (root.hasAttribute("data-failed")) {
-    track("waitlist_signup_failed", { page_path: source(root).page_path, role, interest: state(root).interest, variant });
+    track("waitlist_signup_failed", {
+      page_path: source(root).page_path,
+      role,
+      interest: state(root).interest,
+      variant,
+    });
   }
   if (!("IntersectionObserver" in window)) return;
   const seen = new Set();
@@ -181,10 +200,13 @@ function sticky(root) {
     desktop.hidden = !heroOut || finalIn;
     document.documentElement.toggleAttribute("data-sticky-bar", heroOut);
   };
-  new IntersectionObserver(([entry]) => {
-    heroOut = !entry?.isIntersecting;
-    show();
-  }, { threshold: 0.08 }).observe(hero);
+  new IntersectionObserver(
+    ([entry]) => {
+      heroOut = !entry?.isIntersecting;
+      show();
+    },
+    { threshold: 0.08 },
+  ).observe(hero);
   if (final) {
     new IntersectionObserver(([entry]) => {
       finalIn = Boolean(entry?.isIntersecting);
@@ -234,13 +256,21 @@ export function focused(event, root) {
 export function click(event, root) {
   const link = event.target instanceof Element ? event.target.closest("a[data-cta]") : null;
   if (!link || !root.contains(link)) return;
-  track("cta_clicked", { section: link.getAttribute("data-cta"), target: link.getAttribute("data-target"), variant: state(root).variant });
+  track("cta_clicked", {
+    section: link.getAttribute("data-cta"),
+    target: link.getAttribute("data-target"),
+    variant: state(root).variant,
+  });
 }
 
 /** The nav's call to action, outside the page. @param {HTMLAnchorElement} link */
 export function cta(link) {
   const root = /** @type {HTMLElement | null} */ (document.querySelector("main [data-variant]"));
-  track("cta_clicked", { section: link.getAttribute("data-cta"), target: link.getAttribute("data-target"), variant: root ? state(root).variant : "seller_first_v1" });
+  track("cta_clicked", {
+    section: link.getAttribute("data-cta"),
+    target: link.getAttribute("data-target"),
+    variant: root ? state(root).variant : "seller_first_v1",
+  });
 }
 
 /** A form is sent: what it says. The hero sends the priority the visitor's choices stand for. @param {Event} event @param {HTMLElement} root */
@@ -320,7 +350,10 @@ export function promo(event, bar) {
     const paused = bar.dataset.paused !== "true";
     bar.dataset.paused = String(paused);
     button.setAttribute("aria-pressed", String(paused));
-    button.setAttribute("aria-label", (paused ? button.getAttribute("data-resume") : button.getAttribute("data-pause")) ?? "");
+    button.setAttribute(
+      "aria-label",
+      (paused ? button.getAttribute("data-resume") : button.getAttribute("data-pause")) ?? "",
+    );
   }
 }
 
@@ -413,7 +446,10 @@ export function calculate(event) {
   if (!(field instanceof HTMLInputElement) || !field.form) return;
   const form = field.form;
   clearTimeout(pending.get(form));
-  pending.set(form, window.setTimeout(() => form.requestSubmit(), 150));
+  pending.set(
+    form,
+    window.setTimeout(() => form.requestSubmit(), 150),
+  );
 }
 
 /**

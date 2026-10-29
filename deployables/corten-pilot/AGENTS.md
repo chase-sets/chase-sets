@@ -21,7 +21,10 @@ text, nav or tokens the pilot exports.
 A Corten app: Rust renders every page with `html!`; the browser gets HTML, a small runtime and
 the handler scripts next to components. Run `corten dev` inside the app's directory while
 working (it does not rebuild for an edit in `platform/`; save a file in the app) and
-`corten check` at the workspace root before you finish.
+`corten check` at the workspace root before you finish. The repo's Prettier also formats the
+pilot's CSS, scripts and hand-written JSON (the root Static Source Checks run it on every PR):
+run `pnpm exec prettier --write` on the files you changed. The export's JSON output is in
+`.prettierignore`, since `--check` compares it byte for byte.
 
 For recipes (pages, forms with validation, handlers, live data, styles, tests), use the Corten
 skill: https://github.com/todd-skelton/corten/tree/main/skills/corten. Install it with your

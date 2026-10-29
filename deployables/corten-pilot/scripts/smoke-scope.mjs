@@ -35,9 +35,13 @@ async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 
 
 /** The coverage table's rows: provider and state. */
 const coverage = (page) =>
-  page.locator('section[aria-labelledby="scope-coverage"] tbody tr').evaluateAll((trs) =>
-    trs.map((tr) => Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 2)),
-  );
+  page
+    .locator('section[aria-labelledby="scope-coverage"] tbody tr')
+    .evaluateAll((trs) =>
+      trs.map((tr) =>
+        Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 2),
+      ),
+    );
 
 let href = "";
 // With JavaScript.
@@ -73,7 +77,13 @@ let href = "";
   const fold = page.locator('section[aria-labelledby="scope-coverage"] details summary').first();
   if (await fold.count()) {
     await fold.click();
-    check(await page.locator('section[aria-labelledby="scope-coverage"] details[open] input[name="reason"]').first().isVisible(), "a revoke's reason folds open");
+    check(
+      await page
+        .locator('section[aria-labelledby="scope-coverage"] details[open] input[name="reason"]')
+        .first()
+        .isVisible(),
+      "a revoke's reason folds open",
+    );
   } else {
     console.log("skip the reason fold: no mapping to revoke or reject");
   }
@@ -92,18 +102,33 @@ let href = "";
     maxRedirects: 0,
   });
   const text = await answer.text();
-  check(answer.status() === 422 && text.includes("Enter the provider, the unit"), `a propose without its unit is refused before the API (${answer.status()})`);
+  check(
+    answer.status() === 422 && text.includes("Enter the provider, the unit"),
+    `a propose without its unit is refused before the API (${answer.status()})`,
+  );
   check(text.includes('value="smoke-provider"'), "and keeps what was typed");
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
 
   // Beside admin-web, when it is up.
-  const up = await page.request.get(`${adminWeb}${href}`).then((r) => r.ok(), () => false);
+  const up = await page.request.get(`${adminWeb}${href}`).then(
+    (r) => r.ok(),
+    () => false,
+  );
   if (up) {
     await page.goto(`${adminWeb}${href}`, { waitUntil: "networkidle" });
-    const theirs = await page.locator("table").first().locator("tbody tr").evaluateAll((trs) =>
-      trs.map((tr) => Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 2)),
+    const theirs = await page
+      .locator("table")
+      .first()
+      .locator("tbody tr")
+      .evaluateAll((trs) =>
+        trs.map((tr) =>
+          Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 2),
+        ),
+      );
+    check(
+      JSON.stringify(theirs) === JSON.stringify(rows),
+      `the same coverage rows as admin-web (${JSON.stringify(theirs)})`,
     );
-    check(JSON.stringify(theirs) === JSON.stringify(rows), `the same coverage rows as admin-web (${JSON.stringify(theirs)})`);
   } else {
     console.log(`skip the comparison: admin-web is not answering at ${adminWeb}`);
   }
@@ -114,11 +139,20 @@ let href = "";
 {
   const { ctx, page } = await context(false);
   await page.goto(`${base}${href}`);
-  check((await page.locator('section[aria-labelledby="scope-coverage"]').count()) === 1, "the page renders without JavaScript");
+  check(
+    (await page.locator('section[aria-labelledby="scope-coverage"]').count()) === 1,
+    "the page renders without JavaScript",
+  );
   const fold = page.locator('section[aria-labelledby="scope-coverage"] details summary').first();
   if (await fold.count()) {
     await fold.click();
-    check(await page.locator('section[aria-labelledby="scope-coverage"] details[open] input[name="reason"]').first().isVisible(), "the reason folds open without JavaScript");
+    check(
+      await page
+        .locator('section[aria-labelledby="scope-coverage"] details[open] input[name="reason"]')
+        .first()
+        .isVisible(),
+      "the reason folds open without JavaScript",
+    );
   }
   await ctx.close();
 }
@@ -133,7 +167,10 @@ let href = "";
   const command = page.locator('section[aria-labelledby="scope-coverage"] tbody details summary').first();
   if (await command.count()) {
     const box = await command.boundingBox();
-    check(box !== null && box.x >= 0 && box.x + box.width <= 390, `a row's Revoke is within the screen at 390 px (${JSON.stringify(box)})`);
+    check(
+      box !== null && box.x >= 0 && box.x + box.width <= 390,
+      `a row's Revoke is within the screen at 390 px (${JSON.stringify(box)})`,
+    );
   }
   await page.screenshot({ path: "../../artifacts/corten-pilot/scope-390.png", fullPage: true });
   check(problems.length === 0, `no script errors at 390 px (${problems.join(" | ")})`);

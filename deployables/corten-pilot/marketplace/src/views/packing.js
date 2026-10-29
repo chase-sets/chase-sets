@@ -63,7 +63,13 @@ export function restore(check, account, shipment, settled, unsettled) {
 export function remember(event, account, shipment, unavailable) {
   const form = /** @type {HTMLFormElement} */ (event.target);
   const attempt = /** @type {HTMLInputElement | null} */ (form.querySelector("input[data-submit]"))?.value ?? "";
-  const record = { version: 1, attemptId: attempt, accountId: account, shipmentId: shipment, createdAt: new Date().toISOString() };
+  const record = {
+    version: 1,
+    attemptId: attempt,
+    accountId: account,
+    shipmentId: shipment,
+    createdAt: new Date().toISOString(),
+  };
   try {
     window.sessionStorage.setItem(key(account, shipment), JSON.stringify(record));
   } catch {

@@ -8,7 +8,8 @@
 // watches, by default the pilot's)
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json", watched = base] = process.argv.slice(2);
+const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json", watched = base] =
+  process.argv.slice(2);
 const pilotWatched = watched === base;
 const stamp = Date.now().toString(36);
 let failures = 0;
@@ -57,7 +58,10 @@ for (const kind of ["dimensions", "fields"]) {
   const prefix = `live_${stamp}_${kind[0]}`;
   await watch.goto(`${watched}/catalog/${kind}?search=${prefix}`);
   await watch.waitForLoadState();
-  check((await watch.getByRole("row", { name: new RegExp(prefix) }).count()) === 0, `${kind}: the watching tab starts with no rows for the run`);
+  check(
+    (await watch.getByRole("row", { name: new RegExp(prefix) }).count()) === 0,
+    `${kind}: the watching tab starts with no rows for the run`,
+  );
   // Something typed and not applied stays when the rows change.
   if (pilotWatched) await watch.getByRole("searchbox", { name: "Search" }).fill(`${prefix} typed`);
   await watch.waitForTimeout(1_000); // the live stream is open
@@ -76,10 +80,19 @@ for (const kind of ["dimensions", "fields"]) {
     });
   }
   const row = watch.getByRole("row", { name: new RegExp(key) });
-  const appeared = await row.waitFor({ timeout: 30_000 }).then(() => true, () => false);
-  check(appeared, `${kind}: the new row appears in the watching tab without a reload (${Date.now() - started} ms after the create was sent)`);
+  const appeared = await row.waitFor({ timeout: 30_000 }).then(
+    () => true,
+    () => false,
+  );
+  check(
+    appeared,
+    `${kind}: the new row appears in the watching tab without a reload (${Date.now() - started} ms after the create was sent)`,
+  );
   if (pilotWatched) {
-    check((await watch.getByRole("searchbox", { name: "Search" }).inputValue()) === `${prefix} typed`, `${kind}: the search box keeps what was typed`);
+    check(
+      (await watch.getByRole("searchbox", { name: "Search" }).inputValue()) === `${prefix} typed`,
+      `${kind}: the search box keeps what was typed`,
+    );
   }
   const loads = await watch.evaluate(() => performance.getEntriesByType("navigation").length);
   // admin-web is a client-rendered app after its first load, so one navigation entry there too.
@@ -91,7 +104,10 @@ for (const kind of ["dimensions", "fields"]) {
     await watch.waitForFunction(() => !(/** @type {any} */ (window).navigation?.transition));
     await settled(watch);
     const heading = await watch.locator("h1").first().textContent();
-    check(heading === `Live ${stamp}`, `${kind}: the live row's link opens the record (${new URL(watch.url()).pathname}: ${heading})`);
+    check(
+      heading === `Live ${stamp}`,
+      `${kind}: the live row's link opens the record (${new URL(watch.url()).pathname}: ${heading})`,
+    );
   }
 }
 

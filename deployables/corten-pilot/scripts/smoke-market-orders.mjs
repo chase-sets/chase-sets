@@ -66,11 +66,17 @@ function difference(a, b) {
   return { missing, extra };
 }
 async function same(path, state, what) {
-  const [ours, theirs] = [await context({ javaScriptEnabled: false, storageState: state }), await context({ storageState: state })];
+  const [ours, theirs] = [
+    await context({ javaScriptEnabled: false, storageState: state }),
+    await context({ storageState: state }),
+  ];
   const res = await ours.page.goto(`${base}${path}`);
   await theirs.page.goto(`${market}${path}`, { waitUntil: "networkidle" });
   const { missing, extra } = difference(await wordsOf(theirs.page), await wordsOf(ours.page));
-  check(res.status() === 200 && missing.length === 0 && extra.length === 0, `${what} says what marketplace's says (${res.status()}; missing [${missing.join(" ")}] extra [${extra.join(" ")}])`);
+  check(
+    res.status() === 200 && missing.length === 0 && extra.length === 0,
+    `${what} says what marketplace's says (${res.status()}; missing [${missing.join(" ")}] extra [${extra.join(" ")}])`,
+  );
   await theirs.ctx.close();
   return ours;
 }
@@ -80,39 +86,61 @@ const sales = await read("/api/marketplace/account/sales?limit=100&offset=0", se
 const packed = purchases.items.find((o) => o.cancellation_unavailable_reason === "fulfillment-started");
 const cancelled = purchases.items.find((o) => o.status === "cancelled");
 const sold = sales.items.find((o) => o.status === "ready-for-fulfillment") ?? sales.items[0];
-check(Boolean(packed && cancelled && sold), `the seeds have a purchase being packed, a cancelled one and a sale (${packed?.order_id}, ${cancelled?.order_id}, ${sold?.order_id})`);
+check(
+  Boolean(packed && cancelled && sold),
+  `the seeds have a purchase being packed, a cancelled one and a sale (${packed?.order_id}, ${cancelled?.order_id}, ${sold?.order_id})`,
+);
 
 {
   const { ctx, page } = await context({ javaScriptEnabled: false });
   await page.goto(`${base}/account/purchases/${packed.order_id}`);
   const at = new URL(page.url());
-  check(at.origin === base && at.pathname === "/sign-in" && at.searchParams.get("returnTo") === `/account/purchases/${packed.order_id}`, `signed out, a purchase sends the visitor to the pilot's sign-in, back to it (${page.url()})`);
+  check(
+    at.origin === base &&
+      at.pathname === "/sign-in" &&
+      at.searchParams.get("returnTo") === `/account/purchases/${packed.order_id}`,
+    `signed out, a purchase sends the visitor to the pilot's sign-in, back to it (${page.url()})`,
+  );
   await ctx.close();
 }
 
 {
   const { ctx, page } = await same("/account/purchases", collectorState, "Purchases");
-  const hrefs = await page.locator("main a", { hasText: "Open order" }).evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+  const hrefs = await page
+    .locator("main a", { hasText: "Open order" })
+    .evaluateAll((as) => as.map((a) => a.getAttribute("href")));
   check(
-    hrefs.length === purchases.items.length && hrefs.every((h, i) => h === `/account/purchases/${purchases.items[i].order_id}`),
+    hrefs.length === purchases.items.length &&
+      hrefs.every((h, i) => h === `/account/purchases/${purchases.items[i].order_id}`),
     `each card's Open order opens its purchase here (${hrefs.length})`,
   );
   await page.locator("main a", { hasText: "Open order" }).first().click();
-  check(new URL(page.url()).pathname === `/account/purchases/${purchases.items[0].order_id}`, "and Open order goes there");
+  check(
+    new URL(page.url()).pathname === `/account/purchases/${purchases.items[0].order_id}`,
+    "and Open order goes there",
+  );
   // Two to a page: the pages are links.
   const second = await read("/api/marketplace/account/purchases?limit=2&offset=2", collectorState);
   await page.goto(`${base}/account/purchases?limit=2`);
   await page.getByRole("link", { name: "Next page" }).click();
   const url = new URL(page.url());
-  check(url.searchParams.get("offset") === "2" && url.searchParams.get("limit") === "2", `Next page is a link to the next two (${url.search})`);
+  check(
+    url.searchParams.get("offset") === "2" && url.searchParams.get("limit") === "2",
+    `Next page is a link to the next two (${url.search})`,
+  );
   const titles = await page.locator("main article h3").allInnerTexts();
-  const expected = second.items.map((o) => o.item_titles[0] + (o.item_titles.length > 1 ? ` +${o.item_titles.length - 1} more` : ""));
+  const expected = second.items.map(
+    (o) => o.item_titles[0] + (o.item_titles.length > 1 ? ` +${o.item_titles.length - 1} more` : ""),
+  );
   check(JSON.stringify(titles) === JSON.stringify(expected), `and it shows the API's next two (${titles.join(", ")})`);
   check((await page.locator('main nav a[aria-current="page"]').innerText()).trim() === "2", "as page 2");
   await ctx.close();
 }
 
-for (const [order, what] of [[packed, "a purchase being packed"], [cancelled, "a cancelled purchase"]]) {
+for (const [order, what] of [
+  [packed, "a purchase being packed"],
+  [cancelled, "a cancelled purchase"],
+]) {
   const { ctx } = await same(`/account/purchases/${order.order_id}`, collectorState, `the page of ${what}`);
   await ctx.close();
 }
@@ -143,9 +171,15 @@ async function postCancel(state, path) {
 }
 {
   const { ctx, page, offered, status } = await postCancel(sellerState, `/account/sales/${sold.order_id}`);
-  check(offered === 0 && sold.cancellation_unavailable_reason === "fulfillment-started", "a sale being packed has no Cancel");
+  check(
+    offered === 0 && sold.cancellation_unavailable_reason === "fulfillment-started",
+    "a sale being packed has no Cancel",
+  );
   const alert = await page.locator('main [role="alert"]').innerText();
-  check(status === 400 && alert.includes("Sale issue") && alert.includes("support"), `a cancellation the API refuses is the sale with what it said (${status}: ${alert.replace(/\s+/g, " ")})`);
+  check(
+    status === 400 && alert.includes("Sale issue") && alert.includes("support"),
+    `a cancellation the API refuses is the sale with what it said (${status}: ${alert.replace(/\s+/g, " ")})`,
+  );
   const after = await read(`/api/marketplace/account/sales/${sold.order_id}`, sellerState);
   check(after.status === sold.status, `and nothing changed (${after.status})`);
   await ctx.close();
@@ -174,7 +208,8 @@ for (const [path, state, width, columns] of [
     for (const el of document.querySelectorAll("main a, main button")) {
       const r = el.getBoundingClientRect();
       if (r.width === 0) continue;
-      if (r.height < 40 && !el.closest("p")) small.push(`${el.tagName} ${el.textContent.trim().slice(0, 30)} ${Math.round(r.height)}`);
+      if (r.height < 40 && !el.closest("p"))
+        small.push(`${el.tagName} ${el.textContent.trim().slice(0, 30)} ${Math.round(r.height)}`);
     }
     const grid = document.querySelector('main [class*="__cards"], main [class*="__layout"]');
     return {
@@ -185,7 +220,10 @@ for (const [path, state, width, columns] of [
   });
   check(layout.columns === columns, `${path} at ${width} px: ${columns} column(s) (${layout.columns})`);
   check(layout.overflow <= 0, `${path} at ${width} px: nothing scrolls sideways (${layout.overflow})`);
-  check(layout.small.length === 0, `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+  check(
+    layout.small.length === 0,
+    `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`,
+  );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }

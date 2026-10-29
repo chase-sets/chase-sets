@@ -42,7 +42,16 @@ if (api) {
   const { sessionToken } = await response.json();
   if (!sessionToken) throw new Error("password sign-in returned no session token");
   const { hostname } = new URL(base);
-  const cookie = { name: "chase_sets_session", value: sessionToken, domain: hostname, path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" };
+  const cookie = {
+    name: "chase_sets_session",
+    value: sessionToken,
+    domain: hostname,
+    path: "/",
+    expires: -1,
+    httpOnly: true,
+    secure: false,
+    sameSite: "Lax",
+  };
   writeFileSync(stateFile, JSON.stringify({ cookies: [cookie], origins: [] }, null, 2));
   console.log(`signed in through ${api}; state in ${stateFile}`);
   process.exit(0);
@@ -68,7 +77,10 @@ while (!signedIn && Date.now() < deadline) {
     await passwordInput.fill(password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-  } else if ((await passwordChoice.isVisible().catch(() => false)) && !(await passwordChoice.isChecked().catch(() => false))) {
+  } else if (
+    (await passwordChoice.isVisible().catch(() => false)) &&
+    !(await passwordChoice.isChecked().catch(() => false))
+  ) {
     await passwordChoice.click();
   } else if (await emailInput.isVisible().catch(() => false)) {
     await emailInput.fill(email);

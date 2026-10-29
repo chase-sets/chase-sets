@@ -1,4 +1,6 @@
-.actions { margin: 0 0 var(--space-4); }
+.actions {
+  margin: 0 0 var(--space-4);
+}
 .back {
   display: inline-flex;
   align-items: center;

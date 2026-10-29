@@ -17,8 +17,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -32,9 +35,9 @@ const cookie = JSON.parse(readFileSync(state, "utf8"))
   .join("; ");
 const own = (await (await fetch(`${api}/api/auth/session`, { headers: { cookie } })).json()).actor;
 const list = async (query = "") =>
-  ((await (await fetch(`${api}/api/auth/sessions?limit=250${query}`, { headers: { cookie } })).json()).items ?? []).filter(
-    (s) => s.user_id === own.userId,
-  );
+  (
+    (await (await fetch(`${api}/api/auth/sessions?limit=250${query}`, { headers: { cookie } })).json()).items ?? []
+  ).filter((s) => s.user_id === own.userId);
 /** A new session of the collector's: its id and a cookie for it (never printed). */
 async function signIn() {
   const res = await fetch(`${api}/api/auth/password-sign-in`, {
@@ -48,7 +51,8 @@ async function signIn() {
   const body = await res.json();
   return { id: body.sessionId, cookie: `chase_sets_session=${body.sessionToken}` };
 }
-const alive = async (session) => (await fetch(`${api}/api/auth/session`, { headers: { cookie: session.cookie } })).status === 200;
+const alive = async (session) =>
+  (await fetch(`${api}/api/auth/session`, { headers: { cookie: session.cookie } })).status === 200;
 const created = [];
 
 const browser = await chromium.launch();
@@ -111,17 +115,29 @@ try {
     await page.getByText("Status: Active").waitFor();
     const statuses = await page.locator("main ul dd span").allInnerTexts();
     const active = (await list("&status=active")).length;
-    check(statuses.length === Math.min(active, 50) && statuses.every((s) => s === "Active"), `Active lists only active sessions (${statuses.length} of ${active})`);
+    check(
+      statuses.length === Math.min(active, 50) && statuses.every((s) => s === "Active"),
+      `Active lists only active sessions (${statuses.length} of ${active})`,
+    );
     check((await main(page)).includes("Status: Active"), "and says so");
     await page.getByRole("link", { name: "Clear filters" }).first().click();
     await page.waitForURL((u) => !u.search.includes("status"));
     await page.getByText("Status: Active").waitFor({ state: "detached" });
-    check((await page.locator("main ul a[href^='/account/sessions/ses_']").count()) === expected, "Clear lists them all again");
+    check(
+      (await page.locator("main ul a[href^='/account/sessions/ses_']").count()) === expected,
+      "Clear lists them all again",
+    );
 
     await page.goto(`${base}/account/sessions/${own.sessionId}`);
     const text = await main(page);
-    check(text.includes("session") && text.includes("Session ID") && text.includes(own.sessionId), "a session's page shows its details");
-    check((await page.locator("main form[action$='/switch']").count()) === 0, "no Switch Account for a one-account session");
+    check(
+      text.includes("session") && text.includes("Session ID") && text.includes(own.sessionId),
+      "a session's page shows its details",
+    );
+    check(
+      (await page.locator("main form[action$='/switch']").count()) === 0,
+      "no Switch Account for a one-account session",
+    );
     const nav = await page.locator("header nav a[aria-current=page]").getAttribute("href");
     check(nav === "/account/sessions", `the top bar's Sessions is the pilot's and current (${nav})`);
     await page.locator("main nav a[href='/account/sessions']").click();
@@ -149,10 +165,17 @@ try {
       await page.waitForTimeout(1000);
     }
     const again = await page.evaluate(async (path) => {
-      const res = await fetch(path, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "",
+      });
       return res.url;
     }, `/account/sessions/${session.id}/revoke`);
-    check(new URL(again).searchParams.get("said") === "not-active", `a revoke sent again (Auth's 500) says it is no longer active (${new URL(again).search})`);
+    check(
+      new URL(again).searchParams.get("said") === "not-active",
+      `a revoke sent again (Auth's 500) says it is no longer active (${new URL(again).search})`,
+    );
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
     await ctx.close();
   }
@@ -191,7 +214,10 @@ try {
     });
     console.log(`revoked a session the run left active through the API (${res.status})`);
   }
-  check(await (async () => (await fetch(`${api}/api/auth/session`, { headers: { cookie } })).status === 200)(), "the browser's own session is still signed in");
+  check(
+    await (async () => (await fetch(`${api}/api/auth/session`, { headers: { cookie } })).status === 200)(),
+    "the browser's own session is still signed in",
+  );
   await browser.close();
 }
 

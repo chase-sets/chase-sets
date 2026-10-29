@@ -27,7 +27,10 @@ function check(ok, what) {
   if (!ok) failures += 1;
 }
 
-const money = (m) => (m ? new Intl.NumberFormat("en-US", { style: "currency", currency: m.currency }).format(Number(m.amount)) : "Priced at checkout");
+const money = (m) =>
+  m
+    ? new Intl.NumberFormat("en-US", { style: "currency", currency: m.currency }).format(Number(m.amount))
+    : "Priced at checkout";
 const labels = {
   ready: "Ready",
   "unassigned-fulfillment": "Needs fulfillment",
@@ -40,7 +43,11 @@ const labels = {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
@@ -67,7 +74,9 @@ async function shown(page) {
 // With JavaScript, beside the API's answer.
 {
   const { ctx, page, problems } = await context(true);
-  const answer = await page.request.get(`${api}/api/marketplace/account/cart`, { headers: { "chase-sets-read-target-context": "checkout" } });
+  const answer = await page.request.get(`${api}/api/marketplace/account/cart`, {
+    headers: { "chase-sets-read-target-context": "checkout" },
+  });
   check(answer.ok(), `the API reads the collector's cart (${answer.status()})`);
   const cart = await answer.json();
   const response = await page.goto(cartUrl);
@@ -76,18 +85,34 @@ async function shown(page) {
   check((await page.locator("h1").textContent()) === "Your cart", "the page renders in the shell");
   const { lines, total } = await shown(page);
   check(cart.items.length > 0, `the collector's cart has lines (${cart.items.length})`);
-  check(lines.length > 0 && lines.length <= cart.items.length, `one card per product and fulfillment (${lines.length} for ${cart.items.length} lines)`);
+  check(
+    lines.length > 0 && lines.length <= cart.items.length,
+    `one card per product and fulfillment (${lines.length} for ${cart.items.length} lines)`,
+  );
   const outcomes = Object.fromEntries(cart.readiness.loaded.lineOutcomes.map((o) => [o.lineId, o.reason]));
   for (const line of lines) {
     const item = cart.items.find((i) => i.line_id === line.id);
     check(Boolean(item) && item.item_title === line.title, `${line.title}: a line the API returned`);
-    check(line.reason === labels[outcomes[line.id]], `${line.title}: the badge is the API's line outcome (${line.reason}, ${outcomes[line.id]})`);
-    check(/^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""), `${line.title}: a price (${line.price})`);
+    check(
+      line.reason === labels[outcomes[line.id]],
+      `${line.title}: the badge is the API's line outcome (${line.reason}, ${outcomes[line.id]})`,
+    );
+    check(
+      /^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""),
+      `${line.title}: a price (${line.price})`,
+    );
   }
   check(total === money(cart.readiness.estimatedSubtotal), `the total is the API's estimated subtotal (${total})`);
-  const notice = await page.locator('[role="note"]').first().textContent().catch(() => null);
+  const notice = await page
+    .locator('[role="note"]')
+    .first()
+    .textContent()
+    .catch(() => null);
   if (cart.readiness.declined.status === "ready" && cart.readiness.declined.optimization.available) {
-    check(notice?.includes(`Save ${money(cart.readiness.savings)}`) ?? false, `the offer is the API's savings (${notice?.trim().split("\n")[0]})`);
+    check(
+      notice?.includes(`Save ${money(cart.readiness.savings)}`) ?? false,
+      `the offer is the API's savings (${notice?.trim().split("\n")[0]})`,
+    );
   } else {
     check(!notice?.includes("Save "), "no offer for a cart the API does not offer one");
   }
@@ -95,24 +120,43 @@ async function shown(page) {
   if (ready) {
     // Check out and Use lower price post the offer's decision; the pilot starts the session.
     const forms = await page.locator('form[action$="/account/cart/checkout"]').evaluateAll((all) =>
-      all.map((f) => ({ action: f.action, method: f.method, fields: Object.fromEntries(new FormData(f)), label: f.querySelector("button")?.textContent?.trim() })),
+      all.map((f) => ({
+        action: f.action,
+        method: f.method,
+        fields: Object.fromEntries(new FormData(f)),
+        label: f.querySelector("button")?.textContent?.trim(),
+      })),
     );
     const optimization = cart.readiness.declined.optimization;
     const checkOut = forms.find((f) => f.label === "Check out");
-    check(checkOut?.action === `${base}/account/cart/checkout` && checkOut.method === "post", "Check out posts to the pilot");
     check(
-      optimization.available ? checkOut?.fields.offer === "declined" && checkOut.fields.line === optimization.proposedLineId : checkOut?.fields.offer === "",
+      checkOut?.action === `${base}/account/cart/checkout` && checkOut.method === "post",
+      "Check out posts to the pilot",
+    );
+    check(
+      optimization.available
+        ? checkOut?.fields.offer === "declined" && checkOut.fields.line === optimization.proposedLineId
+        : checkOut?.fields.offer === "",
       `with the declined offer, as the API read it (${checkOut?.fields.offer})`,
     );
     const lower = forms.find((f) => f.label === "Use lower price");
     if (cart.readiness.accepted && optimization.available) {
-      check(lower?.fields.offer === "accepted" && lower.fields.listing === optimization.proposedListingId, "Use lower price posts the accepted offer");
+      check(
+        lower?.fields.offer === "accepted" && lower.fields.listing === optimization.proposedListingId,
+        "Use lower price posts the accepted offer",
+      );
     }
   } else {
     const resolve = page.getByRole("link", { name: "Continue to checkout" });
-    check((await resolve.getAttribute("href")) === `${web}/checkout/buy/readiness`, "a cart that is not ready continues to marketplace's checkout");
+    check(
+      (await resolve.getAttribute("href")) === `${web}/checkout/buy/readiness`,
+      "a cart that is not ready continues to marketplace's checkout",
+    );
   }
-  check((await page.getByRole("link", { name: "Keep shopping" }).getAttribute("href")) === `${web}/search`, "keep shopping is marketplace's search");
+  check(
+    (await page.getByRole("link", { name: "Keep shopping" }).getAttribute("href")) === `${web}/search`,
+    "keep shopping is marketplace's search",
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
 
   // Check out goes to the pilot's checkout for the session it started.
@@ -124,19 +168,33 @@ async function shown(page) {
       landed = new URL(route.request().url());
       return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><h1>Checkout</h1>" });
     });
-    const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/checkout`, { timeout: 30_000 }).catch(() => null);
+    const posted = page
+      .waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/checkout`, {
+        timeout: 30_000,
+      })
+      .catch(() => null);
     await page.getByRole("button", { name: "Check out" }).click();
     const answer = await posted;
-    check(Boolean(answer) && [204, 303].includes(answer.status()), `the pilot starts the session (${answer?.status()})`);
-    await page.waitForURL((u) => u.pathname.startsWith("/checkout/buy/session/"), { timeout: 30_000 }).catch(() => null);
+    check(
+      Boolean(answer) && [204, 303].includes(answer.status()),
+      `the pilot starts the session (${answer?.status()})`,
+    );
+    await page
+      .waitForURL((u) => u.pathname.startsWith("/checkout/buy/session/"), { timeout: 30_000 })
+      .catch(() => null);
     const session = landed?.pathname.match(/^\/checkout\/buy\/session\/(chk_[\w-]+)$/)?.[1];
     check(Boolean(session), `and sends the browser to the pilot's checkout for it (${landed?.pathname})`);
     check(Boolean(landed?.searchParams.get("afterWrite")), "with the write's receipt");
     check(blocked.length === 0, `no form-action violation (${blocked.join(" | ")})`);
     if (session) {
-      const read = await page.request.get(`${api}/api/marketplace/account/checkout-sessions/${session}`, { headers: { "chase-sets-read-target-context": "checkout" } });
+      const read = await page.request.get(`${api}/api/marketplace/account/checkout-sessions/${session}`, {
+        headers: { "chase-sets-read-target-context": "checkout" },
+      });
       const started = read.ok() ? await read.json() : null;
-      check(started?.source_type === "cart" && started.lines.length === cart.items.length, `the API has the session, with the cart's lines (${started?.lines?.length})`);
+      check(
+        started?.source_type === "cart" && started.lines.length === cart.items.length,
+        `the API has the session, with the cart's lines (${started?.lines?.length})`,
+      );
     }
     await page.unroute(`${base}/checkout/buy/session/**`);
   } else if (sendCheckout) {
@@ -145,12 +203,17 @@ async function shown(page) {
 
   // marketplace's own page, when it is running: the same lines, in the same order, and total.
   const webPage = await ctx.newPage();
-  const webAnswer = await webPage.goto(`${web}/account/cart`, { waitUntil: "load", timeout: 180_000 }).catch(() => null);
+  const webAnswer = await webPage
+    .goto(`${web}/account/cart`, { waitUntil: "load", timeout: 180_000 })
+    .catch(() => null);
   if (webAnswer?.ok()) {
-    const titles = await webPage.locator("[data-marketplace-cart-line]").evaluateAll((items) =>
-      items.map((li) => li.querySelector(".line-clamp-2")?.textContent?.trim()),
+    const titles = await webPage
+      .locator("[data-marketplace-cart-line]")
+      .evaluateAll((items) => items.map((li) => li.querySelector(".line-clamp-2")?.textContent?.trim()));
+    check(
+      titles.join() === lines.map((l) => l.title).join(),
+      `marketplace shows the same lines in the same order (${titles.join(", ")})`,
     );
-    check(titles.join() === lines.map((l) => l.title).join(), `marketplace shows the same lines in the same order (${titles.join(", ")})`);
     const webText = (await webPage.locator("main").innerText()).replace(/\s+/g, " ");
     check(webText.includes(`Estimated total ${total}`), `marketplace shows the same total (${total})`);
   } else {
@@ -176,7 +239,9 @@ if (sendWrites) {
     const how = javaScriptEnabled ? "with JavaScript" : "without JavaScript";
     const { ctx, page, problems } = await context(javaScriptEnabled);
     const quantityOf = async (id) => {
-      const read = await page.request.get(`${api}/api/marketplace/account/cart`, { headers: { "chase-sets-read-target-context": "checkout" } });
+      const read = await page.request.get(`${api}/api/marketplace/account/cart`, {
+        headers: { "chase-sets-read-target-context": "checkout" },
+      });
       return (await read.json()).items.find((i) => i.line_id === id)?.quantity;
     };
     // The cart read after the write may not have caught up: the page then says so and reads
@@ -185,11 +250,16 @@ if (sendWrites) {
     const step = async (id, name, expected) => {
       const before = page.url();
       const card = page.locator(`li[data-cart-line="${id}"]`);
-      const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/quantity`);
+      const posted = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url() === `${base}/account/cart/quantity`,
+      );
       let pending = false;
       const seen = (r) => {
         if (r.url().startsWith(cartUrl) && r.request().method() === "GET" && r.status() === 200)
-          r.text().then((html) => html.includes("data-corten-read-again") && (pending = true), () => {});
+          r.text().then(
+            (html) => html.includes("data-corten-read-again") && (pending = true),
+            () => {},
+          );
       };
       page.on("response", seen);
       await card.getByRole("button", { name }).click();
@@ -200,7 +270,9 @@ if (sendWrites) {
         .filter({ hasText: new RegExp(`^${expected}$`) })
         .waitFor({ timeout: 35_000 })
         .then(() => expected)
-        .catch(async () => (await card.count()) ? Number(await card.locator("[data-quantity]").textContent()) : "no card");
+        .catch(async () =>
+          (await card.count()) ? Number(await card.locator("[data-quantity]").textContent()) : "no card",
+        );
       page.off("response", seen);
       if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
       return { status: answer.status(), shown, pending };
@@ -222,10 +294,16 @@ if (sendWrites) {
     }
     const up = await step(card.id, "Increase", card.quantity + 1);
     check([204, 303].includes(up.status), `${how}: Increase is sent as an attempt (${up.status})`);
-    check(up.shown === card.quantity + 1, `${how}: the cart read after it shows ${card.quantity + 1} (${up.shown}${up.pending ? ", after a pending read" : ""})`);
+    check(
+      up.shown === card.quantity + 1,
+      `${how}: the cart read after it shows ${card.quantity + 1} (${up.shown}${up.pending ? ", after a pending read" : ""})`,
+    );
     check((await quantityOf(card.id)) === card.quantity + 1, `${how}: the API has it`);
     const down = await step(card.id, "Decrease", card.quantity);
-    check(down.shown === card.quantity, `${how}: Decrease puts it back to ${card.quantity} (${down.shown}${down.pending ? ", after a pending read" : ""})`);
+    check(
+      down.shown === card.quantity,
+      `${how}: Decrease puts it back to ${card.quantity} (${down.shown}${down.pending ? ", after a pending read" : ""})`,
+    );
     check((await quantityOf(card.id)) === card.quantity, `${how}: the API has it back`);
     check(problems.length === 0, `${how}: no console errors (${problems.join(" | ")})`);
     await ctx.close();
@@ -239,12 +317,25 @@ if (sendWrites) {
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(over <= 0, `the page does not scroll sideways at 390 px (${over} px over)`);
-  const bar = await page.getByRole("button", { name: "Check out" }).or(page.getByRole("link", { name: "Continue to checkout" })).boundingBox();
+  const bar = await page
+    .getByRole("button", { name: "Check out" })
+    .or(page.getByRole("link", { name: "Continue to checkout" }))
+    .boundingBox();
   check(Boolean(bar) && bar.x >= 0 && bar.x + bar.width <= 390, "checkout fits on the screen");
-  const cards = await page.locator("li[data-cart-line]").evaluateAll((items) => items.map((li) => li.getBoundingClientRect().right));
-  check(cards.every((right) => right <= 390), "every line fits");
-  const controls = await page.locator("li[data-cart-line] button").evaluateAll((all) => all.map((b) => b.getBoundingClientRect()));
-  check(controls.length > 0 && controls.every((r) => r.left >= 0 && r.right <= 390), `every line's controls fit (${controls.length})`);
+  const cards = await page
+    .locator("li[data-cart-line]")
+    .evaluateAll((items) => items.map((li) => li.getBoundingClientRect().right));
+  check(
+    cards.every((right) => right <= 390),
+    "every line fits",
+  );
+  const controls = await page
+    .locator("li[data-cart-line] button")
+    .evaluateAll((all) => all.map((b) => b.getBoundingClientRect()));
+  check(
+    controls.length > 0 && controls.every((r) => r.left >= 0 && r.right <= 390),
+    `every line's controls fit (${controls.length})`,
+  );
   const small = controls.filter((r) => r.height < 40 || r.width < 40).length;
   check(small === 0, `every control is a comfortable target (${small} under 40 px)`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/cart-390.png", fullPage: true });

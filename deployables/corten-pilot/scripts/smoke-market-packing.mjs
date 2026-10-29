@@ -60,7 +60,11 @@ async function context(options = {}) {
   return { ctx, page, problems };
 }
 const main = (page) => page.evaluate(() => document.querySelector("main")?.innerText.replace(/\s+/g, " ") ?? "");
-const progress = (page) => page.locator("#packing-progress").innerText().then((t) => t.replace(/\s+/g, " ").trim());
+const progress = (page) =>
+  page
+    .locator("#packing-progress")
+    .innerText()
+    .then((t) => t.replace(/\s+/g, " ").trim());
 const finish = (page) => page.getByRole("button", { name: "Finish packing" });
 
 /** Start packing from the shipment's page (or resume it, as the API says it stands), and wait
@@ -74,7 +78,10 @@ async function begin(page, shipment) {
     await page.getByRole("link", { name: "Resume packing" }).click();
   }
   await page.waitForURL(/\/packing/);
-  await page.getByText("Order changes locked while packing").or(page.getByText("We could not confirm your last packing change")).waitFor();
+  await page
+    .getByText("Order changes locked while packing")
+    .or(page.getByText("We could not confirm your last packing change"))
+    .waitFor();
 }
 
 // Read only: Start packing as marketplace offers it, Ready to start, and the layout on a phone.
@@ -82,9 +89,13 @@ async function begin(page, shipment) {
   const shipment = open.find((s) => s.status === "awaiting-package") ?? open[0];
   const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
   await page.goto(`${market}/account/sales/shipments/${shipment.shipment_id}`, { timeout: 120_000 });
-  const theirs = await page.getByRole("button", { name: "Start packing" }).count() + await page.getByRole("link", { name: "Resume packing" }).count();
+  const theirs =
+    (await page.getByRole("button", { name: "Start packing" }).count()) +
+    (await page.getByRole("link", { name: "Resume packing" }).count());
   await page.goto(`${base}/account/sales/shipments/${shipment.shipment_id}`);
-  const ours = await page.getByRole("button", { name: "Start packing" }).count() + await page.getByRole("link", { name: "Resume packing" }).count();
+  const ours =
+    (await page.getByRole("button", { name: "Start packing" }).count()) +
+    (await page.getByRole("link", { name: "Resume packing" }).count());
   check(ours === 1 && ours === theirs, `the shipment's page offers Start or Resume packing (marketplace: ${theirs})`);
   await page.goto(`${base}/account/sales/shipments/${shipment.shipment_id}/packing`);
   const text = await main(page);
@@ -113,7 +124,10 @@ let blocked = false;
   } else {
     blocked = true;
     await page.getByText("We could not confirm your last packing change").waitFor();
-    check(new URL(page.url()).searchParams.has("check"), `the API refused it and cannot say what came of it: the page asks (${page.url()})`);
+    check(
+      new URL(page.url()).searchParams.has("check"),
+      `the API refused it and cannot say what came of it: the page asks (${page.url()})`,
+    );
     const off = await page.evaluate(() => [...document.querySelectorAll("main fieldset")].every((f) => f.disabled));
     check(off, "every write is off");
     const remembered = () =>
@@ -131,7 +145,10 @@ let blocked = false;
     check((await read(`/${shipment.shipment_id}`)).status === "awaiting-package", "nothing was applied");
     console.log("BLOCKED the packing writes: chase-sets/chase-sets#10645 (the seeded shipments' tenant)");
   }
-  check(problems.filter((p) => !p.includes("502")).length === 0, `no console errors but the refused write's ${problems.join(" | ")}`);
+  check(
+    problems.filter((p) => !p.includes("502")).length === 0,
+    `no console errors but the refused write's ${problems.join(" | ")}`,
+  );
   await ctx.close();
 }
 
@@ -152,13 +169,20 @@ if (!blocked) {
     await other.close();
     return text;
   })();
-  for (const pattern of [/Pack shipment/, /Order [A-Z0-9-]+ for [^.]+\./, /Order changes locked while packing/, /\d+ of \d+ items packed/]) {
+  for (const pattern of [
+    /Pack shipment/,
+    /Order [A-Z0-9-]+ for [^.]+\./,
+    /Order changes locked while packing/,
+    /\d+ of \d+ items packed/,
+  ]) {
     const a = ours.match(pattern)?.[0];
     const b = theirs.match(pattern)?.[0];
     check(a !== undefined && a === b, `says "${a}" as marketplace does ("${b}")`);
   }
   check(
-    await page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith("shipment-mutation/")).length === 0),
+    await page.evaluate(
+      () => Object.keys(sessionStorage).filter((k) => k.startsWith("shipment-mutation/")).length === 0,
+    ),
     "the browser keeps no record of the settled start",
   );
 
@@ -188,12 +212,21 @@ if (!blocked) {
   check(await finish(page).isEnabled(), `scanning "${title}" packs it and turns Finish on`);
   check(navigations.length === 0, `all in place, no navigation (${navigations.length})`);
   const after = await read(`/${shipment.shipment_id}`);
-  check(after.lines[0].packing_confirmed_quantity === 1, `the API has the line packed (${after.lines[0].packing_confirmed_quantity})`);
+  check(
+    after.lines[0].packing_confirmed_quantity === 1,
+    `the API has the line packed (${after.lines[0].packing_confirmed_quantity})`,
+  );
   await finish(page).click();
   await page.waitForURL((url) => !url.pathname.endsWith("/packing"));
   const done = await read(`/${shipment.shipment_id}`);
-  check(done.status === "awaiting-label" && done.package_count === 1, `Finish packs it: ${done.status}, ${done.package_count} package`);
-  check(new URL(page.url()).pathname === `/account/sales/shipments/${shipment.shipment_id}`, `and loads the shipment's page: ${page.url()}`);
+  check(
+    done.status === "awaiting-label" && done.package_count === 1,
+    `Finish packs it: ${done.status}, ${done.package_count} package`,
+  );
+  check(
+    new URL(page.url()).pathname === `/account/sales/shipments/${shipment.shipment_id}`,
+    `and loads the shipment's page: ${page.url()}`,
+  );
   check(problems.length === 0, `no console errors ${problems.join(" | ")}`);
   await ctx.close();
 }
@@ -207,7 +240,10 @@ if (blocked) {
   const shipment = open.shift();
   const { ctx, page } = await context({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
   await begin(page, shipment);
-  check((await read(`/${shipment.shipment_id}`)).status === "packing", "without a script, Start packing is a post and the page");
+  check(
+    (await read(`/${shipment.shipment_id}`)).status === "packing",
+    "without a script, Start packing is a post and the page",
+  );
   // The layout, while it is packing.
   const layout = await page.evaluate(() => {
     const small = [...document.querySelectorAll("main button:not([hidden]), main a, main input:not([type=hidden])")]
@@ -219,15 +255,24 @@ if (blocked) {
   check(layout.small.length === 0, `every control is at least 40 px tall ${layout.small.join(" | ")}`);
   await page.evaluate(() => window.scrollTo(0, 0));
   const footer = await page.locator("#packing-footer").boundingBox();
-  check(footer !== null && footer.y + footer.height <= 844 + 1, `Finish stays on screen at the top of the page (${footer?.y})`);
+  check(
+    footer !== null && footer.y + footer.height <= 844 + 1,
+    `Finish stays on screen at the top of the page (${footer?.y})`,
+  );
 
   const box = page.locator("li[data-checked]").first().getByRole("checkbox");
   if ((await box.getAttribute("aria-checked")) !== "true") {
     await box.click();
     await page.waitForLoadState();
   }
-  check(new URL(page.url()).hash.startsWith("#packing-line-"), `checking the line loads the page at the line: ${new URL(page.url()).hash}`);
-  check((await read(`/${shipment.shipment_id}`)).lines.every((l) => l.packing_confirmed_quantity === l.quantity), "the API has every line packed");
+  check(
+    new URL(page.url()).hash.startsWith("#packing-line-"),
+    `checking the line loads the page at the line: ${new URL(page.url()).hash}`,
+  );
+  check(
+    (await read(`/${shipment.shipment_id}`)).lines.every((l) => l.packing_confirmed_quantity === l.quantity),
+    "the API has every line packed",
+  );
   if (await finish(page).isEnabled()) {
     await finish(page).click();
     await page.waitForLoadState();

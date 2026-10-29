@@ -23,30 +23,61 @@
 }
 
 /* color-scheme is a property, not a token: the same selectors as the dark theme in tokens.json. */
-:root { color-scheme: light; }
-[data-theme="dark"] { color-scheme: dark; }
+:root {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark; }
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
 }
 
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   background: var(--color-background);
   color: var(--color-text);
   font: 400 1rem/1.5 var(--font-body);
 }
-main { max-width: 72rem; margin: 0 auto; padding: var(--space-6); }
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
 /* Printed, a page is on white paper and its content uses the page's own margins. */
 @media print {
-  body { background: #ffffff; }
-  main { max-width: none; margin: 0; padding: 0; }
+  body {
+    background: #ffffff;
+  }
+  main {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
 }
-a { color: var(--color-primary); }
-:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+a {
+  color: var(--color-primary);
+}
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
 
-input[type="text"], input[type="search"], input[type="email"], input[type="tel"], input[type="number"], select, textarea {
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+select,
+textarea {
   width: 100%;
   min-height: var(--control-height);
   padding: var(--control-py) var(--control-px);
@@ -56,8 +87,14 @@ input[type="text"], input[type="search"], input[type="email"], input[type="tel"]
   color: var(--color-text);
   font: inherit;
 }
-input[aria-invalid="true"] { border-color: var(--color-danger); }
-input[type="checkbox"] { width: 1.125rem; height: 1.125rem; accent-color: var(--color-primary); }
+input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--color-primary);
+}
 button {
   min-height: var(--control-height);
   padding: var(--control-py) var(--control-px);
@@ -68,12 +105,23 @@ button {
   font: 600 1rem/1 var(--font-body);
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--color-primary-hover); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-form[aria-busy="true"] { opacity: 0.6; }
+button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+form[aria-busy="true"] {
+  opacity: 0.6;
+}
 
 /* Corten's form messages (Errors::message, Errors::form_message). */
-.field-error { margin: 0; color: var(--color-danger); font-size: 0.875rem; }
+.field-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}
 .form-error {
   margin: 0;
   padding: var(--space-3);

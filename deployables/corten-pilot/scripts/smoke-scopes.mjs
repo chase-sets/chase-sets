@@ -43,9 +43,15 @@ async function navigated(page) {
 /** The scopes table's rows as text cells, without the View column. admin-web draws its attention
  * queue above the list, so the scopes table is the page's last. */
 const rows = (page) =>
-  page.locator("table").last().locator("tbody tr").evaluateAll((trs) =>
-    trs.map((tr) => Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 5)),
-  );
+  page
+    .locator("table")
+    .last()
+    .locator("tbody tr")
+    .evaluateAll((trs) =>
+      trs.map((tr) =>
+        Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 5),
+      ),
+    );
 
 // With JavaScript, beside admin-web.
 {
@@ -67,14 +73,19 @@ const rows = (page) =>
       }
     }
   }
-  check((await page.locator('nav a[aria-current="page"]').textContent()) === "Scopes", "the nav's Scopes is the current page");
+  check(
+    (await page.locator('nav a[aria-current="page"]').textContent()) === "Scopes",
+    "the nav's Scopes is the current page",
+  );
 
   // The domain of the first row, and active.
   const domain = ours[0][1].split(" · ")[0];
   await page.getByLabel("Product domain").selectOption(domain);
   await page.getByLabel("Status").selectOption("active");
   await page.getByRole("button", { name: "Apply filters" }).click();
-  await page.waitForURL((u) => u.searchParams.get("product_domain") === domain && u.searchParams.get("status") === "active");
+  await page.waitForURL(
+    (u) => u.searchParams.get("product_domain") === domain && u.searchParams.get("status") === "active",
+  );
   await navigated(page);
   const filtered = await rows(page);
   check(
@@ -84,7 +95,10 @@ const rows = (page) =>
 
   // A language edition on the unfiltered page: every row has it.
   await page.goto(`${base}/catalog/scopes`);
-  const options = await page.getByLabel("Language").locator("option").evaluateAll((os) => os.map((o) => o.getAttribute("value")));
+  const options = await page
+    .getByLabel("Language")
+    .locator("option")
+    .evaluateAll((os) => os.map((o) => o.getAttribute("value")));
   const language = options.find((v) => v);
   if (language) {
     await page.getByLabel("Language").selectOption(language);
@@ -92,7 +106,10 @@ const rows = (page) =>
     await page.waitForURL((u) => u.searchParams.get("language") === language);
     await navigated(page);
     const by = await rows(page);
-    check(by.length > 0 && by.every((r) => r[2].split(": ")[1]?.split(", ").includes(language)), `the language facet (${by.length} with ${language})`);
+    check(
+      by.length > 0 && by.every((r) => r[2].split(": ")[1]?.split(", ").includes(language)),
+      `the language facet (${by.length} with ${language})`,
+    );
   } else {
     console.log("skip the language facet: no scope on the page has an edition");
   }
@@ -130,6 +147,9 @@ const rows = (page) =>
 }
 
 await browser.close();
-if (elsewhere.length) console.log(`note admin-web's own page logged ${elsewhere.length} errors (not counted): ${[...new Set(elsewhere)].slice(0, 3).join(" | ")}`);
+if (elsewhere.length)
+  console.log(
+    `note admin-web's own page logged ${elsewhere.length} errors (not counted): ${[...new Set(elsewhere)].slice(0, 3).join(" | ")}`,
+  );
 console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

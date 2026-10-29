@@ -54,9 +54,11 @@ const shown = async (page) => (await page.locator("[data-attention-queue]").coun
 
 const queue = (page) => page.locator("[data-attention-queue] tbody tr");
 /** Each item's title, in order. */
-const titles = (page) => queue(page).evaluateAll((trs) => trs.map((tr) => tr.querySelector("strong")?.textContent?.trim() ?? ""));
+const titles = (page) =>
+  queue(page).evaluateAll((trs) => trs.map((tr) => tr.querySelector("strong")?.textContent?.trim() ?? ""));
 /** The queue's count pill ("214 need you"), as a number. */
-const count = async (page) => Number((await page.locator("[data-attention-queue] header span").first().textContent())?.split(" ")[0]);
+const count = async (page) =>
+  Number((await page.locator("[data-attention-queue] header span").first().textContent())?.split(" ")[0]);
 /** Whether the item keyed `key` is in the queue. */
 const has = (page, key) => page.locator(`[data-attention-queue] button[name="item"][value="${key}"]`).count();
 
@@ -73,7 +75,8 @@ let key = "";
   check(ours.length > 0, `the queue has items (${ours.length})`);
   const same = ours.length === theirs.length && ours.every((title, i) => theirs[i].startsWith(title));
   check(same, `the same items as admin-web's queue, in its order (${theirs.length} there)`);
-  if (!same) console.log(`  pilot ${JSON.stringify(ours.slice(0, 3))}\n  admin-web ${JSON.stringify(theirs.slice(0, 3))}`);
+  if (!same)
+    console.log(`  pilot ${JSON.stringify(ours.slice(0, 3))}\n  admin-web ${JSON.stringify(theirs.slice(0, 3))}`);
   const before = await count(page);
   check(before === ours.length, `the count is the API's (${before})`);
 
@@ -84,19 +87,31 @@ let key = "";
   const sheet = page.locator("dialog#attention-sheet[open]");
   await sheet.waitFor();
   check((await sheet.locator("h2").textContent()) === ours[0], "Review opens the item's sheet");
-  check(await page.evaluate(() => document.querySelector("dialog#attention-sheet")?.matches(":modal") ?? false), "as a modal");
-  const destination = await sheet.locator("[data-attention-destination]").getAttribute("href").catch(() => null);
+  check(
+    await page.evaluate(() => document.querySelector("dialog#attention-sheet")?.matches(":modal") ?? false),
+    "as a modal",
+  );
+  const destination = await sheet
+    .locator("[data-attention-destination]")
+    .getAttribute("href")
+    .catch(() => null);
   check(destination === null || destination.startsWith(adminWeb), `its destination is admin-web's (${destination})`);
 
   // Dismiss without a reason: the browser asks for one; with one, the item leaves the queue.
   await sheet.locator("#attention-dismiss").getByRole("button", { name: "Dismiss" }).click();
-  check(await sheet.locator("#attention-dismiss input[name=reason]").evaluate((i) => !i.validity.valid), "a dismiss needs a reason");
+  check(
+    await sheet.locator("#attention-dismiss input[name=reason]").evaluate((i) => !i.validity.valid),
+    "a dismiss needs a reason",
+  );
   await sheet.locator("#attention-dismiss input[name=reason]").fill("Corten pilot smoke");
   await sheet.locator("#attention-dismiss").getByRole("button", { name: "Dismiss" }).click();
   await page.waitForURL((u) => u.searchParams.get("done") === "queued");
   await navigated(page);
   check((await page.getByText("Command queued").count()) === 1, "the banner says the command was queued");
-  check((await shown(page)) && (await has(page, key)) === 0, "the dismissed item is gone from the queue (read after the write)");
+  check(
+    (await shown(page)) && (await has(page, key)) === 0,
+    "the dismissed item is gone from the queue (read after the write)",
+  );
   check((await count(page)) === before - 1, `the count is one less (${await count(page)})`);
 
   await page.getByRole("button", { name: "Restore" }).click();
@@ -113,7 +128,10 @@ let key = "";
   await page.goto(`${base}/catalog/scopes`);
   await page.locator(`[data-attention-queue] button[name="item"][value="${key}"]`).click();
   await page.waitForURL((u) => u.pathname === "/catalog/scopes/attention/review");
-  check((await page.locator("dialog#attention-sheet[open]").count()) === 1, "Review without JavaScript is the page with the sheet open");
+  check(
+    (await page.locator("dialog#attention-sheet[open]").count()) === 1,
+    "Review without JavaScript is the page with the sheet open",
+  );
   await page.locator("#attention-defer input[name=reason]").fill("Corten pilot smoke, no script");
   await page.locator("#attention-defer").getByRole("button", { name: "Defer 24h" }).click();
   await page.waitForURL((u) => u.searchParams.get("parked") === key);

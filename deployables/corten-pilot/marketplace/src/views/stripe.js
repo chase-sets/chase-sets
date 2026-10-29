@@ -50,7 +50,8 @@ function computed(inside, property, token, fallback) {
  * @param {HTMLElement} inside
  */
 export function connectAppearance(inside) {
-  const color = (/** @type {string} */ token, /** @type {string} */ fallback) => computed(inside, "color", token, fallback);
+  const color = (/** @type {string} */ token, /** @type {string} */ fallback) =>
+    computed(inside, "color", token, fallback);
   const primary = color("--color-primary", "#4845c6");
   return {
     overlays: "dialog",
@@ -76,7 +77,8 @@ export function connectAppearance(inside) {
  * @param {HTMLElement} inside
  */
 export function appearance(inside) {
-  const color = (/** @type {string} */ token, /** @type {string} */ fallback) => computed(inside, "color", token, fallback);
+  const color = (/** @type {string} */ token, /** @type {string} */ fallback) =>
+    computed(inside, "color", token, fallback);
   return {
     theme: "flat",
     variables: {

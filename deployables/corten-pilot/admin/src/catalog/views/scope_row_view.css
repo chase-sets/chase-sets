@@ -1,5 +1,12 @@
-.scope { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.muted { color: var(--color-text-secondary); }
+.scope {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.muted {
+  color: var(--color-text-secondary);
+}
 .view {
   display: inline-flex;
   align-items: center;
@@ -22,5 +29,11 @@
   background: var(--color-danger-soft);
   color: var(--color-text);
 }
-.error-title { margin: 0; font-weight: 600; color: var(--color-danger); }
-.error p { margin: 0; }
+.error-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-danger);
+}
+.error p {
+  margin: 0;
+}

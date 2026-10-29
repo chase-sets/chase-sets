@@ -53,21 +53,35 @@ async function settled(page, url) {
   await page.goto(`${base}/search?q=charizard%20psa%2010`);
   const params = query(page);
   check(
-    params.get("q") === "charizard" && params.getAll("dimension.dim_seed_grade").includes("chc_seed_grade_gem_mint_10") && params.has("interpreted"),
+    params.get("q") === "charizard" &&
+      params.getAll("dimension.dim_seed_grade").includes("chc_seed_grade_gem_mint_10") &&
+      params.has("interpreted"),
     `the words' filters applied: ${page.url()}`,
   );
-  check(await page.getByText("Filters applied from your search:").isVisible(), "the page says which filters it applied");
+  check(
+    await page.getByText("Filters applied from your search:").isVisible(),
+    "the page says which filters it applied",
+  );
   await page.getByLabel("In stock").check();
   await page.getByRole("button", { name: "Show results" }).click();
   await page.waitForURL(/inStock=true/);
-  check(query(page).get("inStock") === "true" && query(page).get("q") === "charizard", `Show results sends every choice: ${page.url()}`);
+  check(
+    query(page).get("inStock") === "true" && query(page).get("q") === "charizard",
+    `Show results sends every choice: ${page.url()}`,
+  );
   check(query(page).has("priceMin"), "without a script, the form sends its empty fields too");
   const chip = page.getByRole("link", { name: "Remove In stock" });
   await chip.click();
   await page.waitForURL((u) => !u.searchParams.has("inStock"));
-  check(!query(page).has("inStock") && query(page).get("q") === "charizard", "a chip is the address without its filter");
+  check(
+    !query(page).has("inStock") && query(page).get("q") === "charizard",
+    "a chip is the address without its filter",
+  );
   const category = await page.request.get(`${base}/search?category=Singles`, { maxRedirects: 0 });
-  check(category.status() === 301 && /^\/categories\/singles-/.test(category.headers().location ?? ""), `category= moves to its path: ${category.headers().location}`);
+  check(
+    category.status() === 301 && /^\/categories\/singles-/.test(category.headers().location ?? ""),
+    `category= moves to its path: ${category.headers().location}`,
+  );
   await ctx.close();
 }
 
@@ -98,17 +112,30 @@ async function settled(page, url) {
     value: document.activeElement?.getAttribute("value"),
     checked: document.activeElement?.checked,
   }));
-  check(after.name === "dimension.dim_seed_grade" && after.value === "chc_seed_grade_gem_mint_10" && after.checked, `focus stays on the checked filter: ${JSON.stringify(after)}`);
+  check(
+    after.name === "dimension.dim_seed_grade" && after.value === "chc_seed_grade_gem_mint_10" && after.checked,
+    `focus stays on the checked filter: ${JSON.stringify(after)}`,
+  );
   check(before.rail > 0, `the rail had to scroll to the filter (${before.rail})`);
-  check(Math.abs(after.y - before.y) < 80 && Math.abs(after.rail - before.rail) < 80 && after.inView, `the page and the rail stay where they were, the filter in view: ${JSON.stringify(before)} then ${JSON.stringify(after)}`);
-  check(![...query(page).entries()].some(([, v]) => v === "") && !query(page).has("sort"), `the address has no empty fields: ${page.url()}`);
+  check(
+    Math.abs(after.y - before.y) < 80 && Math.abs(after.rail - before.rail) < 80 && after.inView,
+    `the page and the rail stay where they were, the filter in view: ${JSON.stringify(before)} then ${JSON.stringify(after)}`,
+  );
+  check(
+    ![...query(page).entries()].some(([, v]) => v === "") && !query(page).has("sort"),
+    `the address has no empty fields: ${page.url()}`,
+  );
   await page.locator('select[name="sort"]').selectOption("price_asc");
   await settled(page, /sort=price_asc/);
-  check(query(page).get("sort") === "price_asc" && query(page).has("dimension.dim_seed_grade"), "the sort applies on change, with the filters");
+  check(
+    query(page).get("sort") === "price_asc" && query(page).has("dimension.dim_seed_grade"),
+    "the sort applies on change, with the filters",
+  );
   await page.getByRole("link", { name: /^Singles \(/ }).click();
   await settled(page, /\/categories\/singles-/);
   check(
-    (await page.getByRole("heading", { name: "Search results for charizard" }).count()) === 1 && query(page).get("sort") === "price_asc",
+    (await page.getByRole("heading", { name: "Search results for charizard" }).count()) === 1 &&
+      query(page).get("sort") === "price_asc",
     `a category is its own path, the other choices kept: ${page.url()}`,
   );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
@@ -122,7 +149,10 @@ async function settled(page, url) {
   await page.waitForFunction(() => window.__hydratedAt);
   check(!(await page.locator("#search-filters").isVisible()), "the filters are behind a button");
   await page.getByRole("button", { name: /^Filters/ }).click();
-  check(await page.evaluate(() => document.querySelector("#search-filters")?.matches(":modal")), "Filters opens a modal dialog");
+  check(
+    await page.evaluate(() => document.querySelector("#search-filters")?.matches(":modal")),
+    "Filters opens a modal dialog",
+  );
   const url = page.url();
   await page.locator("#search-filters summary", { hasText: /^Language/ }).click();
   await page.locator("#search-filters").getByLabel("Japanese").check();
@@ -137,13 +167,27 @@ async function settled(page, url) {
     const small = [];
     for (const el of document.querySelectorAll("main a, main button, main input, main select")) {
       const r = el.getBoundingClientRect();
-      if (r.width === 0 || el.closest("dialog:not([open])") || el.closest(".visually-hidden") || el.type === "checkbox" || el.type === "radio" || el.type === "hidden") continue;
-      if (r.height < 40) small.push(`${el.tagName} ${(el.textContent || el.getAttribute("name") || "").trim().slice(0, 30)} ${Math.round(r.height)}`);
+      if (
+        r.width === 0 ||
+        el.closest("dialog:not([open])") ||
+        el.closest(".visually-hidden") ||
+        el.type === "checkbox" ||
+        el.type === "radio" ||
+        el.type === "hidden"
+      )
+        continue;
+      if (r.height < 40)
+        small.push(
+          `${el.tagName} ${(el.textContent || el.getAttribute("name") || "").trim().slice(0, 30)} ${Math.round(r.height)}`,
+        );
     }
     return { overflow: document.documentElement.scrollWidth - window.innerWidth, small };
   });
   check(layout.overflow <= 0, `nothing scrolls sideways (${layout.overflow})`);
-  check(layout.small.length === 0, `every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+  check(
+    layout.small.length === 0,
+    `every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`,
+  );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }
@@ -156,13 +200,27 @@ const layoutAt = (page) =>
     const small = [];
     for (const el of document.querySelectorAll("main a, main button, main input, main select")) {
       const r = el.getBoundingClientRect();
-      if (r.width === 0 || el.closest("dialog:not([open])") || el.closest(".visually-hidden") || el.type === "checkbox" || el.type === "radio" || el.type === "hidden" || el.getAttribute("aria-hidden") === "true") continue;
-      if (r.height < 40) small.push(`${el.tagName} ${(el.textContent || el.getAttribute("name") || "").trim().slice(0, 30)} ${Math.round(r.height)}`);
+      if (
+        r.width === 0 ||
+        el.closest("dialog:not([open])") ||
+        el.closest(".visually-hidden") ||
+        el.type === "checkbox" ||
+        el.type === "radio" ||
+        el.type === "hidden" ||
+        el.getAttribute("aria-hidden") === "true"
+      )
+        continue;
+      if (r.height < 40)
+        small.push(
+          `${el.tagName} ${(el.textContent || el.getAttribute("name") || "").trim().slice(0, 30)} ${Math.round(r.height)}`,
+        );
     }
     return { overflow: document.documentElement.scrollWidth - window.innerWidth, small };
   });
 {
-  const categories = await (await fetch(`${base.replace(/:\d+$/, ":7762")}/api/marketplace/categories`)).json().catch(() => null);
+  const categories = await (await fetch(`${base.replace(/:\d+$/, ":7762")}/api/marketplace/categories`))
+    .json()
+    .catch(() => null);
   const expected = Math.min(4, categories?.items?.length ?? 0);
   const { ctx, page, problems } = await context();
   await page.goto(`${base}/`);
@@ -171,15 +229,24 @@ const layoutAt = (page) =>
   check(expected > 0 && featured === expected, `the featured categories: ${featured} of ${expected}`);
   check((await page.getByRole("link", { name: "View item" }).count()) === 3, "the three newest items");
   check((await page.locator('li[id^="result-"]').count()) === 0, "the shelf is in place of the results");
-  check((await columns(page, '[aria-labelledby="home-featured-heading"] ul')) === 4, "four featured columns at 1280 px");
+  check(
+    (await columns(page, '[aria-labelledby="home-featured-heading"] ul')) === 4,
+    "four featured columns at 1280 px",
+  );
   check((await columns(page, '[aria-labelledby="home-arrivals-heading"] ol')) === 2, "two arrival columns at 1280 px");
   const newest = await page.getByRole("link", { name: "Browse all new arrivals" }).getAttribute("href");
   check(newest === "/search?sort=newest", `Browse all new arrivals: ${newest}`);
   await page.locator('input[name="q"]').first().fill("charizard");
   await page.locator('input[name="q"]').first().press("Enter");
   await settled(page, /\?q=charizard/);
-  check(new URL(page.url()).pathname === "/" && (await page.locator('li[id^="result-"]').count()) > 0, `words searched at the home page stay there: ${page.url()}`);
-  check((await page.locator('[aria-labelledby="home-featured-heading"]').count()) === 0, "and show results, not the shelf");
+  check(
+    new URL(page.url()).pathname === "/" && (await page.locator('li[id^="result-"]').count()) > 0,
+    `words searched at the home page stay there: ${page.url()}`,
+  );
+  check(
+    (await page.locator('[aria-labelledby="home-featured-heading"]').count()) === 0,
+    "and show results, not the shelf",
+  );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }
@@ -191,7 +258,10 @@ const layoutAt = (page) =>
   check((await columns(page, '[aria-labelledby="home-arrivals-heading"] ol')) === 1, "one arrival column at 390 px");
   const layout = await layoutAt(page);
   check(layout.overflow <= 0, `the home page does not scroll sideways (${layout.overflow})`);
-  check(layout.small.length === 0, `every home page control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+  check(
+    layout.small.length === 0,
+    `every home page control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`,
+  );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }

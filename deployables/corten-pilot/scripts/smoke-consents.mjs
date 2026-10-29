@@ -12,8 +12,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -28,10 +31,13 @@ const cookie = JSON.parse(readFileSync(state, "utf8"))
 const session = await (await fetch(`${api}/api/auth/session`, { headers: { cookie } })).json();
 const { userId, accountId } = session.actor;
 const listed = await (
-  await fetch(`${api}/api/identity/consents?limit=50&offset=0&userId=${userId}&accountId=${accountId}`, { headers: { cookie } })
+  await fetch(`${api}/api/identity/consents?limit=50&offset=0&userId=${userId}&accountId=${accountId}`, {
+    headers: { cookie },
+  })
 ).json();
 const own = (listed.items ?? []).filter(
-  (c) => c.user_id === userId && (c.subject_type === "user" || (c.subject_type === "account" && c.account_id === accountId)),
+  (c) =>
+    c.user_id === userId && (c.subject_type === "user" || (c.subject_type === "account" && c.account_id === accountId)),
 );
 console.log(`Identity lists ${listed.items?.length ?? "?"} consents for the user, ${own.length} its own`);
 
@@ -59,20 +65,33 @@ async function read(page, label) {
     shown.length === own.length && own.every((c) => shown.includes(c.consent_id)),
     `${label}: each of the user's own consents and no other (${shown.length})`,
   );
-  if (own.length === 0) check((await text(page, "main")).includes("No consents are recorded for you yet."), `${label}: none says so`);
-  const withdrawable = own.filter((c) => c.status === "recorded" && c.is_current).map((c) => c.consent_id).sort();
-  const offered = (await page.$$eval("li[data-consent] dialog", (els) => els.map((e) => e.closest("li").dataset.consent))).sort();
-  check(JSON.stringify(offered) === JSON.stringify(withdrawable), `${label}: Withdraw only on a recorded, current consent (${offered.length})`);
+  if (own.length === 0)
+    check((await text(page, "main")).includes("No consents are recorded for you yet."), `${label}: none says so`);
+  const withdrawable = own
+    .filter((c) => c.status === "recorded" && c.is_current)
+    .map((c) => c.consent_id)
+    .sort();
+  const offered = (
+    await page.$$eval("li[data-consent] dialog", (els) => els.map((e) => e.closest("li").dataset.consent))
+  ).sort();
+  check(
+    JSON.stringify(offered) === JSON.stringify(withdrawable),
+    `${label}: Withdraw only on a recorded, current consent (${offered.length})`,
+  );
 }
 
 try {
   {
     const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
     await read(page, "390 px");
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
     check(overflow <= 0, `nothing scrolls sideways at 390 px (${overflow})`);
     const small = await page.$$eval("main button, main a", (els) =>
-      els.filter((e) => e.offsetParent && e.tagName === "BUTTON" && e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 60)),
+      els
+        .filter((e) => e.offsetParent && e.tagName === "BUTTON" && e.getBoundingClientRect().height < 44)
+        .map((e) => e.outerHTML.slice(0, 60)),
     );
     check(small.length === 0, `every button is at least 44 px tall (${small.join(" | ")})`);
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);

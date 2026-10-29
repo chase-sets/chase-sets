@@ -29,14 +29,18 @@ for (const [name, base] of targets) {
   const fetched = new Map();
   cdp.on("Network.eventSourceMessageReceived", (e) => (sse += Buffer.byteLength(e.data) + e.eventName.length));
   cdp.on("Network.requestWillBeSent", (e) => e.type === "Fetch" && fetched.set(e.requestId, 0));
-  cdp.on("Network.dataReceived", (e) => fetched.has(e.requestId) && fetched.set(e.requestId, fetched.get(e.requestId) + e.dataLength));
+  cdp.on(
+    "Network.dataReceived",
+    (e) => fetched.has(e.requestId) && fetched.set(e.requestId, fetched.get(e.requestId) + e.dataLength),
+  );
   await watch.goto(`${base}/catalog/dimensions?search=${prefix}`);
   await watch.waitForLoadState("load");
   await watch.waitForTimeout(2_000);
   const samples = [];
   for (let i = 0; i < runs; i++) {
     const key = `${prefix}_${i}`;
-    const metric = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
+    const metric = async () =>
+      Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
     sse = 0;
     fetched.clear();
     const before = await metric();
@@ -64,7 +68,18 @@ for (const [name, base] of targets) {
   }
   await watch.close();
   const med = (k) => median(samples.map((s) => s[k]));
-  result[name] = { runs, samples, median: { shownMs: med("shown"), sseBytes: med("sse"), fetches: med("fetches"), fetchBytes: med("fetchBytes"), scriptMs: med("scriptMs"), taskMs: med("taskMs") } };
+  result[name] = {
+    runs,
+    samples,
+    median: {
+      shownMs: med("shown"),
+      sseBytes: med("sse"),
+      fetches: med("fetches"),
+      fetchBytes: med("fetchBytes"),
+      scriptMs: med("scriptMs"),
+      taskMs: med("taskMs"),
+    },
+  };
   console.log(name, JSON.stringify(result[name].median));
 }
 

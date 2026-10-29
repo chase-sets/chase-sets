@@ -9,9 +9,23 @@
   margin: 0 auto;
   padding: var(--space-4) var(--space-4) 0;
 }
-@media (min-width: 48rem) { .shell { padding: var(--space-4) var(--space-6) 0; } }
-.main { width: 100%; max-width: none; margin: 0; padding: var(--space-2) 0 var(--space-6); min-width: 0; }
-@media (max-width: 47.99rem) { .shell { padding-bottom: 5.5rem; } }
+@media (min-width: 48rem) {
+  .shell {
+    padding: var(--space-4) var(--space-6) 0;
+  }
+}
+.main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--space-2) 0 var(--space-6);
+  min-width: 0;
+}
+@media (max-width: 47.99rem) {
+  .shell {
+    padding-bottom: 5.5rem;
+  }
+}
 .skip {
   position: absolute;
   left: -9999px;
@@ -24,4 +38,6 @@
   font-weight: 600;
   font-size: 0.875rem;
 }
-.skip:focus { left: var(--space-4); }
+.skip:focus {
+  left: var(--space-4);
+}

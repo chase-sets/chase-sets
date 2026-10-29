@@ -6,7 +6,8 @@
 // Usage: node scripts/smoke-catalog.mjs [pilot-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] = process.argv.slice(2);
+const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] =
+  process.argv.slice(2);
 const stamp = Date.now().toString(36);
 const key = `smoke_${stamp}`;
 let failures = 0;
@@ -69,8 +70,14 @@ let dimensionUrl = "";
   await navigated(page);
   check(new URL(page.url()).pathname === "/catalog/dimensions", "the area opens on the dimensions");
   check((await page.locator("h1").textContent()) === "Dimensions", "the list renders in the shell");
-  check((await page.locator('nav a[aria-current="page"]').textContent()) === "Dimensions", "the catalog's nav marks the page");
-  check(sheets.some((s) => s.includes("/sections/catalog")), "the page links the area's stylesheet");
+  check(
+    (await page.locator('nav a[aria-current="page"]').textContent()) === "Dimensions",
+    "the catalog's nav marks the page",
+  );
+  check(
+    sheets.some((s) => s.includes("/sections/catalog")),
+    "the page links the area's stylesheet",
+  );
   check(!sheets.some((s) => s.includes("/sections/commerce")), "and not the postage area's");
 
   await page.getByRole("button", { name: "New Dimension" }).click();
@@ -96,7 +103,10 @@ let dimensionUrl = "";
 
   await wrote(page, () => page.getByRole("button", { name: "Activate" }).click(), "activated");
   check((await toast(page)) === "Dimension activated.", "Activate posts without asking, as admin-web's does");
-  check((await page.locator("#catalog-lifecycle .status-pill__pill").textContent()) === "active", "the status is active");
+  check(
+    (await page.locator("#catalog-lifecycle .status-pill__pill").textContent()) === "active",
+    "the status is active",
+  );
 
   // Add Label posts the form back with a row more; the dialog stays open on it.
   await page.getByRole("button", { name: "Add Option" }).click();
@@ -134,7 +144,10 @@ let dimensionUrl = "";
   await reorder.getByLabel("Option IDs").fill([...ids].reverse().join(", "));
   const before = page.url();
   await reorder.getByRole("button", { name: "Save" }).click();
-  await Promise.race([page.waitForURL((u) => u.href !== before && u.searchParams.get("done") === "reordered"), reorder.locator(".form-error").waitFor()]);
+  await Promise.race([
+    page.waitForURL((u) => u.href !== before && u.searchParams.get("done") === "reordered"),
+    reorder.locator(".form-error").waitFor(),
+  ]);
   if (page.url() !== before) {
     await navigated(page);
     check(JSON.stringify(await codes()) === '["lp","nm"]', "Reorder changes the order");
@@ -151,11 +164,22 @@ let dimensionUrl = "";
   check((await edit.getByLabel("Locale").nth(1).inputValue()) === "fr", "with its labels");
   await edit.getByLabel("Label", { exact: true }).first().fill("Near Mint");
   await wrote(page, () => edit.getByRole("button", { name: "Save" }).click(), "option_revised");
-  check((await page.getByRole("row", { name: /^nm / }).locator("td").nth(1).textContent()) === "Near Mint", "the option is revised");
+  check(
+    (await page.getByRole("row", { name: /^nm / }).locator("td").nth(1).textContent()) === "Near Mint",
+    "the option is revised",
+  );
 
-  await wrote(page, () => page.getByRole("row", { name: /^nm / }).getByRole("button", { name: "Deprecate" }).click(), "option_deprecated");
+  await wrote(
+    page,
+    () => page.getByRole("row", { name: /^nm / }).getByRole("button", { name: "Deprecate" }).click(),
+    "option_deprecated",
+  );
   check((await toast(page)) === "Option deprecated", "the option is deprecated");
-  await wrote(page, () => page.getByRole("row", { name: /^nm / }).getByRole("button", { name: "Reactivate" }).click(), "option_reactivated");
+  await wrote(
+    page,
+    () => page.getByRole("row", { name: /^nm / }).getByRole("button", { name: "Reactivate" }).click(),
+    "option_reactivated",
+  );
   check((await toast(page)) === "Option reactivated", "and reactivated");
 
   await page.getByRole("button", { name: "Edit", exact: true }).first().click();
@@ -173,14 +197,21 @@ let dimensionUrl = "";
   await wrote(page, () => confirm.getByRole("button", { name: "Deprecate" }).click(), "deprecated");
   check((await toast(page)) === "Dimension deprecated.", "the dimension is deprecated");
   await page.locator("#catalog-lifecycle").getByRole("button", { name: "Archive" }).click();
-  await wrote(page, () => page.locator("#catalog-lifecycle-archive").getByRole("button", { name: "Archive" }).click(), "archived");
+  await wrote(
+    page,
+    () => page.locator("#catalog-lifecycle-archive").getByRole("button", { name: "Archive" }).click(),
+    "archived",
+  );
   check((await page.locator("#catalog-lifecycle .status-pill__pill").textContent()) === "archived", "and archived");
   check(!(await page.getByRole("button", { name: "Add Option" }).count()), "an archived dimension offers no edits");
 
   // A field.
   await page.goto(`${base}/catalog/fields`);
   await navigated(page);
-  check((await page.locator('nav a[aria-current="page"]').textContent()) === "Fields", "the fields list is the catalog nav's Fields");
+  check(
+    (await page.locator('nav a[aria-current="page"]').textContent()) === "Fields",
+    "the fields list is the catalog nav's Fields",
+  );
   await page.getByRole("button", { name: "New Field" }).click();
   const field = page.locator("#catalog-create-dialog");
   await field.getByLabel("Key").fill(key);
@@ -192,7 +223,10 @@ let dimensionUrl = "";
   await page.getByRole("button", { name: "Apply filters" }).click();
   await page.waitForURL((u) => u.searchParams.get("search") === key);
   await navigated(page);
-  await page.getByRole("row", { name: new RegExp(key) }).getByRole("link", { name: "View" }).click();
+  await page
+    .getByRole("row", { name: new RegExp(key) })
+    .getByRole("link", { name: "View" })
+    .click();
   await page.waitForURL(/\/catalog\/fields\/fld_/);
   await navigated(page);
   await page.getByRole("button", { name: "Configure" }).click();
@@ -226,9 +260,15 @@ let dimensionUrl = "";
   await page.getByRole("button", { name: "New Dimension" }).click();
   await create.getByLabel("Key").fill(`${key}_plain`);
   await create.getByLabel("Name").fill(`Smoke plain ${stamp}`);
-  await Promise.all([page.waitForURL((u) => u.searchParams.get("done") === "created"), create.getByRole("button", { name: "Create" }).click()]);
+  await Promise.all([
+    page.waitForURL((u) => u.searchParams.get("done") === "created"),
+    create.getByRole("button", { name: "Create" }).click(),
+  ]);
   await settled(page);
-  check((await toast(page)) === "Dimension created", "a create without JavaScript is a redirect with the toast in the page");
+  check(
+    (await toast(page)) === "Dimension created",
+    "a create without JavaScript is a redirect with the toast in the page",
+  );
 
   await page.goto(`${base}/catalog/dimensions?search=${key}_plain`);
   await page.getByRole("link", { name: "View" }).click();
@@ -241,7 +281,10 @@ let dimensionUrl = "";
     add.getByRole("button", { name: "Add Label" }).click(),
   ]);
   check(relabel.status() === 200, "Add Label without JavaScript answers the page");
-  check((await page.locator('#catalog-add-option [name="label_locale"]').count()) === 2, "with the dialog open and a row more");
+  check(
+    (await page.locator('#catalog-add-option [name="label_locale"]').count()) === 2,
+    "with the dialog open and a row more",
+  );
   check((await page.locator("#catalog-add-option-dialog").getAttribute("open")) !== null, "the dialog is drawn open");
   await page.locator("#catalog-add-option").getByRole("button", { name: "Add", exact: true }).click();
   await page.waitForURL((u) => u.searchParams.get("done") === "option_added");
@@ -254,7 +297,8 @@ let dimensionUrl = "";
   ]);
   check(refused.status() === 422, "a refused post answers 422 with the whole page");
   check(
-    (await page.locator("#catalog-add-option .form-error").textContent()) === "Option codes must be unique within a dimension.",
+    (await page.locator("#catalog-add-option .form-error").textContent()) ===
+      "Option codes must be unique within a dimension.",
     "with the API's message in the open dialog",
   );
   await ctx.close();
@@ -262,5 +306,7 @@ let dimensionUrl = "";
 
 await browser.close();
 for (const step of blocked) console.log(`BLOCKED ${step}`);
-console.log(`${failures ? `${failures} failed` : "all passed"}${blocked.length ? `, ${blocked.length} blocked by the API` : ""}; ${pending} "preparing" answers refreshed`);
+console.log(
+  `${failures ? `${failures} failed` : "all passed"}${blocked.length ? `, ${blocked.length} blocked by the API` : ""}; ${pending} "preparing" answers refreshed`,
+);
 process.exit(failures ? 1 : 0);

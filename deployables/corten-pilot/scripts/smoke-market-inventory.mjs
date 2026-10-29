@@ -37,7 +37,11 @@ async function settled(page) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
@@ -82,7 +86,11 @@ async function until(page, id, ok) {
 async function landed(page, family, id, ok) {
   await settled(page);
   const to = new URL(page.url());
-  if (family) check(to.searchParams.get("family") === family && to.searchParams.has("after_write"), `${family} goes back to the item page with its receipt`);
+  if (family)
+    check(
+      to.searchParams.get("family") === family && to.searchParams.has("after_write"),
+      `${family} goes back to the item page with its receipt`,
+    );
   const body = (await page.locator("main").textContent()) ?? "";
   if (body.includes(text.unverified)) {
     const receipt = to.searchParams.get("after_write") ?? "";
@@ -92,13 +100,17 @@ async function landed(page, family, id, ok) {
     const code = again.ok() ? null : (await again.json()).error?.code;
     // The page's read waited and failed; by the time the smoke asks, the API may have caught up.
     const timedOut = again.status() === 503 && code === "projection_freshness_timeout";
-    check(timedOut || again.ok(), `unverified only after the API timed out the receipt (now ${again.status()} ${code ?? "caught up"}, chase-sets/chase-sets#10672)`);
+    check(
+      timedOut || again.ok(),
+      `unverified only after the API timed out the receipt (now ${again.status()} ${code ?? "caught up"}, chase-sets/chase-sets#10672)`,
+    );
     await until(page, id, ok);
     to.searchParams.delete("after_write");
     await page.goto(to.href);
     await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   }
-  if (family) check((await page.getByText(text.confirmed).count()) === 1, `the item page confirms the ${family} attempt`);
+  if (family)
+    check((await page.getByText(text.confirmed).count()) === 1, `the item page confirms the ${family} attempt`);
   const now = await until(page, id, ok);
   check(now !== null && ok(now), `the API has the ${family ?? "sale"}`);
   return now;
@@ -140,9 +152,14 @@ let catalogTitle;
   // A raw card, so the run needs no grading company or grade (a graded one's are worked out from
   // its options, chase-sets/chase-sets#10789), and an item's schema can start on Graded. Then each option still open, one at a time, since a choice
   // can change what the next offers.
-  const formOption = form.locator('select[name^="option."]').filter({ has: page.locator("option", { hasText: /^\s*Raw\s*$/ }) });
+  const formOption = form
+    .locator('select[name^="option."]')
+    .filter({ has: page.locator("option", { hasText: /^\s*Raw\s*$/ }) });
   if ((await formOption.count()) > 0) {
-    const raw = await formOption.first().locator("option", { hasText: /^\s*Raw\s*$/ }).getAttribute("value");
+    const raw = await formOption
+      .first()
+      .locator("option", { hasText: /^\s*Raw\s*$/ })
+      .getAttribute("value");
     if ((await formOption.first().inputValue()) !== raw) {
       await formOption.first().selectOption(raw);
       await page.waitForLoadState("networkidle");
@@ -158,7 +175,10 @@ let catalogTitle;
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(300);
   }
-  check((await form.locator('select[name^="option."] option[value=""]:checked').count()) === 0, "every product option is chosen");
+  check(
+    (await form.locator('select[name^="option."] option[value=""]:checked').count()) === 0,
+    "every product option is chosen",
+  );
   await form.locator('select[name="storageLocationId"]').selectOption(data.locations[0].storage_location_id);
   await form.locator('input[name="totalQuantity"]').fill("1");
   const create = form.locator('button[type="submit"]:not([name])');
@@ -168,9 +188,15 @@ let catalogTitle;
   await Promise.all([page.waitForURL(/\/account\/inventory\/items\/[^/?]+/, { waitUntil: "commit" }), create.click()]);
   const created = decodeURIComponent(new URL(page.url()).pathname.split("/").pop());
   const fresh = await landed(page, "item-create", created, (i) => i.total_quantity === 1);
-  check(fresh?.storage_location_id === data.locations[0].storage_location_id, `created ${created}: one unit at the chosen location`);
+  check(
+    fresh?.storage_location_id === data.locations[0].storage_location_id,
+    `created ${created}: one unit at the chosen location`,
+  );
   check(((await page.locator("h1").textContent()) ?? "").trim() === catalogTitle, "the item page names the item");
-  check(base + "/account/inventory/items/" + encodeURIComponent(created) === page.url().split("?")[0], "the item page is the pilot's");
+  check(
+    base + "/account/inventory/items/" + encodeURIComponent(created) === page.url().split("?")[0],
+    "the item page is the pilot's",
+  );
 
   // Adjust Quantity: one more unit found.
   const adjust = page.locator('form[action$="/adjustments"]');
@@ -203,9 +229,15 @@ let catalogTitle;
   }
   await Promise.all([page.waitForURL(/ledgerKind=adjusted/), filter.click()]);
   await settled(page);
-  check((await ledger.locator('nav a[aria-current="page"]').textContent())?.trim() === "Adjusted", "the filter is selected");
+  check(
+    (await ledger.locator('nav a[aria-current="page"]').textContent())?.trim() === "Adjusted",
+    "the filter is selected",
+  );
   const steps = await ledger.locator("ol > li > p:first-child").allTextContents();
-  check(steps.length > 0 && steps.every((s) => s.trim() === "Adjusted"), `only adjustments are listed (${steps.length})`);
+  check(
+    steps.length > 0 && steps.every((s) => s.trim() === "Adjusted"),
+    `only adjustments are listed (${steps.length})`,
+  );
   // Record sale of one unit from the item page.
   const pageSale = page.locator('form[action$="/sale"]');
   await pageSale.locator('input[name="quantity"]').fill("1");
@@ -213,9 +245,14 @@ let catalogTitle;
   await Promise.all([page.waitForURL(/applied=/), pageSale.locator('button[type="submit"]').click()]);
   check(new URL(page.url()).searchParams.get("applied") === "1", "a sale goes back to the item page with what it did");
   await landed(page, null, created, (i) => i.available_quantity === 1 && i.total_quantity === 1);
-  const pageSaid = page.locator('[role="status"], [role="alert"]').filter({ hasText: /recorded as sold|could not be verified/ });
+  const pageSaid = page
+    .locator('[role="status"], [role="alert"]')
+    .filter({ hasText: /recorded as sold|could not be verified/ });
   await pageSaid.first().waitFor();
-  check((await pageSaid.count()) > 0, `the item page says what the sale did (${(await pageSaid.first().textContent())?.trim().slice(0, 80)})`);
+  check(
+    (await pageSaid.count()) > 0,
+    `the item page says what the sale did (${(await pageSaid.first().textContent())?.trim().slice(0, 80)})`,
+  );
 
   // Record sale of that unit, from the list: as on marketplace, the dialog is for an item the
   // list shows, and the list's read model takes a moment to have the new one.
@@ -237,11 +274,16 @@ let catalogTitle;
   // receipt is kept (30 s, as marketplace keeps it); then the page says it could not verify the
   // result, as marketplace does. That is right only while the API refuses the read itself, so ask
   // it at once with the same receipt.
-  const said = page.locator('[role="status"], [role="alert"]').filter({ hasText: /recorded as sold|could not be verified/ });
+  const said = page
+    .locator('[role="status"], [role="alert"]')
+    .filter({ hasText: /recorded as sold|could not be verified/ });
   await said.first().waitFor();
   const message = (await said.first().textContent()) ?? "";
   if (message.includes("recorded as sold")) {
-    check(message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."), "the list says what the sale did, read again after it");
+    check(
+      message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."),
+      "the list says what the sale did, read again after it",
+    );
   } else {
     const receipt = new URL(page.url()).searchParams.get("after_write") ?? "";
     const again = await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(created)}`, {
@@ -281,23 +323,49 @@ let catalogTitle;
   const action = await page.locator("dialog[open] form").getAttribute("action");
   const key = await page.locator('dialog[open] input[name="idempotencyKey"]').getAttribute("value");
   const refused = await page.request.post(new URL(action, base).href, {
-    form: { idempotencyKey: key ?? randomUUID(), quantity: "0", salePriceAmount: "3.999", channel: "", collisionMode: "protect-orders" },
+    form: {
+      idempotencyKey: key ?? randomUUID(),
+      quantity: "0",
+      salePriceAmount: "3.999",
+      channel: "",
+      collisionMode: "protect-orders",
+    },
     maxRedirects: 0,
   });
   const body = await refused.text();
   check(refused.status() === 422, `a sale the pilot refuses is the dialog again (${refused.status()})`);
-  check(body.includes("Enter a whole number of 1 or more.") && body.includes("Enter a price like 12.50."), "with what is wrong with each field");
+  check(
+    body.includes("Enter a whole number of 1 or more.") && body.includes("Enter a price like 12.50."),
+    "with what is wrong with each field",
+  );
   // The item page: its writes are plain forms, and a refused adjustment is the page again.
   await page.goto(`${base}/account/inventory/items/${encodeURIComponent(firstId)}`);
-  check((await page.locator('form[action$="/adjustments"]').count()) === 1, "the item page draws Adjust Quantity without a script");
-  const attempt = await page.locator('form[action$="/adjustments"] input[name="inventoryMutationAttemptId"]').getAttribute("value");
-  const adjusted = await page.request.post(`${base}/account/inventory/items/${encodeURIComponent(firstId)}/adjustments`, {
-    form: { inventoryMutationAttemptId: attempt || randomUUID(), quantityDelta: "0", reasonCode: "found", reason: "" },
-    maxRedirects: 0,
-  });
+  check(
+    (await page.locator('form[action$="/adjustments"]').count()) === 1,
+    "the item page draws Adjust Quantity without a script",
+  );
+  const attempt = await page
+    .locator('form[action$="/adjustments"] input[name="inventoryMutationAttemptId"]')
+    .getAttribute("value");
+  const adjusted = await page.request.post(
+    `${base}/account/inventory/items/${encodeURIComponent(firstId)}/adjustments`,
+    {
+      form: {
+        inventoryMutationAttemptId: attempt || randomUUID(),
+        quantityDelta: "0",
+        reasonCode: "found",
+        reason: "",
+      },
+      maxRedirects: 0,
+    },
+  );
   const adjustedBody = await adjusted.text();
   check(adjusted.status() === 422, `an adjustment the pilot refuses is the page again (${adjusted.status()})`);
-  check(adjustedBody.includes("Enter a whole number other than 0, like -1 or 5.") && adjustedBody.includes("Enter a value."), "with what is wrong");
+  check(
+    adjustedBody.includes("Enter a whole number other than 0, like -1 or 5.") &&
+      adjustedBody.includes("Enter a value."),
+    "with what is wrong",
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }
@@ -307,20 +375,30 @@ let catalogTitle;
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
   await page.goto(list);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
-  const display = await page.locator("table tbody tr").first().evaluate((row) => getComputedStyle(row).display);
+  const display = await page
+    .locator("table tbody tr")
+    .first()
+    .evaluate((row) => getComputedStyle(row).display);
   check(display !== "table-row", `each item is a card on a phone (${display})`);
   await page.goto(`${list}?sale=${encodeURIComponent(firstId)}`);
   const box = await page.locator("dialog[open]").boundingBox();
   check(box !== null && box.x >= 0 && box.x + box.width <= 390, "the sale dialog fits the screen");
   await page.goto(`${base}/account/inventory/items/${encodeURIComponent(firstId)}`);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const sideways = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(sideways === 0, `the item page does not scroll sideways at 390 px (${sideways})`);
   const summary = await page.locator('section[aria-labelledby="item-summary-title"]').boundingBox();
   const writes = await page.locator('section[aria-labelledby="item-adjust-title"]').boundingBox();
-  check(summary !== null && writes !== null && writes.y > summary.y && Math.abs(writes.x - summary.x) < 2, "the writes stack under the item on a phone");
+  check(
+    summary !== null && writes !== null && writes.y > summary.y && Math.abs(writes.x - summary.x) < 2,
+    "the writes stack under the item on a phone",
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }

@@ -1,4 +1,10 @@
-.list { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.list {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 /* One column that never grows past the card: a long order id wraps instead. */
 .card {
   display: grid;
@@ -11,7 +17,12 @@
   background: var(--color-surface);
   box-shadow: var(--shadow-md);
 }
-.badges, .links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.badges,
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
 .pill {
   display: inline-flex;
   padding: 0.25rem 0.625rem;
@@ -20,12 +31,34 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
-.warning { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
-.neutral { background: var(--color-surface-2); color: var(--color-text-secondary); border-color: var(--color-border); }
-.item { display: grid; gap: var(--space-1); min-width: 0; }
-.title { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.muted { margin: 0; color: var(--color-text-secondary); overflow-wrap: anywhere; }
-.small { font-size: 0.875rem; }
+.warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.neutral {
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+.item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.small {
+  font-size: 0.875rem;
+}
 .link {
   display: inline-flex;
   align-items: center;
@@ -40,14 +73,38 @@
   overflow-wrap: anywhere;
   text-decoration: none;
 }
-.reason { margin: 0; overflow-wrap: anywhere; }
+.reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 /* The two forms side by side while they fit, Restock beside the note; stacked on a phone. */
-.actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
-.write-off { flex: 1 1 16rem; min-width: 0; }
-.field { display: grid; gap: var(--space-1); }
-.label { font-size: 0.875rem; font-weight: 600; }
-.buttons { display: flex; gap: var(--space-2); }
-.secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border-strong); }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.write-off {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
 .empty {
   margin: 0;
   padding: var(--space-4);

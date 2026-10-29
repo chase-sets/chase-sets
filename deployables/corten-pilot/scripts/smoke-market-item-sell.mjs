@@ -32,13 +32,22 @@ function check(ok, what) {
 }
 
 const sessionOf = (file) =>
-  JSON.parse(readFileSync(file, "utf8")).cookies.filter((c) => c.name === "chase_sets_session").map((c) => `${c.name}=${c.value}`).join("; ");
+  JSON.parse(readFileSync(file, "utf8"))
+    .cookies.filter((c) => c.name === "chase_sets_session")
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
 const seller = sessionOf(sellerState);
-const checkout = (extra = {}) => ({ "chase-sets-read-target-context": "checkout", "content-type": "application/json", ...extra });
+const checkout = (extra = {}) => ({
+  "chase-sets-read-target-context": "checkout",
+  "content-type": "application/json",
+  ...extra,
+});
 const guestHeaders = (id) => checkout({ "x-checkout-anonymous-sell-list-id": id });
-const sellList = async (headers, owner) => (await (await fetch(`${api}/api/marketplace/${owner}/sell-list`, { headers })).json()).items ?? [];
+const sellList = async (headers, owner) =>
+  (await (await fetch(`${api}/api/marketplace/${owner}/sell-list`, { headers })).json()).items ?? [];
 const remove = async (headers, owner, line) =>
-  (await fetch(`${api}/api/marketplace/${owner}/sell-list/${line}/remove`, { method: "POST", headers, body: "{}" })).status;
+  (await fetch(`${api}/api/marketplace/${owner}/sell-list/${line}/remove`, { method: "POST", headers, body: "{}" }))
+    .status;
 async function eventually(read, done) {
   let value = await read();
   for (let i = 0; i < 25 && !done(value); i += 1) {
@@ -57,10 +66,20 @@ async function shows(page, text) {
   return false;
 }
 
-const read = await (await fetch(`${api}/api/marketplace/items/${slug}`, { headers: { "chase-sets-read-target-context": "discovery" } })).json();
-const offer = read.offer_demand_matches.find((o) => o.status === "submitted" && o.catalog_catalog_item_id === read.catalog_item_id);
-check(Boolean(offer), `the item has an offer for sellers (${offer?.offer_id}, ${offer?.price_amount} x ${offer?.quantity_requested})`);
-const usd = (cents) => new Intl.NumberFormat("en-US", { style: "currency", currency: offer.price_currency_code ?? "USD" }).format(cents / 100);
+const read = await (
+  await fetch(`${api}/api/marketplace/items/${slug}`, { headers: { "chase-sets-read-target-context": "discovery" } })
+).json();
+const offer = read.offer_demand_matches.find(
+  (o) => o.status === "submitted" && o.catalog_catalog_item_id === read.catalog_item_id,
+);
+check(
+  Boolean(offer),
+  `the item has an offer for sellers (${offer?.offer_id}, ${offer?.price_amount} x ${offer?.quantity_requested})`,
+);
+const usd = (cents) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: offer.price_currency_code ?? "USD" }).format(
+    cents / 100,
+  );
 const cents = (amount) => Math.round(Number(amount) * 100);
 const terms = await (
   await fetch(`${api}/api/marketplace/terms/public-standard/listing-preview`, {
@@ -80,14 +99,22 @@ const refusal = "Selected offer sell-list lines must reference an Offer and exac
 
 const browser = await chromium.launch();
 async function context({ javaScriptEnabled, state, viewport }) {
-  const ctx = await browser.newContext({ javaScriptEnabled, ...(state ? { storageState: state } : {}), ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    javaScriptEnabled,
+    ...(state ? { storageState: state } : {}),
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   // Errors on the pilot's pages count; marketplace's own pages' are reported, not counted. The
   // console's 422 is a refusal's answer, which the smoke expects.
   const problems = [];
-  const theirs = (text) => !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()));
+  const theirs = (text) =>
+    !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()),
+  );
   page.on("pageerror", (e) => !theirs(String(e)) && problems.push(String(e)));
   page.on("response", (r) => {
     if (r.status() === 404 || r.status() >= 500) {
@@ -99,7 +126,10 @@ async function context({ javaScriptEnabled, state, viewport }) {
   return { ctx, page, problems };
 }
 const rail = (page) => page.locator('[aria-labelledby="rail-title"]');
-const productFold = (page) => rail(page).locator("details").filter({ hasText: /^\s*Add product to Sell List/ });
+const productFold = (page) =>
+  rail(page)
+    .locator("details")
+    .filter({ hasText: /^\s*Add product to Sell List/ });
 const sellPage = `${base}/items/${slug}?market=sell`;
 /** Presses `name` on the rail and answers the status of the pilot's answer to the post. */
 async function press(page, name) {
@@ -119,27 +149,59 @@ try {
     await page.goto(sellPage);
     const text = (await rail(page).innerText()).replace(/\s+/g, " ");
     check(text.includes(expected.total), `the rail shows the offer's total (${expected.total})`);
-    check(text.includes(`Seller payout ${expected.payout}`), `and what it pays under the standard terms (${expected.payout})`);
-    check(text.includes(`Shipping allowance ${expected.allowance}`), `and the shipping allowance (${expected.allowance})`);
-    check((await rail(page).getByRole("button", { name: "Accept offer" }).getAttribute("value")) === "add-to-sell-list", "a guest's Accept offer saves the offer");
+    check(
+      text.includes(`Seller payout ${expected.payout}`),
+      `and what it pays under the standard terms (${expected.payout})`,
+    );
+    check(
+      text.includes(`Shipping allowance ${expected.allowance}`),
+      `and the shipping allowance (${expected.allowance})`,
+    );
+    check(
+      (await rail(page).getByRole("button", { name: "Accept offer" }).getAttribute("value")) === "add-to-sell-list",
+      "a guest's Accept offer saves the offer",
+    );
 
     const status = await press(page, "Add offer to Sell List");
     check(status === 422, `Add offer to Sell List is refused (${status})`);
-    check((await rail(page).getByRole("alert").textContent()) === refusal, "with the API's reason, on the rail (chase-sets#8830)");
-    check((await ctx.cookies()).every((c) => c.name !== "chase_sets_anonymous_sell_list"), "and no guest sell list is kept");
+    check(
+      (await rail(page).getByRole("alert").textContent()) === refusal,
+      "with the API's reason, on the rail (chase-sets#8830)",
+    );
+    check(
+      (await ctx.cookies()).every((c) => c.name !== "chase_sets_anonymous_sell_list"),
+      "and no guest sell list is kept",
+    );
 
     await page.goto(sellPage);
-    await productFold(page).locator("summary").click().catch(() => {});
+    await productFold(page)
+      .locator("summary")
+      .click()
+      .catch(() => {});
     await productFold(page).locator('input[name="quantity"]').fill("1");
     await rail(page).getByRole("button", { name: "Add product to Sell List", exact: true }).click();
     await page.waitForURL((u) => u.href.startsWith(`${web}/account/sell-list`));
-    check(new URL(page.url()).searchParams.has("afterWrite"), "Add product to Sell List lands on marketplace's sell list, after the write");
+    check(
+      new URL(page.url()).searchParams.has("afterWrite"),
+      "Add product to Sell List lands on marketplace's sell list, after the write",
+    );
     const id = (await ctx.cookies()).find((c) => c.name === "chase_sets_anonymous_sell_list")?.value;
-    check(Boolean(id?.startsWith("anon_cmd_")), `the guest's sell list is kept in marketplace's cookie (${id?.slice(0, 9)}...)`);
+    check(
+      Boolean(id?.startsWith("anon_cmd_")),
+      `the guest's sell list is kept in marketplace's cookie (${id?.slice(0, 9)}...)`,
+    );
     check(await shows(page, read.title), "marketplace's sell list shows the product");
-    const lines = id ? await eventually(() => sellList(guestHeaders(id), "guest"), (l) => l.length > 0) : [];
+    const lines = id
+      ? await eventually(
+          () => sellList(guestHeaders(id), "guest"),
+          (l) => l.length > 0,
+        )
+      : [];
     const line = lines.find((l) => l.product_id === offer.product_id);
-    check(Boolean(line) && line.quantity === 1 && line.line_type === "product", `the guest sell list has the product once (${lines.map((l) => [l.product_id === offer.product_id, l.quantity])})`);
+    check(
+      Boolean(line) && line.quantity === 1 && line.line_type === "product",
+      `the guest sell list has the product once (${lines.map((l) => [l.product_id === offer.product_id, l.quantity])})`,
+    );
     check(line?.item_title === read.title && line?.item_subtitle === read.subtitle, "with the catalog's words");
     for (const l of lines) added.push({ headers: guestHeaders(id), owner: "guest", line: l.line_id });
     check(problems.length === 0, `no console errors (${problems.join("; ")})`);
@@ -150,24 +212,43 @@ try {
   {
     const { ctx, page, problems } = await context({ javaScriptEnabled: true, state: sellerState });
     await page.goto(sellPage);
-    check((await rail(page).innerText()).includes("Fees and terms are calculated before acceptance."), "an account's rail does not quote the public terms");
-    check((await rail(page).getByRole("button", { name: "Accept offer" }).getAttribute("value")) === "sell-now", "a seller's Accept offer is sell-now");
+    check(
+      (await rail(page).innerText()).includes("Fees and terms are calculated before acceptance."),
+      "an account's rail does not quote the public terms",
+    );
+    check(
+      (await rail(page).getByRole("button", { name: "Accept offer" }).getAttribute("value")) === "sell-now",
+      "a seller's Accept offer is sell-now",
+    );
     const status = await press(page, "Accept offer");
-    check(status === 422 && (await rail(page).getByRole("alert").textContent()) === refusal, `Accept offer is refused with the API's reason (${status})`);
+    check(
+      status === 422 && (await rail(page).getByRole("alert").textContent()) === refusal,
+      `Accept offer is refused with the API's reason (${status})`,
+    );
 
     const headers = checkout({ cookie: seller });
     const before = await sellList(headers, "account");
-    if (before.some((l) => l.line_type === "product" && l.product_id === offer.product_id && l.fallback_mode === "none")) {
-      console.log("skip the seller's product add: the product is on their sell list already, and an add would merge into it");
+    if (
+      before.some((l) => l.line_type === "product" && l.product_id === offer.product_id && l.fallback_mode === "none")
+    ) {
+      console.log(
+        "skip the seller's product add: the product is on their sell list already, and an add would merge into it",
+      );
     } else {
       await page.goto(sellPage);
       await productFold(page).locator("summary").click();
       await productFold(page).locator('input[name="quantity"]').fill("2");
       await rail(page).getByRole("button", { name: "Add product to Sell List", exact: true }).click();
       await page.waitForURL((u) => u.href.startsWith(`${web}/account/sell-list`));
-      const after = await eventually(() => sellList(headers, "account"), (l) => l.length > before.length);
+      const after = await eventually(
+        () => sellList(headers, "account"),
+        (l) => l.length > before.length,
+      );
       const line = after.find((l) => !before.some((b) => b.line_id === l.line_id));
-      check(line?.product_id === offer.product_id && line?.quantity === 2, `the account's sell list has the product, 2 (${line?.line_id})`);
+      check(
+        line?.product_id === offer.product_id && line?.quantity === 2,
+        `the account's sell list has the product, 2 (${line?.line_id})`,
+      );
       if (line) added.push({ headers, owner: "account", line: line.line_id });
       check(await shows(page, read.title), "marketplace's sell list shows it");
     }
@@ -192,9 +273,14 @@ try {
     for (let left = await closed.count(); left > 0; left--) await closed.first().click();
     const { wide, small } = await page.evaluate(() => ({
       wide: document.documentElement.scrollWidth > window.innerWidth,
-      small: Array.from(document.querySelectorAll('[aria-labelledby="rail-title"] :is(a, button, input:not([type="hidden"]), summary)'))
+      small: Array.from(
+        document.querySelectorAll('[aria-labelledby="rail-title"] :is(a, button, input:not([type="hidden"]), summary)'),
+      )
         .filter((e) => e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().height < 40)
-        .map((e) => `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`),
+        .map(
+          (e) =>
+            `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`,
+        ),
     }));
     const who = state ? "seller" : "guest";
     check(!wide, `390 px (${who}): nothing scrolls sideways`);
@@ -209,6 +295,9 @@ try {
   }
   await browser.close();
 }
-if (elsewhere.length) console.log(`note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`);
+if (elsewhere.length)
+  console.log(
+    `note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`,
+  );
 console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

@@ -15,8 +15,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/marketplace-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/marketplace-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 const ITEM = "inv_seed_twilight_masquerade_elite_trainer_box";
 let failures = 0;
 
@@ -68,7 +71,9 @@ async function write(page, button) {
     check(false, `the write was refused: ${said}`);
     return;
   }
-  await page.getByRole("heading", { level: 1, name: "Preparing listing" }).waitFor({ state: "detached", timeout: 60_000 });
+  await page
+    .getByRole("heading", { level: 1, name: "Preparing listing" })
+    .waitFor({ state: "detached", timeout: 60_000 });
   await page.getByRole("heading", { name: "Update Listing" }).waitFor();
 }
 
@@ -76,7 +81,9 @@ async function write(page, button) {
 async function picture(color) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 900 } });
   const page = await ctx.newPage();
-  await page.setContent(`<body style="margin:0;background:${color}"><h1 style="font:bold 96px sans-serif;color:white;padding:80px">Pilot smoke</h1></body>`);
+  await page.setContent(
+    `<body style="margin:0;background:${color}"><h1 style="font:bold 96px sans-serif;color:white;padding:80px">Pilot smoke</h1></body>`,
+  );
   const png = await page.screenshot({ type: "png" });
   await ctx.close();
   return png;
@@ -94,7 +101,10 @@ let id;
   await page.waitForURL(/\/account\/listings\/lst_/, { waitUntil: "commit" });
   const to = new URL(page.url());
   id = to.pathname.split("/").pop();
-  check(to.origin === base && to.searchParams.has("afterWrite"), `Save as draft lands on the pilot's listing page (${to.pathname}${to.search.slice(0, 30)}...)`);
+  check(
+    to.origin === base && to.searchParams.has("afterWrite"),
+    `Save as draft lands on the pilot's listing page (${to.pathname}${to.search.slice(0, 30)}...)`,
+  );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
 }
@@ -104,19 +114,27 @@ try {
   {
     const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
     await listing(id);
-    const res = await page.goto(`${base}/account/listings/${id}?preview=1&priceAmount=${price(1)}&priceCurrencyCode=USD`);
+    const res = await page.goto(
+      `${base}/account/listings/${id}?preview=1&priceAmount=${price(1)}&priceCurrencyCode=USD`,
+    );
     check(res?.status() === 200, `the page answers 200 (${res?.status()})`);
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(wide <= 0, `nothing scrolls sideways at 390 px (${wide})`);
     const short = await page.evaluate(() =>
       [...document.querySelectorAll("main input, main select, main button, main summary, main a")]
-        .filter((e) => e.offsetParent !== null && e.type !== "hidden" && e.type !== "file" && !e.closest("dialog:not([open])"))
+        .filter(
+          (e) =>
+            e.offsetParent !== null && e.type !== "hidden" && e.type !== "file" && !e.closest("dialog:not([open])"),
+        )
         .filter((e) => e.getBoundingClientRect().height < 40)
         .map((e) => e.textContent?.trim() || e.getAttribute("name")),
     );
     check(short.length === 0, `every control is at least 40 px tall (${short.join(", ") || "all"})`);
     const text = await main(page);
-    check(text.includes("Updated fee preview") && text.includes("Draft"), "the draft and its fee preview are drawn on a phone");
+    check(
+      text.includes("Updated fee preview") && text.includes("Draft"),
+      "the draft and its fee preview are drawn on a phone",
+    );
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
     await ctx.close();
   }
@@ -128,7 +146,10 @@ try {
     await page.getByLabel("Price", { exact: true }).fill(price(2));
     await page.getByRole("button", { name: "Preview fees" }).click();
     await page.getByText("Updated fee preview").waitFor();
-    check(page.url().includes("preview=1") && (await main(page)).includes(`$${price(2)}`), "Preview fees draws the preview");
+    check(
+      page.url().includes("preview=1") && (await main(page)).includes(`$${price(2)}`),
+      "Preview fees draws the preview",
+    );
 
     await write(page, page.getByRole("button", { name: "Save price" }));
     let read = await listing(id, (l) => l.price_amount === price(2));
@@ -149,27 +170,48 @@ try {
 
     // Photos: add two, describe, reorder, replace and remove.
     for (const [n, png] of pictures.slice(0, 2).entries()) {
-      await page.getByLabel("Add seller-supplied evidence").setInputFiles({ name: `photo-${n}.png`, mimeType: "image/png", buffer: png });
+      await page
+        .getByLabel("Add seller-supplied evidence")
+        .setInputFiles({ name: `photo-${n}.png`, mimeType: "image/png", buffer: png });
       await write(page, page.getByRole("button", { name: "Upload evidence" }));
     }
     read = await listing(id, (l) => active(l).length === 2);
     check(active(read).length === 2, `Upload evidence adds two photos (${active(read).length})`);
-    check(new URL(page.url()).searchParams.get("evidenceEvent") === "upload_completed", "with evidenceEvent=upload_completed");
+    check(
+      new URL(page.url()).searchParams.get("evidenceEvent") === "upload_completed",
+      "with evidenceEvent=upload_completed",
+    );
 
     const [first, second] = active(read).map((p) => p.photoId);
     await page.getByLabel("Image description").first().fill("Pilot smoke front");
     await write(page, page.getByRole("button", { name: "Save view" }).first());
     read = await listing(id, (l) => active(l).some((p) => p.altText === "Pilot smoke front"));
-    check(active(read).find((p) => p.photoId === first)?.altText === "Pilot smoke front", "Save view writes the description");
+    check(
+      active(read).find((p) => p.photoId === first)?.altText === "Pilot smoke front",
+      "Save view writes the description",
+    );
 
     await write(page, page.getByRole("button", { name: "Move photo 1 later" }));
     read = await listing(id, (l) => active(l)[0]?.photoId === second);
-    check(active(read).map((p) => p.photoId).join() === [second, first].join(), `Move later reorders the photos (${active(read).map((p) => p.photoId).join()})`);
+    check(
+      active(read)
+        .map((p) => p.photoId)
+        .join() === [second, first].join(),
+      `Move later reorders the photos (${active(read)
+        .map((p) => p.photoId)
+        .join()})`,
+    );
 
-    await page.getByLabel("Replace this image").first().setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: pictures[2] });
+    await page
+      .getByLabel("Replace this image")
+      .first()
+      .setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: pictures[2] });
     await write(page, page.getByRole("button", { name: "Replace", exact: true }).first());
     read = await listing(id, (l) => !active(l).some((p) => p.photoId === second));
-    check(active(read).length === 2 && !active(read).some((p) => p.photoId === second), "Replace replaces the first photo");
+    check(
+      active(read).length === 2 && !active(read).some((p) => p.photoId === second),
+      "Replace replaces the first photo",
+    );
 
     await write(page, page.getByRole("button", { name: "Remove photo 2" }));
     read = await listing(id, (l) => active(l).length === 1);
@@ -205,7 +247,10 @@ try {
     const { ctx, page, problems } = await context();
     await page.goto(`${base}/account/listings/${id}`);
     await page.getByRole("button", { name: "Withdraw listing" }).click();
-    await write(page, page.getByRole("dialog", { name: "Withdraw listing" }).getByRole("button", { name: "Withdraw listing" }));
+    await write(
+      page,
+      page.getByRole("dialog", { name: "Withdraw listing" }).getByRole("button", { name: "Withdraw listing" }),
+    );
     const read = await listing(id, (l) => l.status === "withdrawn");
     check(read.status === "withdrawn", `Withdraw withdraws the listing (${read.status})`);
     check((await main(page)).includes("Withdrawn"), "and the page says so");

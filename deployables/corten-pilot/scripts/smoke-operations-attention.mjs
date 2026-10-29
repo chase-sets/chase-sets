@@ -36,9 +36,13 @@ async function open(url, javaScriptEnabled, viewport = { width: 1280, height: 90
 /** The counts and the rows' words, as either page shows them. */
 async function read(page) {
   return page.evaluate(() => {
-    const stats = [...document.querySelectorAll("main dl dt, main [class*='stat'] [class*='label']")].map((e) => e.textContent.trim().toLowerCase());
+    const stats = [...document.querySelectorAll("main dl dt, main [class*='stat'] [class*='label']")].map((e) =>
+      e.textContent.trim().toLowerCase(),
+    );
     const values = [...document.querySelectorAll("main dl dd")].map((e) => e.textContent.trim());
-    const rows = [...document.querySelectorAll("main table tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()));
+    const rows = [...document.querySelectorAll("main table tbody tr")].map((tr) =>
+      [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()),
+    );
     return { stats, values, rows };
   });
 }
@@ -48,9 +52,13 @@ const theirs = await open(`${adminWeb}${PATH}`, true);
 await theirs.page.waitForSelector("main table tbody tr, main [role='status']");
 await theirs.page.waitForTimeout(1_000);
 const theirRows = await theirs.page.evaluate(() =>
-  [...document.querySelectorAll("main table tbody tr")].map((tr) => [...tr.querySelectorAll("td")].slice(1, 5).map((td) => td.textContent.trim())),
+  [...document.querySelectorAll("main table tbody tr")].map((tr) =>
+    [...tr.querySelectorAll("td")].slice(1, 5).map((td) => td.textContent.trim()),
+  ),
 );
-const theirLinks = await theirs.page.evaluate(() => [...document.querySelectorAll("main table tbody tr a")].map((a) => a.getAttribute("href")));
+const theirLinks = await theirs.page.evaluate(() =>
+  [...document.querySelectorAll("main table tbody tr a")].map((a) => a.getAttribute("href")),
+);
 await theirs.ctx.close();
 
 for (const javaScriptEnabled of [true, false]) {
@@ -60,12 +68,21 @@ for (const javaScriptEnabled of [true, false]) {
   const mine = await read(page);
   check(mine.values.length === 4, `${label}: four counts (${mine.values.join(", ")})`);
   const rows = mine.rows.map((cells) => cells.slice(1, 5));
-  check(JSON.stringify(rows) === JSON.stringify(theirRows), `${label}: the same ${theirRows.length} rows in the same order as admin-web`);
+  check(
+    JSON.stringify(rows) === JSON.stringify(theirRows),
+    `${label}: the same ${theirRows.length} rows in the same order as admin-web`,
+  );
   if (JSON.stringify(rows) !== JSON.stringify(theirRows)) console.log({ mine: rows, theirs: theirRows });
   check(Number(mine.values[0]) === rows.length, `${label}: the total is the rows' count (${mine.values[0]})`);
   if (javaScriptEnabled) {
     // The stream opens, then ends while the API refuses the topic (or stays live once it does not).
-    await page.waitForFunction(() => ["live", "ended", "closed"].includes(document.querySelector("corten-live")?.getAttribute("status") ?? ""), null, { timeout: 15_000 }).catch(() => {});
+    await page
+      .waitForFunction(
+        () => ["live", "ended", "closed"].includes(document.querySelector("corten-live")?.getAttribute("status") ?? ""),
+        null,
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
     const live = await page.evaluate(() => document.querySelector("corten-live")?.getAttribute("status"));
     check(live === "ended" || live === "live", `the live stream is ${live} (ended while #10607 is open)`);
     check(problems.length === 0, `no console errors (${problems.join("; ")})`);
@@ -74,7 +91,10 @@ for (const javaScriptEnabled of [true, false]) {
   check(links.length === rows.length, `${label}: an Open on each row`);
   for (const href of links.slice(0, 3)) {
     const res = await ctx.request.get(href, { maxRedirects: 0 });
-    check(res.status() === 200, `Open ${new URL(href).pathname}${new URL(href).search} answers ${res.status()} on admin-web`);
+    check(
+      res.status() === 200,
+      `Open ${new URL(href).pathname}${new URL(href).search} answers ${res.status()} on admin-web`,
+    );
   }
   for (const href of theirLinks.slice(0, 1)) {
     const res = await ctx.request.get(new URL(href, adminWeb).href, { maxRedirects: 0 });
@@ -92,7 +112,10 @@ for (const javaScriptEnabled of [true, false]) {
     stats: getComputedStyle(document.querySelector("main dl")).gridTemplateColumns.split(" ").length,
   }));
   check(layout.scroll <= 390, `390 px: no sideways scroll (${layout.scroll})`);
-  check(layout.open.every((h) => h >= 40), `390 px: each Open is at least 40 px tall (${layout.open.join(", ")})`);
+  check(
+    layout.open.every((h) => h >= 40),
+    `390 px: each Open is at least 40 px tall (${layout.open.join(", ")})`,
+  );
   check(layout.stats === 2, `390 px: the counts are two by two (${layout.stats} columns)`);
   await ctx.close();
 }

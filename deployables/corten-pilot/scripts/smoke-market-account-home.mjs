@@ -15,8 +15,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -47,7 +50,8 @@ async function context(options = {}) {
   return { ctx, page, problems };
 }
 const main = (page) => page.evaluate(() => document.querySelector("main")?.innerText.replace(/\s+/g, " ") ?? "");
-const heading = (page) => page.evaluate(() => document.querySelector("main h1")?.innerText.replace(/\s+/g, " ").trim() ?? "");
+const heading = (page) =>
+  page.evaluate(() => document.querySelector("main h1")?.innerText.replace(/\s+/g, " ").trim() ?? "");
 /** Whether the page's heading comes to start with `name`, as the page reads itself again. */
 async function shows(page, name) {
   for (let i = 0; i < 30; i += 1) {
@@ -71,17 +75,26 @@ try {
     const { ctx, page, problems } = await context({ viewport: { width: 390, height: 844 } });
     const res = await page.goto(`${base}/account`);
     check(res?.status() === 200, `the page answers 200 (${res?.status()})`);
-    check((await heading(page)).startsWith(original.display_name), `the heading is the marketplace name (${await heading(page)})`);
+    check(
+      (await heading(page)).startsWith(original.display_name),
+      `the heading is the marketplace name (${await heading(page)})`,
+    );
     const text = await main(page);
-    const role = { owner: "Owner", manager: "Manager", fulfillment: "Fulfillment", viewer: "Viewer" }[display.membership.role_key];
+    const role = { owner: "Owner", manager: "Manager", fulfillment: "Fulfillment", viewer: "Viewer" }[
+      display.membership.role_key
+    ];
     check(text.includes(`Legal Name ${original.name}`), "Trust Details shows the legal name");
-    check(text.includes(`Membership ${role}`) && text.includes(display.user.primary_email), `who is signed in: ${role}, the email`);
+    check(
+      text.includes(`Membership ${role}`) && text.includes(display.user.primary_email),
+      `who is signed in: ${role}, the email`,
+    );
     check(text.includes("Account Type Personal") || text.includes("Account Type Business"), "the account type");
     check(text.includes("Status Active"), "the status");
-    check(await page.title() === "Account | Marketplace", `the title (${await page.title()})`);
+    check((await page.title()) === "Account | Marketplace", `the title (${await page.title()})`);
     const links = await page.locator("main nav a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
     check(
-      JSON.stringify(links) === JSON.stringify(["/account/shipping-addresses", "/account/inventory/locations", "/account/listings"]),
+      JSON.stringify(links) ===
+        JSON.stringify(["/account/shipping-addresses", "/account/inventory/locations", "/account/listings"]),
       `the account screens it links are the pilot's (${links.join(", ")})`,
     );
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -111,7 +124,10 @@ try {
     await form.getByLabel("Marketplace name").fill(synthetic);
     await form.getByRole("button", { name: "Update Profile" }).click();
     await page.getByText("Your change was saved").waitFor();
-    check(page.url().includes("saved="), `Update Profile goes to the page with the write's receipt (${new URL(page.url()).search.slice(0, 40)}..)`);
+    check(
+      page.url().includes("saved="),
+      `Update Profile goes to the page with the write's receipt (${new URL(page.url()).search.slice(0, 40)}..)`,
+    );
     check(await shows(page, synthetic), "the page shows the new marketplace name");
     check(await settled(synthetic), "Identity has the new marketplace name");
     check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
@@ -138,7 +154,10 @@ try {
     const { ctx, page } = await context({ signedIn: false });
     await page.goto(`${base}/account`);
     const at = new URL(page.url());
-    check(at.origin + at.pathname === `${base}/sign-in` && at.searchParams.get("returnTo") === "/account", `a visitor signs in on the pilot, back to /account (${at.pathname}${at.search})`);
+    check(
+      at.origin + at.pathname === `${base}/sign-in` && at.searchParams.get("returnTo") === "/account",
+      `a visitor signs in on the pilot, back to /account (${at.pathname}${at.search})`,
+    );
     await ctx.close();
   }
 } finally {

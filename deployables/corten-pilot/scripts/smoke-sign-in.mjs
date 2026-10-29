@@ -33,7 +33,10 @@ async function layout(page) {
 
 const browser = await chromium.launch();
 for (const javaScriptEnabled of [true, false]) {
-  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 900 },
+  ]) {
     const label = `${javaScriptEnabled ? "with" : "without"} JavaScript at ${viewport.width} px`;
     const ctx = await browser.newContext({ javaScriptEnabled, viewport });
     const page = await ctx.newPage();
@@ -43,10 +46,16 @@ for (const javaScriptEnabled of [true, false]) {
     page.on("pageerror", (e) => problems.push(String(e)));
 
     await page.goto(`${base}/account/purchases`);
-    check(page.url() === `${base}/sign-in?returnTo=%2Faccount%2Fpurchases`, `${label}: signed-out purchases are the pilot's sign-in (${page.url()})`);
+    check(
+      page.url() === `${base}/sign-in?returnTo=%2Faccount%2Fpurchases`,
+      `${label}: signed-out purchases are the pilot's sign-in (${page.url()})`,
+    );
     check((await page.locator("h1").textContent())?.trim() === "Sign In", `${label}: the sign-in page renders`);
     let fit = await layout(page);
-    check(fit.fits && fit.short.length === 0, `${label}: the first step fits, controls 44 px ${JSON.stringify(fit.short)}`);
+    check(
+      fit.fits && fit.short.length === 0,
+      `${label}: the first step fits, controls 44 px ${JSON.stringify(fit.short)}`,
+    );
 
     await page.getByLabel("Email or phone").fill(email);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -54,23 +63,44 @@ for (const javaScriptEnabled of [true, false]) {
     check(page.url().includes("signInMethod=password"), `${label}: the email step is an address (${page.url()})`);
     check((await page.getByText(`Signing in with ${email}`).count()) === 1, `${label}: it names the email`);
     const methods = await page.getByRole("navigation", { name: "Sign-in method" }).getByRole("link").allTextContents();
-    check(JSON.stringify(methods) === JSON.stringify(["Passkey", "Email me a sign-in link", "Password"]), `${label}: the email's methods ${JSON.stringify(methods)}`);
+    check(
+      JSON.stringify(methods) === JSON.stringify(["Passkey", "Email me a sign-in link", "Password"]),
+      `${label}: the email's methods ${JSON.stringify(methods)}`,
+    );
     const current = await page.locator('nav [aria-current="true"]').textContent();
     check(current?.trim() === "Password", `${label}: the password is shown`);
     fit = await layout(page);
-    check(fit.fits && fit.short.length === 0, `${label}: the password step fits, controls 44 px ${JSON.stringify(fit.short)}`);
+    check(
+      fit.fits && fit.short.length === 0,
+      `${label}: the password step fits, controls 44 px ${JSON.stringify(fit.short)}`,
+    );
 
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
     await page.waitForURL(`${base}/account/purchases**`);
-    check(page.url().startsWith(`${base}/account/purchases`), `${label}: back on the pilot's purchases (${page.url()})`);
+    check(
+      page.url().startsWith(`${base}/account/purchases`),
+      `${label}: back on the pilot's purchases (${page.url()})`,
+    );
     const session = (await ctx.cookies(base)).find((c) => c.name === "chase_sets_session");
-    check(Boolean(session?.httpOnly) && session?.sameSite === "Lax" && session.expires > Date.now() / 1000, `${label}: the session cookie is HttpOnly, Lax and lasts`);
-    check((await page.locator("h1").count()) === 1 && !(await page.locator("h1").textContent())?.includes("Sign In"), `${label}: the purchases render signed in`);
+    check(
+      Boolean(session?.httpOnly) && session?.sameSite === "Lax" && session.expires > Date.now() / 1000,
+      `${label}: the session cookie is HttpOnly, Lax and lasts`,
+    );
+    check(
+      (await page.locator("h1").count()) === 1 && !(await page.locator("h1").textContent())?.includes("Sign In"),
+      `${label}: the purchases render signed in`,
+    );
 
     const out = await page.request.post(`${base}/sign-out`, { headers: { origin: base }, maxRedirects: 0 });
-    check(out.status() === 303 && out.headers().location === "/search", `${label}: signing out answers 303 to search (${out.status()} ${out.headers().location})`);
-    check(!(await ctx.cookies(base)).some((c) => c.name === "chase_sets_session" && c.value), `${label}: the session cookie is gone`);
+    check(
+      out.status() === 303 && out.headers().location === "/search",
+      `${label}: signing out answers 303 to search (${out.status()} ${out.headers().location})`,
+    );
+    check(
+      !(await ctx.cookies(base)).some((c) => c.name === "chase_sets_session" && c.value),
+      `${label}: the session cookie is gone`,
+    );
     await page.goto(`${base}/account/purchases`);
     check(page.url().startsWith(`${base}/sign-in`), `${label}: the purchases ask to sign in again`);
     check(problems.length === 0, `${label}: no script errors ${JSON.stringify(problems)}`);

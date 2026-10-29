@@ -11,11 +11,13 @@
 import { chromium } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
-const [base = "http://localhost:7792", stateFile = "../../artifacts/corten-pilot/marketplace-state.json"] = process.argv.slice(2);
+const [base = "http://localhost:7792", stateFile = "../../artifacts/corten-pilot/marketplace-state.json"] =
+  process.argv.slice(2);
 const list = `${base}/account/inventory/restock-decisions`;
 const text = {
   ready: "Inventory changes are ready.",
-  uncertain: "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+  uncertain:
+    "The Inventory result is uncertain. Check the original result or contact support before making another change.",
 };
 let failures = 0;
 
@@ -33,7 +35,11 @@ async function settled(page) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(15_000);
   const problems = [];
@@ -59,23 +65,31 @@ async function listed(page) {
   const cards = page.locator("li[data-decision]");
   check(decisions.length > 0, `the API has pending decisions (${decisions.length})`);
   check(
-    (await cards.evaluateAll((li) => li.map((l) => l.getAttribute("data-decision")))).join() === decisions.map((d) => d.decision_id).join(),
+    (await cards.evaluateAll((li) => li.map((l) => l.getAttribute("data-decision")))).join() ===
+      decisions.map((d) => d.decision_id).join(),
     "one card per decision, in the API's order",
   );
   const first = decisions[0];
   const card = cards.first();
   const shown = await card.textContent();
   check(shown.includes(first.item_title ?? first.item_id), `the item (${first.item_title})`);
-  check(/[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M UTC/.test(shown), `when, as marketplace writes it (${shown.match(/[A-Z][a-z]{2} \d{1,2}, \d{4}[^U]*UTC/)?.[0]})`);
   check(
-    (await card.getByRole("link", { name: `View order ${first.order_id}` }).getAttribute("href"))?.endsWith(`/account/sales/${first.order_id}`) ?? false,
+    /[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M UTC/.test(shown),
+    `when, as marketplace writes it (${shown.match(/[A-Z][a-z]{2} \d{1,2}, \d{4}[^U]*UTC/)?.[0]})`,
+  );
+  check(
+    (await card.getByRole("link", { name: `View order ${first.order_id}` }).getAttribute("href"))?.endsWith(
+      `/account/sales/${first.order_id}`,
+    ) ?? false,
     "the order links to marketplace's sale",
   );
 
   // A decision sent for a version the API no longer has.
   const writeOff = card.locator('form[action$="/write-off"]');
   await writeOff.getByLabel("Damage note").fill("smoke: stale version");
-  await writeOff.locator('input[name="expected_version"]').evaluate((input) => { input.value = "999"; });
+  await writeOff.locator('input[name="expected_version"]').evaluate((input) => {
+    input.value = "999";
+  });
   const [refused] = await Promise.all([
     page.waitForResponse((r) => r.request().method() === "POST"),
     writeOff.getByRole("button", { name: "Write off" }).click(),
@@ -83,15 +97,24 @@ async function listed(page) {
   check(refused.status() === 422, `the API refuses it (${refused.status()})`);
   const message = card.locator('form[action$="/write-off"] .form-error');
   await message.waitFor();
-  check((await message.textContent()).length > 0, `with the API's message on the form ("${await message.textContent()}")`);
+  check(
+    (await message.textContent()).length > 0,
+    `with the API's message on the form ("${await message.textContent()}")`,
+  );
   check(page.url() === list, "the refusal is patched in; the page does not navigate");
   check(
-    (await card.locator('form[action$="/write-off"] input[name="expected_version"]').inputValue()) === String(first.version),
+    (await card.locator('form[action$="/write-off"] input[name="expected_version"]').inputValue()) ===
+      String(first.version),
     `the form comes back at the current version (${first.version})`,
   );
   check((await card.getByLabel("Damage note").inputValue()) === "smoke: stale version", "the note stays");
-  check((await listed(page)).some((d) => d.decision_id === first.decision_id), "the decision is still pending");
-  const left = await page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith("inventory-mutation/v1:")));
+  check(
+    (await listed(page)).some((d) => d.decision_id === first.decision_id),
+    "the decision is still pending",
+  );
+  const left = await page.evaluate(() =>
+    Object.keys(sessionStorage).filter((k) => k.startsWith("inventory-mutation/v1:")),
+  );
   check(left.length === 0, `the refused attempt is forgotten${left.length ? `: ${left}` : ""}`);
 
   // A record for a write that never reached the API: its result cannot be known.
@@ -101,7 +124,15 @@ async function listed(page) {
     ({ account, user, id, attempt }) =>
       sessionStorage.setItem(
         `inventory-mutation/v1:${encodeURIComponent(account)}:restock-record`,
-        JSON.stringify({ version: 1, attemptId: attempt, accountId: account, actorUserId: user, family: "restock-record", targetId: id, createdAt: new Date().toISOString() }),
+        JSON.stringify({
+          version: 1,
+          attemptId: attempt,
+          accountId: account,
+          actorUserId: user,
+          family: "restock-record",
+          targetId: id,
+          createdAt: new Date().toISOString(),
+        }),
       ),
     { account, user, id: first.decision_id, attempt: randomUUID() },
   );
@@ -116,7 +147,10 @@ async function listed(page) {
   await page.waitForURL((u) => !u.searchParams.has("attempt"));
   await settled(page);
   const after = await status(page);
-  check(after === text.ready && (await restock.isEnabled()), `discarding the record turns writes back on ("${after}", ${page.url()})`);
+  check(
+    after === text.ready && (await restock.isEnabled()),
+    `discarding the record turns writes back on ("${after}", ${page.url()})`,
+  );
 
   // The browser logs every 4xx and 5xx answer: the refusal (422) is expected.
   const real = problems.filter((p) => !p.includes("status of 422"));
@@ -130,13 +164,18 @@ async function listed(page) {
   await page.goto(list);
   check((await page.locator("h1").textContent()) === "Restock Decisions", "the page renders without JavaScript");
   const restock = page.locator("li[data-decision]").first().locator('form[action$="/restock"]');
-  await restock.locator('input[name="expected_version"]').evaluate((input) => { input.value = "999"; });
+  await restock.locator('input[name="expected_version"]').evaluate((input) => {
+    input.value = "999";
+  });
   const [refused] = await Promise.all([
     page.waitForResponse((r) => r.request().method() === "POST"),
     restock.getByRole("button", { name: "Restock" }).click(),
   ]);
   check(refused.status() === 422, "a refused post answers 422 with the whole page");
-  check((await page.locator('li[data-decision] form[action$="/restock"] .form-error').count()) === 1, "with the API's message on the form");
+  check(
+    (await page.locator('li[data-decision] form[action$="/restock"] .form-error').count()) === 1,
+    "with the API's message on the form",
+  );
   check((await page.locator("li[data-decision]").count()) > 0, "and the decisions");
   await ctx.close();
 }
@@ -148,18 +187,27 @@ async function listed(page) {
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(over <= 0, `the page does not scroll sideways at 390 px (${over} px over)`);
-  const stacked = await page.locator("li[data-decision]").first().evaluate((li) => {
-    const [a, b] = [...li.querySelectorAll("form")].map((f) => f.getBoundingClientRect());
-    return b.top >= a.bottom;
-  });
+  const stacked = await page
+    .locator("li[data-decision]")
+    .first()
+    .evaluate((li) => {
+      const [a, b] = [...li.querySelectorAll("form")].map((f) => f.getBoundingClientRect());
+      return b.top >= a.bottom;
+    });
   check(stacked, "the two forms stack");
-  const outside = await page.locator("li[data-decision]").first().evaluate((li) => {
-    const box = li.getBoundingClientRect();
-    return [...li.querySelectorAll("*")]
-      .filter((el) => el.getBoundingClientRect().right > box.right + 0.5)
-      .map((el) => `<${el.localName} class="${el.className}">`);
-  });
-  check(outside.length === 0, `nothing in the card runs past its edge${outside.length ? `: ${outside.slice(0, 4).join(" ")}` : ""}`);
+  const outside = await page
+    .locator("li[data-decision]")
+    .first()
+    .evaluate((li) => {
+      const box = li.getBoundingClientRect();
+      return [...li.querySelectorAll("*")]
+        .filter((el) => el.getBoundingClientRect().right > box.right + 0.5)
+        .map((el) => `<${el.localName} class="${el.className}">`);
+    });
+  check(
+    outside.length === 0,
+    `nothing in the card runs past its edge${outside.length ? `: ${outside.slice(0, 4).join(" ")}` : ""}`,
+  );
   await page.screenshot({ path: "../../artifacts/corten-pilot/restock-390.png", fullPage: true });
   check(problems.length === 0, `no script errors at 390 px (${problems.join(" | ")})`);
   await ctx.close();

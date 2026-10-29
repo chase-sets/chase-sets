@@ -63,15 +63,20 @@ const wordsOf = (page) =>
     main.style.position = "absolute";
     const text = main.innerText;
     main.remove();
-    return text
-      .replace(/Preparing shipment actions\s+You can read shipment details and open links while actions get ready\./, " ")
-      // Marketplace says each empty state twice (chase-sets/chase-sets#10641); the pilot once.
-      .replace(/(No shipment exceptions recorded\.|No postage operations recorded\.)\s+\1/g, "$1")
-      // Start and Resume packing: smoke-market-packing.mjs compares them.
-      .replace(/\n(Start packing|Resume packing)\n/g, "\n")
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
+    return (
+      text
+        .replace(
+          /Preparing shipment actions\s+You can read shipment details and open links while actions get ready\./,
+          " ",
+        )
+        // Marketplace says each empty state twice (chase-sets/chase-sets#10641); the pilot once.
+        .replace(/(No shipment exceptions recorded\.|No postage operations recorded\.)\s+\1/g, "$1")
+        // Start and Resume packing: smoke-market-packing.mjs compares them.
+        .replace(/\n(Start packing|Resume packing)\n/g, "\n")
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+    );
   });
 function difference(a, b) {
   const count = (list) => list.reduce((m, w) => m.set(w, (m.get(w) ?? 0) + 1), new Map());
@@ -81,7 +86,10 @@ function difference(a, b) {
   return { missing, extra };
 }
 async function same(path, state, what) {
-  const [ours, theirs] = [await context({ javaScriptEnabled: false, storageState: state }), await context({ storageState: state })];
+  const [ours, theirs] = [
+    await context({ javaScriptEnabled: false, storageState: state }),
+    await context({ storageState: state }),
+  ];
   const res = await ours.page.goto(`${base}${path}`);
   let answer = await theirs.page.goto(`${market}${path}`, { waitUntil: "networkidle" });
   // Marketplace's dev server sometimes answers one read with its 500 page; read it again once.
@@ -99,7 +107,10 @@ const bought = await read("/api/marketplace/account/shipments?limit=100&offset=0
 const sold = await read("/api/marketplace/account/sales/shipments?limit=100&offset=0", sellerState);
 const one = (list, status) => list.items.find((s) => s.status === status);
 const statuses = ["delivered", "exception", "awaiting-package", "label-attached", "returned"];
-check(statuses.every((s) => one(bought, s) && one(sold, s)), `the seeds have a shipment of each of ${statuses.join(", ")}`);
+check(
+  statuses.every((s) => one(bought, s) && one(sold, s)),
+  `the seeds have a shipment of each of ${statuses.join(", ")}`,
+);
 
 {
   const { ctx, page } = await context({ javaScriptEnabled: false });
@@ -115,36 +126,58 @@ check(statuses.every((s) => one(bought, s) && one(sold, s)), `the seeds have a s
 
 {
   const { ctx, page } = await same("/account/shipments", collectorState, "Shipments");
-  const hrefs = await page.locator("main a", { hasText: "Open shipment" }).evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+  const hrefs = await page
+    .locator("main a", { hasText: "Open shipment" })
+    .evaluateAll((as) => as.map((a) => a.getAttribute("href")));
   check(
-    hrefs.length === bought.items.length && hrefs.every((h, i) => h === `/account/shipments/${bought.items[i].shipment_id}`),
+    hrefs.length === bought.items.length &&
+      hrefs.every((h, i) => h === `/account/shipments/${bought.items[i].shipment_id}`),
     `each card's Open shipment opens its shipment here (${hrefs.length})`,
   );
   await page.locator("main a", { hasText: "Open shipment" }).first().click();
-  check(new URL(page.url()).pathname === `/account/shipments/${bought.items[0].shipment_id}`, "and Open shipment goes there");
+  check(
+    new URL(page.url()).pathname === `/account/shipments/${bought.items[0].shipment_id}`,
+    "and Open shipment goes there",
+  );
   await ctx.close();
 }
 
 for (const status of statuses) {
-  const { ctx } = await same(`/account/shipments/${one(bought, status).shipment_id}`, collectorState, `a buyer's ${status} shipment`);
+  const { ctx } = await same(
+    `/account/shipments/${one(bought, status).shipment_id}`,
+    collectorState,
+    `a buyer's ${status} shipment`,
+  );
   await ctx.close();
 }
 for (const status of statuses) {
-  const { ctx, page } = await same(`/account/sales/shipments/${one(sold, status).shipment_id}`, sellerState, `a seller's ${status} shipment`);
-  const actions = await page.locator('main a', { hasText: "Open on marketplace" }).getAttribute("href");
-  check(actions === `${market}/account/sales/shipments/${one(sold, status).shipment_id}`, `its actions open marketplace's page (${actions})`);
+  const { ctx, page } = await same(
+    `/account/sales/shipments/${one(sold, status).shipment_id}`,
+    sellerState,
+    `a seller's ${status} shipment`,
+  );
+  const actions = await page.locator("main a", { hasText: "Open on marketplace" }).getAttribute("href");
+  check(
+    actions === `${market}/account/sales/shipments/${one(sold, status).shipment_id}`,
+    `its actions open marketplace's page (${actions})`,
+  );
   await ctx.close();
 }
 
 {
   const { ctx, page } = await context({ javaScriptEnabled: false, storageState: sellerState });
   await page.goto(`${base}/account/sales/shipments`);
-  check(page.url().startsWith(`${market}/account/sales/shipments`), `the seller's list is marketplace's command center (${page.url()})`);
+  check(
+    page.url().startsWith(`${market}/account/sales/shipments`),
+    `the seller's list is marketplace's command center (${page.url()})`,
+  );
   await ctx.close();
 }
 
 const awaiting = one(bought, "awaiting-package").shipment_id;
-const policied = sold.items.find((s) => s.shipping_plan_snapshot?.postagePolicySnapshot)?.shipment_id ?? one(sold, "exception").shipment_id;
+const policied =
+  sold.items.find((s) => s.shipping_plan_snapshot?.postagePolicySnapshot)?.shipment_id ??
+  one(sold, "exception").shipment_id;
 for (const [path, state, width, columns] of [
   ["/account/shipments", collectorState, 1280, 2],
   ["/account/shipments", collectorState, 390, 1],
@@ -160,7 +193,8 @@ for (const [path, state, width, columns] of [
     for (const el of document.querySelectorAll("main a, main button")) {
       const r = el.getBoundingClientRect();
       if (r.width === 0) continue;
-      if (r.height < 40 && !el.closest("p:not([class*=__actions])")) small.push(`${el.tagName} ${el.textContent.trim().slice(0, 30)} ${Math.round(r.height)}`);
+      if (r.height < 40 && !el.closest("p:not([class*=__actions])"))
+        small.push(`${el.tagName} ${el.textContent.trim().slice(0, 30)} ${Math.round(r.height)}`);
     }
     const grid = document.querySelector('main [class*="__cards"]');
     return {
@@ -171,7 +205,10 @@ for (const [path, state, width, columns] of [
   });
   check(layout.columns === columns, `${path} at ${width} px: ${columns || "no"} card columns (${layout.columns})`);
   check(layout.overflow <= 0, `${path} at ${width} px: nothing scrolls sideways (${layout.overflow})`);
-  check(layout.small.length === 0, `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`);
+  check(
+    layout.small.length === 0,
+    `${path} at ${width} px: every control is at least 40 px tall${layout.small.length ? `: ${layout.small.join(", ")}` : ""}`,
+  );
   check(problems.length === 0, `no console errors${problems.length ? `: ${problems.join(" | ")}` : ""}`);
   await ctx.close();
 }

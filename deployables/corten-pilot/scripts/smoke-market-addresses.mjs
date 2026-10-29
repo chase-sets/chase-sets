@@ -13,8 +13,11 @@
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7794", state = "../../artifacts/corten-pilot/collector-state.json", api = "http://localhost:7762"] =
-  process.argv.slice(2);
+const [
+  base = "http://localhost:7794",
+  state = "../../artifacts/corten-pilot/collector-state.json",
+  api = "http://localhost:7762",
+] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -108,7 +111,7 @@ async function settle(page, text, shown) {
   await save(page, label);
   await page.getByText("Your change was saved").waitFor();
   await until(page, label);
-  check(await card(page, label).count() === 1, "Save address: the page says it was saved and lists it");
+  check((await card(page, label).count()) === 1, "Save address: the page says it was saved and lists it");
 
   await page.evaluate(() => document.querySelector("#add-form input[name=city]")?.removeAttribute("required"));
   await save(page, `${label} refused`, { city: "" });
@@ -125,17 +128,23 @@ async function settle(page, text, shown) {
   await dialog.getByRole("button", { name: "Update address" }).click();
   await page.getByText("Your change was saved").waitFor();
   await until(page, `${label} updated`);
-  check(await card(page, `${label} updated`).count() === 1, "Update address saves the new label");
+  check((await card(page, `${label} updated`).count()) === 1, "Update address saves the new label");
 
   const updated = card(page, `${label} updated`);
   await updated.getByRole("button", { name: "Set default" }).click();
   await page.waitForFunction(
-    (l) => [...document.querySelectorAll("main li")].some((li) => li.innerText.includes(l) && li.innerText.includes("Default")),
+    (l) =>
+      [...document.querySelectorAll("main li")].some(
+        (li) => li.innerText.includes(l) && li.innerText.includes("Default"),
+      ),
     `${label} updated`,
     { timeout: 30_000 },
   );
   const defaults = (await list()).filter((a) => a.is_default).map((a) => a.label);
-  check(defaults.length === 1 && defaults[0] === `${label} updated`, `Set default moves the Default badge (${defaults.join(", ")})`);
+  check(
+    defaults.length === 1 && defaults[0] === `${label} updated`,
+    `Set default moves the Default badge (${defaults.join(", ")})`,
+  );
 
   await card(page, `${label} updated`).getByRole("button", { name: "Archive" }).click();
   const confirm = card(page, `${label} updated`).locator("dialog").nth(1);

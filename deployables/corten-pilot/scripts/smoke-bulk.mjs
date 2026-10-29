@@ -7,7 +7,8 @@
 // Usage: node scripts/smoke-bulk.mjs [pilot-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] = process.argv.slice(2);
+const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] =
+  process.argv.slice(2);
 const stamp = Date.now().toString(36);
 const prefix = `bulk_${stamp}`;
 let failures = 0;
@@ -88,10 +89,16 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   check(await all.evaluate((b) => /** @type {HTMLInputElement} */ (b).indeterminate), "select-all is mixed");
   check(await preview.isEnabled(), "and Preview is enabled");
   await all.check();
-  check((await box(page, `${prefix}_b`).isChecked()) && (await count(page)) === "2 Dimensions selected", "select-all checks every row");
+  check(
+    (await box(page, `${prefix}_b`).isChecked()) && (await count(page)) === "2 Dimensions selected",
+    "select-all checks every row",
+  );
   await page.getByLabel("Action").selectOption("deprecate");
   await clear.click();
-  check(!(await box(page, `${prefix}_a`).isChecked()) && (await count(page)) === "2 matching Dimensions", "Clear Selection clears the rows");
+  check(
+    !(await box(page, `${prefix}_a`).isChecked()) && (await count(page)) === "2 matching Dimensions",
+    "Clear Selection clears the rows",
+  );
   check((await page.getByLabel("Action").inputValue()) === "deprecate", "and keeps the action");
   page.off("request", counting);
   check(requests === 0, `selecting made no request (${requests})`);
@@ -103,21 +110,35 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   await dialog.locator(".dialog__title").waitFor();
   check(await dialog.evaluate((d) => d.matches(":modal")), "the preview is a modal dialog");
   check((await dialog.locator(".dialog__title").textContent()) === "Bulk Activate Preview", "for the action");
-  check((await dialog.locator(".dialog__description").textContent()) === "2 ready, 0 blocked.", "the API's preview: both drafts are ready");
+  check(
+    (await dialog.locator(".dialog__description").textContent()) === "2 ready, 0 blocked.",
+    "the API's preview: both drafts are ready",
+  );
   await dialog.getByRole("button", { name: "Confirm" }).click();
   await page.waitForURL((u) => u.searchParams.has("job"));
   await navigated(page);
   const job = page.locator("#catalog-bulk-job");
   check(await job.evaluate((d) => d.matches(":modal")), "the confirm opens the job's dialog");
-  await page.waitForFunction(() => document.querySelector("#catalog-bulk-status")?.textContent?.includes("succeeded"), null, { timeout: 90_000 });
+  await page.waitForFunction(
+    () => document.querySelector("#catalog-bulk-status")?.textContent?.includes("succeeded"),
+    null,
+    { timeout: 90_000 },
+  );
   check(
-    (await job.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) === "2 succeeded, 0 skipped, 0 failed.",
+    (await job.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) ===
+      "2 succeeded, 0 skipped, 0 failed.",
     "the job's dialog follows it to its result",
   );
-  check(!(await page.locator("#catalog-bulk-status").textContent())?.includes("of 2 processed"), "with the result in place of the progress");
+  check(
+    !(await page.locator("#catalog-bulk-status").textContent())?.includes("of 2 processed"),
+    "with the result in place of the progress",
+  );
   await job.getByRole("button", { name: "Close" }).click();
   await page.waitForFunction(
-    (p) => [...document.querySelectorAll("#catalog-rows tbody tr")].filter((r) => r.textContent?.includes(p) && r.textContent.includes("active")).length === 2,
+    (p) =>
+      [...document.querySelectorAll("#catalog-rows tbody tr")].filter(
+        (r) => r.textContent?.includes(p) && r.textContent.includes("active"),
+      ).length === 2,
     prefix,
     { timeout: 60_000 },
   );
@@ -136,11 +157,15 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   await create.getByRole("button", { name: "Create" }).click();
   await other.waitForURL((u) => u.searchParams.get("done") === "created");
   await other.close();
-  await page.waitForFunction(() => document.querySelectorAll('#catalog-rows [name="ids"]').length === 3, null, { timeout: 60_000 });
+  await page.waitForFunction(() => document.querySelectorAll('#catalog-rows [name="ids"]').length === 3, null, {
+    timeout: 60_000,
+  });
   check(await box(page, `${prefix}_a`).isChecked(), "a checked box keeps its mark through a live redraw");
   check((await count(page)) === "1 Dimensions selected", "and the count is taken again");
   check(
-    await page.getByRole("checkbox", { name: "Select all rows" }).evaluate((b) => /** @type {HTMLInputElement} */ (b).indeterminate),
+    await page
+      .getByRole("checkbox", { name: "Select all rows" })
+      .evaluate((b) => /** @type {HTMLInputElement} */ (b).indeterminate),
     "select-all is mixed again",
   );
   await box(page, `${prefix}_a`).uncheck();
@@ -156,21 +181,32 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   const { ctx, page } = await context(false);
   await page.goto(list);
   await settled(page);
-  check(await page.getByRole("checkbox", { name: "Select all rows" }).isHidden(), "without JavaScript select-all is hidden");
+  check(
+    await page.getByRole("checkbox", { name: "Select all rows" }).isHidden(),
+    "without JavaScript select-all is hidden",
+  );
   await page.getByLabel("Action").selectOption("deprecate");
   await page.getByRole("button", { name: "Preview matching items" }).click();
   await page.waitForLoadState();
   const dialog = page.locator("#catalog-bulk-preview");
   check((await dialog.getAttribute("open")) !== null, "the preview is the list with its dialog drawn open");
-  check((await dialog.locator(".dialog__description").textContent()) === "2 ready, 1 blocked.", "the two active dimensions are ready, the draft blocked");
+  check(
+    (await dialog.locator(".dialog__description").textContent()) === "2 ready, 1 blocked.",
+    "the two active dimensions are ready, the draft blocked",
+  );
   await dialog.getByRole("button", { name: "Confirm" }).click();
   await page.waitForURL((u) => u.searchParams.has("job"));
-  for (let i = 0; i < 45 && !(await page.locator("#catalog-bulk-status").textContent())?.includes("succeeded"); i += 1) {
+  for (
+    let i = 0;
+    i < 45 && !(await page.locator("#catalog-bulk-status").textContent())?.includes("succeeded");
+    i += 1
+  ) {
     await page.waitForTimeout(2_000);
     await page.reload();
   }
   check(
-    (await page.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) === "2 succeeded, 1 skipped, 0 failed.",
+    (await page.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) ===
+      "2 succeeded, 1 skipped, 0 failed.",
     "the job's page shows its result on a reload",
   );
   await ctx.close();

@@ -19,7 +19,11 @@ const PATH = "/platform/projections";
 let failures = 0;
 
 /** Whether `locator` becomes visible within 10 s (a client navigation changes the address before it draws). */
-const shows = (locator) => locator.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false);
+const shows = (locator) =>
+  locator.waitFor({ state: "visible", timeout: 10_000 }).then(
+    () => true,
+    () => false,
+  );
 
 function check(ok, what) {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
@@ -43,7 +47,11 @@ async function open(url, javaScriptEnabled, viewport = { width: 1280, height: 90
 const queueRows = (page) =>
   page.evaluate(() => {
     const table = document.querySelector("main table");
-    return table ? [...table.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].slice(0, 2).map((td) => td.textContent.trim().replace(/\s+/g, " "))) : [];
+    return table
+      ? [...table.querySelectorAll("tbody tr")].map((tr) =>
+          [...tr.querySelectorAll("td")].slice(0, 2).map((td) => td.textContent.trim().replace(/\s+/g, " ")),
+        )
+      : [];
   });
 
 // admin-web's page, for what the pilot should match.
@@ -62,9 +70,14 @@ for (const javaScriptEnabled of [true, false]) {
   const counts = await page.locator("main dl dd").count();
   check(counts === 8, `${label}: eight counts (${counts})`);
   const rows = await queueRows(page);
-  check(JSON.stringify(rows) === JSON.stringify(theirRows), `${label}: the repair queue's ${rows.length} rows match admin-web's in order (${JSON.stringify(rows)} vs ${JSON.stringify(theirRows)})`);
   check(
-    await page.evaluate(() => [...document.styleSheets].some((s) => (s.href ?? "").includes("/sections/platform/projections"))),
+    JSON.stringify(rows) === JSON.stringify(theirRows),
+    `${label}: the repair queue's ${rows.length} rows match admin-web's in order (${JSON.stringify(rows)} vs ${JSON.stringify(theirRows)})`,
+  );
+  check(
+    await page.evaluate(() =>
+      [...document.styleSheets].some((s) => (s.href ?? "").includes("/sections/platform/projections")),
+    ),
     `${label}: the area's own stylesheet`,
   );
 
@@ -73,7 +86,10 @@ for (const javaScriptEnabled of [true, false]) {
   await Promise.all([page.waitForURL(/state=degraded/), page.getByRole("button", { name: "Apply filters" }).click()]);
   check(await shows(page.getByText("State: degraded", { exact: true })), `${label}: the applied filter's chip`);
   const filtered = await queueRows(page);
-  check(filtered.length > 0 && filtered.every(([state]) => state === "degraded"), `${label}: only degraded rows (${JSON.stringify(filtered)})`);
+  check(
+    filtered.length > 0 && filtered.every(([state]) => state === "degraded"),
+    `${label}: only degraded rows (${JSON.stringify(filtered)})`,
+  );
 
   // A group's sheet.
   const group = page.locator("main table tbody tr").filter({ hasText: "projection-group" }).first();
@@ -82,7 +98,10 @@ for (const javaScriptEnabled of [true, false]) {
   check(await shows(sheet), `${label}: the group's sheet opens`);
   if (javaScriptEnabled) check(await sheet.evaluate((d) => d.matches(":modal")), `${label}: the sheet is modal`);
   const links = await sheet.locator("section ul a").count();
-  check(links > 0, `${label}: the group lists its blocked streams and poison events (${links}), chase-sets/chase-sets#10710`);
+  check(
+    links > 0,
+    `${label}: the group lists its blocked streams and poison events (${links}), chase-sets/chase-sets#10710`,
+  );
   const rebuild = sheet.getByRole("button", { name: "Rebuild", exact: true });
   if (await rebuild.count()) {
     if (javaScriptEnabled) {
@@ -98,14 +117,27 @@ for (const javaScriptEnabled of [true, false]) {
   // A poison event's sheet: Retry is offered.
   const poison = sheet.locator("section ul a").last();
   await Promise.all([page.waitForURL(/selected=poison-event/), poison.click()]);
-  check(await shows(page.locator("dialog[open]").getByRole("button", { name: "Retry" })), `${label}: a poison event's sheet offers Retry`);
+  check(
+    await shows(page.locator("dialog[open]").getByRole("button", { name: "Retry" })),
+    `${label}: a poison event's sheet offers Retry`,
+  );
   // Close: Escape with JavaScript (the address loses the selection), the link without.
   if (javaScriptEnabled) {
     await Promise.all([page.waitForURL((u) => !u.search.includes("selected=")), page.keyboard.press("Escape")]);
   } else {
-    await Promise.all([page.waitForURL((u) => !u.search.includes("selected=")), page.getByRole("link", { name: "Close projection detail" }).click()]);
+    await Promise.all([
+      page.waitForURL((u) => !u.search.includes("selected=")),
+      page.getByRole("link", { name: "Close projection detail" }).click(),
+    ]);
   }
-  const gone = await page.locator("dialog[open]").first().waitFor({ state: "detached", timeout: 10_000 }).then(() => true, () => false);
+  const gone = await page
+    .locator("dialog[open]")
+    .first()
+    .waitFor({ state: "detached", timeout: 10_000 })
+    .then(
+      () => true,
+      () => false,
+    );
   check(gone, `${label}: the sheet closes and the address says so (${page.url()})`);
   check(page.url().includes("state=degraded"), `${label}: the filters stay`);
 
@@ -114,7 +146,11 @@ for (const javaScriptEnabled of [true, false]) {
   if (await refresh.count()) {
     await Promise.all([page.waitForLoadState("load"), refresh.click()]);
     await page.waitForTimeout(500);
-    check(page.url().includes("state=degraded") && (await page.locator("main h1").textContent()) === "Projection Operations", `${label}: Refresh status comes back to the console (${page.url()})`);
+    check(
+      page.url().includes("state=degraded") &&
+        (await page.locator("main h1").textContent()) === "Projection Operations",
+      `${label}: Refresh status comes back to the console (${page.url()})`,
+    );
   }
   check(problems.length === 0, `${label}: no console errors ${problems.join(" | ")}`);
   await ctx.close();
@@ -126,14 +162,18 @@ for (const javaScriptEnabled of [true, false]) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(wide <= 0, `390 px: no sideways scroll (${wide})`);
   const short = await page.evaluate(() =>
-    [...document.querySelectorAll("main a[class], main button")].filter((b) => b.offsetParent && b.getBoundingClientRect().height < 40).map((b) => b.textContent.trim()),
+    [...document.querySelectorAll("main a[class], main button")]
+      .filter((b) => b.offsetParent && b.getBoundingClientRect().height < 40)
+      .map((b) => b.textContent.trim()),
   );
   check(short.length === 0, `390 px: every button at least 40 px tall (${short.join(", ")})`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/projections-390.png", fullPage: true });
   const group = page.locator("main table tbody tr").filter({ hasText: "projection-group" }).first();
   await Promise.all([page.waitForURL(/selected=/), group.getByRole("link", { name: "Details" }).click()]);
   await page.locator("dialog[open]").first().waitFor({ state: "visible", timeout: 10_000 });
-  const sheetWide = await page.evaluate(() => document.querySelector("dialog[open]").scrollWidth - document.querySelector("dialog[open]").clientWidth);
+  const sheetWide = await page.evaluate(
+    () => document.querySelector("dialog[open]").scrollWidth - document.querySelector("dialog[open]").clientWidth,
+  );
   check(sheetWide <= 0, `390 px: the sheet does not scroll sideways (${sheetWide})`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/projections-sheet-390.png" });
   await ctx.close();

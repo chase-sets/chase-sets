@@ -14,9 +14,48 @@ import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
+const named = Object.fromEntries(
+  process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]),
+);
 const screen = named.screen ?? "admin";
-const login = { marketplace: "marketplace", cart: "collector", item: "collector", search: "collector", home: "collector", set: "collector", listing: "collector", account: "collector", notifications: "collector", purchases: "collector", sales: "marketplace", "listing-new": "marketplace", "seller-listing": "marketplace", "seller-listings": "marketplace", "offer-matches": "marketplace", "submitted-offers": "collector", inventory: "marketplace", "inventory-item": "marketplace", desk: "marketplace", repricing: "marketplace", checkout: "collector", shipments: "collector", "sale-shipment": "marketplace", packing: "marketplace", addresses: "collector", "account-home": "collector", security: "collector", sessions: "collector", team: "marketplace", consents: "collector", reviews: "collector", review: "collector", market: "none", landing: "none", "sign-in": "none" }[screen] ?? "admin";
+const login =
+  {
+    marketplace: "marketplace",
+    cart: "collector",
+    item: "collector",
+    search: "collector",
+    home: "collector",
+    set: "collector",
+    listing: "collector",
+    account: "collector",
+    notifications: "collector",
+    purchases: "collector",
+    sales: "marketplace",
+    "listing-new": "marketplace",
+    "seller-listing": "marketplace",
+    "seller-listings": "marketplace",
+    "offer-matches": "marketplace",
+    "submitted-offers": "collector",
+    inventory: "marketplace",
+    "inventory-item": "marketplace",
+    desk: "marketplace",
+    repricing: "marketplace",
+    checkout: "collector",
+    shipments: "collector",
+    "sale-shipment": "marketplace",
+    packing: "marketplace",
+    addresses: "collector",
+    "account-home": "collector",
+    security: "collector",
+    sessions: "collector",
+    team: "marketplace",
+    consents: "collector",
+    reviews: "collector",
+    review: "collector",
+    market: "none",
+    landing: "none",
+    "sign-in": "none",
+  }[screen] ?? "admin";
 const {
   screen: _screen,
   runs: runsText = "7",
@@ -40,13 +79,24 @@ const {
 const runs = Number(runsText);
 const profiles = {
   desktop: { cpu: 1, network: null },
-  mobile: { cpu: 4, network: { offline: false, latency: 150, downloadThroughput: (1.6 * 1024 * 1024) / 8, uploadThroughput: (750 * 1024) / 8 } },
+  mobile: {
+    cpu: 4,
+    network: {
+      offline: false,
+      latency: 150,
+      downloadThroughput: (1.6 * 1024 * 1024) / 8,
+      uploadThroughput: (750 * 1024) / 8,
+    },
+  },
 };
 const screens = {
   admin: { list: "/commerce/postage-policies", sheet: `/commerce/postage-policies?policy=${policy}` },
   catalog: { list: "/catalog/dimensions", ...(dimension ? { detail: `/catalog/dimensions/${dimension}` } : {}) },
   attention: { queue: "/platform/operations-attention" },
-  projections: { console: "/platform/projections", group: "/platform/projections?selected=settlement%3Asettlement-fulfillment-source-projection" },
+  projections: {
+    console: "/platform/projections",
+    group: "/platform/projections?selected=settlement%3Asettlement-fulfillment-source-projection",
+  },
   scope: { page: `/catalog/scopes/${named.scope ?? "ref_seed_set_lorcana_d23_collection"}` },
   marketplace: { list: "/account/inventory/locations" },
   cart: { list: "/account/cart" },
@@ -62,9 +112,15 @@ const screens = {
   },
   account: { page: `/accounts/${named.account ?? "chase-sets-acc-seed-demo-account-1mltldk"}` },
   notifications: { feed: "/account/notifications", settings: "/account/notifications?view=settings" },
-  purchases: { list: "/account/purchases", detail: `/account/purchases/${named.order ?? "ord_01M5P0SQE5TQGRJCTMD116ACF7"}` },
+  purchases: {
+    list: "/account/purchases",
+    detail: `/account/purchases/${named.order ?? "ord_01M5P0SQE5TQGRJCTMD116ACF7"}`,
+  },
   sales: { list: "/account/sales", detail: `/account/sales/${named.order ?? "ord_01M5P0SQE5TQGRJCTMD116ACF7"}` },
-  shipments: { list: "/account/shipments", detail: `/account/shipments/${named.shipment ?? "shp_seed_demo_charizard"}` },
+  shipments: {
+    list: "/account/shipments",
+    detail: `/account/shipments/${named.shipment ?? "shp_seed_demo_charizard"}`,
+  },
   "sale-shipment": { detail: `/account/sales/shipments/${named.shipment ?? "shp_seed_exception"}` },
   addresses: { page: "/account/shipping-addresses" },
   "account-home": { page: "/account" },
@@ -74,25 +130,38 @@ const screens = {
   consents: { page: "/account/consents" },
   reviews: { list: "/account/reviews", detail: "/account/reviews/received" },
   review: { detail: `/account/reviews/${named.review ?? "rev_seed_buyer_to_seller_active"}` },
-  "listing-new": { blank: "/account/listings/new", inventory: `/account/listings/new?inventoryItemId=${named.item ?? "inv_seed_twilight_masquerade_elite_trainer_box"}` },
+  "listing-new": {
+    blank: "/account/listings/new",
+    inventory: `/account/listings/new?inventoryItemId=${named.item ?? "inv_seed_twilight_masquerade_elite_trainer_box"}`,
+  },
   "seller-listing": { draft: `/account/listings/${named.listing ?? "lst_seed_lugia_neo_genesis_draft"}` },
   "seller-listings": { all: "/account/listings" },
-  "offer-matches": { list: "/account/offers/matches", match: `/account/offers/matches/${named.offer ?? "off_seed_pikachu_jungle_quick_sale"}` },
+  "offer-matches": {
+    list: "/account/offers/matches",
+    match: `/account/offers/matches/${named.offer ?? "off_seed_pikachu_jungle_quick_sale"}`,
+  },
   "submitted-offers": { all: "/account/offers/submitted", open: "/account/offers/submitted?status=submitted" },
   // marketplace opens Record sale in the browser, not at an address, so only the list compares.
   inventory: { list: "/account/inventory" },
-  "inventory-item": { item: `/account/inventory/items/${named.item ?? "inv_seed_twilight_masquerade_elite_trainer_box"}` },
+  "inventory-item": {
+    item: `/account/inventory/items/${named.item ?? "inv_seed_twilight_masquerade_elite_trainer_box"}`,
+  },
   desk: { desk: "/account/desk" },
   repricing: { desk: "/account/desk/repricing" },
   checkout: { page: `/checkout/buy/session/${named.session ?? "chk_80da81ad06e8b158cbf368daa0c2c7ca"}` },
   packing: { packing: `/account/sales/shipments/${named.shipment ?? "shp_WZMQH7WMB6QD2E5T42TEE49CFY"}/packing` },
   landing: { home: "/" },
-  market: { page: `/market/${named.slug ?? "twilight-masquerade-elite-trainer-box-sealed-elite-trainer-box-uerade-elite-trainer-box-1804cgp"}` },
+  market: {
+    page: `/market/${named.slug ?? "twilight-masquerade-elite-trainer-box-sealed-elite-trainer-box-uerade-elite-trainer-box-1804cgp"}`,
+  },
   item: { page: `/items/${named.slug ?? "charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp"}` },
 };
 for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, attention, scope, marketplace, cart, item, search, home, set, listing, account, notifications, purchases, sales, shipments, sale-shipment, packing or market`);
+if (!pages)
+  throw new Error(
+    `unknown screen ${screen}: admin, catalog, attention, scope, marketplace, cart, item, search, home, set, listing, account, notifications, purchases, sales, shipments, sale-shipment, packing or market`,
+  );
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));
@@ -102,8 +171,12 @@ const startUrl = `http://127.0.0.1:${/** @type {any} */ (startPage.address()).po
 const observe = () => {
   window.__lcp = 0;
   window.__longTasks = [];
-  new PerformanceObserver((list) => { for (const e of list.getEntries()) window.__lcp = e.startTime; }).observe({ type: "largest-contentful-paint", buffered: true });
-  new PerformanceObserver((list) => { for (const e of list.getEntries()) window.__longTasks.push([e.startTime, e.duration]); }).observe({ type: "longtask", buffered: true });
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) window.__lcp = e.startTime;
+  }).observe({ type: "largest-contentful-paint", buffered: true });
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) window.__longTasks.push([e.startTime, e.duration]);
+  }).observe({ type: "longtask", buffered: true });
   // admin-web marks <html data-admin-web-hydrated="true"> when React has hydrated.
   new MutationObserver((_, o) => {
     if (document.documentElement.dataset.adminWebHydrated === "true" && window.__hydratedAt === undefined) {
@@ -147,7 +220,13 @@ async function load(browser, profile, url) {
       let requests = 1;
       for (const r of /** @type {PerformanceResourceTiming[]} */ (performance.getEntriesByType("resource"))) {
         requests += 1;
-        const kind = /\.m?js(\?|$)/.test(r.name) ? "js" : /\.css(\?|$)/.test(r.name) ? "css" : /\.woff2?(\?|$)/.test(r.name) ? "font" : "data";
+        const kind = /\.m?js(\?|$)/.test(r.name)
+          ? "js"
+          : /\.css(\?|$)/.test(r.name)
+            ? "css"
+            : /\.woff2?(\?|$)/.test(r.name)
+              ? "font"
+              : "data";
         bytes[kind] += r.transferSize;
         if (kind in decoded) decoded[kind] += r.decodedBodySize;
         if (kind === "css") {
@@ -156,7 +235,9 @@ async function load(browser, profile, url) {
         }
       }
       const hydratedAt = window.__hydratedAt;
-      const tbt = window.__longTasks.filter(([s]) => s < hydratedAt).reduce((sum, [, d]) => sum + Math.max(0, d - 50), 0);
+      const tbt = window.__longTasks
+        .filter(([s]) => s < hydratedAt)
+        .reduce((sum, [, d]) => sum + Math.max(0, d - 50), 0);
       return {
         ttfb: nav.responseStart,
         serverMs: nav.responseStart - nav.requestStart,
@@ -208,7 +289,10 @@ function summarize(samples) {
     stylesheets: Object.fromEntries(
       Object.keys(samples[0].stylesheets).map((k) => [
         k,
-        { transfer: pick((s) => s.stylesheets[k]?.transfer ?? null), decoded: pick((s) => s.stylesheets[k]?.decoded ?? null) },
+        {
+          transfer: pick((s) => s.stylesheets[k]?.transfer ?? null),
+          decoded: pick((s) => s.stylesheets[k]?.decoded ?? null),
+        },
       ]),
     ),
   };

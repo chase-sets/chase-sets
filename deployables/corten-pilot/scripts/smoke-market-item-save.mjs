@@ -33,7 +33,13 @@ const collector = JSON.parse(readFileSync(collectorState, "utf8"))
   .map((c) => `${c.name}=${c.value}`)
   .join("; ");
 const recent = async () =>
-  (await (await fetch(`${api}/api/marketplace/account/saved-lists/recent`, { headers: { cookie: collector, "chase-sets-read-target-context": "discovery" } })).json()).items ?? [];
+  (
+    await (
+      await fetch(`${api}/api/marketplace/account/saved-lists/recent`, {
+        headers: { cookie: collector, "chase-sets-read-target-context": "discovery" },
+      })
+    ).json()
+  ).items ?? [];
 async function eventually(read, done) {
   let value = await read();
   for (let i = 0; i < 30 && !done(value); i += 1) {
@@ -50,15 +56,24 @@ const itemPage = `${base}/items/${slug}?${choice}`;
 const browser = await chromium.launch();
 const elsewhere = [];
 async function context({ javaScriptEnabled, state, viewport }) {
-  const ctx = await browser.newContext({ javaScriptEnabled, ...(state ? { storageState: state } : {}), ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    javaScriptEnabled,
+    ...(state ? { storageState: state } : {}),
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
-  const theirs = (text) => !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()));
+  const theirs = (text) =>
+    !page.url().startsWith(base) && (elsewhere.push(`${page.url().split("?")[0]}: ${text.slice(0, 160)}`), true);
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !m.text().includes("status of 422") && !theirs(m.text()) && problems.push(m.text()),
+  );
   page.on("pageerror", (e) => !theirs(String(e)) && problems.push(String(e)));
   page.on("response", (r) => {
-    if (r.status() === 404 || r.status() >= 500) (r.url().startsWith(base) ? problems : elsewhere).push(`${r.status()} ${r.request().method()} ${r.url()}`);
+    if (r.status() === 404 || r.status() >= 500)
+      (r.url().startsWith(base) ? problems : elsewhere).push(`${r.status()} ${r.request().method()} ${r.url()}`);
   });
   return { ctx, page, problems };
 }
@@ -75,9 +90,15 @@ try {
     await page.waitForURL((u) => u.href.startsWith(`${web}/register`));
     const back = new URL(new URL(page.url()).searchParams.get("returnTo") ?? "/", web);
     const intent = back.searchParams.get("claimSavedListIntent");
-    check(back.pathname === `/items/${slug}` && Boolean(intent), `it lands on marketplace's registration, back to the item with the claim (${intent})`);
+    check(
+      back.pathname === `/items/${slug}` && Boolean(intent),
+      `it lands on marketplace's registration, back to the item with the claim (${intent})`,
+    );
     const owner = (await ctx.cookies()).find((c) => c.name === "chase_sets_anonymous_saved_lists")?.value;
-    check(Boolean(owner?.startsWith("anon_cmd_")), `the guest's owner is kept in marketplace's cookie (${owner?.slice(0, 9)}...)`);
+    check(
+      Boolean(owner?.startsWith("anon_cmd_")),
+      `the guest's owner is kept in marketplace's cookie (${owner?.slice(0, 9)}...)`,
+    );
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);
     await ctx.close();
   }
@@ -110,14 +131,25 @@ try {
     check(at.origin === base && at.searchParams.get("saved_quantity") === "2", "the page comes back after the write");
     const banner = page.getByRole("status").filter({ hasText: `Added to ${TITLE}` });
     check((await banner.count()) === 1, `and says the product was added to ${TITLE}`);
-    const line = existing ? "already on the List, so its Tracked Quantity increased by 2" : "added with a Tracked Quantity of 2";
+    const line = existing
+      ? "already on the List, so its Tracked Quantity increased by 2"
+      : "added with a Tracked Quantity of 2";
     check((await banner.innerText()).includes(line), `(${line})`);
     const view = banner.getByRole("link", { name: "View in My Collection" });
     const href = new URL(await view.getAttribute("href"));
-    check(href.origin === web && href.searchParams.get("list") === at.searchParams.get("saved_list"), "View in My Collection opens the list on marketplace");
-    const after = await eventually(recent, (lists) => (lists.find((l) => l.title === TITLE)?.trackedUnitCount ?? 0) >= (existing?.trackedUnitCount ?? 0) + 2);
+    check(
+      href.origin === web && href.searchParams.get("list") === at.searchParams.get("saved_list"),
+      "View in My Collection opens the list on marketplace",
+    );
+    const after = await eventually(
+      recent,
+      (lists) => (lists.find((l) => l.title === TITLE)?.trackedUnitCount ?? 0) >= (existing?.trackedUnitCount ?? 0) + 2,
+    );
     const list = after.find((l) => l.title === TITLE);
-    check(list?.trackedUnitCount === (existing?.trackedUnitCount ?? 0) + 2, `the list tracks 2 more (${existing?.trackedUnitCount ?? 0} -> ${list?.trackedUnitCount})`);
+    check(
+      list?.trackedUnitCount === (existing?.trackedUnitCount ?? 0) + 2,
+      `the list tracks 2 more (${existing?.trackedUnitCount ?? 0} -> ${list?.trackedUnitCount})`,
+    );
     check(problems.length === 0, `no errors on the pilot's pages (${problems.join("; ")})`);
     await ctx.close();
   }
@@ -145,7 +177,11 @@ try {
 
   // At 390 px, the dialog is a sheet at the bottom of the screen.
   {
-    const { ctx, page } = await context({ javaScriptEnabled: true, state: collectorState, viewport: { width: 390, height: 844 } });
+    const { ctx, page } = await context({
+      javaScriptEnabled: true,
+      state: collectorState,
+      viewport: { width: 390, height: 844 },
+    });
     await page.goto(itemPage);
     await addToList(page).click();
     await dialog(page).locator('input[name="list"][value="new"]').check();
@@ -154,14 +190,26 @@ try {
       const r = d.getBoundingClientRect();
       return {
         wide: document.documentElement.scrollWidth > window.innerWidth || d.scrollWidth > d.clientWidth,
-        box: { left: Math.round(r.left), right: Math.round(window.innerWidth - r.right), bottom: Math.round(window.innerHeight - r.bottom) },
-        small: Array.from(d.querySelectorAll('button, input:not([type="hidden"]):not([type="radio"]), label:not([for])'))
+        box: {
+          left: Math.round(r.left),
+          right: Math.round(window.innerWidth - r.right),
+          bottom: Math.round(window.innerHeight - r.bottom),
+        },
+        small: Array.from(
+          d.querySelectorAll('button, input:not([type="hidden"]):not([type="radio"]), label:not([for])'),
+        )
           .filter((e) => e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().height < 40)
-          .map((e) => `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`),
+          .map(
+            (e) =>
+              `${e.tagName} "${e.textContent.trim().slice(0, 20)}" ${Math.round(e.getBoundingClientRect().height)}px`,
+          ),
       };
     });
     check(!wide, "390 px: nothing scrolls sideways");
-    check(box.left === 0 && box.right === 0 && box.bottom === 0, `390 px: the dialog spans the screen's width at its bottom (${JSON.stringify(box)})`);
+    check(
+      box.left === 0 && box.right === 0 && box.bottom === 0,
+      `390 px: the dialog spans the screen's width at its bottom (${JSON.stringify(box)})`,
+    );
     check(small.length === 0, `390 px: every control in it is at least 40 px (${small.join(", ")})`);
     await page.screenshot({ path: "../../artifacts/corten-pilot/item-save-390.png" });
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -171,6 +219,9 @@ try {
 } finally {
   await browser.close();
 }
-if (elsewhere.length) console.log(`note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`);
+if (elsewhere.length)
+  console.log(
+    `note marketplace's own pages logged ${elsewhere.length} errors (not counted):\n     ${[...new Set(elsewhere)].slice(0, 6).join("\n     ")}`,
+  );
 console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

@@ -15,7 +15,11 @@ const [
 ] = process.argv.slice(2);
 // The support seed's cases (bounded-contexts/platform-operations/support/seed-support/ids.ts): the
 // demo account sells the order they are on.
-const cases = ["sup_seed_active_product_not_received", "sup_seed_self_service_product_damaged", "sup_seed_resolved_partial_refund"];
+const cases = [
+  "sup_seed_active_product_not_received",
+  "sup_seed_self_service_product_damaged",
+  "sup_seed_resolved_partial_refund",
+];
 let failures = 0;
 
 function check(ok, what) {
@@ -26,7 +30,11 @@ function check(ok, what) {
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
-  const ctx = await browser.newContext({ storageState: stateFile, javaScriptEnabled, ...(viewport ? { viewport } : {}) });
+  const ctx = await browser.newContext({
+    storageState: stateFile,
+    javaScriptEnabled,
+    ...(viewport ? { viewport } : {}),
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   const problems = [];
@@ -70,10 +78,14 @@ for (const javaScriptEnabled of [true, false]) {
     }
     seen += 1;
     const request = await read.json();
-    const role = request.buyer_account_id === account ? "buyer" : request.seller_account_id === account ? "seller" : null;
+    const role =
+      request.buyer_account_id === account ? "buyer" : request.seller_account_id === account ? "seller" : null;
     const answer = await page.goto(`${base}/account/support/${id}`);
     if (!role) {
-      check(answer?.status() === 404, `${label}: ${id}: a case the account is not on is Not found (${answer?.status()})`);
+      check(
+        answer?.status() === 404,
+        `${label}: ${id}: a case the account is not on is Not found (${answer?.status()})`,
+      );
       continue;
     }
     check(answer?.status() === 200, `${label}: ${id}: the page answers 200 (${answer?.status()})`);
@@ -91,11 +103,21 @@ for (const javaScriptEnabled of [true, false]) {
           : `Waiting on ${next === "buyer" ? "buyer" : "seller"} until the deadline`;
     check(expected === null || title === expected, `${label}: ${id}: who acts next, as the API says (${title})`);
     const entries = await page.locator("[data-support-moment]").count();
-    check(entries === moments(request), `${label}: ${id}: a timeline entry per moment (${entries} of ${moments(request)})`);
-    const forms = await page.locator('input[name="intent"]').evaluateAll((inputs) => inputs.map((i) => i.getAttribute("value")));
+    check(
+      entries === moments(request),
+      `${label}: ${id}: a timeline entry per moment (${entries} of ${moments(request)})`,
+    );
+    const forms = await page
+      .locator('input[name="intent"]')
+      .evaluateAll((inputs) => inputs.map((i) => i.getAttribute("value")));
     const writes = forms.filter((f) => f !== "check-status");
-    if (next !== role) check(writes.length === 0, `${label}: ${id}: no forms while it is not the viewer's turn (${writes.join(", ") || "none"})`);
-    if (next === role && request.pending_offer) check(writes.includes("accept-offer"), `${label}: ${id}: the offer to decide`);
+    if (next !== role)
+      check(
+        writes.length === 0,
+        `${label}: ${id}: no forms while it is not the viewer's turn (${writes.join(", ") || "none"})`,
+      );
+    if (next === role && request.pending_offer)
+      check(writes.includes("accept-offer"), `${label}: ${id}: the offer to decide`);
     check(!forms.includes("check-status"), `${label}: ${id}: nothing to check on a fresh read`);
 
     if (javaScriptEnabled) {
@@ -119,11 +141,17 @@ check(seen > 0, `the seed's cases were read (${seen / 2} of ${cases.length})`);
   const { ctx, page, problems } = await context(true, { width: 390, height: 844 });
   await page.goto(`${base}/account/support/${cases[0]}`);
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
   check(overflow === 0, `nothing scrolls sideways at 390 px (${overflow})`);
   const small = await page
     .locator("main a, main button, main input:not([type=hidden]), main select, main textarea")
-    .evaluateAll((controls) => controls.filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40).map((c) => c.textContent?.trim() || c.getAttribute("name")));
+    .evaluateAll((controls) =>
+      controls
+        .filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().height < 40)
+        .map((c) => c.textContent?.trim() || c.getAttribute("name")),
+    );
   check(small.length === 0, `every control is at least 40 px tall (${small.join(", ") || "all"})`);
   await page.screenshot({ path: "../../artifacts/corten-pilot/support-390.png", fullPage: true });
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);

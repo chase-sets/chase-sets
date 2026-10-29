@@ -8,7 +8,8 @@
 // Usage: node scripts/smoke-items.mjs [pilot-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] = process.argv.slice(2);
+const [base = "http://localhost:7790", stateFile = "../../artifacts/corten-pilot/admin-state.json"] =
+  process.argv.slice(2);
 const stamp = Date.now().toString(36);
 const tag = `smoke_${stamp}`;
 let failures = 0;
@@ -97,13 +98,25 @@ const ids = [];
   const second = await create(other, `Smoke ${stamp} b`);
   ids.push(second);
   await changes.getByText(/Catalog Items changed/).waitFor({ timeout: 30_000 });
-  check(/^\d+ Catalog Items changed$/.test((await changes.locator("span").textContent()) ?? ""), "the bar counts the change");
+  check(
+    /^\d+ Catalog Items changed$/.test((await changes.locator("span").textContent()) ?? ""),
+    "the bar counts the change",
+  );
   check((await page.locator("#catalog-rows tbody tr").count()) === 1, "the rows did not move under the user");
   await changes.getByRole("button", { name: "Reload" }).click();
   await changes.waitFor({ state: "hidden" });
   check(page.url().includes(`search=${first}`), "Reload stays on the page (a patch, not a navigation)");
-  check(await page.getByRole("row", { name: new RegExp(first) }).getByRole("checkbox").isChecked(), "a checked box keeps its mark through Reload");
-  check((await page.locator("#catalog-bulk output").textContent()) === "1 Catalog Items selected", "the count follows the box");
+  check(
+    await page
+      .getByRole("row", { name: new RegExp(first) })
+      .getByRole("checkbox")
+      .isChecked(),
+    "a checked box keeps its mark through Reload",
+  );
+  check(
+    (await page.locator("#catalog-bulk output").textContent()) === "1 Catalog Items selected",
+    "the count follows the box",
+  );
 
   // The stream drops (its first answer ends at once, and the retries are refused): the status
   // says since when (its corten-status event), and is live again once the stream comes back.
@@ -117,12 +130,21 @@ const ids = [];
   });
   await watcher.goto(`${base}/catalog/catalog-items`);
   const live = watcher.locator("#catalog-live");
-  await watcher.waitForFunction(() => document.querySelector("#catalog-live")?.hasAttribute("stale-since"), null, { timeout: 30_000 });
+  await watcher.waitForFunction(() => document.querySelector("#catalog-live")?.hasAttribute("stale-since"), null, {
+    timeout: 30_000,
+  });
   const since = (await live.locator(".live-status__title").textContent()) ?? "";
-  check(/^Stale since \w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2} (AM|PM) UTC$/.test(since), `a dropped stream says since when (${since})`);
+  check(
+    /^Stale since \w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2} (AM|PM) UTC$/.test(since),
+    `a dropped stream says since when (${since})`,
+  );
   check(await live.locator(".live-status__stale").isVisible(), "with Reload");
   await watcher.unroute("**/catalog/catalog-items/live**");
-  await watcher.waitForFunction(() => document.querySelector("#catalog-live")?.getAttribute("status") === "live", null, { timeout: 60_000 });
+  await watcher.waitForFunction(
+    () => document.querySelector("#catalog-live")?.getAttribute("status") === "live",
+    null,
+    { timeout: 60_000 },
+  );
   check(await live.locator(".live-status__stale").isHidden(), "and is live again after it reconnects");
   await watcher.close();
 
@@ -145,7 +167,7 @@ const ids = [];
   await job.getByRole("button", { name: "Close" }).click();
 
   // Both drafts, removed.
-  check(await listed(page, `Smoke ${stamp}`, 2) || (await listed(page, first, 1)), "the list again");
+  check((await listed(page, `Smoke ${stamp}`, 2)) || (await listed(page, first, 1)), "the list again");
   await page.goto(`${base}/catalog/catalog-items?status=draft&tag=${tag}`);
   await navigated(page);
   check((await page.locator("#catalog-rows tbody tr").count()) === 1, "the tag filter finds the tagged item");
@@ -176,11 +198,17 @@ const ids = [];
   await navigated(page);
   const preview = page.locator("#catalog-bulk-preview");
   check(await preview.getByText("Bulk Publish Preview").isVisible(), "a publish preview by filter, as a page");
-  check(await preview.getByText(/^Matching drafts: \d+ ready, \d+ need attention\.$/).isVisible(), "with the API's counts");
+  check(
+    await preview.getByText(/^Matching drafts: \d+ ready, \d+ need attention\.$/).isVisible(),
+    "with the API's counts",
+  );
   // Remove the second draft without the script: the server checks it is a draft.
   await page.goto(`${base}/catalog/catalog-items?search=${ids[1]}`);
   await navigated(page);
-  await page.getByRole("row", { name: new RegExp(ids[1]) }).getByRole("checkbox").check();
+  await page
+    .getByRole("row", { name: new RegExp(ids[1]) })
+    .getByRole("checkbox")
+    .check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
   await navigated(page);
   await preview.getByRole("button", { name: "Remove drafts from selected" }).click();

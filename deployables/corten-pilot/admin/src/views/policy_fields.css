@@ -1,11 +1,30 @@
-.form { display: grid; gap: var(--space-4); }
-.fields { display: grid; gap: var(--space-4); }
-.grid { display: grid; gap: var(--space-3); }
-@media (min-width: 48rem) {
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form {
+  display: grid;
+  gap: var(--space-4);
 }
-.field { display: grid; gap: var(--space-1); align-content: start; }
-.label { font-size: 0.875rem; font-weight: 600; color: var(--color-text-secondary); }
+.fields {
+  display: grid;
+  gap: var(--space-4);
+}
+.grid {
+  display: grid;
+  gap: var(--space-3);
+}
+@media (min-width: 48rem) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
 .group {
   display: grid;
   gap: var(--space-3);
@@ -14,14 +33,36 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
-.group legend { padding-inline: var(--space-1); font: 600 1rem/1.4 var(--font-display); }
-.choices { display: grid; gap: var(--space-2); }
+.group legend {
+  padding-inline: var(--space-1);
+  font: 600 1rem/1.4 var(--font-display);
+}
+.choices {
+  display: grid;
+  gap: var(--space-2);
+}
 @media (min-width: 40rem) {
-  .choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .choices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (min-width: 64rem) {
-  .choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .choices {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
-.choice { display: flex; gap: var(--space-2); align-items: center; }
-.actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.secondary { background: var(--color-secondary); color: var(--color-secondary-foreground); border-color: var(--color-border-strong); }
+.choice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.secondary {
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  border-color: var(--color-border-strong);
+}
