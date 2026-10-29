@@ -280,10 +280,10 @@ const quoteChain: Citation[] = [
   ],
 ];
 const creationChain: Citation[] = [
-  [`${listingDomain}:426-451`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
-  [`${listingDomain}:580-619`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
+  [`${listingDomain}:429-455`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
+  [`${listingDomain}:583-622`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:1082-1121`,
+    `${listingDomain}:1085-1124`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
@@ -380,13 +380,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:1890-1907`,
+        `${listingRuntime}:1891-1912`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:1908-2017`,
+        `${listingRuntime}:1918-2017`,
         /applyBulkListingPriceUpdates: async/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -398,7 +398,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \{\s*\.\.\.feeLock,/,
       ],
       [
-        `${listingDomain}:831-862`,
+        `${listingDomain}:838-869`,
         /case "UpdateListingPrice"/,
         /assertFeeLockTranchesPreserved\(state.feeLocks, feeLocks\)/,
       ],
@@ -435,12 +435,12 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Purchase-limit edits",
     [
       [
-        `${listingDomain}:888-897`,
+        `${listingDomain}:891-901`,
         /case "UpdateListingPurchaseLimits"/,
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:1136-1140`,
+        `${listingDomain}:1139-1143`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -449,7 +449,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Added units",
     [
       [
-        `${listingDomain}:863-883`,
+        `${listingDomain}:870-890`,
         /resizeMarketplaceListingFeeLocks\(state.feeLocks, quantityCap, command.addedUnitsFeeLock\)/,
       ],
       [
@@ -472,7 +472,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:1068-1071`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:1071-1075`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
         `${listingTests}:407-429`,
         /Withdrawn listings cannot be published/,
@@ -487,7 +487,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Item or condition",
     [
       [
-        `${listingDomain}:537-553`,
+        `${listingDomain}:544-560`,
         /^export type MarketplaceListingCommand =\s*\| CreateListingCommand\s*\| UpdateListingPriceCommand\s*\| UpdateListingQuantityCapCommand\s*\| UpdateListingPurchaseLimitsCommand\s*\| AddListingPhotosCommand\s*\| ClassifyListingPhotoCommand\s*\| ReplaceListingPhotoCommand\s*\| RemoveListingPhotoCommand\s*\| ReorderListingPhotosCommand\s*\| RefreshListingEvidenceRequirementsCommand\s*\| PublishListingCommand\s*\| PauseListingCommand\s*\| AutoUnlistListingCommand\s*\|| PauseListingCommands*| AutoUnlistListingCommands*| OperatorUnlistListingCommands*| WithdrawListingCommand;$/,
       ],
       ...creationChain,
@@ -641,7 +641,7 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1401-1428",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1399-1428",
         /"\/listings\/prices\/bulk"/,
         /services.applyBulkListingPriceUpdates/,
         /updates: parseBulkListingPriceUpdates\(body\)/,
