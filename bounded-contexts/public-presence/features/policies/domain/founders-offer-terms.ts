@@ -28,7 +28,7 @@ const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
 const currentQuoteEvidence = `${listingRuntime}:1140-1163; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:440-464; ${listingDomain}:595-633; ${listingDomain}:1101-1156; ${listingRuntime}:1615-1670; ${currentQuoteEvidence}`;
+const creationEvidence = `${listingDomain}:437-462; ${listingDomain}:592-631; ${listingDomain}:1099-1133; ${listingRuntime}:1615-1670; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:869-881",
-          `${listingRuntime}:1891-2046`,
+          `${listingRuntime}:1997-2149`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1993-2010; ${listingRuntime}:2011-2120; ${feeQuotes}:154-176; ${listingDomain}:850-881; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1997-2013; ${listingRuntime}:2015-2123; ${feeQuotes}:154-176; ${listingDomain}:847-877; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -122,7 +122,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:903-912; ${listingDomain}:1157-1163`,
+            evidenceRef: `${listingDomain}:900-909; ${listingDomain}:1154-1158`,
           },
           {
             assertion:
@@ -131,12 +131,12 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:1088-1091; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:981-1110`,
+            evidenceRef: `${listingDomain}:1085-1088; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:981-1110`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:556-571; ${creationEvidence}; ${runtimeTests}:981-1110`,
+            evidenceRef: `${listingDomain}:553-568; ${creationEvidence}; ${runtimeTests}:981-1110`,
           },
           {
             assertion:
