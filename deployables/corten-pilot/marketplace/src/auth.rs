@@ -6,12 +6,12 @@ use corten::{
     Identify, Refused,
     axum::http::{Uri, request::Parts},
 };
-use platform::session;
 pub use platform::{
     api::Actor,
     nav::{self, NavItem},
     session::ColorMode,
 };
+use platform::{receipt::Receipt, session};
 
 use crate::{
     api::Identity,
@@ -54,11 +54,30 @@ enum Found {
 async fn find(parts: &Parts, config: &Shared) -> Found {
     let Some(forward) = session::forwarded(&parts.headers) else { return Found::SignedOut };
     let color_mode = ColorMode::from_headers(&parts.headers);
-    match config.platform.caller(&forward, config.proto, None).identify().await {
+    // A session the write just started is read after that write, as marketplace's
+    // `resolveActorFromAuthContext` reads it with the address's receipt: an invitation's
+    // acceptance or a registration signs in and lands on a page carrying its receipt. When that
+    // read fails, it is read again as it stands (`shouldRetryWithoutFreshWrite`).
+    let as_it_stands = config.platform.caller(&forward, config.proto, None);
+    let found = match after_write(&parts.uri) {
+        Some(receipt) => match config.platform.caller(&forward, config.proto, Some(&receipt)).identify().await {
+            Identity::Unknown => as_it_stands.identify().await,
+            found => found,
+        },
+        None => as_it_stands.identify().await,
+    };
+    match found {
         Identity::Actor(actor) => Found::Account(Viewer { actor, color_mode }),
         Identity::SignedOut => Found::SignedOut,
         Identity::Unknown => Found::Unknown,
     }
+}
+
+/// The receipt the address carries (`after_write`), while it is fresh.
+fn after_write(uri: &Uri) -> Option<Receipt> {
+    let value = uri.query()?.split('&').find_map(|pair| pair.strip_prefix("after_write="))?;
+    let decoded = percent_encoding::percent_decode_str(value).decode_utf8().ok()?;
+    Receipt::from_param(Some(&decoded))
 }
 
 /// The sign-in for a request: back to a page itself, its query included (marketplace's

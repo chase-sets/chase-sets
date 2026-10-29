@@ -9,6 +9,7 @@ use corten::prelude::*;
 use crate::{
     api::segment,
     app::url,
+    invite::{self, AcceptForm, Invitation, InviteScreen},
     register::{self, Join, RegisterForm, RegisterScreen},
     sign_in::{
         Ask, Back, DEFAULT_SUCCESS, Kind, Membership, Method, Notice, SelectForm, SignInForm, SignInScreen, on_marketplace,
@@ -413,5 +414,86 @@ fn MethodForm<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
                 <button class={Secondary} type="submit">{t.register_create_account_with_password()}</button>
             </form>
         }
+    }
+}
+
+/// Accepting an invitation: who sent it and as what, then a passkey (marketplace's page) or a
+/// password; once an attempt has a state of its own, that state, Sign in and Check status.
+#[component(css = SignInPage)]
+pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
+    let f = AcceptForm::FIELDS;
+    let action = url::Invite { id: &screen.id, invited: invite::Invited { credential_method: None, ..screen.invited.clone() } };
+    html! {
+        <div class={Page}>
+            if let Some((phase, attempt)) = &screen.phase {
+                <div class={Banner} data-tone={if phase.accepted() { "success" } else { "danger" }} role="status">
+                    <p class={Strong}>{phase.title(t)}</p>
+                    <p>{t.invite_attempt_safe_recovery()}</p>
+                </div>
+                <a class={Button} href={url::SignIn::default()}>{t.invite_attempt_sign_in()}</a>
+                <form class={Form} method="post" action={&action}>
+                    <input type="hidden" name={f.intent} value="status">
+                    <input type="hidden" name={f.attempt} value={attempt}>
+                    <button class={Secondary} type="submit">{t.invite_attempt_check_status()}</button>
+                </form>
+            } else {
+                match &screen.invitation {
+                    Invitation::Pending { invited_by_name, account_name, role_label, .. } => {
+                        <header class={Header}>
+                            <h1 class={Title}>{t.invite_accept_invitation()}</h1>
+                            <p>{t.invite_invited_by(invited_by_name, account_name, role_label)}</p>
+                        </header>
+                        if screen.failed_safe {
+                            <div class={Banner} data-tone="danger" role="alert">
+                                <p class={Strong}>{t.invite_acceptance_failed()}</p>
+                                <p>{t.invite_attempt_failed_safe()}</p>
+                            </div>
+                        }
+                        <nav class={Methods} aria-label={t.invite_method()}>
+                            for choice in invite::Method::ALL {
+                                <a
+                                    class={Choice}
+                                    href={url::Invite { id: &screen.id, invited: screen.invited.with_method(choice) }}
+                                    aria-current={(choice == screen.method).then_some("true")}
+                                >
+                                    {choice.label(t)}
+                                </a>
+                            }
+                        </nav>
+                        if screen.method == invite::Method::Passkey {
+                            <section class={Card}>
+                                <p class={Muted}>{t.invite_passkey_copy()}</p>
+                                // WebAuthn is marketplace's page's script.
+                                <a class={Button} href={&invite::on_marketplace(&screen.id, &screen.invited)}>
+                                    {t.invite_accept_passkey()}
+                                </a>
+                            </section>
+                        } else {
+                            <form class={(Card, Form)} method="post" action={&action}>
+                                {SubmitKey::field(f.attempt)}
+                                <label class={Field}>
+                                    <span class={Label}>{t.invite_create_password()}</span>
+                                    <input class={Input} type="password" name={f.password} autocomplete="new-password" required>
+                                </label>
+                                <button class={Secondary} type="submit">{t.invite_accept_password()}</button>
+                            </form>
+                        }
+                    }
+                    ended => {
+                        <section class={(Card, Flush)}>
+                            <h1 class={Name}>
+                                {match ended {
+                                    Invitation::Expired => t.invite_invitation_expired(),
+                                    Invitation::Revoked => t.invite_invitation_revoked(),
+                                    Invitation::Accepted => t.invite_invitation_accepted(),
+                                    _ => t.invite_invitation_unavailable(),
+                                }}
+                            </h1>
+                            <p class={Muted}>{t.invite_new_invitation()}</p>
+                        </section>
+                    }
+                }
+            }
+        </div>
     }
 }

@@ -29,7 +29,9 @@
 //   language labels a line's badge uses).
 // - marketplace/locales/sign_in.en.json: marketplace's sign-in, registration, magic-link landing and
 //   account selection (auth.features.signIn.ui.signInPage.* as page.*,
-//   auth.features.registration.ui.registerPage.* as register.*, the auth host's and API's refusals as
+//   auth.features.registration.ui.registerPage.* as register.*, the invitation's page
+//   (auth.features.invitationAcceptance.ui.invitationAcceptancePage.* as invite.*,
+//   auth.invitationAttempt.* as invite_attempt.*, and its title as invite_title), the auth host's and API's refusals as
 //   host.*, password.*, phone.*, magic_api.* and gate.*, the magic-link landing as magic.*, the
 //   account gate's context as context.*, account selection's refusals as selection_api.*, social
 //   sign-in's refusals as social.*, and auth.features.accountSelection.ui.accountSelectionPage.*
@@ -632,6 +634,9 @@ const outputs = [
       ...(await catalog("auth.ts", "authEnglishTranslations", [
         ["auth.features.signIn.ui.signInPage.", "page"],
         ["auth.features.registration.ui.registerPage.", "register"],
+        ["auth.features.invitationAcceptance.ui.invitationAcceptancePage.", "invite"],
+        ["auth.invitationAttempt.", "invite_attempt"],
+        ["auth.routes.marketplace.invite.meta.title", "invite_title"],
         ["auth.support.routeSupport.authHost.", "host"],
         ["auth.support.routeSupport.magicLinkLanding.", "magic"],
         ["auth.support.apiSupport.passwordRoutes.", "password"],

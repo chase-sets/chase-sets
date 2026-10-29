@@ -117,7 +117,7 @@ pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use sessions_page::{SessionPage, SessionsPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
-pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, RegisterPage, SignInPage};
+pub use sign_in_page::{AccountSelectPage, InvitePage, MagicLinkFailed, RegisterPage, SignInPage};
 pub use submitted_offers_page::{SubmittedOfferPage, SubmittedOfferPreparing, SubmittedOffersPage, submitted_offers_live_parts};
 pub use support_list_page::SupportListPage;
 pub use support_page::SupportPage;
@@ -266,7 +266,8 @@ pub const LISTING: &[Component] = &[ListingPage];
 /// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];
 
-/// Creating an account (`/register`): the sign-in page's stylesheet, which it shares.
+/// Creating an account (`/register`) and accepting an invitation (`/invite`): the sign-in page's
+/// stylesheet, which they share.
 pub const REGISTER: &[Component] = &[SignInPage];
 
 /// A form's values and what is wrong with them.

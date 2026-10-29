@@ -24,6 +24,7 @@ mod form;
 mod imports;
 mod inventory_item;
 mod inventory_list;
+mod invite;
 mod items;
 mod listing;
 mod listing_new;

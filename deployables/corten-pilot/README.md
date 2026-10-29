@@ -54,6 +54,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Buy > a payment, `/account/payments/{id}` |
 | `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out` |
 | `marketplace/` | Create an account, `/register` (`?registrationMethod=`); a passkey stays on marketplace |
+| `marketplace/` | Accept a team invitation, `/invite/{id}` (`?token=`, `?credentialMethod=`); a passkey stays on marketplace |
 | `marketplace/` | The account's own page, `/account` |
 | `marketplace/` | The user's security page, `/account/security` |
 | `marketplace/` | The user's sessions, `/account/sessions` and `/account/sessions/{id}` |
@@ -269,6 +270,8 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10710 [platform-operations] List each blocked projection's streams and poison events in the projections read (the repair queue and Operations Attention show none)](https://github.com/chase-sets/chase-sets/issues/10710) | [admin/src/projections/api.rs](admin/src/projections/api.rs), [admin/src/projections/mod.rs](admin/src/projections/mod.rs), [admin/src/projections/views/detail_sheet.rs](admin/src/projections/views/detail_sheet.rs), [scripts/smoke-projections.mjs](scripts/smoke-projections.mjs) |
 | [chase-sets/chase-sets#10712 [settlement] Answer the money dashboard's next payout, blocked payouts and payout availability from the Settlement API](https://github.com/chase-sets/chase-sets/issues/10712) | [marketplace/src/money.rs](marketplace/src/money.rs), [scripts/smoke-market-money.mjs](scripts/smoke-market-money.mjs) |
 | [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
+| [chase-sets/chase-sets#10793 [identity] Account-management writes answer a request they refuse during validation as 503 INDETERMINATE instead of a 4xx refusal](https://github.com/chase-sets/chase-sets/issues/10793) | [marketplace/src/team.rs](marketplace/src/team.rs) |
+| [chase-sets/chase-sets#10795 [auth] A team invitation is saved but not emailed: the acceptance-link request answers 404 before Auth's invitation projection catches up](https://github.com/chase-sets/chase-sets/issues/10795) | [marketplace/src/team.rs](marketplace/src/team.rs) |
 | [chase-sets/chase-sets#10787 [platform-operations] Derive a support response's offer resolution from its response type in the API instead of requiring the page to send it](https://github.com/chase-sets/chase-sets/issues/10787) | [marketplace/src/support.rs](marketplace/src/support.rs) |
 | [chase-sets/chase-sets#10789 [inventory] Derive a graded inventory item's grading company and grade from its selected options instead of requiring the form to send them](https://github.com/chase-sets/chase-sets/issues/10789) | [marketplace/src/inventory_list.rs](marketplace/src/inventory_list.rs) |
 | [chase-sets/chase-sets#10724 [platform-operations] Return each Support Request's customer remedy status and next deadline from the list reads, and enforce intake photos in the API](https://github.com/chase-sets/chase-sets/issues/10724) | [marketplace/src/support_list.rs](marketplace/src/support_list.rs) |

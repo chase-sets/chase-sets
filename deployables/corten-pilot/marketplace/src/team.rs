@@ -12,7 +12,8 @@
 //! An invitation the API newly records is then emailed: the pilot asks Auth to send its acceptance
 //! link after the invitation's receipt, from the browser's address, as marketplace's action does. A
 //! link that cannot be asked for leaves the invitation saved and its delivery unknown, as
-//! marketplace's does; an invitation the API had already recorded is never emailed again.
+//! marketplace's does; an invitation the API had already recorded is never emailed again. Asked for at
+//! once, the link is often refused (404) before Auth has the invitation (chase-sets/chase-sets#10795).
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -43,6 +44,14 @@ pub const ROLES: [&str; 4] = ["owner", "manager", "fulfillment", "viewer"];
 
 /// How long an invitation stays open: marketplace's action sends seven days from now.
 const INVITATION_DAYS: i64 = 7;
+
+/// An instant as Identity's `isInstant` takes it: RFC 3339 to the millisecond. A finer one is
+/// refused as an indeterminate attempt (503 `INDETERMINATE`), so no invitation is created: a request
+/// refused while it is validated should be a 4xx refusal (chase-sets/chase-sets#10793).
+fn instant(at: OffsetDateTime) -> String {
+    let at = at.replace_nanosecond(u32::from(at.millisecond()) * 1_000_000).unwrap_or(at);
+    at.format(&Rfc3339).unwrap_or_default()
+}
 
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
@@ -226,7 +235,7 @@ pub(crate) async fn write(
     let account = viewer.actor.account_id.as_str();
     let (target, body) = match action {
         AccountAction::CreateInvitation => {
-            let expires = (OffsetDateTime::now_utc() + Duration::days(INVITATION_DAYS)).format(&Rfc3339).unwrap_or_default();
+            let expires = instant(OffsetDateTime::now_utc() + Duration::days(INVITATION_DAYS));
             // A new invitation id for each send: the API keeps the attempt's first one.
             let invitation = format!("ivt_{}", uuid::Uuid::new_v4().simple());
             let body = json!({
@@ -307,6 +316,14 @@ async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_invitations_expiry_is_to_the_millisecond_as_identity_takes_it() {
+        let at = OffsetDateTime::from_unix_timestamp_nanos(1_793_305_000_123_456_789).unwrap();
+        assert_eq!(instant(at), "2026-10-29T20:16:40.123Z");
+        let whole = OffsetDateTime::from_unix_timestamp(1_793_305_000).unwrap();
+        assert_eq!(instant(whole), "2026-10-29T20:16:40Z");
+    }
 
     #[test]
     fn the_intent_names_one_of_the_pages_writes_and_the_role_is_viewer_unless_chosen() {

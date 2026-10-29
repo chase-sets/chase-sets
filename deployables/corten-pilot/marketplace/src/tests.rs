@@ -359,6 +359,15 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return Json(json!({ "actor": { "userId": "usr_staff", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
             .into_response();
     }
+    if uri.path() == "/api/auth/session" && session == "tok_invitee" {
+        // A session an invitation's acceptance just started: Auth's read of it waits for the write
+        // (Identity's position 81), and without the receipt it is not there yet.
+        return match waits_for(&headers).as_deref() {
+            Some("81") => Json(json!({ "actor": { "userId": "usr_inv", "accountId": "acc_seller", "roleKey": "viewer", "permissions": ["accounts.view"] } }))
+                .into_response(),
+            _ => refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required."),
+        };
+    }
     if uri.path() == "/api/auth/session" && session == "keeper" {
         // An account owner, who may honor an offline sale over its orders.
         let permissions = ["inventory.view", "inventory.manage"];
@@ -1750,7 +1759,10 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
 /// gets an answer the page does not know. Phone `+15550100`'s code is `123456`. Magic link `good`
 /// signs in, `used` is spent and `broken` fails. Selection `sel_1` holds; any other has ended.
 /// Registering `new@example.test` with the consent resolution `rcr_1` starts a session with
-/// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted.
+/// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted. Invitation `ivt_1` with
+/// token `good` is pending and `ivt_old` expired; accepting it with password `right` signs in,
+/// `clash` conflicts with the attempt, `short` is refused and `lost` leaves it ambiguous, whose
+/// status is confirming.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method == Method::GET && path == "/api/auth/registration-consent" {
         return Some(Json(json!({ "resolutionId": "rcr_1", "requirements": [] })).into_response());
@@ -1803,6 +1815,33 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
             "stranger@example.test" => refusal(StatusCode::FORBIDDEN, "registration_admission_required", "Invitation required."),
             _ => refusal(StatusCode::BAD_REQUEST, "registration_consent_not_server_minted", "No consent."),
         },
+        "/api/auth/invitations/inspect" => match (text("invitationId").as_str(), text("token").as_str()) {
+            ("ivt_1", "good") => Json(json!({
+                "status": "pending", "invitationId": "ivt_1", "email": "invitee@example.test",
+                "accountName": "Chase Sets Shop", "invitedByName": "Ann Owner", "roleLabel": "Viewer",
+            }))
+            .into_response(),
+            ("ivt_old", _) => Json(json!({ "status": "expired" })).into_response(),
+            _ => Json(json!({ "status": "unavailable" })).into_response(),
+        },
+        "/api/auth/invitations/accept" => match text("password").as_str() {
+            "right" => {
+                let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"81","eventIds":["evt_inv"]}]"#;
+                let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "81".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                let body = json!({
+                    "type": "session-started", "userId": "usr_inv", "sessionId": "ses_inv", "sessionToken": "tok_invitee",
+                    "session": { "expires_at": later }, "memberships": [], "attemptId": text("attemptId"),
+                });
+                (headers, Json(body)).into_response()
+            }
+            "clash" => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
+            "short" => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
+            _ => refusal(StatusCode::SERVICE_UNAVAILABLE, "invitation_attempt_ambiguous", "Check the status."),
+        },
+        "/api/auth/invitations/acceptance-status" => {
+            Json(json!({ "type": "confirming", "attemptId": text("attemptId") })).into_response()
+        }
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
@@ -11224,6 +11263,113 @@ async fn a_magic_link_registration_sends_the_link_and_a_phone_code_registration_
     assert_eq!(sent["displayName"], "New Seller");
 }
 
+const INVITE_ATTEMPT: &str = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+
+#[tokio::test]
+async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a_password_here() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/invite/ivt_1?token=good", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Accept your invitation"), "{page}");
+    assert!(page.contains("Ann Owner invited you to Chase Sets Shop as Viewer."), "{page}");
+    assert!(html.contains(r#"aria-current="true">Passkey"#), "a passkey first: {html}");
+    assert!(html.contains(r#"href="http://localhost:7753/invite/ivt_1?token=good""#), "marketplace's passkey: {html}");
+    let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/invitations/inspect")[0].body).unwrap();
+    assert_eq!(sent, json!({ "invitationId": "ivt_1", "token": "good" }));
+
+    let (_, _, html) = pilot.send(get("/invite/ivt_1?token=good&credentialMethod=password", None)).await;
+    assert!(html.contains(r#"aria-current="true">Password"#) && html.contains(r#"autocomplete="new-password""#), "{html}");
+    assert!(html.contains(r#"name="attempt""#), "the form's attempt: {html}");
+    assert!(html.contains(r#"action="/invite/ivt_1?token=good""#), "{html}");
+
+    for (at, says) in [
+        ("/invite/ivt_old?token=good", "This invitation has expired"),
+        ("/invite/ivt_1?token=wrong", "This invitation is unavailable"),
+        ("/invite/ivt_1", "This invitation is unavailable"),
+    ] {
+        let (status, _, html) = pilot.send(get(at, None)).await;
+        assert_eq!(status, StatusCode::OK, "{at}");
+        let page = text(&html);
+        assert!(page.contains(says) && page.contains("send you a new invitation"), "{at}: {page}");
+        assert!(!html.contains(r#"type="password""#), "{at}: {html}");
+    }
+}
+
+#[tokio::test]
+async fn accepting_an_invitation_is_one_attempt_and_signs_in_to_the_account_read_after_the_write() {
+    let pilot = Pilot::new().await;
+    let body = format!("attempt={INVITE_ATTEMPT}&password=right");
+    let (status, headers, html) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account?after_write=") && to.contains("81"), "{to}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_invitee;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/invitations/accept");
+    assert_eq!(sent[0].headers["idempotency-key"], INVITE_ATTEMPT, "the attempt is the key");
+    assert_eq!(sent[0].headers["x-forwarded-for"], "203.0.113.7");
+    let sent: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(sent, json!({ "invitationId": "ivt_1", "token": "good", "attemptId": INVITE_ATTEMPT, "password": "right" }));
+}
+
+#[tokio::test]
+async fn a_session_a_write_just_started_is_read_after_that_write() {
+    let pilot = Pilot::new().await;
+    let (_, headers, _) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&password=right"))).await;
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, _, html) = pilot.send(with_cookie(&to, "chase_sets_session=tok_invitee")).await;
+    assert_eq!(status, StatusCode::OK, "the account's page, not the sign-in: {html}");
+    // The same session without the receipt: Auth has not seen it yet, so the page signs in.
+    let (status, headers, _) = pilot.send(with_cookie("/account", "chase_sets_session=tok_invitee")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn an_acceptance_that_is_not_a_session_says_where_the_attempt_stands_and_checks_it_again() {
+    let pilot = Pilot::new().await;
+    // A conflict is the answer's own state.
+    let (status, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&password=clash"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let page = text(&html);
+    assert!(page.contains("does not match the original attempt") && page.contains("Do not submit another acceptance"), "{page}");
+    assert!(
+        html.contains(r#"href="/sign-in""#) && html.contains(&format!(r#"name="attempt" value="{INVITE_ATTEMPT}""#)),
+        "{html}"
+    );
+    assert!(html.contains(r#"value="status""#) && !html.contains(r#"type="password""#), "{html}");
+
+    // An ambiguous answer asks for the attempt's status with the same key.
+    let (_, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&password=lost"))).await;
+    assert!(text(&html).contains("Confirming invitation acceptance"), "{html}");
+    let asked = auth_calls(&pilot, "/api/auth/invitations/acceptance-status");
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].headers["idempotency-key"], INVITE_ATTEMPT);
+
+    // Check status asks again.
+    let (_, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("intent=status&attempt={INVITE_ATTEMPT}"))).await;
+    assert!(text(&html).contains("Confirming invitation acceptance"), "{html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/acceptance-status").len(), 2);
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 2, "Check status accepts nothing");
+
+    // A refusal that applied nothing is the form again.
+    let (status, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&password=short"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let page = text(&html);
+    assert!(page.contains("Invitation could not be accepted") && page.contains("Review your input"), "{page}");
+    assert!(html.contains(r#"type="password""#), "the form again: {html}");
+
+    // No attempt the API could apply: nothing is sent.
+    let (status, _, _) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, "attempt=nope&password=right")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 3);
+}
+
 #[tokio::test]
 async fn a_phone_code_is_sent_then_entered() {
     let pilot = Pilot::new().await;
@@ -12582,6 +12728,15 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
             Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+        // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
+        ("POST", "")
+            if sent["expiresAt"]
+                .as_str()
+                .and_then(|at| at.strip_suffix('Z'))
+                .is_none_or(|at| at.split_once('.').is_some_and(|(_, fraction)| fraction.len() > 3)) =>
+        {
+            indeterminate()
+        }
         ("POST", "") if sent["email"] == "taken@chasesets.test" => {
             (StatusCode::CONFLICT, Json(json!({ "outcome": "conflict", "code": "attempt-hash-conflict" }))).into_response()
         }

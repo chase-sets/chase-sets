@@ -167,6 +167,7 @@ pub mod url {
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
         OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
     };
+    pub use invite::Invite;
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
     pub use money::Money;
@@ -1426,6 +1427,25 @@ pub mod url {
         }
     }
 
+    /// Accepting an invitation (see `invite`): the page and its writes. Public: the invitation's
+    /// token says whose it is.
+    #[corten::routes(state = crate::app::Shared, area = Invitations)]
+    pub mod invite {
+        /// The area's prefix: only the start of its paths. No page is served at `/invite`, so it
+        /// names no handler.
+        #[route("/invite")]
+        pub struct Invitations;
+
+        /// The invitation, as its email links to it; the acceptance and status forms post to it.
+        #[derive(Clone, Debug)]
+        #[route("/invite/{id}", get = crate::invite::page, post = crate::invite::write)]
+        pub struct Invite<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub invited: crate::invite::Invited,
+        }
+    }
+
     /// The account a sign-in acts for, when the user may act for more than one. Public: the
     /// selection's cookie says whose it is.
     #[corten::routes(state = crate::app::Shared, area = AccountSelect)]
@@ -1612,6 +1632,7 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::sign_in::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::register::area(area, shared.clone()).components(views::REGISTER))
+        .area(|area| url::invite::area(area, shared.clone()).components(views::REGISTER))
         .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::sign_out::area(area, shared.clone()))
         .error_page(views::error_page, shared)
