@@ -49,8 +49,11 @@ jobs:
           install: "true"
 
       # Also writes the two uncommitted outputs that carry the brand foil (tokens.json, favicon.svg).
+      # From the repository root with the full path: scripts/managed-postgres-authority-guard.mjs resolves
+      # a step's script from the root and does not read the job's working-directory default.
       - name: The exported text, tokens, nav and defaults match the React apps' sources
-        run: node --import tsx scripts/export.mjs --check
+        working-directory: ${{ github.workspace }}
+        run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
 
       # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
       # so the repo's TypeScript is put on the PATH and required here.
