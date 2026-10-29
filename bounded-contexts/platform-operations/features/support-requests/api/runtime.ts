@@ -1450,13 +1450,12 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         throw new SupportDomainError("attachment_reference_unknown");
       const operationEvents = await readCompleteStream(deps.eventStore, {
         streamId: attachmentOperationStreamId({
-          tenantId: actor.tenantId,
-          accountId: actor.accountId,
           supportRequestId,
           operationId: params.operationId,
         }),
       });
-      const operationState = replayAttachmentOperation(operationEvents.map((event) => codec.decode(event)));
+      const operationCodec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+      const operationState = replayAttachmentOperation(operationEvents.map((event) => operationCodec.decode(event)));
       if (hasUnsettledAttachmentPut(operationState))
         throw new SupportEvidenceAttachmentError("Support evidence storage is unavailable.", "storage-unavailable");
       return storeSupportEvidenceAttachments({
