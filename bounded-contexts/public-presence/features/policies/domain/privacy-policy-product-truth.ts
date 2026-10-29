@@ -348,11 +348,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.loader-cache.v1",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:103",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:141",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:147",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:43",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:50",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:95",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:97",
     ],
     factualSummary:
       "The search loader cache reads, writes, and removes a browser storage entry named discovery.search.loader-cache.v1 through an injected Pick<Storage, ...> seam. The stored value holds a bounded, time-limited set of loader payloads keyed by the search URL that produced them.",

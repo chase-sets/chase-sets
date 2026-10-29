@@ -58,7 +58,7 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(result.search).toBe("charizard");
-    expect(result.data.items).toEqual([]);
+    expect(result.data?.items).toEqual([]);
   });
 
   it("renders an empty discovery result when marketplace category reads fail", async () => {
@@ -100,10 +100,10 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(result.categories).toEqual([]);
-    expect(result.data.items).toEqual([]);
+    expect(result.data?.items).toEqual([]);
   });
 
-  it("renders an empty discovery result when marketplace search reads fail", async () => {
+  it("returns an honest failed discovery result when marketplace search reads fail", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -133,18 +133,10 @@ describe("marketplace SSR routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.data).toEqual({
-      items: [],
-      facets: [],
-      category_counts: [],
-      total: 0,
-      count: 0,
-      nextCursor: null,
-      lexicalCount: 0,
-      retrievalMode: "lexical",
-      queryHash: "",
-      resultSetKey: "",
-    });
+    const payload = "type" in result ? result.data : result;
+    const responseInit = "type" in result ? (result as unknown as { init?: ResponseInit }).init : undefined;
+    expect(responseInit?.status).toBe(502);
+    expect(payload).toMatchObject({ search: "charizard", searchFailed: true, data: null });
   });
 
   it("handles home-page bulk add posts through the discovery search action", async () => {

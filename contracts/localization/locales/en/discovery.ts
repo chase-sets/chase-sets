@@ -200,6 +200,8 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.dynamic.filter.label": "{facet}: {value}",
   "discovery.features.search.ui.searchPage.english": "English",
   "discovery.features.search.ui.searchPage.error": "Error",
+  "discovery.features.search.ui.searchPage.results.error.description":
+    "Search results could not load. Try again in a moment.",
   "discovery.features.search.ui.searchPage.any.market.activity": "Any market activity",
   "discovery.features.search.ui.searchPage.facet.choices": "{facet} choices",
   "discovery.features.search.ui.searchPage.facet.option.search.empty": "No matching {facet} options",
