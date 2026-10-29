@@ -134,6 +134,13 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
+  const stagingRuntimeRevisionArgs =
+    deploymentEnvironment === "staging"
+      ? [
+          "--set-string",
+          `components.platform-api.podAnnotations.chase-sets\\.com/staging-runtime-revision=${stagingRuntimeRevision(options.env ?? process.env)}`,
+        ]
+      : [];
   const managedPostgresCaSha256 =
     deploymentEnvironment === "staging" || deploymentEnvironment === "production"
       ? requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256")
@@ -244,6 +251,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...rolloutSetArgs,
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
+    ...stagingRuntimeRevisionArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -262,6 +270,12 @@ export function buildHelmUpgradeArgs(options = {}) {
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
   ];
+}
+
+export function stagingRuntimeRevision(env) {
+  if (!/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? "") || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ATTEMPT ?? ""))
+    throw new Error("Staging runtime replacement requires GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT.");
+  return `${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
 }
 
 export function buildManagedPostgresCaReconcileArgs(options = {}) {

@@ -55,6 +55,7 @@
     "bounded-contexts/catalog/features/provider-scope-mapping/read-model/projection.ts",
     "bounded-contexts/catalog/features/provider-scope-mapping/read-model/queries.ts",
     "bounded-contexts/catalog/features/provider-scope-mapping/read-model/scope-coverage-queries.ts",
+    "bounded-contexts/catalog/features/reference-data/api/seed.ts",
     "bounded-contexts/catalog/features/reference-data/read-model/projection.ts",
     "bounded-contexts/catalog/features/reference-data/read-model/queries.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/projection.ts",

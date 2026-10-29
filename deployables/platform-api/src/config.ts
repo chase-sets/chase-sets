@@ -5,6 +5,7 @@ import {
   type ApiHostContextName,
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
+import type { ReceiptLookupActorOptions } from "@chase-sets/auth/server";
 import {
   parseCapabilityAdministrationAuthority,
   type CapabilityAdministrationAuthority,
@@ -336,6 +337,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
     ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
+    receiptLookupActor: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -869,6 +871,10 @@ export function loadConfig(): PlatformApiConfig {
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    receiptLookupActor: {
+      deploymentEnvironment: baseConfig.deploymentEnvironment,
+      readCredential: () => process.env.EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON,
+    },
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
       process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,

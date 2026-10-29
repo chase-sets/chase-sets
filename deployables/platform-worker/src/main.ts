@@ -125,6 +125,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
   recordDiscoveryQueryEmbeddingLoad,
+  recordDiscoverySearchRetrievalFailure,
   recordProjectionInterestIndexLookup,
   recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
@@ -339,6 +340,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       searchTelemetry: {
         recordSearchQuery: recordDiscoverySearchQuerySignal,
         recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+        recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
       },
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
