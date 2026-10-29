@@ -18,7 +18,13 @@ function arbitrationSections() {
   };
 }
 
-type ArbitrationSection = ReturnType<typeof arbitrationSections>["terms"];
+type ArbitrationSection = {
+  draftText: string;
+  reviewManifest: {
+    scopeNote: string;
+    openQuestions: readonly string[];
+  };
+};
 
 function arbitrationThresholdErrors(
   termsQuestions: readonly string[],
