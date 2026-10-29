@@ -271,7 +271,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
           "bounded-contexts/authenticity/README.md:39-42",
           "bounded-contexts/checkout/features/sessions/ui/checkout-shipping-section.tsx:87-98",
-          "bounded-contexts/ordering/features/orders/api/runtime.ts:1290-1307",
+          "bounded-contexts/ordering/features/orders/api/runtime.ts:638-679",
         ],
         openQuestions: [
           "Availability, suspension/discontinuation, and survival terms for a fully operative Authenticity Check service are future drafting for when the inspection lifecycle is wired end-to-end from the shipped checkout opt-in, and are not addressed by this counsel-pending, non-effective packet document today.",
