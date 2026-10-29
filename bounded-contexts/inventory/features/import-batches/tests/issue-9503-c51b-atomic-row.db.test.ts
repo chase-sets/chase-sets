@@ -29,6 +29,26 @@ const context: EventStoreContext = {
 };
 const claim = { claimOwnerId: "c51b-worker-synthetic", claimTtlMs: 30_000 };
 
+function countQueries<T extends object>(target: T, count: (sql: unknown) => void): T {
+  return new Proxy(target, {
+    get(object, key) {
+      const value: unknown = Reflect.get(object, key, object);
+      if (typeof value !== "function") return value;
+      const method = value as (...args: unknown[]) => unknown;
+      if (key === "query") {
+        return (...args: unknown[]) => {
+          count(args[0]);
+          return method.apply(object, args);
+        };
+      }
+      if (key === "connect") {
+        return async (...args: unknown[]) => countQueries((await method.apply(object, args)) as object, count);
+      }
+      return method.bind(object);
+    },
+  });
+}
+
 describeDb("issue-9503-c51b atomic frozen import row", () => {
   let pools: Readonly<Record<"inventory", PgTransactionalPool>>;
 
@@ -124,17 +144,20 @@ describeDb("issue-9503-c51b atomic frozen import row", () => {
     const createJob = await inventory.importBatches.enqueueCreateBatchJob(
       {
         accountId,
-        parsedRows: Array.from({ length: rowCount }, (_, index) => ({
-          rowNumber: index + 1,
-          values: {
-            catalogItemId: "cat_c51b_synthetic",
-            storageLocationId: "loc_c51b_synthetic",
-            totalQuantity: String(index === 0 ? 2 : 1),
-            listingPriceAmount: "5.00",
-            listingPriceCurrencyCode: "USD",
-            listingQuantityCap: "2",
-          },
-        })),
+        parsedRows: Array.from({ length: rowCount }, (_, index) => {
+          const quantity = String(index === 0 ? 2 : 1);
+          return {
+            rowNumber: index + 1,
+            values: {
+              catalogItemId: "cat_c51b_synthetic",
+              storageLocationId: "loc_c51b_synthetic",
+              totalQuantity: quantity,
+              listingPriceAmount: "5.00",
+              listingPriceCurrencyCode: "USD",
+              listingQuantityCap: quantity,
+            },
+          };
+        }),
       },
       withInventoryMutationAttempt(context, randomUUID()),
     );
@@ -296,21 +319,19 @@ describeDb("issue-9503-c51b atomic frozen import row", () => {
 
   it("F6 loads frozen input once and avoids full-batch reads before the final unit", async () => {
     const counts = { frozenInputSelects: 0, fullBatchRowSelects: 0 };
-    const countedPool = {
-      query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
-        if (sql.includes("FROM inventory_import_commit_inputs")) counts.frozenInputSelects += 1;
-        if (sql.includes("FROM inventory_import_batch_rows") && values?.some((value) => Number(value) === 10_000)) {
-          counts.fullBatchRowSelects += 1;
-        }
-        return pools.inventory.query<Row>(sql, values);
-      },
-      connect: (...args: Parameters<typeof pools.inventory.connect>) => pools.inventory.connect(...args),
-    } as unknown as PgTransactionalPool;
-    const { inventory, commitJob } = await setupAcceptedCommitJob(3, countedPool);
+    const countedPool = countQueries(pools.inventory, (sql) => {
+      if (typeof sql !== "string") return;
+      if (sql.includes("FROM inventory_import_commit_inputs")) counts.frozenInputSelects += 1;
+      if (sql.includes("FROM inventory_import_batch_rows")) counts.fullBatchRowSelects += 1;
+    });
+    const { inventory, commitJob, batchId } = await setupAcceptedCommitJob(3, countedPool);
+    expect((await inventory.importBatches.getBatch(batchId, accountId))?.accepted_count).toBe(3);
+    counts.frozenInputSelects = 0;
+    counts.fullBatchRowSelects = 0;
     expect(await inventory.importBatches.processNextImportBatchJob(claim)).toBe(3);
-    expect(counts.frozenInputSelects).toBe(1);
-    expect(counts.fullBatchRowSelects).toBe(1);
+    expect(counts).toEqual({ frozenInputSelects: 1, fullBatchRowSelects: 1 });
     expect((await inventory.importBatches.getImportBatchJob(commitJob.jobId))?.status).toBe("completed");
+    expect((await inventory.importBatches.getBatch(batchId, accountId))?.committed_count).toBe(3);
   });
 
   it("B2 generation-guard-removed: a live replacement claim refuses the stale row", async () => {
@@ -338,6 +359,59 @@ describeDb("issue-9503-c51b atomic frozen import row", () => {
     expect(
       (await pools.inventory.query("SELECT status FROM inventory_import_batch_rows WHERE row_id = $1", [rowId])).rows,
     ).toEqual([{ status: "accepted" }]);
+  });
+
+  it("B2 reclaimed lease: a stale worker cannot commit after its lease is reclaimed", async () => {
+    const { inventory, commitJob, batchId } = await setupAcceptedCommitJob();
+    let itemAppended!: () => void;
+    const appended = new Promise<void>((resolve) => {
+      itemAppended = resolve;
+    });
+    let releaseStale!: () => void;
+    const resumeStale = new Promise<void>((resolve) => {
+      releaseStale = resolve;
+    });
+    const rowItems = {
+      ...inventory.items,
+      createItem: async (params: Parameters<typeof inventory.items.createItem>[0], itemContext: typeof context) => {
+        const result = await inventory.items.createItem(params, itemContext);
+        itemAppended();
+        await resumeStale;
+        return result;
+      },
+    };
+    const staleWorker = createInventoryImportBatchRuntime({
+      db: inventory.mutations.db,
+      items: inventory.items,
+      rowItems,
+      catalogItems: inventory.catalogItems,
+      executeMutation: inventory.mutations.execute,
+    });
+    const stale = staleWorker.processNextImportBatchJob({ claimOwnerId: "c51b-worker-stale", claimTtlMs: 10 });
+    await appended;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const replacement = inventory.importBatches.processNextImportBatchJob(claim);
+    releaseStale();
+    expect(await stale).toBe(1);
+    expect(await replacement).toBe(1);
+    await drainInventory(inventory);
+    expect(
+      (await pools.inventory.query("SELECT status FROM inventory_import_batch_rows WHERE batch_id = $1", [batchId]))
+        .rows,
+    ).toEqual([{ status: "committed" }]);
+    expect(
+      (
+        await pools.inventory.query(
+          `SELECT
+             (SELECT count(*)::integer FROM inventory_items WHERE account_id = $1) AS items,
+             (SELECT count(*)::integer FROM inventory_import_draft_listing_outbox WHERE import_batch_id = $2) AS outbox,
+             (SELECT committed_count FROM inventory_import_batches WHERE batch_id = $2) AS committed_count,
+             (SELECT count(*)::integer FROM inventory_mutation_attempts WHERE family = 'import-commit-row') AS row_attempts`,
+          [accountId, batchId],
+        )
+      ).rows,
+    ).toEqual([{ items: 1, outbox: 1, committed_count: 1, row_attempts: 1 }]);
+    expect((await inventory.importBatches.getImportBatchJob(commitJob.jobId))?.status).toBe("completed");
   });
 
   it("B4 retry/abort: terminal replay returns the retained result without duplicating effects", async () => {
