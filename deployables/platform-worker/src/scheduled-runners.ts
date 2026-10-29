@@ -245,7 +245,7 @@ export function createRegisteredScheduledRunners({
   if (platformOperations?.sellerComplianceCohort?.sweep) {
     runners.push(
       createScheduledJobRunner("platform-operations.seller-compliance-cohort-sweep", 5 * 60 * 1000, controlPlane, () =>
-        platformOperations.sellerComplianceCohort!.sweep!({ limit: 100 }),
+        platformOperations.sellerComplianceCohort!.sweep!({ now: new Date().toISOString(), limit: 100 }),
       ),
     );
   }

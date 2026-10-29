@@ -158,9 +158,12 @@ function thresholdEffectiveAt(
 }
 function evaluateAt(sales: readonly SellerSaleFact[], policy: SellerComplianceCohortPolicyValue, evaluationAt: string) {
   const at = Date.parse(evaluationAt);
-  const floor = Date.parse(addUtcMonths(evaluationAt, -(policy.lookbackMonths ?? 60)));
+  const lookbackMonths = policy.lookbackMonths ?? 60;
   const eligible = [...sales]
-    .filter((sale) => Date.parse(sale.occurredAt) < at && Date.parse(sale.occurredAt) >= floor)
+    .filter(
+      (sale) =>
+        Date.parse(sale.occurredAt) < at && isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, evaluationAt),
+    )
     .sort(
       (a, b) =>
         a.occurredAt.localeCompare(b.occurredAt) ||
@@ -242,9 +245,7 @@ export function evaluateSellerComplianceCohort(
           const firstInadmissible = new Date(
             Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1,
           ).toISOString();
-          return isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, firstInadmissible)
-            ? null
-            : firstInadmissible;
+          return firstInadmissible;
         })(),
       ])
       .filter((instant): instant is string => instant !== null)
@@ -257,7 +258,10 @@ export function evaluateSellerComplianceCohort(
         break;
       }
     }
-    exitEffectiveAt = input.revisionEffectiveAt ?? exitEffectiveAt ?? evaluationAt;
+    if (input.revisionEffectiveAt !== undefined) exitEffectiveAt = input.revisionEffectiveAt;
+    if (exitEffectiveAt === null) {
+      throw new Error("A member without a qualifying window must have an exit effective instant.");
+    }
   }
   const entryEffectiveAt =
     winner === null
@@ -275,7 +279,7 @@ export function evaluateSellerComplianceCohort(
     band: result.bandWinner ? "disclosure" : "none",
     entryEffectiveAt,
     bandEffectiveAt,
-    exitEffectiveAt,
+    exitEffectiveAt: winner === null && !previousMember ? (input.previous?.exitEffectiveAt ?? null) : exitEffectiveAt,
     windowStart: winner?.start ?? null,
     windowEnd: winner?.end ?? null,
     nextReevaluationAt: winner === null ? null : (expiries[0] ?? null),

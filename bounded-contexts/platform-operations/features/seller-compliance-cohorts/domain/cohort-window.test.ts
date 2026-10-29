@@ -79,7 +79,7 @@ describe("seller compliance cohort window", () => {
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
     const belowGross = evaluateSellerComplianceCohort({
-      sales: [...make(199, "2500"), sale("gross-below", "2025-01-01T00:00:00.000Z", "2499")],
+      sales: make(200, "2499"),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
@@ -97,6 +97,13 @@ describe("seller compliance cohort window", () => {
     expect(belowCount.state).toBe("outside");
     expect(belowGross.state).toBe("outside");
     expect(exact.qualifyingGrossCents).toBe("500000");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: make(200, "2500"),
+        policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "499999" },
+        evaluationAt: "2025-01-31T00:00:00.000Z",
+      }).state,
+    ).toBe("member");
     expect(disclosureBelow.band).toBe("none");
     expect(disclosureExact.band).toBe("disclosure");
   });
@@ -199,24 +206,34 @@ describe("seller compliance cohort window", () => {
       evaluationAt: "2025-01-01T00:00:00.000Z",
     });
     const brute = (at: string) => {
-      const end = Date.parse(at);
-      const floor = Date.parse(addUtcMonths(at, -2));
-      const starts = sales.map((item) => Date.parse(item.occurredAt)).filter((start) => start >= floor && start < end);
-      const winners = starts
-        .flatMap((start) => {
-          const windowEnd = Date.parse(addUtcMonths(new Date(start).toISOString(), 1));
-          const qualifying = sales.filter(
-            (item) => Date.parse(item.occurredAt) >= start && Date.parse(item.occurredAt) < windowEnd,
-          );
-          return qualifying.length >= 1 &&
-            qualifying.reduce((sum, item) => sum + Number(item.sellerItemNetCents), 0) >= 500000
-            ? [{ start, windowEnd, qualifying }]
-            : [];
-        })
-        .filter((candidate) => candidate.start < end);
-      return winners[0] ?? null;
+      const atMs = Date.parse(at);
+      const starts = [
+        ...new Set(
+          sales.flatMap((item) => {
+            const point = Date.parse(item.occurredAt);
+            return [point - 1, point, point + 1];
+          }),
+        ),
+      ]
+        .filter((point) => point < atMs && point >= Date.parse(addUtcMonths(at, -2)))
+        .sort((a, b) => a - b);
+      for (const start of starts) {
+        const end = Date.parse(addUtcMonths(new Date(start).toISOString(), 1));
+        const qualifying = sales.filter((item) => {
+          const occurred = Date.parse(item.occurredAt);
+          return occurred >= start && occurred < end;
+        });
+        if (
+          qualifying.length >= 2 &&
+          qualifying.reduce((sum, item) => sum + Number(item.sellerItemNetCents), 0) >= 500000
+        )
+          return { state: "member" as const, entryEffectiveAt: qualifying[1]!.occurredAt };
+      }
+      return { state: "outside" as const, entryEffectiveAt: null };
     };
-    expect(brute("2025-01-01T00:00:00.000Z")?.start).toBe(Date.parse(expected.entryEffectiveAt ?? ""));
+    const bruteWinner = brute("2025-01-01T00:00:00.000Z");
+    expect(bruteWinner?.state).toBe(expected.state);
+    expect(bruteWinner?.entryEffectiveAt).toBe(expected.entryEffectiveAt);
     for (let i = 0; i < 10; i++) {
       const shuffled = [...sales].sort(
         (a, b) => ((i * 17 + Number(a.paymentId.slice(4))) % 31) - ((i * 17 + Number(b.paymentId.slice(4))) % 31),
@@ -224,7 +241,7 @@ describe("seller compliance cohort window", () => {
       expect(
         evaluateSellerComplianceCohort({
           sales: shuffled,
-          policy: { ...policy, qualifyingTransactionCount: 1 },
+          policy: { ...policy, qualifyingTransactionCount: 2 },
           evaluationAt: "2025-01-01T00:00:00.000Z",
         }),
       ).toEqual(expected);
@@ -241,13 +258,32 @@ describe("seller compliance cohort window", () => {
       ...sale("unclassified", "2025-01-01T00:00:00.000Z", "500000"),
       classificationInputs: [{ productId: "other" }],
     };
+    const moneyRejected = {
+      ...sale("money-rejected", "2025-01-01T00:00:00.000Z", "500000"),
+      captureAnomalies: ["canonical-money-invalid"] as never,
+    };
     const result = evaluateSellerComplianceCohort({
-      sales: [foreign, unreconciled, unclassified, sale("good", "2025-01-02T00:00:00.000Z", "500000")],
+      sales: [foreign, unreconciled, moneyRejected, unclassified, sale("good", "2025-01-02T00:00:00.000Z", "500000")],
       policy: { ...policy, qualifyingTransactionCount: 2 },
       evaluationAt: "2025-01-03T00:00:00.000Z",
     });
     expect(result.state).toBe("outside");
     expect(result.unclassifiableCount).toBe(1);
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [
+          sale("selected-option", "2025-01-02T00:00:00.000Z", "500000", {
+            classificationInputs: [{ selectedOptions: [{ optionId: "option-1" }] }],
+          }),
+        ],
+        policy: {
+          ...policy,
+          qualifyingTransactionCount: 1,
+          classificationRules: [{ source: "selectedOptionId", value: "option-1" }],
+        },
+        evaluationAt: "2025-01-03T00:00:00.000Z",
+      }).state,
+    ).toBe("member");
     expect(
       evaluateSellerComplianceCohort({
         sales: [
@@ -288,6 +324,11 @@ describe("seller compliance cohort window", () => {
       ...sale("cancelled", "2025-01-01T00:00:00.000Z", "500000"),
       cancelledAt: "2025-01-01T01:00:00.000Z",
     };
+    const cancelledAndRefunded = {
+      ...cancelled,
+      refundedOrderTotalCents: "500000",
+      orderRefundCapCents: "500000",
+    };
     expect(
       evaluateSellerComplianceCohort({
         sales: [cancelled],
@@ -302,6 +343,30 @@ describe("seller compliance cohort window", () => {
           ...policy,
           qualifyingTransactionCount: 1,
           postCaptureCancellationTreatment: "exclude-if-fully-refunded",
+        },
+        evaluationAt: "2025-01-02T00:00:00.000Z",
+      }).state,
+    ).toBe("member");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [cancelledAndRefunded],
+        policy: {
+          ...policy,
+          qualifyingTransactionCount: 1,
+          refundTreatment: "count-refunded",
+          postCaptureCancellationTreatment: "exclude-if-fully-refunded",
+        },
+        evaluationAt: "2025-01-02T00:00:00.000Z",
+      }).state,
+    ).toBe("outside");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [cancelledAndRefunded],
+        policy: {
+          ...policy,
+          qualifyingTransactionCount: 1,
+          refundTreatment: "count-refunded",
+          postCaptureCancellationTreatment: "count-cancelled",
         },
         evaluationAt: "2025-01-02T00:00:00.000Z",
       }).state,
