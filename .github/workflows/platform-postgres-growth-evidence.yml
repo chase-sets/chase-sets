@@ -138,20 +138,20 @@ jobs:
           record="artifacts/release-health/postgres-growth-evidence.json"
           failure_record="artifacts/release-health/postgres-growth-authority-export-failure.json"
           if [ -f "$failure_record" ]; then
-            node - "$failure_record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
-            const fs = require("node:fs");
-            const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            console.log("## Postgres Growth Evidence");
-            console.log("");
-            console.log(`- Result: ${record.result}`);
-            console.log(`- Environment: ${record.environment}`);
-            console.log(`- Mode: ${record.mode}`);
-            console.log(`- Class: ${record.class}`);
-            console.log(`- Attempts: ${record.attempts}`);
-            if (record.status !== undefined) console.log(`- Provider status: ${record.status}`);
-            if (record.code !== undefined) console.log(`- Provider code: ${record.code}`);
-            NODE
-            exit 0
+          node - "$failure_record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Postgres Growth Evidence");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Class: ${record.class}`);
+          console.log(`- Attempts: ${record.attempts}`);
+          if (record.status !== undefined) console.log(`- Provider status: ${record.status}`);
+          if (record.code !== undefined) console.log(`- Provider code: ${record.code}`);
+          NODE
+          exit 0
           fi
           if [ ! -f "$record" ]; then
             echo "No Postgres growth evidence record was written." >> "$GITHUB_STEP_SUMMARY"
