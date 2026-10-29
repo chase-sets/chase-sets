@@ -93,6 +93,10 @@ describe("seller compliance cohort window", () => {
     expect(() =>
       decodeSellerComplianceCohortPolicyValue({ ...policy, classificationRules: [{ source: "unknown", value: "x" }] }),
     ).toThrow();
+    expect(() => decodeSellerComplianceCohortPolicyValue({ ...policy, lookbackMonths: 1, windowMonths: 2 })).toThrow();
+    expect(() =>
+      decodeSellerComplianceCohortPolicyValue({ ...policy, qualifyingGrossCents: "500", disclosureGrossCents: "499" }),
+    ).toThrow();
   });
 
   it("pins every window and month-arithmetic edge in UTC", () => {
@@ -117,6 +121,16 @@ describe("seller compliance cohort window", () => {
         sales: [end],
         policy: { ...policy, qualifyingTransactionCount: 1 },
         evaluationAt: "2025-02-01T00:00:00.000Z",
+      }).state,
+    ).toBe("outside");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [
+          sale("window-start", "2025-01-01T00:00:00.000Z", "250000"),
+          sale("window-end", "2025-02-01T00:00:00.000Z", "250000"),
+        ],
+        policy: { ...policy, qualifyingTransactionCount: 2 },
+        evaluationAt: "2025-03-01T00:00:00.000Z",
       }).state,
     ).toBe("outside");
     expect(
