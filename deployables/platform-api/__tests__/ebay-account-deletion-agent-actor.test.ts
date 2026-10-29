@@ -31,6 +31,13 @@ describe("staging receipt lookup service actor AC1", () => {
     const jsonBearer = await h.request(app, { headers: { authorization: `Bearer ${receiptActorCredential}` } });
     expect(jsonBearer.status).toBe(401);
   });
+  it("rejects a valid bearer when a chase_sets_session cookie is also present", async () => {
+    const response = await h.request(h.compose(), { headers: { cookie: "chase_sets_session=synthetic" } });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "receipt_actor_authentication_required" });
+    expect(h.human).not.toHaveBeenCalled();
+    expect(h.lookup).not.toHaveBeenCalled();
+  });
   it.each([
     undefined,
     "",

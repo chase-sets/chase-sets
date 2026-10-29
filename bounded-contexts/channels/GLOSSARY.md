@@ -8,6 +8,12 @@ they do not imply shipped connection behavior.
 
 A **Sales Channel** is an external or native commerce surface connected to an Account.
 
+## `channels.receipt.lookup`
+
+`channels.receipt.lookup` is the Channels permission carried by the staging receipt
+lookup service actor for the bounded eBay account-deletion receipt lookup operation.
+It authorizes only that operation; human sessions and cookies never satisfy it.
+
 ## Channel Connection
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.

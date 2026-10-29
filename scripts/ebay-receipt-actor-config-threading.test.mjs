@@ -45,6 +45,15 @@ describe("staging eBay receipt actor configuration threading", () => {
     const keys = collectPlatformSecretKeys(undefined, { deploymentEnvironment: "staging" });
     expect(keys).toContain(actorKey);
     const env = Object.fromEntries(keys.map((key) => [key, ""]));
+    const defaultBundle = buildPlatformSecretBundle({
+      deploymentEnvironment: "staging",
+      env,
+      observabilityEnabled: false,
+    });
+    expect(defaultBundle.runtimeSecret.data[actorKey]).toBe("");
+    expect(
+      summarizePlatformSecret({ deploymentEnvironment: "staging", env, observabilityEnabled: false }).keys,
+    ).toContain(actorKey);
     const bundle = buildPlatformSecretBundle({
       values: staging,
       deploymentEnvironment: "staging",
@@ -56,7 +65,20 @@ describe("staging eBay receipt actor configuration threading", () => {
       summarizePlatformSecret({ values: staging, deploymentEnvironment: "staging", env, observabilityEnabled: false })
         .keys,
     ).toContain(actorKey);
-    expect(collectPlatformSecretKeys(undefined, { deploymentEnvironment: "production" })).not.toContain(actorKey);
+    const productionKeys = collectPlatformSecretKeys(undefined, { deploymentEnvironment: "production" });
+    expect(productionKeys).not.toContain(actorKey);
+    const productionEnv = Object.fromEntries(productionKeys.map((key) => [key, ""]));
+    expect(
+      buildPlatformSecretBundle({
+        deploymentEnvironment: "production",
+        env: productionEnv,
+        observabilityEnabled: false,
+      }).runtimeSecret.data,
+    ).not.toHaveProperty(actorKey);
+    expect(
+      summarizePlatformSecret({ deploymentEnvironment: "production", env: productionEnv, observabilityEnabled: false })
+        .keys,
+    ).not.toContain(actorKey);
     expect(collectPlatformSecretKeys(undefined, { deploymentEnvironment: "preview" })).not.toContain(actorKey);
     expect(collectPlatformSecretKeys(undefined)).not.toContain(actorKey);
   });

@@ -417,7 +417,9 @@ describe("render platform Helm values", () => {
     for (const [name, value] of catalogOverrides) {
       expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
     }
-    expect(JSON.stringify(staging.components["platform-api"].envOverrides)).not.toContain("CATALOG_INTEGRATION_");
+    const stagingWithoutInheritedApiEnv = structuredClone(staging);
+    delete stagingWithoutInheritedApiEnv.components["platform-api"].env;
+    expect(JSON.stringify(stagingWithoutInheritedApiEnv)).not.toContain("CATALOG_INTEGRATION_");
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
