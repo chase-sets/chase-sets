@@ -21,11 +21,12 @@ import { inventoryImportSourceProfiles, type InventoryImportSourceKey } from "..
 import { readFileSync } from "node:fs";
 import { prepareInventoryImportSnapshot } from "./safe-snapshot";
 import { contractInventoryImportSources } from "./source-migration";
+import type { InventoryImportBatchStatus } from "../read-model/queries";
 
 type StoredBatch = Readonly<{
   batch_id: string;
   account_id: string;
-  status: "uploaded" | "committed";
+  status: InventoryImportBatchStatus;
   source_key: string;
   adapter_version: number;
   quantity_mode: "add" | "replace";
@@ -415,7 +416,11 @@ class ImportBatchDb implements PgQueryable {
       const rows = this.rows
         .filter((row) => row.batch_id === values[0])
         .sort((left, right) => left.row_number - right.row_number);
-      return this.result(rows as Row[]);
+      return this.result(
+        (sql.includes("LIMIT $2 OFFSET $3")
+          ? rows.slice(Number(values[2]), Number(values[2]) + Number(values[1]))
+          : rows) as Row[],
+      );
     }
 
     if (sql.includes("FROM inventory_import_batches")) {
@@ -711,6 +716,161 @@ function addAccountSkuMapping(
 }
 
 describe("inventory import batch runtime", () => {
+  it.each([
+    { status: "committing", ready: 1, rollout: true, message: "Import commit is already running." },
+    { status: "committed", ready: 0, rollout: true, message: "Import batch has no accepted rows waiting to commit." },
+    { status: "uploaded", ready: 0, rollout: true, message: "Import batch has no accepted rows waiting to commit." },
+    {
+      status: "ready-to-commit",
+      ready: 1,
+      rollout: false,
+      message: "Import stock progression is disabled; Product review remains available.",
+    },
+    {
+      status: "expired",
+      ready: 1,
+      rollout: false,
+      message: "Import batch expired; create a new import from the source.",
+    },
+    ...(["validating", "failed-safe", "ambiguous"] as const).map((status) => ({
+      status,
+      ready: 1,
+      rollout: false,
+      message: "Import validation must finish before committing rows.",
+    })),
+  ] as const)(
+    "enqueue refusal precedes all writes: $status/$ready/$rollout",
+    async ({ status, ready, rollout, message }) => {
+      const db = dbWithLocations();
+      const batch = await runtime(db).createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          parsedRows: [
+            {
+              rowNumber: 1,
+              values: {
+                catalogItemId: "cat_active",
+                storageLocationId: "loc_active",
+                totalQuantity: "2",
+                "option:condition": "near_mint",
+              },
+            },
+          ],
+        },
+        context,
+      );
+      db.batches.set(batch.batch_id, {
+        ...db.batches.get(batch.batch_id)!,
+        status,
+        accepted_count: ready,
+        committed_count: 0,
+      });
+      const services = createInventoryImportBatchRuntime({
+        db,
+        catalogItems: catalogServices(),
+        items: itemServices(
+          () => undefined,
+          () => undefined,
+        ),
+        importProductRollout: { normalizationEnabled: true, stockProgressionEnabled: rollout },
+      });
+      const before = db.queries.length;
+      await expect(
+        services.enqueueCommitBatchJob({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context),
+      ).rejects.toThrow(message);
+      expect(db.queries.slice(before).every(({ sql }) => /^\s*SELECT\b/.test(sql))).toBe(true);
+    },
+  );
+
+  it.each([undefined, true, false])(
+    "getBatch applies the host stock-progression rollout to can_commit: %s",
+    async (stockProgressionEnabled) => {
+      const db = dbWithLocations();
+      const batch = await runtime(db).createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          parsedRows: [
+            {
+              rowNumber: 1,
+              values: {
+                catalogItemId: "cat_active",
+                storageLocationId: "loc_active",
+                totalQuantity: "2",
+                "option:condition": "near_mint",
+              },
+            },
+          ],
+        },
+        context,
+      );
+      const services = createInventoryImportBatchRuntime({
+        db,
+        items: itemServices(
+          () => undefined,
+          () => undefined,
+        ),
+        catalogItems: catalogServices(),
+        importProductRollout:
+          stockProgressionEnabled === undefined
+            ? undefined
+            : {
+                normalizationEnabled: true,
+                stockProgressionEnabled,
+              },
+      });
+      expect(await services.getBatch(batch.batch_id, "acc_1", { limit: 0 })).toMatchObject({
+        rows: [],
+        can_commit: stockProgressionEnabled !== false,
+        commit_ready_count: 1,
+      });
+    },
+  );
+
+  it.each(["native-csv", "saved-list"] as const)(
+    "resolveRow answers the next needs-seller row: %s",
+    async (sourceKey) => {
+      const db = dbWithLocations();
+      const services = runtime(db);
+      const batch = await services.createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey,
+          defaultStorageLocationId: "loc_active",
+          parsedRows: Array.from({ length: 101 }, (_, index) => ({
+            rowNumber: index + 1,
+            values: {
+              catalogItemId: index === 0 || index === 100 ? "cat_unknown" : "cat_active",
+              storageLocationId: "loc_active",
+              totalQuantity: "2",
+              "option:condition": "near_mint",
+            },
+          })),
+        },
+        context,
+      );
+      const resolve = (rowId: string) =>
+        services.resolveRow(
+          {
+            accountId: "acc_1" as AccountId,
+            batchId: batch.batch_id,
+            rowId,
+            catalogItemId: "cat_active",
+            storageLocationId: "loc_active",
+            selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+          },
+          context,
+        );
+      const next = await resolve(batch.rows[0]!.row_id);
+      expect(next).toMatchObject({
+        next_needs_seller_row_id: `imr_${batch.batch_id.slice(4)}_101`,
+        can_commit: true,
+        commit_ready_count: 100,
+      });
+      expect(next.rows[0]?.needs_seller).toBe(false);
+      expect((await resolve(next.next_needs_seller_row_id!)).next_needs_seller_row_id).toBeNull();
+    },
+  );
+
   const sources = inventoryImportSourceProfiles.map((profile) => profile.sourceKey);
   const cases = [
     "missing",

@@ -4,7 +4,11 @@ import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "
 import type { buildInventoryApi } from "./api";
 import type { InventoryMutationReceipt } from "./support/runtime-support/mutation-attempt";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
-import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
+import type {
+  InventoryImportBatch,
+  InventoryImportBatchDetail,
+  InventoryImportBatchResolution,
+} from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
 import type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
 import type { InventoryImportBatchJobStatus } from "./features/import-batches/api/runtime";
@@ -229,7 +233,7 @@ export function createInventoryApiClient({
         selectedOptions: readonly { dimensionId: string; optionId: string }[];
         storageLocationId: string;
       }>,
-    ): Promise<InventoryImportBatchDetail> {
+    ): Promise<InventoryImportBatchResolution> {
       return parseJsonResponse(
         await client["import-batches"][":id"].rows[":rowId"].resolve.$post({
           param: { id, rowId },

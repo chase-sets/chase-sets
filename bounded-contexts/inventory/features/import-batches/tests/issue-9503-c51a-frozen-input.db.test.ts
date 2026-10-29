@@ -205,10 +205,31 @@ describeDb("issue-9503-c51a frozen commit input", () => {
       ]),
     };
     const first = await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, firstAttempt);
-    const second = await inventory.importBatches.enqueueCommitBatchJob(
-      { accountId, batchId: "imb_c51a" },
-      secondAttempt,
+    await expect(
+      inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, secondAttempt),
+    ).rejects.toThrow("Import commit is already running.");
+    expect(
+      (await inventory.importBatches.enqueueCommitBatchJob({ accountId, batchId: "imb_c51a" }, firstAttempt)).jobId,
+    ).toBe(first.jobId);
+    // Retained duplicate jobs must still replay frozen input without repeating stock writes.
+    const duplicateInputId = `commit_input_${randomUUID()}`;
+    const duplicateJobId = `job_${randomUUID()}`;
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_commit_inputs
+      (input_id, tenant_id, actor_user_id, account_id, batch_id, snapshot_version, snapshot_hash, row_count, accepted_rows, created_at)
+      SELECT $1, tenant_id, actor_user_id, account_id, batch_id, snapshot_version, snapshot_hash, row_count, accepted_rows, now()
+      FROM inventory_import_commit_inputs WHERE input_id = $2`,
+      [duplicateInputId, first.payload.commit!.inputId],
     );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_jobs
+      (job_id, job_kind, status, payload, progress, event_context, created_at, updated_at)
+      SELECT $1, job_kind, status, jsonb_set(payload, '{commit,inputId}', to_jsonb($2::text)), progress, event_context,
+        created_at + interval '1 second', updated_at
+      FROM inventory_import_batch_jobs WHERE job_id = $3`,
+      [duplicateJobId, duplicateInputId, first.jobId],
+    );
+    const second = (await inventory.importBatches.getImportBatchJob(duplicateJobId))!;
     expect(first.jobId).not.toBe(second.jobId);
     expect(first.payload.commit?.inputId).not.toBe(second.payload.commit?.inputId);
     const frozenInputs = await pools.inventory.query<{

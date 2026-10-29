@@ -10,7 +10,6 @@ import {
   type InventoryImportBatchDetail,
 } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
-import { resolveRowRedirectTarget } from "../../features/import-batches/ui/resolution-flow";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
@@ -98,9 +97,9 @@ export const action = defineFormAction({
         selectedOptions: parseSelectedOptionsInput(String(formData.get("selectedOptions") ?? "")),
         storageLocationId: String(formData.get("storageLocationId") ?? ""),
       });
-      // Stay on the batch surface and auto-advance the drawer to the next
-      // unresolved row (or close it once the batch is clean).
-      return formActionRedirect(null, resolveRowRedirectTarget(batchId, detail));
+      const base = `/account/inventory/imports/${batchId}`;
+      const nextRowId = detail.next_needs_seller_row_id;
+      return formActionRedirect(null, nextRowId ? `${base}?resolveRowId=${encodeURIComponent(nextRowId)}` : base);
     },
   },
   onUnknownIntent: () => formActionRedirect(null, "/account/inventory/imports"),
