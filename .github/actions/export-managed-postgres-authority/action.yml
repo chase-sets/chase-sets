@@ -25,6 +25,22 @@ inputs:
     description: Kubernetes namespace required only by trust-only-kubernetes-secret mode.
     required: false
     default: ""
+  retry-attempts:
+    description: Maximum CA request attempts for opt-in transient provider recovery.
+    required: false
+    default: "1"
+  retry-backoff-ms:
+    description: Fixed base backoff in milliseconds between transient CA request attempts.
+    required: false
+    default: "0"
+  failure-output-path:
+    description: Optional support-safe JSON path for a failed URL-export authority request.
+    required: false
+    default: ""
+  inventory-output-path:
+    description: Optional support-safe JSON path for the pooled context and pool inventory.
+    required: false
+    default: ""
 
 outputs:
   managed-postgres-ca-sha256:
@@ -44,6 +60,10 @@ runs:
         AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode }}
         AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode }}
         AUTHORITY_NAMESPACE: ${{ inputs.namespace }}
+        AUTHORITY_RETRY_ATTEMPTS: ${{ inputs.retry-attempts }}
+        AUTHORITY_RETRY_BACKOFF_MS: ${{ inputs.retry-backoff-ms }}
+        AUTHORITY_FAILURE_OUTPUT: ${{ inputs.failure-output-path }}
+        AUTHORITY_INVENTORY_OUTPUT: ${{ inputs.inventory-output-path }}
       run: |
         set -euo pipefail
         case "$AUTHORITY_ENVIRONMENT" in
@@ -88,10 +108,21 @@ runs:
         AUTHORITY_CONTEXTS: ${{ inputs.contexts || 'all' }}
         AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode || 'direct' }}
         AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode || 'all' }}
+        AUTHORITY_RETRY_ATTEMPTS: ${{ inputs.retry-attempts }}
+        AUTHORITY_RETRY_BACKOFF_MS: ${{ inputs.retry-backoff-ms }}
+        AUTHORITY_FAILURE_OUTPUT: ${{ inputs.failure-output-path }}
+        AUTHORITY_INVENTORY_OUTPUT: ${{ inputs.inventory-output-path }}
         MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
       run: |
         set -euo pipefail
         state_path="${RUNNER_TEMP}/platform-${AUTHORITY_ENVIRONMENT}.tfstate.json"
+        extra_args=()
+        if [ -n "$AUTHORITY_FAILURE_OUTPUT" ]; then
+          extra_args+=(--failure-output "$AUTHORITY_FAILURE_OUTPUT")
+        fi
+        if [ -n "$AUTHORITY_INVENTORY_OUTPUT" ]; then
+          extra_args+=(--inventory-output "$AUTHORITY_INVENTORY_OUTPUT")
+        fi
         terraform state pull > "$state_path"
         node ../../../scripts/terraform-state-database-urls.mjs \
           --state "$state_path" \
@@ -100,7 +131,10 @@ runs:
           --connection-mode "$AUTHORITY_CONNECTION_MODE" \
           --selection-mode "$AUTHORITY_SELECTION_MODE" \
           --ca-path "$MANAGED_POSTGRES_CA_PATH" \
-          --github-env "$GITHUB_ENV"
+          --github-env "$GITHUB_ENV" \
+          --retry-attempts "$AUTHORITY_RETRY_ATTEMPTS" \
+          --retry-backoff-ms "$AUTHORITY_RETRY_BACKOFF_MS" \
+          "${extra_args[@]}"
 
     - name: Reconcile managed Postgres CA Secret
       id: reconcile-trust

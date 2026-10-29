@@ -417,7 +417,9 @@ describe("render platform Helm values", () => {
     for (const [name, value] of catalogOverrides) {
       expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
     }
-    expect(JSON.stringify(staging)).not.toContain("CATALOG_INTEGRATION_");
+    const stagingWithoutInheritedApiEnv = structuredClone(staging);
+    delete stagingWithoutInheritedApiEnv.components["platform-api"].env;
+    expect(JSON.stringify(stagingWithoutInheritedApiEnv)).not.toContain("CATALOG_INTEGRATION_");
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -671,7 +673,17 @@ describe("render platform Helm values", () => {
     // environment gets it -- not just staging. The staging overlay stays
     // scoped to what is genuinely staging-only: replica count, resources,
     // and the staged Argo Rollout activation.
-    expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
+    expect(stagingValues.components["platform-api"]).toEqual({
+      ...doksStagingApiOverrides,
+      env: [
+        ...baselineValues.components["platform-api"].env,
+        {
+          name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+          secret: true,
+          secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+        },
+      ],
+    });
     expect(stagingValues.components["platform-api"]).toMatchObject({
       replicas: 2,
       envOverrides: { PROJECTION_INLINE_APPLY_ENABLED: "true" },
