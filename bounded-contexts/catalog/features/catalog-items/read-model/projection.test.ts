@@ -266,7 +266,11 @@ describe("Catalog Item projections", () => {
     ],
     ["catalog.catalog-item.published", { blueprintId: null }],
   ] as const)("rebuilds admin pages from source facts for %s", async (type, data) => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      calls.push([sql, params]);
+      return { rows: [] };
+    });
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
     const created = {
       type: "catalog.catalog-item.created",
@@ -285,15 +289,9 @@ describe("Catalog Item projections", () => {
     await handlers[type]?.(sourceEvent, { readSourceStreamHistory });
 
     expect(readSourceStreamHistory).toHaveBeenCalledOnce();
-    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages"))).toBe(
-      true,
-    );
-    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"))).toBe(
-      true,
-    );
-    const detailWrite = query.mock.calls.find(([sql]) =>
-      sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"),
-    );
+    expect(calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages"))).toBe(true);
+    expect(calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"))).toBe(true);
+    const detailWrite = calls.find(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"));
     const detailParams = detailWrite?.[1] as readonly unknown[];
     if (type === "catalog.catalog-item.field-value-set") {
       expect(JSON.parse(String((detailParams[14] as readonly string[])[0]))).toEqual([
