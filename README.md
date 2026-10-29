@@ -96,7 +96,7 @@ Deployables are thin composition roots. Business behavior should not live in dep
 - `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `build`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:db:1`, `test:db:2`, `test:db:3`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `build`, `dev`, `dev:ci`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
-- `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `build:handoff`, `test`, `test:chromium`, `test:watch`, `typecheck`.
+- `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `build:handoff`, `pairing-drill:staging`, `test`, `test:chromium`, `test:watch`, `typecheck`.
 - `deployables/tcgplayer-operator-extension` (`@chase-sets/app-tcgplayer-operator-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
 
 Default local ports are sandbox-aware. Each worktree receives a stable
