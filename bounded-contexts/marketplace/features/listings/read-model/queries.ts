@@ -240,6 +240,7 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   total_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }>;
 
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
@@ -310,6 +311,7 @@ export async function getInventoryItemSupply(
     total_quantity: number;
     available_quantity: number;
     acquisition_cost_amount: string | null;
+    acquisition_cost_currency_code: string | null;
   }>(
     `SELECT
        item.item_id,
@@ -362,7 +364,8 @@ export async function getInventoryItemSupply(
        location.ship_from_address,
        item.total_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
-       item.acquisition_cost_amount
+       item.acquisition_cost_amount,
+       item.acquisition_cost_currency_code
      FROM marketplace_supply_items AS item
      INNER JOIN marketplace_supply_locations AS location
        ON location.storage_location_id = item.storage_location_id
@@ -474,7 +477,8 @@ export async function listSellerInventoryItemSupply(
       location.ship_from_address,
       item.total_quantity,
       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
-      item.acquisition_cost_amount
+      item.acquisition_cost_amount,
+      item.acquisition_cost_currency_code
     FROM marketplace_supply_items AS item
     INNER JOIN marketplace_supply_locations AS location
       ON location.storage_location_id = item.storage_location_id
@@ -514,6 +518,7 @@ export async function listSellerInventoryItemSupply(
       total_quantity: number;
       available_quantity: number;
       acquisition_cost_amount: string | null;
+      acquisition_cost_currency_code: string | null;
     }>(
       `${selectSql}
        ORDER BY catalog_item.title ASC, item.product_id ASC, item.item_id ASC

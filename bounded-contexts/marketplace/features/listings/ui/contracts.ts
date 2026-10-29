@@ -249,6 +249,7 @@ export interface MarketplaceListingInventoryItemOption {
   total_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }
 
 export interface MarketplaceAnonymousListingDraftIntent {

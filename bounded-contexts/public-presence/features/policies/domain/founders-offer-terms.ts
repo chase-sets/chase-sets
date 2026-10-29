@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:869-881",
-          `${listingRuntime}:1890-2046`,
+          `${listingRuntime}:1891-2046`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
