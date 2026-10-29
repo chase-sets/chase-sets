@@ -66,6 +66,7 @@ function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]): b
     case "string":
       return typeof value === expected;
   }
+  return false;
 }
 
 function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: string): string[] {
