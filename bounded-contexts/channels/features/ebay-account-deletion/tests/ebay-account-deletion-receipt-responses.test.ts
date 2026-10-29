@@ -7,6 +7,7 @@ import { createEbayReceiptStaffRoutes } from "../api/staff-route";
 import type { EbayAccountDeletionServices } from "../api/runtime";
 import { lookupEbayReceiptsAsService } from "../api/receipt-actor-client";
 import { decodeEbayReceiptMatches, ebayReceiptLookupLimits, serializeEbayReceiptMatches } from "../domain/responses";
+import { EbayReceiptError } from "../domain/subject";
 
 const largest: unknown = JSON.parse(
   readFileSync(new URL("./fixtures/largest-valid-receipt-lookup.json", import.meta.url), "utf8"),
@@ -93,7 +94,7 @@ describe("ebay receipt response envelope AC3", () => {
   ])("rejects malformed/nested/request-account input without storage %#", async (body) => {
     const h = routes([]);
     h.lookup.mockImplementation(async (userId) => {
-      if (typeof userId !== "string") throw new Error("invalid-notice");
+      if (typeof userId !== "string") throw new EbayReceiptError("invalid-notice");
       return [];
     });
     const response = await h.request(body);

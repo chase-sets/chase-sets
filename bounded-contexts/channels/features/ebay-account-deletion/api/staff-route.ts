@@ -53,17 +53,11 @@ export function createEbayReceiptStaffRoutes(services: EbayAccountDeletionServic
       const serialized = serializeEbayReceiptMatches(result);
       return c.body(serialized, 200, { "Content-Type": "application/json" });
     } catch (error) {
-      if (
-        error instanceof EbayReceiptResponseTooLarge ||
-        (error instanceof Error && error.message === "ebay-receipt-response-too-large") ||
-        String(error).includes("ebay-receipt-response-too-large")
-      )
-        return c.json({ error: "receipt_response_too_large" }, 413);
+      if (error instanceof EbayReceiptResponseTooLarge) return c.json({ error: "receipt_response_too_large" }, 413);
       if (
         error instanceof SyntaxError ||
         (error instanceof Error && error.message === "invalid-ebay-receipt-response") ||
-        (error instanceof EbayReceiptError && error.code === "invalid-notice") ||
-        (error instanceof Error && error.message === "invalid-notice")
+        (error instanceof EbayReceiptError && error.code === "invalid-notice")
       )
         return c.json({ error: "invalid_lookup" }, 400);
       return c.json({ error: "receipt_lookup_unavailable" }, 503);

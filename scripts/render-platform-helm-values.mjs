@@ -350,7 +350,7 @@ export function buildPlatformHelmValues(options = {}) {
   const {
     schemaVersion: _schemaVersion,
     productionEnvOverrides: _productionEnvOverrides,
-    stagingApiEnv: _stagingApiEnv,
+    stagingApiEnv,
     ...values
   } = runtimeValues;
   const components = Object.fromEntries(
@@ -363,6 +363,12 @@ export function buildPlatformHelmValues(options = {}) {
       },
     ]),
   );
+  if (options.deploymentEnvironment === "staging") {
+    components["platform-api"] = {
+      ...components["platform-api"],
+      env: [...(components["platform-api"].env ?? []), ...stagingApiEnv],
+    };
+  }
   const digest = options.managedPostgresCaSha256 ?? "";
   if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
     throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
@@ -428,7 +434,10 @@ export function renderPlatformHelmValues(options = {}) {
 }
 
 export function buildPlatformHelmStagingValues(options = {}) {
-  const stagingApiEnv = readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot)).stagingApiEnv ?? [];
+  const stagingApiValues = buildPlatformHelmValues({
+    repoRoot: options.repoRoot,
+    deploymentEnvironment: "staging",
+  });
   return {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
@@ -461,18 +470,7 @@ export function buildPlatformHelmStagingValues(options = {}) {
       },
       "platform-api": {
         ...doksStagingApiOverrides,
-        env: [
-          { name: "CHANNELS_CREDENTIAL_KEYRING_JSON", secret: true, secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON" },
-          { name: "EBAY_ACCOUNT_DELETION_ENDPOINT", secret: true, secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT" },
-          {
-            name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
-            secret: true,
-            secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
-          },
-          { name: "EBAY_APPLICATION_CLIENT_ID", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_ID" },
-          { name: "EBAY_APPLICATION_CLIENT_SECRET", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_SECRET" },
-          ...stagingApiEnv,
-        ],
+        env: stagingApiValues.components["platform-api"].env,
       },
       "platform-worker": {
         autoscaling: {

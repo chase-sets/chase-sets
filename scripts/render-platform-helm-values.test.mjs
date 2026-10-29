@@ -417,7 +417,7 @@ describe("render platform Helm values", () => {
     for (const [name, value] of catalogOverrides) {
       expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
     }
-    expect(JSON.stringify(staging)).not.toContain("CATALOG_INTEGRATION_");
+    expect(JSON.stringify(staging.components["platform-api"].envOverrides)).not.toContain("CATALOG_INTEGRATION_");
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -674,15 +674,7 @@ describe("render platform Helm values", () => {
     expect(stagingValues.components["platform-api"]).toEqual({
       ...doksStagingApiOverrides,
       env: [
-        { name: "CHANNELS_CREDENTIAL_KEYRING_JSON", secret: true, secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON" },
-        { name: "EBAY_ACCOUNT_DELETION_ENDPOINT", secret: true, secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT" },
-        {
-          name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
-          secret: true,
-          secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
-        },
-        { name: "EBAY_APPLICATION_CLIENT_ID", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_ID" },
-        { name: "EBAY_APPLICATION_CLIENT_SECRET", secret: true, secretKey: "EBAY_APPLICATION_CLIENT_SECRET" },
+        ...baselineValues.components["platform-api"].env,
         {
           name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
           secret: true,
