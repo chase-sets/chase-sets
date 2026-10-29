@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
+import {
+  aggregateSellerAttentionQueue,
+  isSellerAttentionItem,
+  type SellerAttentionContext,
+} from "@chase-sets/seller-attention-queue";
 import {
   createBlockedPayoutAttentionSource,
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -140,6 +144,53 @@ describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
       ["settlement-blocked-payout:code-and-message", { reference: "PYO-CM", reason: CLOSED_MESSAGE }],
       ["settlement-blocked-payout:code-only", { reference: "PYO-C", reason: "Payout failed" }],
       ["settlement-blocked-payout:no-detail", { reference: "PYO-N", reason: "Payout failed" }],
+    ]);
+  });
+
+  // Fixtures arrive newest first, as the summary query orders them
+  // (updated_at DESC, payout_id DESC).
+  it("orders equal-time blocked payouts by payout ID on the Seller Desk queue", async () => {
+    const failedAt = "2026-07-12T00:00:00.000Z";
+    const readModel = summaryReadModel([
+      payout({ payout_id: "pay-b", status: "failed", updated_at: failedAt, failed_at: failedAt }),
+      payout({ payout_id: "pay-a", status: "failed", updated_at: failedAt, failed_at: failedAt }),
+    ]);
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createBlockedPayoutAttentionSourceFromReadModel(readModel as never)],
+      CONTEXT,
+    );
+
+    expect(queue.items.map((item) => item.id)).toEqual([
+      "settlement-blocked-payout:pay-a",
+      "settlement-blocked-payout:pay-b",
+    ]);
+  });
+
+  it("keeps the older blocked payout first on the Seller Desk queue", async () => {
+    const readModel = summaryReadModel([
+      payout({
+        payout_id: "pay-a",
+        status: "failed",
+        updated_at: "2026-07-12T00:00:00.000Z",
+        failed_at: "2026-07-12T00:00:00.000Z",
+      }),
+      payout({
+        payout_id: "pay-b",
+        status: "failed",
+        updated_at: "2026-07-11T00:00:00.000Z",
+        failed_at: "2026-07-11T00:00:00.000Z",
+      }),
+    ]);
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createBlockedPayoutAttentionSourceFromReadModel(readModel as never)],
+      CONTEXT,
+    );
+
+    expect(queue.items.map((item) => item.id)).toEqual([
+      "settlement-blocked-payout:pay-b",
+      "settlement-blocked-payout:pay-a",
     ]);
   });
 });

@@ -107,7 +107,14 @@ export function createBlockedPayoutAttentionSourceFromReadModel(db: PgQueryable)
         });
         return [];
       }
-      return selectBlockedPayoutAttentionRows(result.items, context);
+      // The summary reads newest first; the Desk keeps its oldest-first,
+      // payout-ID order so equal-time blockers stay in a stable sequence.
+      return selectBlockedPayoutAttentionRows(result.items, context)
+        .slice()
+        .sort(
+          (left, right) =>
+            Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.payoutId.localeCompare(right.payoutId),
+        );
     },
   });
 }
