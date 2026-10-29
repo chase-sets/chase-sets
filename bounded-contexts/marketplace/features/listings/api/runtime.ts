@@ -870,7 +870,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       | Readonly<{
           type: "ReconcileInventoryCapacity";
           intent: "pause" | "recover";
-          expectedVersion: number;
         }>,
     context: EventStoreContext,
   ): Promise<number> {
@@ -882,9 +881,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const listing = await repository.load(listingStreamId);
       if (listing.state.listingId === null || listing.state.accountId !== accountId) {
         throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
-      }
-      if (command.type === "ReconcileInventoryCapacity" && listing.version !== command.expectedVersion) {
-        return listing.version;
       }
       assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
       const inventoryItemId = listing.state.inventoryItemId;
@@ -1014,7 +1010,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         {
           type: "ReconcileInventoryCapacity",
           intent: "pause",
-          expectedVersion: listing.version,
         },
         createMarketplaceSystemContext(listing.state.accountId),
       );
@@ -1029,7 +1024,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         {
           type: "ReconcileInventoryCapacity",
           intent: "recover",
-          expectedVersion: listing.version,
         },
         createMarketplaceSystemContext(listing.state.accountId),
       );

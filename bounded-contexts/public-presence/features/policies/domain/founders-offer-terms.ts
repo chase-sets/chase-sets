@@ -27,7 +27,7 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:1143-1163; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const currentQuoteEvidence = `${listingRuntime}:1140-1163; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
 const creationEvidence = `${listingDomain}:440-464; ${listingDomain}:595-633; ${listingDomain}:1101-1156; ${listingRuntime}:1615-1670; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1993-2010; ${listingRuntime}:2011-2120; ${feeQuotes}:154-176; ${listingDomain}:838-869; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1993-2010; ${listingRuntime}:2011-2120; ${feeQuotes}:154-176; ${listingDomain}:850-881; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -127,7 +127,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:870-890; ${feeLock}:143-180; ${listingRuntime}:2121-2149; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:882-902; ${feeLock}:143-180; ${listingRuntime}:2121-2149; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",

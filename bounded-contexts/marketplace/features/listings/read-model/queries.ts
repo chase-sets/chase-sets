@@ -600,19 +600,6 @@ export async function getActiveQuantityCapForInventoryItem(
   return Number(result.rows[0]?.quantity_cap ?? 0);
 }
 
-export async function listActiveListingsForInventoryItem(db: PgQueryable, inventoryItemId: string) {
-  const result = await db.query<MarketplaceListingPageRow>(
-    `SELECT *
-     FROM marketplace_listing_pages
-     WHERE inventory_item_id = $1
-       AND status = 'active'
-     ORDER BY updated_at DESC, listing_id DESC`,
-    [inventoryItemId],
-  );
-
-  return result.rows.map(mapListingRow);
-}
-
 const SELLER_LISTING_STATUSES = new Set(["draft", "active", "paused", "withdrawn"]);
 
 export async function listSellerListings(

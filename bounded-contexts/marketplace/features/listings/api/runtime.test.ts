@@ -2829,7 +2829,7 @@ describe("inventory capacity recovery", () => {
     },
   );
 
-  it("does not recover from a stale revision when the seller edits the same capacity-paused Listing before append", async () => {
+  it("recovers a seller-edited capacity-paused Listing on the fresh revision", async () => {
     const f = fixture(1);
     await f.create("lst_revision");
     f.setAvailable(0);
@@ -2843,13 +2843,10 @@ describe("inventory capacity recovery", () => {
     });
     await f.reconcile();
     expect(await f.services.loadListingState("lst_revision")).toMatchObject({
-      status: "paused",
-      pauseReason: "inventory-capacity",
+      status: "active",
       purchaseLimits: { maxUnitsPerOrder: 1 },
     });
-    expect(f.allEvents.filter((e) => e.eventType === "marketplace.listing.published")).toHaveLength(1);
-    await f.reconcile();
-    expect((await f.services.loadListingState("lst_revision")).status).toBe("active");
+    expect(f.allEvents.filter((e) => e.eventType === "marketplace.listing.published")).toHaveLength(2);
   });
 
   it.each(["seller", "channel-inbound-dark", "policy-input-missing"] as const)(
@@ -3086,5 +3083,133 @@ describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", ()
     ).rejects.toMatchObject({ name: "AuthoredTextRejectedError", code: "text_control_character" });
     expect(putObject).not.toHaveBeenCalled();
     expect(allEvents).toHaveLength(eventCount);
+  });
+});
+
+describe("inventory capacity recovery revision races", () => {
+  function probeFixture(quantity: number) {
+    const memory = createInMemoryEventStore();
+    let available = quantity;
+    let hook: { eventType: string; run: () => Promise<void> } | undefined;
+    const eventStore: EventStore = {
+      ...memory.eventStore,
+      appendToStreams: async (inputs) => {
+        const current = hook;
+        if (current && inputs.some((i) => i.events.some((e) => e.eventType === current.eventType))) {
+          hook = undefined;
+          await current.run();
+        }
+        return memory.eventStore.appendToStreams!(inputs);
+      },
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_supply_items AS item"))
+            return {
+              rows: [
+                {
+                  item_id: "inv_probe",
+                  account_id: "acc_seller",
+                  catalog_catalog_item_id: "cat_1",
+                  product_id: "cat_1::",
+                  item_title: "Probe Card",
+                  selected_options: [],
+                  product_measure_snapshot: productMeasureSnapshot,
+                  storage_location_name: "Main",
+                  ship_from_code: "CHI",
+                  ship_from_address: shipFromAddress,
+                  available_quantity: available,
+                },
+              ],
+            };
+          return { rows: [] };
+        }),
+      } as never,
+      listingEvidencePolicyEvaluator: {
+        evaluate: async (facts) =>
+          evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
+            policyId: null,
+            policyVersion: null,
+            effectiveFrom: null,
+            effectiveUntil: null,
+          }),
+      },
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "0.50",
+          sellerNetUnitAmount: "9.50",
+          scheduleId: "cts_test",
+          agreementId: null,
+          resolvedAt: "2026-10-28T00:00:00.000Z",
+        }),
+      } as never,
+    });
+    const create = async (listingId: string) => {
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_probe",
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          listingIdOverride: listingId as never,
+        },
+        context,
+      );
+      await services.publishListing({ accountId: "acc_seller", listingId }, context);
+    };
+    const sellerEdit = (listingId: string) =>
+      services.updateListingPurchaseLimits(
+        { accountId: "acc_seller", listingId, purchaseLimits: { maxUnitsPerOrder: 1 } },
+        context,
+      );
+    return {
+      services,
+      create,
+      sellerEdit,
+      setAvailable: (value: number) => {
+        available = value;
+      },
+      on: (eventType: string, run: () => Promise<void>) => {
+        hook = { eventType, run };
+      },
+      activeTotal: async (ids: readonly string[]) =>
+        (await Promise.all(ids.map((id) => services.loadListingState(id))))
+          .filter((s) => s.status === "active")
+          .reduce((sum, s) => sum + s.quantityCap, 0),
+    };
+  }
+
+  it("PROBE-F1: a seller edit racing a shortage pause must not leave active caps above available", async () => {
+    const f = probeFixture(2);
+    await f.create("lst_probe_a");
+    await f.create("lst_probe_b");
+    f.setAvailable(1);
+    // Reverse registry order pauses lst_probe_b first; the seller edits it just before that append.
+    f.on("marketplace.listing.paused", () => f.sellerEdit("lst_probe_b").then(() => undefined));
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    expect(await f.activeTotal(["lst_probe_a", "lst_probe_b"])).toBeLessThanOrEqual(1);
+  });
+
+  it("PROBE-F2: a seller edit racing recovery must not strand an unblocked capacity pause with capacity available", async () => {
+    const f = probeFixture(1);
+    await f.create("lst_probe_r");
+    f.setAvailable(0);
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    f.setAvailable(1);
+    f.on("marketplace.listing.published", () => f.sellerEdit("lst_probe_r").then(() => undefined));
+    // The release callback runs exactly once; no further Inventory event follows in this scenario.
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    const state = await f.services.loadListingState("lst_probe_r");
+    expect({ status: state.status, block: state.inventoryCapacityRecoveryBlock }).not.toEqual({
+      status: "paused",
+      block: null,
+    });
   });
 });
