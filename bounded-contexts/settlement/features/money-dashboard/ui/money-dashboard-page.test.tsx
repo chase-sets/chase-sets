@@ -133,7 +133,6 @@ describe("SettlementMoneyDashboardPage", () => {
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
         ])}
-        payoutReadiness={readiness}
         quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts
@@ -168,7 +167,6 @@ describe("SettlementMoneyDashboardPage", () => {
             { code: "payout-setup-incomplete", message: "Finish payout setup in Chase Sets before requesting funds." },
           ],
         })}
-        payoutReadiness={{ ...readiness, status: "not-started", provider_reference: null }}
         quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
@@ -185,7 +183,6 @@ describe("SettlementMoneyDashboardPage", () => {
         wallet={wallet}
         entries={[]}
         payoutSummary={dashboardSummary([])}
-        payoutReadiness={readiness}
         quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
@@ -231,7 +228,6 @@ describe("SettlementMoneyDashboardPage", () => {
         wallet={{ ...wallet, available_balance_amount: "999999.00" }}
         entries={[]}
         payoutSummary={dashboardSummary([])}
-        payoutReadiness={readiness}
         quickAmounts={{ ...quickAmounts, full_available_amount: "999.99" }}
         canSetupPayouts
         canReconcilePayouts={false}
@@ -316,7 +312,6 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
           },
         ]}
         payoutSummary={dashboardSummary([])}
-        payoutReadiness={readiness}
         quickAmounts={quickAmounts}
         canSetupPayouts={false}
         canReconcilePayouts={false}
@@ -343,7 +338,6 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
         ])}
-        payoutReadiness={readiness}
         quickAmounts={quickAmounts}
         selectedWalletAdjustment={selectedWalletAdjustment}
         canSetupPayouts
@@ -384,7 +378,6 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
         wallet={wallet}
         entries={[]}
         payoutSummary={dashboardSummary([payout()])}
-        payoutReadiness={readiness}
         quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
