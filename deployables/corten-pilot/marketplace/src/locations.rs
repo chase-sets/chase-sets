@@ -65,8 +65,9 @@ pub(crate) async fn list(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<Check>,
+    Params(route): Params<crate::app::url::inventory::Locations>,
 ) -> HtmlResult {
+    let query = route.check;
     render(&req, &viewer, &config, &headers, &query, Forms::default()).await
 }
 
@@ -118,9 +119,10 @@ pub(crate) async fn update(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::Location<'_>>,
     Form(input): Form<LocationInput>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, Write::Update(id), input).await
 }
 
@@ -129,9 +131,10 @@ pub(crate) async fn archive(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::Archive<'_>>,
     Form(input): Form<LocationInput>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, Write::Archive(id), input).await
 }
 

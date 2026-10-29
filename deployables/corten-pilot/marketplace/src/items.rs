@@ -26,7 +26,7 @@ use std::{
 use corten::{
     LiveResponse,
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, Uri},
     },
     prelude::*,
@@ -199,7 +199,7 @@ pub struct Address {
 /// none): a seller's write (`after_write`, `listing::WRITTEN`), Set alert (`watched`), Add to List's
 /// Add Product (`saved` with the list, the quantity added and the line's status) and Add to cart
 /// (`added`). The page reads them from its query; a redirect after the write writes them.
-#[derive(Clone, Debug, Default, Route)]
+#[derive(Clone, Debug, Default, Deserialize, Route)]
 #[route(query)]
 pub struct After {
     pub after_write: Option<String>,
@@ -306,7 +306,14 @@ struct AddressQuery<'a> {
     dimensions: &'a [(String, String)],
 }
 
-impl Params for Address {
+/// The address read from the whole query, as `read` reads it, so the route's `Params` take it.
+impl<'de> Deserialize<'de> for Address {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Raw::deserialize(deserializer).map(|raw| Address::read(&raw))
+    }
+}
+
+impl corten::route::QueryParams for Address {
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
         AddressQuery {
             market: (self.market != Market::Buy).then(|| self.market.as_str()),
@@ -790,9 +797,10 @@ pub(crate) async fn page(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Path(id): Path<String>,
-    Query(raw): Query<Raw>,
+    Params(route): Params<url::Item<'_>>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let id = route.slug;
     let session = session.as_deref();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first());
     // After a seller's write (a listing, the ship-from setup), the page reads with its receipt, so
@@ -1071,9 +1079,10 @@ pub(crate) async fn live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: corten::LiveSince,
-    Path(id): Path<String>,
-    Query(raw): Query<Raw>,
+    Params(route): Params<url::ItemLive<'_>>,
+    Form(raw): Form<Raw>,
 ) -> LiveResponse {
+    let id = route.id;
     let session = session.as_deref();
     let (t, viewing, address): (ItemMsg, _, _) = (req.t(), Viewing::of(session), Address::read(&raw));
     let topic = format!("item:{id}");

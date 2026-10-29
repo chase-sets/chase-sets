@@ -649,8 +649,9 @@ pub(crate) async fn page(
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::repricing::Repricing>,
 ) -> HtmlResult {
+    let place = route.place;
     render(&req, &viewer, &config, &headers, &place, None, Refused::None, StatusCode::OK).await
 }
 
@@ -775,9 +776,9 @@ pub(crate) async fn live(
     Caller(PricingManager(_)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::repricing::RepricingDryRunLive<'_>>,
 ) -> LiveResponse {
+    let (id, place) = (route.id, route.place);
     let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
     let open = config
         .platform

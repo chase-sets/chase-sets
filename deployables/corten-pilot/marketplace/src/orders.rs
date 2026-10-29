@@ -131,8 +131,9 @@ pub(crate) async fn purchases(
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(paging): Query<Paging>,
+    Params(route): Params<crate::app::url::purchases::Purchases>,
 ) -> HtmlResult {
+    let paging = route.page;
     list(&req, &viewer, &config, &headers, Side::Buyer, &paging).await
 }
 
@@ -141,8 +142,9 @@ pub(crate) async fn sales(
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(paging): Query<Paging>,
+    Params(route): Params<crate::app::url::sales::Sales>,
 ) -> HtmlResult {
+    let paging = route.page;
     list(&req, &viewer, &config, &headers, Side::Seller, &paging).await
 }
 
@@ -151,9 +153,9 @@ pub(crate) async fn purchase(
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<AfterWrite>,
+    Params(route): Params<crate::app::url::purchases::Purchase<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, route.after);
     order(&req, &viewer, &config, &headers, Side::Buyer, &id, &after).await
 }
 
@@ -162,9 +164,9 @@ pub(crate) async fn sale(
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<AfterWrite>,
+    Params(route): Params<crate::app::url::sales::Sale<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, route.after);
     order(&req, &viewer, &config, &headers, Side::Seller, &id, &after).await
 }
 
@@ -173,8 +175,9 @@ pub(crate) async fn cancel_purchase(
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::purchases::PurchaseCancel<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     cancel(&req, &viewer, &config, &headers, Side::Buyer, &id).await
 }
 
@@ -183,8 +186,9 @@ pub(crate) async fn cancel_sale(
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sales::SaleCancel<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     cancel(&req, &viewer, &config, &headers, Side::Seller, &id).await
 }
 

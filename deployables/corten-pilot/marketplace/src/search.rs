@@ -372,7 +372,14 @@ pub(crate) struct TermsQuery<'a> {
     more: Option<usize>,
 }
 
-impl corten::route::Params for Terms {
+/// The terms read from the whole query, as `read` reads them, so the routes' `Params` take them.
+impl<'de> serde::Deserialize<'de> for Terms {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Raw::deserialize(deserializer).map(|raw| Terms::read(&raw))
+    }
+}
+
+impl corten::route::QueryParams for Terms {
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
         let family = |kind: Kind| -> Vec<(String, String)> {
             self.filters.iter().filter(|f| f.kind == kind).map(|f| (f.id.clone(), f.value.clone())).collect()
@@ -474,7 +481,7 @@ pub(crate) async fn page(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Query(raw): Query<Raw>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
     show(req, session, config, headers, uri, raw, None).await
 }
@@ -485,9 +492,10 @@ pub(crate) async fn category(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Path(slug): Path<String>,
-    Query(raw): Query<Raw>,
+    Params(route): Params<url::Category<'_>>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     show(req, session, config, headers, uri, raw, Some(slug)).await
 }
 

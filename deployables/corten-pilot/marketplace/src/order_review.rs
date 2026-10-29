@@ -154,9 +154,9 @@ pub(crate) async fn purchase(
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(ask): Query<ReviewAsk>,
+    Params(route): Params<crate::app::url::purchase_reviews::PurchaseReview<'_>>,
 ) -> HtmlResult {
+    let (id, ask) = (route.id, route.ask);
     page(&req, &viewer, &config, &headers, For::Purchase, &id, ask).await
 }
 
@@ -165,9 +165,9 @@ pub(crate) async fn sale(
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(ask): Query<ReviewAsk>,
+    Params(route): Params<crate::app::url::sale_reviews::SaleReview<'_>>,
 ) -> HtmlResult {
+    let (id, ask) = (route.id, route.ask);
     page(&req, &viewer, &config, &headers, For::Sale, &id, ask).await
 }
 
@@ -176,10 +176,10 @@ pub(crate) async fn submit_purchase(
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(ask): Query<ReviewAsk>,
+    Params(route): Params<crate::app::url::purchase_reviews::PurchaseReview<'_>>,
     Form(input): Form<ReviewInput>,
 ) -> HtmlResult {
+    let (id, ask) = (route.id, route.ask);
     submit(&req, &viewer, &config, &headers, For::Purchase, &id, ask, input).await
 }
 
@@ -188,10 +188,10 @@ pub(crate) async fn submit_sale(
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(ask): Query<ReviewAsk>,
+    Params(route): Params<crate::app::url::sale_reviews::SaleReview<'_>>,
     Form(input): Form<ReviewInput>,
 ) -> HtmlResult {
+    let (id, ask) = (route.id, route.ask);
     submit(&req, &viewer, &config, &headers, For::Sale, &id, ask, input).await
 }
 

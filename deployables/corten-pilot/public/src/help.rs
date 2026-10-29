@@ -517,7 +517,12 @@ pub(crate) async fn hub(req: Req, State(config): State<Shared>) -> Public<HtmlRe
 }
 
 /// A category's articles; a category that is not one, or has none, is not found.
-pub(crate) async fn category(req: Req, State(config): State<Shared>, Path(slug): Path<String>) -> Public<HtmlResult> {
+pub(crate) async fn category(
+    req: Req,
+    State(config): State<Shared>,
+    Params(route): Params<crate::app::url::help::HelpCategory<'_>>,
+) -> Public<HtmlResult> {
+    let slug = route.category;
     let Some(category) = Category::read(&slug).filter(|c| !in_category(*c).is_empty()) else {
         return public(Err(corten::Error::status(StatusCode::NOT_FOUND)), false);
     };
@@ -535,8 +540,9 @@ pub(crate) async fn category(req: Req, State(config): State<Shared>, Path(slug):
 pub(crate) async fn article(
     req: Req,
     State(config): State<Shared>,
-    Path((category, slug)): Path<(String, String)>,
+    Params(route): Params<crate::app::url::help::HelpArticle<'_>>,
 ) -> Public<HtmlResult> {
+    let (category, slug) = (route.category, route.slug);
     let found =
         articles().find(|a| a.category.slug() == category && a.slug == slug && a.href == format!("/help/{category}/{slug}"));
     let Some(article) = found else {

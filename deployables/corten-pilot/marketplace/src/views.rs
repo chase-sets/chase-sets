@@ -207,9 +207,9 @@ pub const PAYMENT_METHODS: &[Component] =
     &[PaymentMethodsPage, payment_methods_page::PaymentSetup, payment_page::stripe::COMPONENT];
 
 /// The account's support (`/account/support`) and a Support Request's participant page
-/// (`/account/support/{id}`). No script: the intake's steps are GET forms, and the refund amount
-/// shows for a partial refund by CSS (`:has`), which the handler checks is there.
-pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage];
+/// (`/account/support/{id}`), with corten-ui's `CheckboxGroup` on the affected items and
+/// `RequiredWhen` on a partial refund's amount; the handlers check both without a script.
+pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen];
 
 /// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
 /// editor's choice as it changes.

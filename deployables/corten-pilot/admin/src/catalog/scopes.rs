@@ -209,9 +209,9 @@ async fn scopes(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ScopeQuery>,
-    Query(notice): Query<url::ScopeNotice>,
+    Params(route): Params<crate::catalog::scopes::url::Scopes>,
 ) -> HtmlResult {
+    let (query, notice) = (route.query, route.notice);
     render(&req, &staff.viewer, &config, &headers, &query, &notice, ScopeBack::None).await
 }
 

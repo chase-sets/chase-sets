@@ -160,9 +160,9 @@ pub(crate) async fn page(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::sale_shipments::Packing<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let caller = config.platform.caller(&headers, config.proto, None);
     let outcome = match (&place.check, &place.done) {
         (Some(attempt), _) => check(&caller, &id, attempt).await,
@@ -298,9 +298,10 @@ pub(crate) async fn start(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sale_shipments::PackingStart<'_>>,
     Form(input): Form<AttemptInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let attempt = input.attempt.as_str();
     match caller.start_packing(&id, attempt).await {
@@ -328,9 +329,10 @@ pub(crate) async fn line(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, line)): Path<(String, String)>,
+    Params(route): Params<crate::app::url::sale_shipments::PackingLine<'_>>,
     Form(input): Form<LineInput>,
 ) -> HtmlResult {
+    let (id, line) = (route.id, route.line);
     let p: Pilot = req.t();
     let Some(count) = quantity(&input.quantity) else {
         let outcome = Outcome::Refused { attempt: input.attempt.clone(), message: p.packing_quantity_invalid().to_owned() };
@@ -468,9 +470,10 @@ pub(crate) async fn scan(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sale_shipments::PackingScan<'_>>,
     Form(input): Form<ScanInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let receipt = Receipt::from_param(Some(input.after_write.as_str()).filter(|r| !r.is_empty()));
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let shipment = match caller.shipment(Side::Seller, &id).await {
@@ -510,9 +513,10 @@ pub(crate) async fn pack(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sale_shipments::Pack<'_>>,
     Form(input): Form<PackInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let p: Pilot = req.t();
     let attempt = input.attempt.as_str();
     let refuse = |message: String| Outcome::Refused { attempt: attempt.to_owned(), message };

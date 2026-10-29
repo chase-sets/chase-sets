@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use corten::{
     axum::{
-        extract::{Path, Query, State},
+        extract::State,
         http::{HeaderMap, StatusCode},
     },
     prelude::*,
@@ -121,9 +121,9 @@ pub(crate) async fn page(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<ReviewPlace>,
+    Params(route): Params<crate::app::url::reviews::Review<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let report = place.reported.as_deref().filter(|r| *r == id).map(|_| ReviewNotice::Submitted);
@@ -175,9 +175,10 @@ pub(crate) async fn write(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::reviews::Review<'_>>,
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     match input.intent.as_str() {
         "report-review" => {

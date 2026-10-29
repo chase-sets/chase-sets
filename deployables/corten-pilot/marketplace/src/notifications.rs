@@ -193,8 +193,9 @@ pub(crate) async fn page(
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::notifications::Notifications>,
 ) -> HtmlResult {
+    let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, None);
     match place.view() {
@@ -362,9 +363,10 @@ pub(crate) async fn set_preference(
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(key): Path<String>,
+    Params(route): Params<crate::app::url::notifications::NotificationPreference<'_>>,
     Form(input): Form<PreferenceInput>,
 ) -> HtmlResult {
+    let key = route.key;
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.set_preference(&key, input.enabled == "true").await {
         Ok(preference) if req.mode == corten::Mode::Action => {
@@ -387,9 +389,10 @@ pub(crate) async fn change_alert(
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::notifications::ProductAlertChange<'_>>,
     Form(input): Form<AlertInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let Some(change) = AlertChange::read(&input.action) else {
         let t: NotificationsMsg = req.t();

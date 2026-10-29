@@ -24,7 +24,7 @@
 use corten::{
     LiveResponse,
     axum::{
-        extract::{Query, State},
+        extract::State,
         http::{HeaderMap, StatusCode},
     },
     prelude::*,
@@ -158,8 +158,9 @@ pub(crate) async fn list(
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
 ) -> HtmlResult {
+    let place = route.place;
     render(&req, &viewer, &config, &headers, place, None, None, None, StatusCode::OK).await
 }
 
@@ -194,9 +195,10 @@ pub(crate) async fn change(
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
     Form(form): Form<LifecycleForm>,
 ) -> HtmlResult {
+    let place = route.place;
     let p: Pilot = req.t();
     let (action, ids) = match form.row.split_once(':') {
         Some((action, id)) => (action.to_owned(), distinct(vec![id.to_owned()])),
@@ -247,8 +249,9 @@ pub(crate) async fn live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: corten::LiveSince,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffersLive>,
 ) -> LiveResponse {
+    let place = route.place;
     let (t, p): (SubmittedOffersMsg, Pilot) = (req.t(), req.t());
     let manage = viewer.actor.can(OFFERS_MANAGE);
     let topic = format!("account:{}:offers", viewer.actor.account_id);

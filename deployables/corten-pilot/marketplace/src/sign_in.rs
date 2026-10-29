@@ -428,7 +428,8 @@ fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
 }
 
 /// The page, at the step its address is on.
-pub(crate) async fn page(req: Req, Query(ask): Query<Ask>) -> HtmlResult {
+pub(crate) async fn page(req: Req, Params(route): Params<crate::app::url::sign_in::SignIn>) -> HtmlResult {
+    let ask = route.ask;
     let screen = SignInScreen::new(req.t(), ask);
     render(&req, StatusCode::OK, &screen)
 }
@@ -439,9 +440,10 @@ pub(crate) async fn write(
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
-    Query(ask): Query<Ask>,
+    Params(route): Params<crate::app::url::sign_in::SignIn>,
     Form(form): Form<SignInForm>,
 ) -> HtmlResult {
+    let ask = route.ask;
     let t: SignInMsg = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let return_to = safe_return_to(ask.return_to.as_deref(), DEFAULT_SUCCESS);
@@ -521,8 +523,9 @@ pub(crate) async fn magic(
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
-    Query(link): Query<Link>,
+    Params(route): Params<crate::app::url::sign_in::MagicLink>,
 ) -> HtmlResult {
+    let link = route.link;
     let t: SignInMsg = req.t();
     let return_to = safe_return_to(link.return_to.as_deref(), DEFAULT_SUCCESS);
     let failed = |status: StatusCode, title: &str, description: &str| {
@@ -613,8 +616,9 @@ pub(crate) async fn select_page(
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
-    Query(back): Query<Back>,
+    Params(route): Params<crate::app::url::account_select::AccountSelect>,
 ) -> HtmlResult {
+    let back = route.back;
     let Some(token) = selection_token(&headers) else { return sign_in_again(&req, &back) };
     let caller = config.platform.caller(&headers, config.proto, None);
     select_render(&req, &caller, client, token, &back, None).await
@@ -626,9 +630,10 @@ pub(crate) async fn select(
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
-    Query(back): Query<Back>,
+    Params(route): Params<crate::app::url::account_select::AccountSelect>,
     Form(form): Form<SelectForm>,
 ) -> HtmlResult {
+    let back = route.back;
     let Some(token) = selection_token(&headers) else { return sign_in_again(&req, &back) };
     let caller = config.platform.caller(&headers, config.proto, None);
     let body = json!({ "selectionToken": token, "accountId": form.account_id });

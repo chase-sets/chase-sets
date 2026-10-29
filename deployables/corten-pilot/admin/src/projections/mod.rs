@@ -193,8 +193,9 @@ async fn console(
     Caller(staff): Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::Projections>,
 ) -> HtmlResult {
+    let filters = route.filters;
     let mut screen = match read(&config, &headers).await {
         Ok(screen) => screen,
         Err(error) => return read_failed(&req, error, false),
@@ -225,8 +226,9 @@ async fn live(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::ProjectionsLive>,
 ) -> LiveResponse {
+    let filters = route.filters;
     let t: Ops = req.t();
     let Ok(first) = read(&config, &headers).await else { return corten::live(stream::empty::<String>()) };
     let followed: Vec<&Operation> = first.console.operations.iter().filter(|o| o.live()).collect();
@@ -305,8 +307,9 @@ async fn refresh(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::Refresh>,
 ) -> HtmlResult {
+    let filters = route.filters;
     match api::refresh(&config.platform.caller(&headers, config.proto, None)).await {
         Ok(()) => back(&req, filters),
         Err(error) => write_failed(&req, error),
@@ -318,9 +321,10 @@ async fn retry(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::Retry>,
     Form(input): Form<RetryInput>,
 ) -> HtmlResult {
+    let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::retry_stream(&caller, &input.projection_key, &input.stream_id).await {
         Ok(_) => back(&req, filters),
@@ -333,9 +337,10 @@ async fn rebuild(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::Rebuild>,
     Form(input): Form<RebuildInput>,
 ) -> HtmlResult {
+    let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::rebuild_group(&caller, &input.context_name, &input.projection_name).await {
         Ok(_) => back(&req, filters),
@@ -348,9 +353,10 @@ async fn rebuild_context(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::RebuildContext>,
     Form(input): Form<ContextInput>,
 ) -> HtmlResult {
+    let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::rebuild_context(&caller, &input.context_name).await {
         Ok(_) => back(&req, filters),
@@ -363,9 +369,10 @@ async fn cancel(
     _: Caller<Staff<OperationsView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<url::Filters>,
+    Params(route): Params<crate::projections::url::Cancel>,
     Form(input): Form<CancelInput>,
 ) -> HtmlResult {
+    let filters = route.filters;
     match api::cancel(&config.platform.caller(&headers, config.proto, None), &input.operation_id).await {
         Ok(()) => back(&req, filters),
         Err(error) => write_failed(&req, error),

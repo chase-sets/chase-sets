@@ -183,8 +183,9 @@ pub(crate) async fn page(
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::addresses::ShippingAddresses>,
 ) -> HtmlResult {
+    let place = route.place;
     let said = match (&place.check, place.action) {
         (Some(attempt), Some(action)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -263,9 +264,10 @@ pub(crate) async fn update(
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::addresses::AddressUpdate<'_>>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, AccountAction::Update, Some(&id), input).await
 }
 
@@ -274,9 +276,10 @@ pub(crate) async fn make_default(
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::addresses::AddressDefault<'_>>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, AccountAction::Default, Some(&id), input).await
 }
 
@@ -285,9 +288,10 @@ pub(crate) async fn archive(
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::addresses::AddressArchive<'_>>,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, AccountAction::Archive, Some(&id), input).await
 }
 

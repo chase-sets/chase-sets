@@ -270,12 +270,14 @@ async fn list(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::Policies>,
+    Params(route): Params<url::Policies>,
 ) -> HtmlResult {
+    let query = url::Policies { limit: route.limit, offset: route.offset, policy: route.policy, after_write: route.after_write };
     render(&req, &staff.viewer, &config, &headers, &query, Forms::default()).await
 }
 
-async fn open(req: Req, _: Caller<Staff<PostageView>>, Path(id): Path<String>) -> HtmlResult {
+async fn open(req: Req, _: Caller<Staff<PostageView>>, Params(route): Params<crate::app::url::Policy<'_>>) -> HtmlResult {
+    let id = route.id;
     req.redirect(&url::Policies { policy: Some(id), ..Default::default() })
 }
 
@@ -349,9 +351,10 @@ async fn revise(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::Revise<'_>>,
     Form(input): Form<PolicyInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).revise(&id, &command).await {
             Ok(done) => return written(&req, done),
@@ -373,9 +376,10 @@ async fn preview(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::Preview<'_>>,
     Form(input): Form<PolicyInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.preview_payload(req.t()) {
         Ok((payload, numbers)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -406,9 +410,10 @@ async fn activate(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::Activate<'_>>,
     Form(input): Form<ActivateInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match reason(req.t(), ActivateInput::FIELDS.activation_reason, &input.activation_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).activate(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -431,9 +436,10 @@ async fn retire(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::Retire<'_>>,
     Form(input): Form<RetireInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match reason(req.t(), RetireInput::FIELDS.retirement_reason, &input.retirement_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).retire(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -455,9 +461,10 @@ async fn clone(
     Caller(staff): Caller<Staff<PostageView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::Clone<'_>>,
     Form(input): Form<CloneInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).clone_policy(&id, &command).await {
             Ok(done) => return written(&req, done),

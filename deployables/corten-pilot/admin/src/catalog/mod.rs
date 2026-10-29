@@ -395,9 +395,9 @@ async fn dimensions(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::DimensionQuery>,
-    Query(notice): Query<url::ListNotice>,
+    Params(route): Params<crate::catalog::url::Dimensions>,
 ) -> HtmlResult {
+    let (query, notice) = (route.query, route.notice);
     dimension_list(&req, &staff.viewer, &config, &headers, &query, &notice, None, None).await
 }
 
@@ -448,8 +448,9 @@ async fn dimensions_live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
-    Query(query): Query<url::DimensionQuery>,
+    Params(route): Params<crate::catalog::url::DimensionsLive>,
 ) -> LiveResponse {
+    let query = route.query;
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = manages(&staff.viewer);
     live_rows(config, headers, since, DIMENSIONS_TOPIC, move |config, headers| {
@@ -474,9 +475,10 @@ async fn create_dimension(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::DimensionQuery>,
+    Params(route): Params<crate::catalog::url::Dimensions>,
     Form(input): Form<DimensionInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Dimensions, "", Some(&input.body(true))).await {
         Sent::Written(written) => {
@@ -501,9 +503,9 @@ async fn dimension(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<url::After>,
+    Params(route): Params<url::Dimension<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, url::After { after_write: route.after_write, done: route.done });
     dimension_page(&req, &staff.viewer, &config, &headers, &id, &after, DimensionForms::default()).await
 }
 
@@ -565,9 +567,10 @@ async fn edit_dimension(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::DimensionEdit<'_>>,
     Form(input): Form<DimensionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::PUT, Kind::Dimensions, &under(&id, &[]), Some(&input.body(false))).await {
         Sent::Written(written) => return to_dimension(&req, &id, &written, Done::Revised),
@@ -586,9 +589,10 @@ async fn dimension_lifecycle(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::DimensionLifecycle<'_>>,
     Form(input): Form<ActionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.of(&["activate", "deprecate", "archive"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -620,9 +624,10 @@ async fn add_option(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::Options<'_>>,
     Form(input): Form<OptionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let action = url::Options { id: &id }.href();
     if let Some(next) = input.relabeled() {
         let draft = Draft::new(next);
@@ -652,9 +657,10 @@ async fn revise_option(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, option_id)): Path<(String, String)>,
+    Params(route): Params<crate::catalog::url::OptionEdit<'_>>,
     Form(input): Form<OptionInput>,
 ) -> HtmlResult {
+    let (id, option_id) = (route.id, route.option_id);
     let action = url::OptionEdit { id: &id, option_id: &option_id }.href();
     let form_id = ids::option_form(&option_id);
     if let Some(next) = input.relabeled() {
@@ -703,9 +709,10 @@ async fn option_lifecycle(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, option_id)): Path<(String, String)>,
+    Params(route): Params<crate::catalog::url::OptionLifecycle<'_>>,
     Form(input): Form<ActionInput>,
 ) -> HtmlResult {
+    let (id, option_id) = (route.id, route.option_id);
     let errors = match input.of(&["deprecate", "reactivate"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -732,9 +739,10 @@ async fn reorder_options(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::OptionOrder<'_>>,
     Form(input): Form<ReorderInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors =
         match command(&caller, Method::PUT, Kind::Dimensions, &under(&id, &["options", "order"]), Some(&input.body())).await {
@@ -756,9 +764,9 @@ async fn fields(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::FieldQuery>,
-    Query(notice): Query<url::ListNotice>,
+    Params(route): Params<crate::catalog::url::Fields>,
 ) -> HtmlResult {
+    let (query, notice) = (route.query, route.notice);
     field_list(&req, &staff.viewer, &config, &headers, &query, &notice, None, None).await
 }
 
@@ -817,8 +825,9 @@ async fn fields_live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
-    Query(query): Query<url::FieldQuery>,
+    Params(route): Params<crate::catalog::url::FieldsLive>,
 ) -> LiveResponse {
+    let query = route.query;
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = manages(&staff.viewer);
     live_rows(config, headers, since, FIELDS_TOPIC, move |config, headers| {
@@ -842,9 +851,10 @@ async fn create_field(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::FieldQuery>,
+    Params(route): Params<crate::catalog::url::Fields>,
     Form(input): Form<FieldInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Fields, "", Some(&input.body(true))).await {
         Sent::Written(written) => {
@@ -869,9 +879,9 @@ async fn field(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<url::After>,
+    Params(route): Params<url::Field<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, url::After { after_write: route.after_write, done: route.done });
     field_page(&req, &staff.viewer, &config, &headers, &id, &after, FieldForms::default()).await
 }
 
@@ -910,9 +920,10 @@ async fn configure_field(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::FieldEdit<'_>>,
     Form(input): Form<FieldInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::PUT, Kind::Fields, &under(&id, &[]), Some(&input.body(false))).await {
         Sent::Written(written) => return to_field(&req, &id, &written, Done::Revised),
@@ -932,9 +943,10 @@ async fn field_lifecycle(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::FieldLifecycle<'_>>,
     Form(input): Form<ActionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.of(&["activate", "deprecate", "archive"]) {
         Some(action) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -1102,9 +1114,10 @@ async fn preview_dimensions(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::DimensionQuery>,
+    Params(route): Params<crate::catalog::url::DimensionsBulk>,
     Form(input): Form<BulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let confirm = url::DimensionsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match preview(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
@@ -1124,9 +1137,10 @@ async fn preview_fields(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::FieldQuery>,
+    Params(route): Params<crate::catalog::url::FieldsBulk>,
     Form(input): Form<BulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let confirm = url::FieldsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match preview(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
@@ -1172,9 +1186,10 @@ async fn confirm_dimensions(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::DimensionQuery>,
+    Params(route): Params<crate::catalog::url::DimensionsBulkConfirm>,
     Form(input): Form<BulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let action = url::DimensionsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (errors, preview) = match confirm(&req, &caller, Kind::Dimensions, &input, dimension_filter(&query)).await {
@@ -1197,9 +1212,10 @@ async fn confirm_fields(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::FieldQuery>,
+    Params(route): Params<crate::catalog::url::FieldsBulkConfirm>,
     Form(input): Form<BulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let action = url::FieldsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (errors, preview) = match confirm(&req, &caller, Kind::Fields, &input, field_filter(&query)).await {
@@ -1228,8 +1244,9 @@ async fn job_live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::url::JobLive<'_>>,
 ) -> LiveResponse {
+    let id = route.id;
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
     let updates = caller.watch_job::<Job<Value>>(&api::job_events(&id), api::CONTEXT, since.0, Job::done);

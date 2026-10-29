@@ -342,9 +342,9 @@ async fn page(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<url::After>,
+    Params(route): Params<url::Item<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, url::After { after_write: route.after_write, done: route.done });
     render(&req, &staff.viewer, &config, &headers, &id, &after, ItemBack::Nothing).await
 }
 
@@ -447,9 +447,10 @@ async fn publish_form(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(input): Query<PublishInput>,
+    Params(route): Params<url::Publish<'_>>,
+    Form(input): Form<PublishInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let draft = Draft::new(input);
     if req.mode == Mode::Action {
         let readiness = readiness_now(&caller(&config, &headers, None), &id).await;
@@ -470,9 +471,10 @@ async fn publish(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Publish<'_>>,
     Form(input): Form<PublishInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::POST, &id, &["publish"], Some(&input.body())).await, Change::Published);
@@ -487,9 +489,10 @@ async fn lifecycle(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Lifecycle<'_>>,
     Form(input): Form<ActionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.of(&["archive"]) {
         Some(action) => {
             let caller = caller(&config, &headers, None);
@@ -518,9 +521,10 @@ async fn blueprint(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Blueprint<'_>>,
     Form(input): Form<IdInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.check(req.t()) {
         Ok(blueprint) => {
             let body = json!({ "blueprintId": blueprint });
@@ -547,9 +551,10 @@ async fn metadata(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Metadata<'_>>,
     Form(input): Form<MetadataInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     // The title and subtitle go back as the API holds them now, not as the page was drawn.
     let errors = match read!(req, caller.get::<ItemDetail>(Kind::Items, &id).await) {
@@ -571,9 +576,10 @@ async fn tags(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Tags<'_>>,
     Form(input): Form<ListInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let body = json!({ "tags": parts(&input.text, ',') });
     let errors = sent!(req, id, item_command(&caller, Method::PUT, &id, &["tags"], Some(&body)).await, Change::TagsUpdated);
@@ -596,9 +602,10 @@ async fn image_urls(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::ImageUrls<'_>>,
     Form(input): Form<ListInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let body = json!({ "imageUrls": parts(&input.text, '\n') });
     let errors =
@@ -622,9 +629,10 @@ async fn fallback(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Fallback<'_>>,
     Form(input): Form<FallbackInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.body(req.t()) {
         Ok(body) => {
             let caller = caller(&config, &headers, None);
@@ -647,8 +655,9 @@ async fn clear_fallback(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::FallbackClear<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::DELETE, &id, &["image-fallback"], None).await, Change::FallbackCleared);
@@ -664,8 +673,9 @@ async fn field_dialog(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Fields<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     let choices = field_choices(&caller(&config, &headers, None)).await;
     let draft = Draft::new(FieldValueInput::default());
     let dialog = views::FieldDialog { t: req.t(), p: req.t(), id: &id, form: &draft, choices: &choices };
@@ -677,9 +687,10 @@ async fn set_field(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Fields<'_>>,
     Form(input): Form<FieldValueInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let field_id = input.field_id.trim().to_owned();
     // Whether the field takes a reference record is the field's own (admin-web reads it from the
@@ -704,8 +715,9 @@ async fn clear_field(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, field_id)): Path<(String, String)>,
+    Params(route): Params<crate::catalog::item::url::FieldClear<'_>>,
 ) -> HtmlResult {
+    let (id, field_id) = (route.id, route.field_id);
     let caller = caller(&config, &headers, None);
     let errors =
         sent!(req, id, item_command(&caller, Method::DELETE, &id, &["fields", &field_id], None).await, Change::FieldCleared);
@@ -719,9 +731,10 @@ async fn assign_category(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Categories<'_>>,
     Form(input): Form<IdInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let errors = match input.check(req.t()) {
         Ok(category) => {
             let caller = caller(&config, &headers, None);
@@ -752,8 +765,9 @@ async fn remove_category(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, category_id)): Path<(String, String)>,
+    Params(route): Params<crate::catalog::item::url::CategoryRemove<'_>>,
 ) -> HtmlResult {
+    let (id, category_id) = (route.id, route.category_id);
     let caller = caller(&config, &headers, None);
     let errors = sent!(
         req,
@@ -849,9 +863,10 @@ async fn link_catalog_ref(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::CatalogRefs<'_>>,
     Form(input): Form<ReferenceInput>,
 ) -> HtmlResult {
+    let id = route.id;
     link(req, &staff.viewer, config, headers, id, input, Refs::CatalogItem).await
 }
 
@@ -860,9 +875,10 @@ async fn unlink_catalog_ref(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::CatalogRefUnlink<'_>>,
     Form(input): Form<ReferenceInput>,
 ) -> HtmlResult {
+    let id = route.id;
     unlink(req, &staff.viewer, config, headers, id, input, Refs::CatalogItem).await
 }
 
@@ -871,9 +887,10 @@ async fn link_product_ref(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::ProductRefs<'_>>,
     Form(input): Form<ReferenceInput>,
 ) -> HtmlResult {
+    let id = route.id;
     link(req, &staff.viewer, config, headers, id, input, Refs::Product).await
 }
 
@@ -882,9 +899,10 @@ async fn unlink_product_ref(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::ProductRefUnlink<'_>>,
     Form(input): Form<ReferenceInput>,
 ) -> HtmlResult {
+    let id = route.id;
     unlink(req, &staff.viewer, config, headers, id, input, Refs::Product).await
 }
 
@@ -895,8 +913,9 @@ async fn content_dialog(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Contents<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     let choices = content_choices(&caller(&config, &headers, None)).await;
     // admin-web's dialog opens with the first type and policy chosen.
     let first = |list: &[ContentChoice]| list.first().map(|c| c.id.clone()).unwrap_or_default();
@@ -926,9 +945,10 @@ async fn add_content(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::item::url::Contents<'_>>,
     Form(input): Form<ContentLineInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = caller(&config, &headers, None);
     let errors = match input.line(req.t()) {
         Ok(line) => {
@@ -952,8 +972,9 @@ async fn remove_content(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, line_id)): Path<(String, String)>,
+    Params(route): Params<crate::catalog::item::url::ContentRemove<'_>>,
 ) -> HtmlResult {
+    let (id, line_id) = (route.id, route.line_id);
     let caller = caller(&config, &headers, None);
     let replaced =
         replace_lines(&caller, &id, |lines| lines.into_iter().filter(|l| l.line_id != line_id).map(line_input).collect()).await;

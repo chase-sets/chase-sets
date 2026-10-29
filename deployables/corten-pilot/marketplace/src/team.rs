@@ -125,8 +125,9 @@ pub(crate) async fn page(
     Caller(TeamOwner(viewer)): Caller<TeamOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::team::Team>,
 ) -> HtmlResult {
+    let place = route.place;
     let said = match (&place.check, place.action) {
         (Some(attempt), Some(action)) => {
             let caller = config.platform.caller(&headers, config.proto, None);

@@ -686,9 +686,9 @@ pub(crate) async fn confirmation(
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<ConfirmationPlace>,
+    Params(route): Params<crate::app::url::checkout::BuyConfirmation<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let session = match waiting.checkout_session(&id).await {
@@ -745,9 +745,9 @@ pub(crate) async fn page(
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     render(&req, &viewer, &config, &headers, &id, place, None).await
 }
 
@@ -781,9 +781,10 @@ pub(crate) async fn write(
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
     Form(form): Form<CheckoutForm>,
 ) -> HtmlResult {
+    let id = route.id;
     let t: CheckoutMsg = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (visible, quoted) = form.methods();

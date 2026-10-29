@@ -20,7 +20,7 @@
 use corten::{
     ClientZone, LiveResponse,
     axum::{
-        extract::{Query, State},
+        extract::State,
         http::{HeaderMap, StatusCode},
     },
     form::Errors,
@@ -294,8 +294,9 @@ pub(crate) async fn page(
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListings>,
 ) -> HtmlResult {
+    let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
     render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK).await
 }
@@ -454,9 +455,10 @@ pub(crate) async fn write(
     State(config): State<Shared>,
     zone: Option<ClientZone>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListings>,
     Form(form): Form<ListingsForm>,
 ) -> HtmlResult {
+    let place = route.place;
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
     if let Some(command) = match form.intent.as_str() {
         "bulk-pause-listings" => Some(ListingCommand::Pause),
@@ -573,8 +575,9 @@ pub(crate) async fn live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: corten::LiveSince,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListingsLive>,
 ) -> LiveResponse {
+    let place = route.place;
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
     let filters = Filters::read(&place);
     let topic = format!("account:{}:listings", viewer.actor.account_id);

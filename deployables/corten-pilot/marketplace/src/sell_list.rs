@@ -774,8 +774,9 @@ pub(crate) async fn page(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::sell_list::SellList>,
 ) -> HtmlResult {
+    let place = route.place;
     render(&req, session.as_deref(), &config, &headers, Surface::SellList, &place, None).await
 }
 
@@ -784,8 +785,9 @@ pub(crate) async fn desk_page(
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::desk_offers::DeskOffers>,
 ) -> HtmlResult {
+    let place = route.place;
     let session = Session::Account(viewer);
     render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None).await
 }

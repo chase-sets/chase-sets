@@ -23,7 +23,7 @@
 //! marketplace's guest checkout, as marketplace sends it there.
 use corten::{
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, header},
     },
     prelude::*,
@@ -424,9 +424,10 @@ pub(crate) async fn add(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemCart<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
@@ -489,9 +490,10 @@ pub(crate) async fn buy(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemBuy<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);
@@ -572,9 +574,10 @@ pub(crate) async fn offer(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemOffer<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let mut input = BuyInput::read(&raw);

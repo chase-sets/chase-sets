@@ -2,15 +2,17 @@
 //! last post said, Report a problem (the intake's three steps for an order, or where to start
 //! one), the buyer's and the seller's cases with their resolution's progress, and the flows.
 //!
-//! No script. The intake's first two steps are GET forms to the page (a step and its choices are
-//! the address); the last posts the address with the photos. A group of boxes cannot require one
-//! to be checked without a script (todd-skelton/corten#272), so Continue with no item draws the
-//! items step again and says so. A table is a list of cards on a phone, each cell with its
+//! The intake's first two steps are GET forms to the page (a step and its choices are the
+//! address); the last posts the address with the photos. The affected items are corten-ui's
+//! `CheckboxGroup`, so with its script the browser stops Continue with no item at the group
+//! (todd-skelton/corten#272); without it, Continue with no item draws the items step again and
+//! says so, as the server always checks. A table is a list of cards on a phone, each cell with its
 //! column's name, and a table from 48rem.
 use corten::{
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use corten_ui::CheckboxGroup;
 
 use super::{on_marketplace, order_page::display_reference};
 use crate::{
@@ -508,32 +510,35 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
             if lines.is_empty() {
                 <div class={Banner} data-tone="info"><p>{t.list_intake_whole_order()}</p></div>
             } else {
-                <fieldset class={Plain} aria-describedby="support-items-hint">
-                    <legend class={Strong}>{t.list_intake_items_label()}</legend>
-                    if intake.choose_items {
-                        <p id="support-items-hint" class={(Small, Danger)} role="alert">{t.list_intake_items_description()}</p>
-                    } else {
-                        <p id="support-items-hint" class={(Small, Muted)}>{t.list_intake_items_description()}</p>
-                    }
-                    for line in lines {
-                        <label class={Choice}>
-                            <input
-                                type="checkbox"
-                                name="line"
-                                value={&line.line_id}
-                                checked={intake.lines.contains(&line.line_id)}
-                            >
-                            <span class={Tight}>
-                                <span>
-                                    {t.list_intake_item_label(&line.item_title, line.quantity, &money(t, &line.amount, &line.currency_code))}
+                <div class={Group}>
+                    <CheckboxGroup legend={t.list_intake_items_label()} missing={t.list_intake_items_description()}>
+                        if intake.choose_items {
+                            <p id="support-items-hint" class={(Small, Danger)} role="alert">
+                                {t.list_intake_items_description()}
+                            </p>
+                        } else {
+                            <p id="support-items-hint" class={(Small, Muted)}>{t.list_intake_items_description()}</p>
+                        }
+                        for line in lines {
+                            <label class={Choice}>
+                                <input
+                                    type="checkbox"
+                                    name="line"
+                                    value={&line.line_id}
+                                    checked={intake.lines.contains(&line.line_id)}
+                                >
+                                <span class={Tight}>
+                                    <span>
+                                        {t.list_intake_item_label(&line.item_title, line.quantity, &money(t, &line.amount, &line.currency_code))}
+                                    </span>
+                                    if let Some(summary) = &line.product_summary {
+                                        <span class={(Small, Muted)}>{summary}</span>
+                                    }
                                 </span>
-                                if let Some(summary) = &line.product_summary {
-                                    <span class={(Small, Muted)}>{summary}</span>
-                                }
-                            </span>
-                        </label>
-                    }
-                </fieldset>
+                            </label>
+                        }
+                    </CheckboxGroup>
+                </div>
             }
             <div class={End}>
                 <button type="submit" class={Button} name="step" value="issue">{t.list_intake_continue()}</button>

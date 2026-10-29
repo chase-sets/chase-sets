@@ -103,8 +103,9 @@ pub(crate) async fn page(
     req: Req,
     State(config): State<Shared>,
     client: Option<corten::ClientIp>,
-    Query(arrival): Query<Arrival>,
+    Params(route): Params<crate::app::url::files::Welcome>,
 ) -> HtmlResult {
+    let arrival = route.arrival;
     let Some(signup) = arrival.signup_id() else {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
     };
@@ -189,9 +190,10 @@ pub(crate) async fn save(
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<corten::ClientIp>,
-    Query(arrival): Query<Arrival>,
+    Params(route): Params<crate::app::url::files::Welcome>,
     corten::Form(wave): corten::Form<Wave>,
 ) -> HtmlResult {
+    let arrival = route.arrival;
     let Some(signup) = arrival.signup_id() else {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
     };

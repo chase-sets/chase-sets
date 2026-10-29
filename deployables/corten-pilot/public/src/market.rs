@@ -30,7 +30,12 @@ const PRODUCTION_HOST: &str = "chasesets.com";
 
 /// An item's market page. Pricing's 404 is the not-found page; a failed read is a 502, which no
 /// cache keeps.
-pub(crate) async fn page(req: Req, State(config): State<Shared>, Path(slug): Path<String>) -> Public<HtmlResult> {
+pub(crate) async fn page(
+    req: Req,
+    State(config): State<Shared>,
+    Params(route): Params<crate::app::url::market::MarketPage<'_>>,
+) -> Public<HtmlResult> {
+    let slug = route.slug;
     let (page, shared) = match read(&config, slug.trim()).await {
         Ok(page) => {
             let shared = page.shared.unwrap_or(SHARED);

@@ -527,7 +527,7 @@ pub(crate) async fn page(
     Caller(ListingSeller(viewer)): Caller<ListingSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(raw): Query<Raw>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
     if !viewer.actor.can(LISTINGS_VIEW) {
         return access_required(&req, &viewer);

@@ -320,8 +320,9 @@ pub(crate) async fn page(
     Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::money::Money>,
 ) -> HtmlResult {
+    let place = route.place;
     render(&req, &viewer, &config, &headers, &place, Said::default(), StatusCode::OK).await
 }
 
@@ -473,9 +474,9 @@ pub(crate) async fn payout(
     Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<PayoutPlace>,
+    Params(route): Params<crate::app::url::payout::DeskPayout<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let payout = match caller.payout(&id).await {
@@ -527,7 +528,12 @@ pub(crate) async fn legacy_payouts(req: Req, uri: Uri) -> HtmlResult {
 }
 
 /// `/account/payouts/{id}`: the payout's page.
-pub(crate) async fn legacy_payout(req: Req, uri: Uri, Path(id): Path<String>) -> HtmlResult {
+pub(crate) async fn legacy_payout(
+    req: Req,
+    uri: Uri,
+    Params(route): Params<crate::app::url::home::LegacyPayout<'_>>,
+) -> HtmlResult {
+    let id = route.id;
     moved_with(&req, url::DeskPayout { id: &id, place: PayoutPlace::default() }.href(), &uri)
 }
 
@@ -537,7 +543,11 @@ pub(crate) async fn legacy_payout_setup(req: Req, uri: Uri) -> HtmlResult {
 }
 
 /// `/account/wallet/adjustments/{reference}`: the money page with the adjustment's breakdown open.
-pub(crate) async fn legacy_adjustment(req: Req, Path(reference): Path<String>) -> HtmlResult {
+pub(crate) async fn legacy_adjustment(
+    req: Req,
+    Params(route): Params<crate::app::url::home::LegacyAdjustment<'_>>,
+) -> HtmlResult {
+    let reference = route.reference;
     req.moved(&url::Money { place: Place::adjustment(&reference) })
 }
 

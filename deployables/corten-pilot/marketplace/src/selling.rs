@@ -21,7 +21,7 @@
 //! (chase-sets/chase-sets#9995).
 use corten::{
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, header},
     },
     prelude::*,
@@ -321,9 +321,10 @@ pub(crate) async fn add(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemSellList<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();

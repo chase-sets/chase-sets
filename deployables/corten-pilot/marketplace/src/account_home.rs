@@ -117,8 +117,9 @@ pub(crate) async fn page(
     Caller(AccountOwner(viewer)): Caller<AccountOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::account_home::AccountHome>,
 ) -> HtmlResult {
+    let place = route.place;
     let said = match &place.check {
         Some(attempt) => {
             let caller = config.platform.caller(&headers, config.proto, None);

@@ -70,8 +70,9 @@ pub(crate) async fn list(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<Check>,
+    Params(route): Params<crate::app::url::inventory::Restock>,
 ) -> HtmlResult {
+    let query = route.check;
     render(&req, &viewer, &config, &headers, &query, None).await
 }
 
@@ -80,9 +81,10 @@ pub(crate) async fn restock(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::Restocked<'_>>,
     Form(input): Form<DecisionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     decide(&req, &viewer, &config, &headers, Decided::Restock(id), input).await
 }
 
@@ -91,9 +93,10 @@ pub(crate) async fn write_off(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::WrittenOff<'_>>,
     Form(input): Form<DecisionInput>,
 ) -> HtmlResult {
+    let id = route.id;
     decide(&req, &viewer, &config, &headers, Decided::WriteOff(id), input).await
 }
 

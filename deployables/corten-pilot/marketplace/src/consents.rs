@@ -68,8 +68,9 @@ pub(crate) async fn page(
     Caller(ConsentHolder(viewer)): Caller<ConsentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::consents::Consents>,
 ) -> HtmlResult {
+    let place = route.place;
     let said = match &place.check {
         Some(attempt) => {
             let caller = config.platform.caller(&headers, config.proto, None);

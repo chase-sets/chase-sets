@@ -144,7 +144,12 @@ pub(crate) async fn portal(req: Req, State(config): State<Shared>) -> Public<Htm
 }
 
 /// A guide; one that is not one is not found.
-pub(crate) async fn article(req: Req, State(config): State<Shared>, Path(slug): Path<String>) -> Public<HtmlResult> {
+pub(crate) async fn article(
+    req: Req,
+    State(config): State<Shared>,
+    Params(route): Params<crate::app::url::developers::Guide<'_>>,
+) -> Public<HtmlResult> {
+    let slug = route.slug;
     if !config.developers {
         return closed();
     }

@@ -4,15 +4,16 @@
 //! the evidence prompts, the offer, the seller's response and Request support review, Cancel case,
 //! the resolution, and the timeline.
 //!
-//! No script. Every form posts to the page with the form's `SubmitKey` as its attempt; while an
-//! attempt's outcome is not known the forms' fieldsets are off. A partial refund's amount shows
-//! when the response's select picks it (`:has`; without `:has` it always shows), and the handler
-//! checks it is there, since `required` cannot depend on another field without a script
-//! (todd-skelton/corten#269). One column on a phone; a key and its value side by side from 40rem.
+//! Every form posts to the page with the form's `SubmitKey` as its attempt; while an attempt's
+//! outcome is not known the forms' fieldsets are off. A partial refund's amount shows when the
+//! response's select picks it (`:has`; without `:has` it always shows) and is corten-ui's
+//! `RequiredWhen`, so with its script the browser requires it for a partial refund and leaves it
+//! out otherwise (todd-skelton/corten#269); the handler still checks it is there. One column on a phone; a key and its value side by side from 40rem.
 use corten::{
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use corten_ui::RequiredWhen;
 
 use crate::{
     api::{SupportChecklistItem, SupportOffer, SupportRequest},
@@ -356,17 +357,21 @@ fn ResponseForm<'a>(t: SupportMsg, screen: &'a SupportScreen) -> impl Render {
                     </select>
                 </label>
                 if screen.responses.iter().any(|r| r == "offer-partial-refund") {
-                    <label class={(Field, Refund)}>
-                        <span class={Label}>{t.page_response_refund_amount()}</span>
-                        <input
-                            type="text"
-                            name={f.refund_amount}
-                            value={refund}
-                            inputmode="decimal"
-                            placeholder="0.00"
-                            autocomplete="off"
-                        >
-                    </label>
+                    <div class={Refund}>
+                        <RequiredWhen control={f.response_type} values={&["offer-partial-refund"]}>
+                            <label class={Field}>
+                                <span class={Label}>{t.page_response_refund_amount()}</span>
+                                <input
+                                    type="text"
+                                    name={f.refund_amount}
+                                    value={refund}
+                                    inputmode="decimal"
+                                    placeholder="0.00"
+                                    autocomplete="off"
+                                >
+                            </label>
+                        </RequiredWhen>
+                    </div>
                 }
                 <label class={Field}>
                     <span class={Label}>{t.page_response_summary()}</span>

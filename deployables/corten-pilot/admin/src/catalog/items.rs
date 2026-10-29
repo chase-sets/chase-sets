@@ -209,9 +209,9 @@ async fn items(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
-    Query(after): Query<url::ItemNotice>,
+    Params(route): Params<crate::catalog::items::url::Items>,
 ) -> HtmlResult {
+    let (query, after) = (route.query, route.notice);
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
         let page = query.page.unwrap_or(1).max(1);
@@ -284,8 +284,9 @@ async fn items_live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::ItemsLive>,
 ) -> LiveResponse {
+    let query = route.query;
     let t: Cat = req.t();
     let (before, from) = resume(since.0);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[TOPIC], from);
@@ -327,9 +328,10 @@ async fn create(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::Items>,
     Form(input): Form<ItemInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Items, "", Some(&input.body())).await {
         Sent::Written(written) => {
@@ -415,9 +417,10 @@ async fn preview(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::ItemsBulk>,
     Form(input): Form<ItemBulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let confirm = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match ask_preview(req.t(), &caller, &input, &query).await {
@@ -435,9 +438,10 @@ async fn confirm(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::ItemsBulkConfirm>,
     Form(input): Form<ItemBulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let action = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match input.refusal(req.t()) {
@@ -506,9 +510,10 @@ async fn drafts(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::ItemsDrafts>,
     Form(input): Form<ItemBulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let confirm = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
@@ -526,9 +531,10 @@ async fn remove_drafts(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::ItemQuery>,
+    Params(route): Params<crate::catalog::items::url::ItemsDraftsConfirm>,
     Form(input): Form<ItemBulkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let action = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {

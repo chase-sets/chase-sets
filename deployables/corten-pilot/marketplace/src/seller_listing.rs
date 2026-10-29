@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use corten::{
     axum::{
-        extract::{Path, Query, State},
+        extract::State,
         http::{HeaderMap, StatusCode},
     },
     form::Errors,
@@ -193,9 +193,9 @@ pub(crate) async fn page(
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListing<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let mut edits = Edits::default();
     if place.preview.is_some() {
@@ -401,9 +401,10 @@ pub(crate) async fn write(
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListing<'_>>,
     Form(form): Form<ListingForm>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     // Classify names the slot; its view is read from the listing, as marketplace does.
     let listing = match form.intent.as_str() {
@@ -449,9 +450,10 @@ pub(crate) async fn photos(
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::seller_listings::SellerListingPhotos<'_>>,
     upload: Upload<Raw>,
 ) -> HtmlResult {
+    let id = route.id;
     let p: Pilot = req.t();
     let f = ListingForm::FIELDS;
     let posted = match uploads::read(upload, LIMITS).await {

@@ -144,8 +144,9 @@ pub(crate) async fn page(
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::security::Security>,
 ) -> HtmlResult {
+    let place = route.place;
     let (said, secret) = match (&place.check, place.action) {
         (Some(attempt), Some(action)) => {
             let caller = config.platform.caller(&headers, config.proto, None);

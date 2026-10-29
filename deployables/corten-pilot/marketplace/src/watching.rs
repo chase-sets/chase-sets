@@ -19,7 +19,7 @@
 //! (chase-sets/chase-sets#10596).
 use corten::{
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, Uri, header},
     },
     prelude::*,
@@ -184,9 +184,10 @@ pub(crate) async fn watch(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemWatch<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let first = |key: &str| raw.get(key).and_then(|v| v.all().first()).map(|v| v.trim().to_owned()).unwrap_or_default();

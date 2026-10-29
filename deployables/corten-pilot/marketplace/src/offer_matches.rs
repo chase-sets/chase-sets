@@ -19,7 +19,7 @@
 use corten::{
     LiveResponse,
     axum::{
-        extract::{Path, Query, State},
+        extract::State,
         http::{HeaderMap, StatusCode},
     },
     prelude::*,
@@ -65,8 +65,9 @@ pub(crate) async fn list(
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::offer_matches::OfferMatches>,
 ) -> HtmlResult {
+    let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let matches = match caller.offer_matches().await {
@@ -168,8 +169,9 @@ pub(crate) async fn page(
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::offer_matches::OfferMatch<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     render(&req, &viewer, &config, &headers, &id, None, StatusCode::OK).await
 }
 
@@ -179,9 +181,10 @@ pub(crate) async fn write(
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::offer_matches::OfferMatch<'_>>,
     Form(form): Form<OfferForm>,
 ) -> HtmlResult {
+    let id = route.id;
     let t: OfferMatchesMsg = req.t();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);

@@ -345,8 +345,9 @@ pub(crate) async fn page(
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(ask): Query<Ask>,
+    Params(route): Params<crate::app::url::support::SupportList>,
 ) -> HtmlResult {
+    let ask = route.ask;
     let t: SupportMsg = req.t();
     let api = config.platform.caller(&headers, config.proto, None);
     let order = async {
@@ -482,9 +483,10 @@ pub(crate) async fn write(
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(ask): Query<Ask>,
+    Params(route): Params<crate::app::url::support::SupportList>,
     upload: Upload<Raw>,
 ) -> HtmlResult {
+    let ask = route.ask;
     let (t, p): (SupportMsg, Pilot) = (req.t(), req.t());
     let api = config.platform.caller(&headers, config.proto, None);
     let Some(order_id) = ask.order().map(str::to_owned) else {

@@ -66,8 +66,9 @@ pub(crate) async fn purchase(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::shipments::Shipment<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None).await
 }
 
@@ -76,9 +77,9 @@ pub(crate) async fn sale(
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(after): Query<crate::cart::AfterWrite>,
+    Params(route): Params<crate::app::url::sale_shipments::SaleShipment<'_>>,
 ) -> HtmlResult {
+    let (id, after) = (route.id, route.after);
     let receipt = Receipt::from_param(after.after_write.as_deref());
     shipment(&req, &viewer, &config, &headers, Side::Seller, &id, receipt).await
 }

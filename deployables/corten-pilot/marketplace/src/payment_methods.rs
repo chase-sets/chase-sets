@@ -216,8 +216,9 @@ pub(crate) async fn page(
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::payment_methods::PaymentMethods>,
 ) -> HtmlResult {
+    let place = route.place;
     let caller = config.platform.caller(&headers, config.proto, None);
     let t: PaymentMethodsMsg = req.t();
     let mut failed = None;

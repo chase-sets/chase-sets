@@ -21,7 +21,7 @@
 //! as on marketplace (chase-sets/chase-sets#10598); the API's refusal is shown.
 use corten::{
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, Uri, header},
     },
     prelude::*,
@@ -213,9 +213,10 @@ pub(crate) async fn list(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemList<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let input = ListInput {
@@ -350,9 +351,10 @@ pub(crate) async fn ship_from(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemShipFrom<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let input = ShipFromInput {

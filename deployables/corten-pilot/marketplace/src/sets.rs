@@ -22,8 +22,9 @@ pub(crate) async fn page(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::sets::Set<'_>>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let caller = config.platform.caller(&headers, config.proto, None);
     let set = match caller.set(&slug).await {
         Ok(Some(set)) => set,

@@ -527,9 +527,9 @@ pub(crate) async fn page(
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::support::SupportCase<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let request = match caller.support_request(&id).await {
@@ -573,9 +573,10 @@ pub(crate) async fn write(
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::support::SupportCase<'_>>,
     Form(input): Form<SupportInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let (t, p): (SupportMsg, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
     // The page's case, read first: the write is submitted as the viewer's role in it.

@@ -465,8 +465,9 @@ pub(crate) async fn page(
     Caller(Buyer(viewer)): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(after): Query<AfterWrite>,
+    Params(route): Params<crate::app::url::cart::Cart>,
 ) -> HtmlResult {
+    let after = route.after;
     let receipt = Receipt::from_param(after.after_write.as_deref());
     render(&req, &viewer, &config, &headers, receipt.as_ref(), None).await
 }

@@ -147,9 +147,9 @@ pub(crate) async fn page(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Path(slug): Path<String>,
-    Query(query): Query<AccountQuery>,
+    Params(route): Params<crate::app::url::accounts::Account<'_>>,
 ) -> HtmlResult {
+    let (slug, query) = (route.slug, route.query);
     let session = session.as_deref();
     let caller = config.platform.caller(&headers, config.proto, None);
     let role = Role::read(query.role.as_deref());
@@ -248,10 +248,10 @@ pub(crate) async fn report_review(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((slug, review)): Path<(String, String)>,
-    Query(query): Query<AccountQuery>,
+    Params(route): Params<crate::app::url::accounts::AccountReviewReport<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let (slug, review, query) = (route.slug, route.review, route.query);
     let session = session.as_deref();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);

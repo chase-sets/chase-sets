@@ -410,9 +410,9 @@ pub(crate) async fn page(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(at): Query<ScopeAt>,
+    Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
+    let (id, at) = (route.id, route.at);
     render(&req, &staff.viewer, &config, &headers, &id, &at, ScopeBack::Nothing).await
 }
 
@@ -494,9 +494,10 @@ pub(crate) async fn coverage(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::scope::url::ScopeCoverage<'_>>,
     Form(input): Form<MappingInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let viewer = &staff.viewer;
     let mapping_ids = ids(&input.mapping_ids);
@@ -531,9 +532,10 @@ pub(crate) async fn propose(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::scope::url::ScopePropose<'_>>,
     Form(input): Form<ProposeInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let p: Pilot = req.t();
     let viewer = &staff.viewer;
     let (provider, unit, set_id, set_name) =
@@ -573,8 +575,9 @@ pub(crate) async fn publish(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::scope::url::ScopePublish<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     let rest = under(&id, &["publish"]);
     let sent = command(&caller(&config, &headers, None), Method::POST, Kind::ReferenceRecords, &rest, None).await;
     answer(&req, &staff.viewer, &config, &headers, &id, sent, ScopeDone::CanonicalConfirmed, None).await
@@ -587,9 +590,10 @@ pub(crate) async fn aliases(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::catalog::scope::url::ScopeAliases<'_>>,
     Form(input): Form<AliasCommand>,
 ) -> HtmlResult {
+    let id = route.id;
     let p: Pilot = req.t();
     let t: Cat = req.t();
     let viewer = &staff.viewer;

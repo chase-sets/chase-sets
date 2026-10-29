@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::{extract::Query, http::StatusCode},
+    axum::http::StatusCode,
     i18n::{Currency, Minor},
     prelude::*,
 };
@@ -393,9 +393,9 @@ pub fn title_of(c: CompareMsg, competitor: Competitor) -> &'static str {
 pub(crate) async fn page(
     req: Req,
     State(config): State<Shared>,
-    Path(slug): Path<String>,
-    Query(inputs): Query<Inputs>,
+    Params(route): Params<crate::app::url::compare::Compare<'_>>,
 ) -> Public<HtmlResult> {
+    let (slug, inputs) = (route.competitor, route.inputs);
     let Some(competitor) = Competitor::read(&slug) else {
         return public(Err(corten::Error::status(StatusCode::NOT_FOUND)), false);
     };

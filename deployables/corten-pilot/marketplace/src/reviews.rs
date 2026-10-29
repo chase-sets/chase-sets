@@ -105,8 +105,9 @@ pub(crate) async fn summary(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::Reviews>,
 ) -> HtmlResult {
+    let place = route.place;
     show(&req, &viewer, &config, &headers, Which::Summary, place).await
 }
 
@@ -115,8 +116,9 @@ pub(crate) async fn received(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::ReceivedReviews>,
 ) -> HtmlResult {
+    let place = route.place;
     show(&req, &viewer, &config, &headers, Which::Received, place).await
 }
 
@@ -125,8 +127,9 @@ pub(crate) async fn written(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::WrittenReviews>,
 ) -> HtmlResult {
+    let place = route.place;
     show(&req, &viewer, &config, &headers, Which::Written, place).await
 }
 
@@ -177,9 +180,10 @@ pub(crate) async fn report_on_summary(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::Reviews>,
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
+    let place = route.place;
     report(&req, &viewer, &config, &headers, Which::Summary, place, input).await
 }
 
@@ -188,9 +192,10 @@ pub(crate) async fn report_on_received(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::ReceivedReviews>,
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
+    let place = route.place;
     report(&req, &viewer, &config, &headers, Which::Received, place, input).await
 }
 
@@ -199,9 +204,10 @@ pub(crate) async fn report_on_written(
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::reviews::WrittenReviews>,
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
+    let place = route.place;
     report(&req, &viewer, &config, &headers, Which::Written, place, input).await
 }
 

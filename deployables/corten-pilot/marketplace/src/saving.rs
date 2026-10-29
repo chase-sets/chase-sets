@@ -18,7 +18,7 @@
 //! checks the product against the catalog.
 use corten::{
     axum::{
-        extract::{Path, State},
+        extract::State,
         http::{HeaderMap, StatusCode, Uri, header},
     },
     prelude::*,
@@ -335,9 +335,10 @@ pub(crate) async fn save(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::items::ItemSave<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ItemMsg = req.t();
     let p = Pilot::default();

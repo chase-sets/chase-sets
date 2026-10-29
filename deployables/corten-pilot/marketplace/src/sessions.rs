@@ -150,8 +150,9 @@ pub(crate) async fn list(
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(filters): Query<Filters>,
+    Params(route): Params<crate::app::url::sessions::Sessions>,
 ) -> HtmlResult {
+    let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     let (limit, offset, status) = (filters.limit(), filters.offset(), filters.status());
     let (sessions, total) = match caller.sessions(&viewer.actor.user_id, status, limit, offset).await {
@@ -169,9 +170,9 @@ pub(crate) async fn page(
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::sessions::SessionPage<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let (session, pending) = match caller.session(&id).await {
@@ -210,8 +211,9 @@ pub(crate) async fn revoke(
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sessions::SessionRevoke<'_>>,
 ) -> HtmlResult {
+    let id = route.id;
     write(&req, &viewer, &config, &headers, &id, SessionWrite::Revoke).await
 }
 
@@ -220,9 +222,10 @@ pub(crate) async fn switch(
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sessions::SessionSwitch<'_>>,
     Form(input): Form<SwitchInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let account = input.account_id.trim();
     write(&req, &viewer, &config, &headers, &id, SessionWrite::Switch(account)).await
 }

@@ -68,9 +68,9 @@ pub(crate) async fn page(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Path(slug): Path<String>,
-    Query(reported): Query<Reported>,
+    Params(route): Params<crate::app::url::listings::PublicListing<'_>>,
 ) -> HtmlResult {
+    let (slug, reported) = (route.slug, route.reported);
     let session = session.as_deref();
     let caller = config.platform.caller(&headers, config.proto, None);
     let listing = read(&caller, &slug).await?;
@@ -161,9 +161,10 @@ pub(crate) async fn buy(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::listings::PublicListingBuy<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let t: ListingMsg = req.t();
     let p: Pilot = req.t();
@@ -228,9 +229,10 @@ pub(crate) async fn report(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(slug): Path<String>,
+    Params(route): Params<crate::app::url::listings::PublicListingReport<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let slug = route.slug;
     let session = session.as_deref();
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);

@@ -812,9 +812,9 @@ pub(crate) async fn page(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::sell_checkout::SellCheckout<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let session = session.as_deref();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -854,9 +854,10 @@ pub(crate) async fn write(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::sell_checkout::SellCheckout<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let id = route.id;
     let session = session.as_deref();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -985,9 +986,9 @@ pub(crate) async fn confirmation(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<ConfirmationPlace>,
+    Params(route): Params<crate::app::url::sell_checkout::SellConfirmation<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let session = session.as_deref();
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));

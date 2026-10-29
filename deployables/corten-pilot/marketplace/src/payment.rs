@@ -214,9 +214,9 @@ pub(crate) async fn page(
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::payments::BuyerPayment<'_>>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let until = now() + WATCH_FOR.as_secs();
     let screen = match read(&req, &viewer, &config, &headers, &id, receipt.as_ref(), until).await {
@@ -240,9 +240,9 @@ pub(crate) async fn status(
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(watch): Query<Watch>,
+    Params(route): Params<crate::app::url::payments::BuyerPaymentStatus<'_>>,
 ) -> HtmlResult {
+    let (id, watch) = (route.id, route.watch);
     let page = url::BuyerPayment { id: &id, place: Place::default() };
     let caller = config.platform.caller(&headers, config.proto, None);
     let until = watch.until.unwrap_or_default();

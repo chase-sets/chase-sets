@@ -312,10 +312,9 @@ pub(crate) async fn open(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<ItemPlace>,
-    Query(check): Query<Check>,
+    Params(route): Params<crate::app::url::inventory::StockItem<'_>>,
 ) -> HtmlResult {
+    let (id, place, check) = (route.id, route.place, route.check);
     render(&req, &viewer, &config, &headers, &id, &place, &check, Drafts::default(), Posted::Nothing).await
 }
 
@@ -356,9 +355,10 @@ pub(crate) async fn adjust(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::StockAdjust<'_>>,
     Form(input): Form<AdjustInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let attempt = input.inventory_mutation_attempt_id.clone();
     let errors = match input.command(req.t()) {
@@ -390,9 +390,10 @@ pub(crate) async fn hold(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::StockHold<'_>>,
     Form(input): Form<HoldInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
     let attempt = input.inventory_mutation_attempt_id.clone();
     let errors = match input.command(req.t()) {
@@ -416,9 +417,10 @@ pub(crate) async fn release(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path((id, hold)): Path<(String, String)>,
+    Params(route): Params<crate::app::url::inventory::StockRelease<'_>>,
     Form(input): Form<ReleaseInput>,
 ) -> HtmlResult {
+    let (id, hold) = (route.id, route.hold);
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let attempt = input.inventory_mutation_attempt_id;
@@ -447,9 +449,10 @@ pub(crate) async fn sale(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Params(route): Params<crate::app::url::inventory::StockSale<'_>>,
     Form(input): Form<SaleInput>,
 ) -> HtmlResult {
+    let id = route.id;
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match input.command(p, can_honor(&viewer)) {

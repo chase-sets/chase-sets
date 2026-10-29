@@ -77,7 +77,9 @@
   max-width: 100%;
 }
 .field textarea { resize: vertical; }
-/* A partial refund's amount: shown when the select picks it, where the browser has :has. */
+/* A partial refund's amount: shown when the select picks it, where the browser has :has; corten-ui's
+   RequiredWhen draws a plain fieldset around it. */
+.refund > fieldset { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
 @supports selector(:has(*)) {
   .refund { display: none; }
   .form:has(option[value="offer-partial-refund"]:checked) .refund { display: grid; }

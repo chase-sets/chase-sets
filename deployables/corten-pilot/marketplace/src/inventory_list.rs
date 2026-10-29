@@ -427,10 +427,10 @@ pub(crate) async fn list(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
-    Query(check): Query<Check>,
-    Query(raw): Query<Raw>,
+    Params(route): Params<url::Inventory>,
+    Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let (place, check) = (route.place, route.check);
     render(&req, &viewer, &config, &headers, &place, &check, CreateItem::read(&raw), None, None).await
 }
 
@@ -441,9 +441,10 @@ pub(crate) async fn create(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::inventory::Inventory>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    let place = route.place;
     let (t, p): (InventoryMsg, Pilot) = (req.t(), req.t());
     let f = ItemFields::FIELDS;
     let attempt = first(&raw, f.inventory_mutation_attempt_id.as_str());
@@ -526,10 +527,10 @@ pub(crate) async fn sale(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(place): Query<Place>,
+    Params(route): Params<crate::app::url::inventory::OfflineSale<'_>>,
     Form(input): Form<SaleInput>,
 ) -> HtmlResult {
+    let (id, place) = (route.id, route.place);
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match input.command(p, can_honor(&viewer)) {

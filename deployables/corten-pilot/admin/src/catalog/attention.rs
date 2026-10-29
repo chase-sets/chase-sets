@@ -140,9 +140,9 @@ async fn review(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
-    Query(item): Query<url::ReviewItem>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AttentionReview>,
 ) -> HtmlResult {
+    let (query, item) = (route.query, route.item);
     let key = item.item.unwrap_or_default();
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
@@ -174,9 +174,10 @@ async fn dismiss(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AttentionDismiss>,
     Form(input): Form<ParkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     park(req, &staff.viewer, config, headers, query, input, false).await
 }
 
@@ -185,9 +186,10 @@ async fn defer(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AttentionDefer>,
     Form(input): Form<ParkInput>,
 ) -> HtmlResult {
+    let query = route.query;
     park(req, &staff.viewer, config, headers, query, input, true).await
 }
 
@@ -254,9 +256,10 @@ async fn restore(
     _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AttentionRestore>,
     Form(input): Form<RestoreInput>,
 ) -> HtmlResult {
+    let query = route.query;
     let body = json!({ "intent": "restore", "itemKey": input.item_key.trim() });
     queued(&req, &config, &headers, query, Kind::AttentionQueue, &body).await
 }
@@ -266,9 +269,10 @@ async fn alias_accept(
     _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AliasAccept>,
     Form(input): Form<AliasInput>,
 ) -> HtmlResult {
+    let query = route.query;
     alias(req, config, headers, query, input, "accept").await
 }
 
@@ -277,9 +281,10 @@ async fn alias_reject(
     _: corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<ScopeQuery>,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AliasReject>,
     Form(input): Form<AliasInput>,
 ) -> HtmlResult {
+    let query = route.query;
     alias(req, config, headers, query, input, "reject").await
 }
 
