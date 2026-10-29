@@ -493,7 +493,7 @@ pub(crate) async fn photos(
         files.into_iter().map(|u| Photo { filename: u.filename, content_type: u.content_type, bytes: u.bytes }).collect();
     let caller = config.platform.caller(&headers, config.proto, None);
     let result = match form.intent.as_str() {
-        "add-photos" => caller.add_listing_photos(&id, &photos).await,
+        "add-photos" => caller.add_listing_photos(&id, &photos, None).await,
         _ => {
             // The replacement keeps the photo's slot and view (`replacementPhotoFormData`).
             let fields = [

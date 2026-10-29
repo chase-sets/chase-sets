@@ -49,6 +49,7 @@ mod repricing_page;
 mod reviews_page;
 mod search_page;
 mod security_page;
+mod sell_list_page;
 mod seller_listing_page;
 mod seller_listings_page;
 mod sessions_page;
@@ -91,6 +92,7 @@ pub use repricing_page::{RepricingPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
+pub use sell_list_page::SellListPage;
 pub use seller_listing_page::{ListingPreparing, SellerListingPage};
 pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use sessions_page::{SessionPage, SessionsPage};
@@ -176,6 +178,10 @@ pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handle
 
 /// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
 pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
+
+/// The Sell List (`/account/sell-list`) and the Seller Desk's Offers & sell list (`/account/desk/offers`):
+/// its stylesheet. No script: Decline selected's dialog opens with `command="show-modal"`.
+pub const SELL_LIST: &[Component] = &[SellListPage];
 
 /// The Seller Desk home (`/account/desk`).
 pub const DESK: &[Component] = &[DeskPage];

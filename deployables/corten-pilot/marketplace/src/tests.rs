@@ -541,6 +541,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = cart_add(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
+    if let Some(answer) = sell_list_page(session, &method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = sell_list(&method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -1019,6 +1022,150 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "13".to_owned()), ("chase-sets-commit-receipt", receipt)];
     Some((StatusCode::CREATED, headers, Json(json!({ "id": "sll_new", "version": 1, "status": "added" }))).into_response())
+}
+
+/// A listing's evidence as the sell list reviews it: a front matched by `ph_front`, an unmatched
+/// `ph_extra`, and a back that is matched only when `complete`.
+fn sell_evidence(listing: &str, complete: bool) -> Value {
+    let photo = |id: &str, view: Option<&str>| {
+        json!({
+            "photoId": id, "status": "active", "viewKind": view, "altText": null,
+            "assetSet": { "source": { "role": "source", "publicUrl": format!("https://cdn.example/{id}.jpg") },
+                "variants": [{ "role": "thumbnail", "publicUrl": format!("https://cdn.example/{id}_t.jpg") }] },
+        })
+    };
+    json!({
+        "listingId": listing,
+        "evidence": [photo("ph_front", Some("front")), photo("ph_extra", None)],
+        "requirements": { "requiredSlots": [{ "slotId": "front", "viewKind": "front" }, { "slotId": "back", "viewKind": "back" }] },
+        "coverage": {
+            "complete": complete, "unmetCodes": if complete { json!([]) } else { json!(["slot-missing"]) },
+            "slots": [
+                { "slotId": "front", "viewKind": "front", "satisfied": true, "unmetCode": null, "matchedPhotoId": "ph_front" },
+                { "slotId": "back", "viewKind": "back", "satisfied": complete,
+                  "unmetCode": if complete { Value::Null } else { json!("slot-missing") },
+                  "matchedPhotoId": if complete { json!("ph_back") } else { Value::Null } },
+            ],
+            "activePhotoCount": 2, "minimumPhotoCount": 2,
+        },
+    })
+}
+
+/// A sell list's offer line: `off_ready` on `lst_pika`, 2 at 17.75.
+fn sell_offer_line() -> Value {
+    json!({
+        "line_id": "sll_offer", "line_type": "selected-offer", "offer_id": "off_ready", "listing_id": "lst_pika",
+        "buyer_account_id": "acc_buyer", "buyer_display_name": "Collector Zero", "offer_price_amount": "17.75",
+        "offer_price_currency_code": "USD", "catalog_catalog_item_id": "cat_pika", "product_id": "cat_pika::form:raw",
+        "item_title": "Pikachu", "item_subtitle": "Jungle 60/64", "selected_options": [{ "dimensionId": "dim_form", "optionId": "raw" }],
+        "quantity": 2, "fallback_mode": "none", "updated_at": "2026-10-27T00:00:00.000Z",
+    })
+}
+
+/// The account's terms for one unit at 17.75: a 0.89 fee, 16.86 to the seller.
+fn sell_terms(fingerprint: &str) -> Value {
+    json!({
+        "basis_amount": "17.75", "marketplace_sales_fee_unit_amount": "0.89", "seller_net_unit_amount": "16.86",
+        "shipping_allowance_percentage_bps": 500, "fee_quote_fingerprint": fingerprint, "source_kind": "seller-agreement",
+        "source_label": "Your seller terms", "resolved_at": "2026-10-27T00:00:00.000Z",
+    })
+}
+
+/// The Sell List page's reads and writes, as the stand-in answers them. `trader`'s, `lister`'s and
+/// `lookout`'s lists have the offer line and a product line (`sll_product`, 3 of Pikachu, a listing
+/// for the rest from 20.00) whose Smart Match offer is `off_short` for 2, with inventory `inv_pika`;
+/// `lister`'s offer misses its back photo, and only `trader` and `lister` have payouts set up.
+/// `trader`'s latest seller confirmation is `slc_01J`; any other account's list is empty. A read that
+/// waits for 43 is still catching up. The guest list `anon_one` has the offer line, which merging
+/// moves at 73; any other guest's is empty. Readiness with a line action, or for `anon_one`, is ready
+/// at 71, and otherwise needs resolution; a removal applies at 72.
+fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    let (guest_path, rest) = match (path.strip_prefix(GUEST_SELL_LIST), path.strip_prefix(ACCOUNT_SELL_LIST)) {
+        (Some(rest), _) => (true, rest),
+        (_, Some(rest)) => (false, rest),
+        _ => return None,
+    };
+    let guest = headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let has_lines = matches!(session, "trader" | "lister" | "lookout");
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if waits_for(headers).as_deref() == Some("43") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        ("GET", "") => {
+            let product = json!({
+                "line_id": "sll_product", "line_type": "product", "catalog_catalog_item_id": "cat_pika",
+                "product_id": "cat_pika::form:raw", "item_title": "Pikachu", "item_subtitle": "Jungle 60/64",
+                "selected_options": [], "quantity": 3, "fallback_mode": "create-listing",
+                "minimum_listing_price_amount": "20.00", "updated_at": "2026-10-27T00:00:00.000Z",
+            });
+            let items = match (guest_path, guest) {
+                (true, "anon_one") => vec![sell_offer_line()],
+                (true, _) => vec![],
+                (false, _) if has_lines => vec![sell_offer_line(), product],
+                _ => vec![],
+            };
+            let latest = (!guest_path && session == "trader").then(|| json!({
+                "confirmation_id": "slc_01J", "confirmed_at": "2026-10-26T00:00:00.000Z",
+                "handoff_summary": { "acceptedOfferCount": 1, "publishedListingCount": 0, "lineOutcomes": [], "sideEffects": {} },
+            }));
+            Json(json!({ "items": items, "count": items.len(), "latestConfirmation": latest })).into_response()
+        }
+        ("GET", "/composite-review") => Json(json!({
+            "offerReviews": [{
+                "lineId": "sll_offer", "status": "ready", "terms": sell_terms("fq_offer"),
+                "evidence": sell_evidence("lst_pika", session != "lister"),
+            }],
+            "productOfferReviews": [{
+                "lineId": "sll_product", "status": "ready",
+                "offers": [{ "offer": offer_match("off_short", "submitted", true), "terms": sell_terms("fq_short") }],
+            }],
+            "inventoryItems": [{
+                "item_id": "inv_pika", "product_id": "cat_pika::form:raw", "storage_location_name": "Main",
+                "ship_from_code": "MAIN", "available_quantity": 5,
+            }],
+        }))
+        .into_response(),
+        ("GET", "/payout-readiness") => {
+            let ready = matches!(session, "trader" | "lister");
+            Json(json!({
+                "status": if ready { "ready" } else { "not-started" },
+                "missing_requirements": if ready { json!([]) } else { json!(["external_account"]) },
+            }))
+            .into_response()
+        }
+        ("GET", "/offer-reviews") => {
+            let mut terms = sell_terms("fq_standard");
+            terms["source_kind"] = json!("public-standard-seller-terms");
+            terms["source_label"] = json!("Standard seller terms");
+            Json(json!({ "offerReviews": [{ "lineId": "sll_offer", "status": "ready", "terms": terms }] })).into_response()
+        }
+        ("POST", "/readiness") => {
+            let acts = sent["lineActions"].as_array().is_some_and(|a| !a.is_empty());
+            let ready = if guest_path { guest == "anon_one" } else { acts };
+            let unresolved = if ready { json!([]) } else { json!(["sll_offer"]) };
+            committed(
+                StatusCode::OK,
+                "checkout",
+                "71",
+                json!({ "readiness": {
+                "snapshotId": "srs_1", "sourceRevision": "rev_7",
+                "status": if ready { "ready" } else { "needs-resolution" }, "unresolvedLineIds": unresolved,
+            } }),
+            )
+        }
+        ("POST", "/merge-to-account") if guest == "anon_one" => {
+            committed(StatusCode::OK, "checkout", "73", json!({ "mergedLineCount": 1 }))
+        }
+        ("POST", "/merge-to-account") => Json(json!({ "mergedLineCount": 0 })).into_response(),
+        ("POST", rest) if rest.ends_with("/remove") => {
+            committed(StatusCode::OK, "checkout", "72", json!({ "status": "removed" }))
+        }
+        _ => return None,
+    })
 }
 
 const ACCOUNT_ALERTS: &str = "/api/marketplace/account/product-alerts";
@@ -3338,7 +3485,7 @@ async fn a_guest_sees_what_an_offer_pays_and_saves_it_or_its_product_to_a_sell_l
     let (status, headers, html) = pilot.send(post_signed_out(SELL_LIST, &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/account/sell-list?afterWrite="), "{to}");
+    assert!(to.starts_with("/account/sell-list?afterWrite="), "{to}");
     let q = query(to);
     assert!(q["afterWrite"].contains(r#""commitPosition":"13""#), "{to}");
     assert_eq!(
@@ -8236,7 +8383,7 @@ async fn adding_an_offer_match_sends_its_line_with_the_listing_and_goes_to_the_s
         pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=add-selected-offer", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/account/sell-list?afterWrite="), "{to}");
+    assert!(to.starts_with("/account/sell-list?afterWrite="), "{to}");
     let sent = list_calls(&pilot, "/api/marketplace/account/sell-list");
     let add = sent.iter().find(|c| c.starts_with("POST")).unwrap();
     let line: Value = serde_json::from_str(add.split_once(' ').unwrap().1.split_once(' ').unwrap().1).unwrap();
@@ -12081,4 +12228,308 @@ async fn a_form_for_another_account_or_a_step_short_of_review_sends_nothing() {
     let (status, _, _) = pilot.send(post_multipart(SUPPORT_REVIEW, "case_reader", &[("intent", "open")], &[])).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "reading is not opening");
     assert!(intake_calls(&pilot).is_empty());
+}
+
+const SELL_LIST_PAGE: &str = "/account/sell-list";
+
+/// A request with the session `session` (if any) and the guest sell list `guest`.
+fn with_guest(mut req: Request<Body>, session: Option<&str>, guest: &str) -> Request<Body> {
+    let mut cookie = format!("chase_sets_anonymous_sell_list={guest}");
+    if let Some(session) = session {
+        cookie = format!("chase_sets_session={session}; {cookie}");
+    }
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+    req
+}
+
+/// The calls the page made under the sell list (both owners), as `METHOD path`.
+fn sell_list_calls(pilot: &Pilot) -> Vec<String> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with(ACCOUNT_SELL_LIST) || c.path.starts_with(GUEST_SELL_LIST))
+        .map(|c| format!("{} {}", c.method, c.path))
+        .collect()
+}
+
+/// A receipt observed long ago, which a read no longer waits for.
+fn expired_receipt(position: &str) -> String {
+    let receipt = format!(r#"{{"observedAtMs":1,"commitPosition":"{position}","sources":{RECEIPT}}}"#);
+    percent_encoding::utf8_percent_encode(&receipt, percent_encoding::NON_ALPHANUMERIC).to_string()
+}
+
+#[tokio::test]
+async fn an_accounts_sell_list_shows_each_lines_readiness_the_payout_in_cents_and_continue() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<meta name="robots" content="noindex""#), "{html}");
+    assert_eq!(hrefs(&html, "Sell List").first(), Some(&"/account/sell-list"), "the bar's Sell List is the pilot's");
+    let page = text(&html);
+    // 2 offered at 17.75 (35.50), and 2 of the product's 3 to off_short; a listing for the third at 20.00.
+    // Each sold unit nets 16.86 (4 of them, 67.44) and pays 0.89 (3.56).
+    for words in ["$35.50", "$20.00", "$3.56", "$67.44", "Pikachu", "Collector Zero"] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(!page.contains("Needs action"), "{page}");
+    assert!(html.contains(r#"value="review-sell-list-checkout""#), "{html}");
+    assert!(!html.contains(r#"value="review-sell-list-checkout" disabled"#), "Continue is offered: {html}");
+    // The offer's fee quote and the product's Smart Match offer are the checkout form's.
+    assert!(html.contains(r#"name="offerFeeQuoteFingerprint:sll_offer" value="fq_offer""#), "{html}");
+    assert!(html.contains(r#"name="productOfferId:sll_product" value="off_short""#), "{html}");
+    // The unmatched photo can be classified; the evidence is complete, so no Add photo.
+    assert!(html.contains(r#"name="photoId" value="ph_extra""#), "{html}");
+    assert!(!html.contains(r#"name="photoId" value="ph_front""#), "{html}");
+    assert!(!html.contains(r#"name="listingPhoto""#), "{html}");
+    // The latest seller confirmation, with its support reference.
+    assert!(page.contains("Latest seller confirmation") && page.contains("CS-SL-01J"), "{page}");
+    let calls = sell_list_calls(&pilot);
+    for call in [
+        "GET /api/marketplace/account/sell-list",
+        "GET /api/marketplace/account/sell-list/composite-review",
+        "GET /api/marketplace/account/sell-list/payout-readiness",
+    ] {
+        assert!(calls.iter().any(|c| c == call), "{call}: {calls:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_line_missing_evidence_or_payouts_not_set_up_holds_continue_back_and_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Evidence needs action") && page.contains("Add the required photo for this view."), "{page}");
+    assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
+    assert!(html.contains(r#"action="/account/sell-list/evidence" enctype="multipart/form-data""#), "{html}");
+
+    let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(hrefs(&html, "Set up payouts").first(), Some(&"/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"), "{html}");
+    assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_guest_sees_their_sell_list_with_the_standard_terms_and_continues_to_registration() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your Sell List is empty"), "{html}");
+    assert!(sell_list_calls(&pilot).is_empty(), "no guest list, no read");
+
+    let (status, _, html) = pilot.send(with_guest(get(SELL_LIST_PAGE, None), None, "anon_one")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Create an account to continue seller checkout") && page.contains("Pikachu"), "{page}");
+    assert!(!html.contains(r#"name="bulkOfferId""#), "a guest picks no offers: {html}");
+    let calls = sell_list_calls(&pilot);
+    assert!(calls.contains(&"GET /api/marketplace/guest/sell-list/offer-reviews".to_owned()), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.contains("/account/")), "a guest reads only its own: {calls:?}");
+
+    let continue_ = post_signed_out(SELL_LIST_PAGE, "intent=review-sell-list-checkout");
+    let (status, headers, html) = pilot.send(with_guest(continue_, None, "anon_one")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout"
+    );
+    // A guest may not decline or accept: those are an account's.
+    let decline = post_signed_out(SELL_LIST_PAGE, "intent=decline-sell-list-offers&bulkOfferId=off_ready");
+    let (status, _, html) = pilot.send(with_guest(decline, None, "anon_one")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Sign in required"), "{html}");
+    let add = post_signed_out(SELL_LIST_PAGE, "intent=add-selected-offer&offerId=off_ready");
+    let (status, _, _) = pilot.send(with_guest(add, None, "anon_one")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn back_from_registration_the_guest_sell_list_moves_into_the_account_and_its_cookie_is_cleared() {
+    let pilot = Pilot::new().await;
+    let back = "/account/sell-list?registrationReturn=seller-checkout";
+    let (status, headers, html) = pilot.send(with_guest(get(back, None), Some("trader"), "anon_one")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Sell List saved to your account") && page.contains("1 Sell List line(s) moved"), "{page}");
+    let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(cookie.starts_with("chase_sets_anonymous_sell_list=;") && cookie.contains("Max-Age=0"), "{cookie}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let merge = calls.iter().position(|c| c.path.ends_with("/merge-to-account")).unwrap();
+    assert_eq!(calls[merge].headers["x-checkout-anonymous-sell-list-id"], "anon_one");
+    let read = calls.iter().skip(merge).find(|c| c.path == ACCOUNT_SELL_LIST).unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("73"), "the read waits for the merge");
+    let review = calls.iter().find(|c| c.path.contains("/composite-review")).unwrap();
+    assert!(review.path.ends_with("?includeStandardComparison=true"), "{}", review.path);
+}
+
+#[tokio::test]
+async fn a_sell_list_still_catching_up_reads_itself_again_and_a_missing_line_says_so() {
+    let pilot = Pilot::new().await;
+    let handoff = crate::api::segment(crate::sell_list::ADD_LINE_HANDOFF);
+    let pending = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", receipt_at("43"));
+    let (status, _, html) = pilot.send(get(&pending, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your Sell List is catching up"), "{html}");
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+
+    let missing = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", expired_receipt("13"));
+    let (status, _, html) = pilot.send(get(&missing, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Sell List line not visible yet"), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "a missing line is not read again: {html}");
+
+    // A seller confirmation still being saved waits for it; once it is there, it shows.
+    let waiting = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_new");
+    let (_, _, html) = pilot.send(get(&waiting, Some("trader"))).await;
+    assert!(html.contains("data-corten-read-again") && !text(&html).contains("Latest seller confirmation"), "{html}");
+    let arrived = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_01J");
+    let (_, _, html) = pilot.send(get(&arrived, Some("trader"))).await;
+    assert!(!html.contains("data-corten-read-again") && text(&html).contains("Latest seller confirmation"), "{html}");
+}
+
+#[tokio::test]
+async fn remove_and_decline_selected_write_and_read_the_sell_list_after_them() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) =
+        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=remove-sell-list-line&lineId=sll_product", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/sell-list?afterWrite="), "{to}");
+    assert!(query(to)["afterWrite"].contains(r#""commitPosition":"72""#), "{to}");
+    assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_product/remove".to_owned()));
+
+    let (status, headers, html) =
+        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_ready", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
+    let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
+    assert_eq!(declined.len(), 1, "{declined:?}");
+    assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
+
+    // A decline the API refuses is shown on the page, and its line stays.
+    let removes = |p: &Pilot| sell_list_calls(p).iter().filter(|c| c.ends_with("/remove")).count();
+    let before = removes(&pilot);
+    let (status, _, html) =
+        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_taken", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Offer match has already been declined."), "{html}");
+    assert_eq!(removes(&pilot), before);
+    // Nothing checked is refused before anything is sent.
+    let (status, _, _) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_photo_is_classified_or_added_to_the_offers_listing_from_the_sell_list() {
+    let pilot = Pilot::new().await;
+    let body = "intent=classify-listing-evidence&listingId=lst_pika&photoId=ph_extra&classification=back%3A%3Aback";
+    let (status, headers, html) = pilot.send(post(SELL_LIST_PAGE, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
+    let call = listing_writes(&pilot, "lst_pika").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_pika/photos/ph_extra/classify"));
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!((sent["slotId"].as_str(), sent["viewKind"].as_str()), (Some("back"), Some("back")));
+    let (status, _, html) = pilot
+        .send(post(SELL_LIST_PAGE, "lister", "intent=classify-listing-evidence&listingId=lst_pika&photoId=ph_extra", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose required view"), "{html}");
+
+    let fields = [("surface", "sell-list"), ("listingId", "lst_pika"), ("listingPhotoAltText", "Back of the card")];
+    let (status, headers, html) = pilot
+        .send(post_multipart("/account/sell-list/evidence", "lister", &fields, &[("listingPhoto", "back.png", "image/png", PNG)]))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
+    let call = listing_writes(&pilot, "lst_pika").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_pika/photos"));
+    let parts = multipart_fields(&call.headers, &call.body).unwrap();
+    assert!(parts.iter().any(|(name, _, value)| name == "listingPhotoAltText" && value == "Back of the card"), "{parts:?}");
+    assert!(parts.iter().any(|(name, file, _)| name == "evidence" && file.as_deref() == Some("back.png")), "{parts:?}");
+    // Something that is not a picture is refused on the page, and nothing is sent.
+    let sent = listing_writes(&pilot, "lst_pika").len();
+    let (status, _, html) = pilot
+        .send(post_multipart(
+            "/account/sell-list/evidence",
+            "lister",
+            &fields,
+            &[("listingPhoto", "notes.txt", "text/plain", b"hello")],
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Evidence photo"), "{html}");
+    assert_eq!(listing_writes(&pilot, "lst_pika").len(), sent);
+}
+
+#[tokio::test]
+async fn continue_plans_each_line_asks_for_readiness_and_starts_seller_checkout_after_it() {
+    let pilot = Pilot::new().await;
+    let body = [
+        "intent=review-sell-list-checkout",
+        "offerFeeQuoteFingerprint%3Asll_offer=fq_offer",
+        "productOfferId%3Asll_product=off_short",
+        "productOfferFeeQuoteFingerprint%3Asll_product%3Aoff_short=fq_short",
+        "fallbackMode%3Asll_product=create-listing",
+        "inventoryItemId%3Asll_product=inv_pika",
+        "priceAmount%3Asll_product=21.00",
+        "priceCurrencyCode%3Asll_product=USD",
+        "quantityCap%3Asll_product=3",
+    ]
+    .join("&");
+    let (status, headers, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/checkout/sell/session/chk_"), "{to}");
+    let q = query(to);
+    assert_eq!((q["readinessSnapshotId"].as_str(), q["readinessSourceRevision"].as_str()), ("srs_1", "rev_7"));
+    assert!(q["afterWrite"].contains(r#""commitPosition":"71""#), "{to}");
+    let decisions: Value = serde_json::from_str(&q["readinessDecisions"]).unwrap();
+    assert_eq!(
+        decisions,
+        json!({ "lineActions": [
+            { "lineId": "sll_offer", "action": "selected-offer" }, { "lineId": "sll_product", "action": "smart-match" },
+        ], "lineOutcomes": [] })
+    );
+    let plan: Value = serde_json::from_str(&q["sellListReviewPlan"]).unwrap();
+    assert_eq!(
+        plan["lines"][0]["selectedOffer"],
+        json!({ "offerId": "off_ready", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_offer" })
+    );
+    assert_eq!(
+        plan["lines"][1]["productOfferTargets"],
+        json!([{ "offerId": "off_short", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_short", "quantity": 2 }])
+    );
+    // The third unit is listed: the cap is what the offers leave.
+    assert_eq!(
+        plan["lines"][1]["fallbackListing"],
+        json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1 })
+    );
+    let readiness = pilot.stand.calls.lock().unwrap().iter().rfind(|c| c.path.ends_with("/readiness")).cloned().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&readiness.body).unwrap(), decisions);
+
+    // With nothing chosen every line stays, readiness needs resolution, and the page says so.
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=review-sell-list-checkout", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Resolve Sell List readiness before seller checkout starts."), "{html}");
+    // An intent the page does not have is a bad request.
+    let (status, _, _) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=accept-everything", false)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn the_seller_desks_offers_are_the_sell_list_on_the_desk_and_need_an_account() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/desk/offers", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("$67.44"), "{html}");
+    // Its forms post back to the Desk.
+    assert!(html.contains(r#"action="/account/desk/offers""#), "{html}");
+    let (status, headers, _) =
+        pilot.send(post("/account/desk/offers", "trader", "intent=remove-sell-list-line&lineId=sll_product", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/offers?afterWrite="));
+    let (status, headers, _) = pilot.send(get("/account/desk/offers", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"), "{headers:?}");
 }

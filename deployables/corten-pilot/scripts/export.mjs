@@ -33,6 +33,9 @@
 //   account gate's context as context.*, account selection's refusals as selection_api.*, social
 //   sign-in's refusals as social.*, and auth.features.accountSelection.ui.accountSelectionPage.*
 //   as select.*).
+// - marketplace/locales/sell_list.en.json: the Sell List page's English catalog
+//   (checkout.features.sellList.ui.sellListPage.* as page.*, checkout.routes.accountSellList.* as route.*,
+//   marketplace.features.listings.evidenceCoverage.* as coverage.*).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, and checkout.shared.policyLinks.* as policy.*).
@@ -568,6 +571,19 @@ const outputs = [
       ])),
       // A line's language badge (`formatLanguageCodeLabel`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
+  ],
+  [
+    "marketplace/locales/sell_list.en.json",
+    json({
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.sellList.ui.sellListPage.", "page"],
+        ["checkout.routes.accountSellList.", "route"],
+      ])),
+      // A listing's unmet evidence codes (`evidenceCoverageCodeLocaleKey`).
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.listings.evidenceCoverage.", "coverage"],
+      ])),
     }),
   ],
   [

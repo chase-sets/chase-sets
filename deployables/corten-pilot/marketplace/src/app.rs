@@ -147,6 +147,7 @@ pub mod url {
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use consents::Consents;
     pub use desk::Desk;
+    pub use desk_offers::DeskOffers;
     pub use home::Home;
     pub use inventory::{
         Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem,
@@ -167,6 +168,7 @@ pub mod url {
     pub use sales::{Sale, SaleCancel, SaleReview, Sales};
     pub use search::Search;
     pub use security::Security;
+    pub use sell_list::{SellList, SellListEvidence};
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
     pub use sets::Set;
@@ -774,6 +776,36 @@ pub mod url {
         pub struct Desk;
     }
 
+    /// Checkout's Sell List (`account-sell-list`): anyone, a guest's being the browser's guest sell
+    /// list. Its handlers take who is asking, if anyone (see `sell_list`). The Seller Desk's Offers &
+    /// sell list is the same page for anyone signed in, at its own address (`DeskOffers`).
+    #[corten::routes(state = crate::app::Shared, area = SellList)]
+    pub mod sell_list {
+        /// The page, read after the write its address names; every form but Add photo posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sell-list", get = crate::sell_list::page, post = crate::sell_list::write)]
+        pub struct SellList {
+            #[route(query)]
+            pub place: crate::sell_list::Place,
+        }
+
+        /// Add photo to a selected offer's listing (`multipart/form-data`), for either address.
+        #[route("/account/sell-list/evidence", post = crate::sell_list::evidence)]
+        pub struct SellListEvidence;
+    }
+
+    /// The Seller Desk's Offers & sell list (Checkout's `account-desk-offers`): the Sell List for anyone
+    /// signed in. Every handler takes a `DeskSeller`.
+    #[corten::routes(state = crate::app::Shared, area = DeskOffers, caller = crate::auth::DeskSeller)]
+    pub mod desk_offers {
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/offers", get = crate::sell_list::desk_page, post = crate::sell_list::desk_write)]
+        pub struct DeskOffers {
+            #[route(query)]
+            pub place: crate::sell_list::Place,
+        }
+    }
+
     /// The Seller Desk's money page (Settlement's `account-desk-money`): the wallet, the payouts and
     /// Request a payout, and its writes (see `money`). Every handler takes a `PayoutViewer`.
     #[corten::routes(state = crate::app::Shared, area = Money, caller = crate::auth::PayoutViewer)]
@@ -1248,6 +1280,11 @@ pub fn app(config: Config) -> App {
                 .deadline(crate::seller_listing::DEADLINE)
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
+        .area(|area| url::desk_offers::area(area, shared.clone()).components(views::SELL_LIST))
+        // A photo is up to 10 MB, as Create listing's are.
+        .area(|area| {
+            url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)
+        })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT))

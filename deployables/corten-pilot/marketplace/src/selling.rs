@@ -30,22 +30,18 @@ use corten::{
 use serde::Serialize;
 
 use crate::{
-    api::{ApiError, Caller, Discovery as _, Item, Offer, Selected, SellList as _, segment},
+    api::{ApiError, Caller, Discovery as _, Item, Offer, Selected, SellList as _},
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
     auth::Session,
     buying::{BuyNotice, quantity},
     items::{self, Address, ItemScreen, Raw},
     text::ItemMsg,
-    views,
 };
 
 /// Marketplace's guest sell list cookie (`CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME`).
 pub const ANONYMOUS_SELL_LIST_COOKIE: &str = "chase_sets_anonymous_sell_list";
 /// How long it lasts (`THIRTY_DAYS_SECONDS`).
 const GUEST_SELL_LIST_SECONDS: i64 = 30 * 24 * 60 * 60;
-/// What marketplace's sell list waits for after an add (`ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF`).
-const ADD_LINE_HANDOFF: &str =
-    r#"{"kind":"checkout.sell-list.add-line","expectation":"collection-non-empty","surface":"account-sell-list"}"#;
 /// The permission an account's offer line needs (`requireActorFromAuthApi`).
 const OFFERS_MANAGE: &str = "offers.manage";
 
@@ -289,14 +285,13 @@ fn guest_sell_list(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| format!("anon_cmd_{}", uuid::Uuid::new_v4().simple()))
 }
 
-/// Marketplace's sell list after a write whose receipt is `receipt` (empty for none), with the
-/// handoff it waits on.
+/// The pilot's sell list after an add whose receipt is `receipt` (empty for none), with the
+/// handoff it waits on (a line in the list).
 pub fn sell_list_href(receipt: &str) -> String {
-    let mut path = String::from("/account/sell-list");
-    if !receipt.is_empty() {
-        path.push_str(&format!("?afterWrite={}&postWriteHandoff={}", segment(receipt), segment(ADD_LINE_HANDOFF)));
-    }
-    views::marketplace(&path).map(|u| u.to_string()).unwrap_or(path)
+    let after_write = Some(receipt.to_owned()).filter(|r| !r.is_empty());
+    let post_write_handoff = after_write.as_ref().map(|_| crate::sell_list::ADD_LINE_HANDOFF.to_owned());
+    let place = crate::sell_list::Place { after_write, post_write_handoff, ..Default::default() };
+    url::SellList { place }.href()
 }
 
 /// The page again, saying in `form` why nothing changed.

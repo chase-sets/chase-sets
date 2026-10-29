@@ -24,6 +24,8 @@ const OWN: &[&str] = &[
     <url::SellerListings as Route>::PATH,
     <url::OfferMatches as Route>::PATH,
     <url::Cart as Route>::PATH,
+    <url::SellList as Route>::PATH,
+    <url::DeskOffers as Route>::PATH,
 ];
 
 /// Where a nav entry goes: the pilot's own page, or marketplace's.

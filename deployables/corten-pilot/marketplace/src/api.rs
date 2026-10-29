@@ -659,23 +659,375 @@ const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
 /// The guest sell list a browser presents (`x-checkout-anonymous-sell-list-id`).
 const ANONYMOUS_SELL_LIST_HEADER: &str = "x-checkout-anonymous-sell-list-id";
 
-/// The sell list's calls (`/account/sell-list`, `/guest/sell-list` for a guest's).
+/// The sell list's calls (`/account/sell-list`, `/guest/sell-list` for a guest's). `guest` is
+/// the guest sell list a browser presents; `None` is the account's.
 pub trait SellList {
     /// Adds a line (`AddCheckoutSellListLineRequest`) to the account's sell list, or to the guest
     /// sell list `guest`. The API takes no attempt id: a product line sent again adds its
     /// quantity again (chase-sets/chase-sets#9995). The answer is the write's receipt.
     async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
+    /// The sell list's lines, their quantity and (the account's) latest seller confirmation.
+    async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError>;
+    /// The account's offer and Smart Match reviews and the inventory a fallback listing ships
+    /// from (`getSellListCompositeReview`), with the standard terms beside the final ones when
+    /// `standard` (back from registration).
+    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError>;
+    /// A guest sell list's offer reviews (the public standard terms).
+    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError>;
+    /// Whether the account's payouts are set up (`getSellListPayoutReadiness`).
+    async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError>;
+    /// The sell list's readiness with the seller's `decisions`, as a snapshot seller checkout starts
+    /// from, and the write's receipt.
+    async fn sell_list_readiness(
+        &self,
+        decisions: &ReadinessDecisions,
+        guest: Option<&str>,
+    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
+    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
+    /// Moves the guest sell list's lines into the account's: how many moved, and the receipt.
+    async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError>;
+}
+
+fn sell_list_path(guest: Option<&str>, rest: &str) -> String {
+    let owner = if guest.is_some() { "guest" } else { "account" };
+    format!("/api/marketplace/{owner}/sell-list{rest}")
+}
+
+/// A request to the sell list `guest` (or the account's), naming the guest's in its header.
+fn sell_list_request(caller: &Caller<'_>, method: Method, guest: Option<&str>, rest: &str) -> reqwest::RequestBuilder {
+    let req = caller.request(method, &sell_list_path(guest, rest), CHECKOUT);
+    match guest {
+        Some(id) => req.header(ANONYMOUS_SELL_LIST_HEADER, id),
+        None => req,
+    }
 }
 
 impl SellList for Caller<'_> {
     async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        let owner = if guest.is_some() { "guest" } else { "account" };
-        let mut req = self.request(Method::POST, &format!("/api/marketplace/{owner}/sell-list"), CHECKOUT).json(line);
-        if let Some(id) = guest {
-            req = req.header(ANONYMOUS_SELL_LIST_HEADER, id);
-        }
+        let req = sell_list_request(self, Method::POST, guest, "").json(line);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
+
+    async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError> {
+        // A read, sent as `write` sends a request (its answer checked, then its JSON).
+        Ok(self.write(sell_list_request(self, Method::GET, guest, "")).await?.0)
+    }
+
+    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError> {
+        let rest = if standard { "/composite-review?includeStandardComparison=true" } else { "/composite-review" };
+        self.read(&sell_list_path(None, rest), CHECKOUT).await
+    }
+
+    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            #[serde(default)]
+            offer_reviews: Vec<OfferReview>,
+        }
+        let (body, _): (Body, _) = self.write(sell_list_request(self, Method::GET, Some(guest), "/offer-reviews")).await?;
+        Ok(body.offer_reviews)
+    }
+
+    async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError> {
+        self.read(&sell_list_path(None, "/payout-readiness"), CHECKOUT).await
+    }
+
+    async fn sell_list_readiness(
+        &self,
+        decisions: &ReadinessDecisions,
+        guest: Option<&str>,
+    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
+        #[derive(Deserialize)]
+        struct Body {
+            readiness: SellListSnapshot,
+        }
+        let req = sell_list_request(self, Method::POST, guest, "/readiness").json(decisions);
+        let (body, receipt): (Body, _) = self.write(req).await?;
+        Ok((body.readiness, receipt))
+    }
+
+    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
+        let req =
+            sell_list_request(self, Method::POST, guest, &format!("/{}/remove", segment(line))).json(&serde_json::json!({}));
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+
+    async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError> {
+        #[derive(Deserialize, Default)]
+        #[serde(rename_all = "camelCase", default)]
+        struct Body {
+            merged_line_count: u64,
+        }
+        let req = self
+            .request(Method::POST, "/api/marketplace/guest/sell-list/merge-to-account", CHECKOUT)
+            .header(ANONYMOUS_SELL_LIST_HEADER, guest)
+            .json(&serde_json::json!({}));
+        let (body, receipt): (Body, _) = self.write(req).await?;
+        Ok((body.merged_line_count, receipt))
+    }
+}
+
+/// A sell list as Checkout reads it (`GET /sell-list`): its lines, their quantity and the account's
+/// latest seller confirmation.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListRead {
+    pub items: Vec<SellListRow>,
+    pub count: u64,
+    pub latest_confirmation: Option<SellListConfirmation>,
+}
+
+/// A sell list line (`CheckoutSellListLineRow`): a selected offer, or a product the seller has.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SellListRow {
+    pub line_id: String,
+    /// `selected-offer` or `product`.
+    pub line_type: String,
+    pub offer_id: Option<String>,
+    pub listing_id: Option<String>,
+    pub buyer_account_id: Option<String>,
+    pub buyer_display_name: Option<String>,
+    pub offer_price_amount: Option<String>,
+    pub offer_price_currency_code: Option<String>,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub item_title: String,
+    pub item_subtitle: Option<String>,
+    pub selected_options: Vec<Selected>,
+    pub product_summary: Option<String>,
+    pub quantity: u64,
+    /// `none` or `create-listing`.
+    pub fallback_mode: String,
+    pub minimum_listing_price_amount: Option<String>,
+    pub updated_at: String,
+}
+
+impl SellListRow {
+    pub fn is_offer(&self) -> bool {
+        self.line_type == "selected-offer"
+    }
+}
+
+/// The account's latest seller confirmation (`CheckoutSellListConfirmationRow`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SellListConfirmation {
+    pub confirmation_id: String,
+    pub confirmed_at: String,
+    pub handoff_summary: HandoffSummary,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HandoffSummary {
+    pub accepted_offer_count: u64,
+    pub published_listing_count: u64,
+    pub line_outcomes: Vec<ConfirmedLine>,
+    /// `sale`, `accountHistory`, `label`, `payout`, `settlement`, `notification`: each one's status.
+    pub side_effects: std::collections::HashMap<String, String>,
+}
+
+/// What seller checkout did with one line.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConfirmedLine {
+    pub line_id: String,
+    pub item_title: String,
+    /// `completed`, `partial` or `skipped`.
+    pub status: String,
+    pub action: String,
+    pub quantity: u64,
+    pub remaining_quantity: u64,
+    pub detail: String,
+    pub references: Option<serde_json::Value>,
+}
+
+/// The terms a sale at an offer would be priced with (`CheckoutSellListTermsPreview`, or the
+/// public standard terms' `CheckoutSellListPublicStandardTermsPreview` for a guest).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SellTerms {
+    pub basis_amount: String,
+    pub marketplace_sales_fee_unit_amount: String,
+    pub seller_net_unit_amount: String,
+    pub shipping_allowance_percentage_bps: Option<i64>,
+    pub fee_quote_fingerprint: Option<String>,
+    pub resolved_at: Option<String>,
+    /// `public-standard-seller-terms` for the standard terms.
+    pub source_kind: Option<String>,
+    pub source_label: Option<String>,
+    pub agreement_id: Option<String>,
+}
+
+impl SellTerms {
+    pub fn standard(&self) -> bool {
+        self.source_kind.as_deref() == Some("public-standard-seller-terms")
+    }
+}
+
+/// A selected offer's review (`CheckoutSellListOfferReview`). `evidence` is absent when the review
+/// does not look at evidence, `Some(None)` when it could not be read.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OfferReview {
+    pub line_id: String,
+    /// `ready` or `unavailable`.
+    pub status: String,
+    pub terms: Option<SellTerms>,
+    pub comparison: Option<TermsComparison>,
+    pub message: Option<String>,
+    #[serde(deserialize_with = "present")]
+    pub evidence: Option<Option<ListingEvidence>>,
+}
+
+/// The standard terms beside the final ones, after registration.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TermsComparison {
+    /// `same`, `changed`, `standard-preview-unavailable` or `final-unavailable`.
+    pub status: String,
+    pub standard_preview: Option<SellTerms>,
+    pub changed_fields: Vec<String>,
+}
+
+/// A product line's Smart Match offers (`CheckoutSellListProductOfferReview`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProductOfferReview {
+    pub line_id: String,
+    pub status: String,
+    pub offers: Vec<ProductOffer>,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ProductOffer {
+    pub offer: OfferMatch,
+    pub terms: SellTerms,
+    #[serde(deserialize_with = "present")]
+    pub evidence: Option<Option<ListingEvidence>>,
+}
+
+/// Inventory a fallback listing can ship from (`CheckoutSellListInventoryItemOption`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct InventoryOption {
+    pub item_id: String,
+    pub product_id: String,
+    pub storage_location_name: String,
+    pub ship_from_code: String,
+    pub available_quantity: u64,
+}
+
+/// `CheckoutSellListCompositeReview`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CompositeReview {
+    pub offer_reviews: Vec<OfferReview>,
+    pub product_offer_reviews: Vec<ProductOfferReview>,
+    pub inventory_items: Vec<InventoryOption>,
+}
+
+/// `CheckoutSellPayoutReadinessRow`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SellPayoutReadiness {
+    /// `not-started`, `pending`, `ready` or `restricted`.
+    pub status: String,
+    pub missing_requirements: Vec<String>,
+}
+
+/// A listing's evidence as the sell list reviews it (`MarketplaceListingEvidenceCoverage`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingEvidence {
+    pub listing_id: String,
+    #[serde(default)]
+    pub evidence: Vec<EvidencePhoto>,
+    pub requirements: Requirements,
+    pub coverage: Coverage,
+}
+
+/// A listing's photo with its renditions (`MarketplaceListingPhoto`), the fields the review shows.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EvidencePhoto {
+    pub photo_id: String,
+    pub status: String,
+    pub view_kind: Option<String>,
+    pub alt_text: Option<String>,
+    pub asset_set: Option<PhotoAssets>,
+}
+
+impl EvidencePhoto {
+    /// Its thumbnail, else its source.
+    pub fn thumbnail(&self) -> Option<&str> {
+        let set = self.asset_set.as_ref()?;
+        set.variants
+            .iter()
+            .find(|a| a.role.as_deref() == Some("thumbnail"))
+            .or(set.source.as_ref())
+            .map(|a| a.public_url.as_str())
+            .filter(|url| !url.is_empty())
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PhotoAssets {
+    pub source: Option<PhotoAsset>,
+    pub variants: Vec<PhotoAsset>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PhotoAsset {
+    pub role: Option<String>,
+    pub public_url: String,
+}
+
+/// A field that may be absent, `null` or a value: absent is `None`, `null` is `Some(None)`.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
+
+/// What the seller decided for each line before seller checkout (`SellListReadinessDecisionInput`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessDecisions {
+    pub line_actions: Vec<LineAction>,
+    pub line_outcomes: Vec<LineKept>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineAction {
+    pub line_id: String,
+    /// `selected-offer`, `smart-match` or `fallback-listing`.
+    pub action: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineKept {
+    pub line_id: String,
+    /// `keep-in-list`.
+    pub outcome: &'static str,
+}
+
+/// The readiness snapshot seller checkout starts from (`SellListReadinessSnapshot`), the fields
+/// the page reads.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListSnapshot {
+    pub snapshot_id: String,
+    pub source_revision: String,
+    /// `ready`, `needs-resolution` or `blocked`.
+    pub status: String,
+    pub unresolved_line_ids: Vec<String>,
 }
 
 /// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
@@ -2410,6 +2762,9 @@ pub struct RequiredSlot {
 #[serde(rename_all = "camelCase")]
 pub struct Coverage {
     pub complete: bool,
+    /// Every unmet requirement's code, each once.
+    #[serde(default)]
+    pub unmet_codes: Vec<String>,
     #[serde(default)]
     pub slots: Vec<SlotCoverage>,
     pub active_photo_count: u32,
@@ -2423,6 +2778,9 @@ pub struct SlotCoverage {
     pub view_kind: String,
     pub satisfied: bool,
     pub unmet_code: Option<String>,
+    /// The active photo that satisfies the slot.
+    #[serde(default)]
+    pub matched_photo_id: Option<String>,
 }
 
 /// What the seller does next for an unmet code; the page writes the code's words.
@@ -4498,8 +4856,13 @@ pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
     async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
-    /// Adds photos to a draft.
-    async fn add_listing_photos(&self, id: &str, photos: &[Photo]) -> Result<Option<Receipt>, CommandError>;
+    /// Adds photos to a draft, each with `alt_text` when there is one.
+    async fn add_listing_photos(
+        &self,
+        id: &str,
+        photos: &[Photo],
+        alt_text: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError>;
     /// Replaces a photo, keeping its slot and view.
     async fn replace_listing_photo(
         &self,
@@ -4592,10 +4955,18 @@ impl SellerListings for Caller<'_> {
         answer(req).await
     }
 
-    async fn add_listing_photos(&self, id: &str, photos: &[Photo]) -> Result<Option<Receipt>, CommandError> {
+    async fn add_listing_photos(
+        &self,
+        id: &str,
+        photos: &[Photo],
+        alt_text: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError> {
         let mut form = reqwest::multipart::Form::new();
         for photo in photos {
             form = form.part("evidence", photo_part(photo)?);
+        }
+        if let Some(text) = alt_text.map(str::trim).filter(|t| !t.is_empty()) {
+            form = form.text("listingPhotoAltText", text.to_owned());
         }
         let path = format!("/api/marketplace/account/listings/{}/photos", segment(id));
         answer(self.request(Method::POST, &path, MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form)).await
