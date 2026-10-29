@@ -212,7 +212,7 @@ describe("promotion display identity validation", () => {
       promoteAsDraftBypassesDegradedIdentity({
         promoteAsDraft: true,
         currentItemStatus: "draft",
-        commands: [{ type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] }],
+        commands: [{ type: "PublishCatalogItem" }],
       }),
     ).toBe(false);
   });
