@@ -1723,7 +1723,12 @@ export function sanitizeLogFields(fields: LogFields): LogFields {
 }
 
 export function normalizeTraceCorrelationId(value: unknown): string {
-  return typeof value === "string" && TRACE_ID_RE.test(value) ? value : "unknown";
+  if (typeof value === "string" && TRACE_ID_RE.test(value)) {
+    return value;
+  }
+
+  const activeTraceId = trace.getSpanContext(context.active())?.traceId;
+  return typeof activeTraceId === "string" && TRACE_ID_RE.test(activeTraceId) ? activeTraceId : "unknown";
 }
 
 export function classifyDiscoverySearchRetrievalFailure(error: unknown): Readonly<{
@@ -1732,11 +1737,15 @@ export function classifyDiscoverySearchRetrievalFailure(error: unknown): Readonl
 }> {
   const candidate = error && typeof error === "object" ? error : undefined;
   const name = candidate && "name" in candidate && typeof candidate.name === "string" ? candidate.name : "";
+  const severity =
+    candidate && "severity" in candidate && typeof candidate.severity === "string" ? candidate.severity : undefined;
+  const constructorName = candidate?.constructor?.name;
+  const isPostgresServerError = constructorName === "DatabaseError" || (name === "error" && severity !== undefined);
   const code =
     candidate && "code" in candidate && typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
   return {
-    errorClass: DISCOVERY_SEARCH_ERROR_CLASSES.has(name) ? name : "unknown",
-    sqlstateCategory: /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown",
+    errorClass: isPostgresServerError ? "DatabaseError" : DISCOVERY_SEARCH_ERROR_CLASSES.has(name) ? name : "unknown",
+    sqlstateCategory: isPostgresServerError && /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown",
   };
 }
 

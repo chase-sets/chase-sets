@@ -162,6 +162,28 @@ describe("Discovery search runtime telemetry", () => {
     );
   });
 
+  it("rethrows the original retrieval error when the failure observer throws", async () => {
+    const failure = new Error("synthetic retrieval failure");
+    const observer = vi.fn(() => {
+      throw new Error("synthetic observer failure");
+    });
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db: { query: vi.fn().mockRejectedValue(failure) } },
+      { recordSearchRetrievalFailure: observer },
+    );
+
+    await expect(runtime.searchItems({ search: "query" })).rejects.toBe(failure);
+    expect(observer).toHaveBeenCalledExactlyOnceWith({ correlationId: undefined, error: failure });
+  });
+
+  it("does not invoke the failure observer after a successful retrieval", async () => {
+    const observer = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchRetrievalFailure: observer });
+
+    await expect(runtime.searchItems({ search: "" })).resolves.toMatchObject({ retrievalMode: "lexical" });
+    expect(observer).not.toHaveBeenCalled();
+  });
+
   it("privacy sentinels never enter query signals or logs", async () => {
     const recordSearchQuery = vi.fn();
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
