@@ -103,6 +103,7 @@ export function SettlementMoneyDashboardPage({
     observedAt: row.observed_at,
   }));
   const setupIncomplete = payoutSummary.availability.unavailable_reasons.includes("payout-setup-incomplete");
+  const summaryIncomplete = payoutSummary.completeness.kind !== "complete";
 
   return (
     <Page>
@@ -131,26 +132,34 @@ export function SettlementMoneyDashboardPage({
           },
           {
             label: t("settlement.features.moneyDashboard.ui.nextPayout"),
-            value: nextPayout ? (
+            value: summaryIncomplete ? (
+              payoutUnavailableReasonLabel("payout-summary-incomplete")
+            ) : nextPayout ? (
               <NumericValue>{formatMoney(nextPayout.amount, nextPayout.currency_code)}</NumericValue>
             ) : (
               t("settlement.features.moneyDashboard.ui.noneScheduled")
             ),
-            detail: nextPayout
-              ? t("settlement.features.moneyDashboard.ui.estimatedBy", {
-                  date: formatDate(nextPayout.estimated_arrival_at),
-                })
-              : t("settlement.features.moneyDashboard.ui.requestWhenReady"),
+            detail: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : nextPayout
+                ? t("settlement.features.moneyDashboard.ui.estimatedBy", {
+                    date: formatDate(nextPayout.estimated_arrival_at),
+                  })
+                : t("settlement.features.moneyDashboard.ui.requestWhenReady"),
           },
           {
             label: t("settlement.features.moneyDashboard.ui.blocked"),
-            value: t(
-              attention.length === 1
-                ? "settlement.features.moneyDashboard.ui.oneNeedsAttention"
-                : "settlement.features.moneyDashboard.ui.manyNeedAttention",
-              { count: attention.length },
-            ),
-            detail: t("settlement.features.moneyDashboard.ui.blockedDetail"),
+            value: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t(
+                  attention.length === 1
+                    ? "settlement.features.moneyDashboard.ui.oneNeedsAttention"
+                    : "settlement.features.moneyDashboard.ui.manyNeedAttention",
+                  { count: attention.length },
+                ),
+            detail: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.blockedDetail"),
           },
         ]}
       />
@@ -243,6 +252,13 @@ export function SettlementMoneyDashboardPage({
           description={actionState.reconciliationStatus}
         />
       ) : null}
+      {summaryIncomplete ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("settlement.features.moneyDashboard.ui.payoutAttention")}
+          description={payoutUnavailableReasonLabel("payout-summary-incomplete")}
+        />
+      ) : null}
 
       {setupIncomplete ? (
         <PageSection title={t("settlement.features.moneyDashboard.ui.needsAttention")}>
@@ -317,8 +333,16 @@ export function SettlementMoneyDashboardPage({
               ),
             },
           ]}
-          emptyTitle={t("settlement.features.moneyDashboard.ui.noBlockedPayouts")}
-          emptyDescription={t("settlement.features.moneyDashboard.ui.noBlockedPayoutsDetail")}
+          emptyTitle={
+            summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.noBlockedPayouts")
+          }
+          emptyDescription={
+            summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.noBlockedPayoutsDetail")
+          }
         />
       </PageSection>
 

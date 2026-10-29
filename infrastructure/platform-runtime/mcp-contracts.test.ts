@@ -50,6 +50,9 @@ function actualType(value: unknown) {
 }
 
 function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+  if (Array.isArray(expected)) {
+    return value === null || matchesType(value, expected[0]);
+  }
   switch (expected) {
     case "array":
       return Array.isArray(value);
@@ -720,6 +723,16 @@ describe("MCP service catalog", () => {
         items: [settlementPayout],
         total: 1,
         count: 1,
+        completeness: { kind: "complete", total: 1 },
+        next_payout: null,
+        blocked_payouts: [],
+        availability: {
+          can_request: false,
+          unavailable_reasons: ["payout-request-permission-required"],
+          unavailable_reason_details: [
+            { code: "payout-request-permission-required", message: "Request permission is required." },
+          ],
+        },
       }),
     ).toEqual([]);
     expect(

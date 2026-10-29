@@ -115,18 +115,26 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const summary = services.getPayoutSummary
-      ? await services.getPayoutSummary({
-          accountId: access.actor.accountId,
-          canRequestPayouts: access.actor.permissions.includes("payouts.request"),
-        })
-      : await services.listPayouts({
-          accountId: access.actor.accountId,
-          limit: Number(c.req.query("limit") ?? 50),
-          offset: Number(c.req.query("offset") ?? 0),
-        });
+    const [page, summary] = await Promise.all([
+      services.listPayouts({
+        accountId: access.actor.accountId,
+        limit: Number(c.req.query("limit") ?? 50),
+        offset: Number(c.req.query("offset") ?? 0),
+      }),
+      services.getPayoutSummary({
+        accountId: access.actor.accountId,
+        canRequestPayouts: access.actor.permissions.includes("payouts.request"),
+      }),
+    ]);
 
-    return c.json(summary);
+    return c.json({
+      ...page,
+      count: page.items.length,
+      completeness: summary.completeness,
+      next_payout: summary.next_payout,
+      blocked_payouts: summary.blocked_payouts,
+      availability: summary.availability,
+    });
   });
 
   app.get("/payouts/quick-amounts", async (c) => {

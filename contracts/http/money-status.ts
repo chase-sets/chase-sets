@@ -12,6 +12,8 @@ export const moneyStatusLabels = {
   "negative-balance-active": "Recover the negative wallet balance before requesting a payout.",
   "recent-payout-failure": "Review the recent payout failure before requesting more funds.",
   "payout-reconciliation-required": "A previous payout request needs reconciliation.",
+  "payout-summary-incomplete":
+    "Payout history is incomplete; review the available results before relying on this summary.",
   "platform-balance-insufficient": "Funds are temporarily unavailable for payout.",
   "amount-below-minimum": "Enter an amount above the minimum payout.",
   "amount-above-maximum": "Enter an amount below the maximum payout.",

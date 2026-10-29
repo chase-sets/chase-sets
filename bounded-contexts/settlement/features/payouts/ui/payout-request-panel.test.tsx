@@ -85,4 +85,16 @@ describe("SettlementPayoutRequestPanel", () => {
     expect(rendered.querySelector<HTMLButtonElement>('button[value="minimum"]')?.disabled).toBe(false);
     expect(rendered.querySelector<HTMLButtonElement>('button[value="available"]')?.disabled).toBe(true);
   });
+
+  it("disables a negative full-available shortcut using signed money parsing", () => {
+    const rendered = renderToStaticMarkup(
+      <SettlementPayoutRequestPanel
+        wallet={{ ...wallet, available_balance_amount: "125.00" }}
+        availability={available}
+        quickAmounts={{ ...quickAmounts, full_available_amount: "-0.01" }}
+      />,
+    );
+    expect(rendered).toContain("Full available · -$0.01");
+    expect(rendered).toContain('disabled=""');
+  });
 });

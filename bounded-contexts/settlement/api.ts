@@ -89,7 +89,7 @@ export function buildSettlementApi(services: SettlementServices) {
       restrictions,
       next_actions: [
         ...(!setupReady ? ["finish-payout-setup"] : []),
-        ...(setupReady && hasAvailableBalance ? ["request-payout"] : []),
+        ...(availability.can_request ? ["request-payout"] : []),
       ],
     });
   });

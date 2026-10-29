@@ -177,6 +177,28 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("/account/desk/settings");
   });
 
+  it("does not present a bounded payout summary as definitive empty state", () => {
+    const html = renderToString(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[]}
+        payoutSummary={{
+          ...dashboardSummary([]),
+          completeness: { kind: "bounded-incomplete", total: 251, cap: 250, reason: "payout-summary-cap-exceeded" },
+          next_payout: null,
+          blocked_payouts: [],
+        }}
+        quickAmounts={quickAmounts}
+        canSetupPayouts
+        canReconcilePayouts={false}
+      />,
+    );
+
+    expect(html).toContain("Payout history is incomplete");
+    expect(html).not.toContain("None scheduled");
+    expect(html).not.toContain("0 payouts need attention");
+  });
+
   it("shows requested amount, payout fee, and net payout before confirmation", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage

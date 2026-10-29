@@ -1,4 +1,5 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   Button,
   CurrencyInput,
@@ -43,6 +44,7 @@ export function SettlementPayoutRequestPanel({
 }) {
   const canRequest = availability.can_request;
   const reasons = availability.unavailable_reason_details;
+  const fullAvailableCents = trySignedMoneyToCents(quickAmounts.full_available_amount);
 
   if (confirmation) {
     return (
@@ -155,7 +157,7 @@ export function SettlementPayoutRequestPanel({
             name="quickAmount"
             value="available"
             tone="secondary"
-            disabled={!canRequest || quickAmounts.full_available_amount === "0.00"}
+            disabled={!canRequest || fullAvailableCents === null || fullAvailableCents <= 0n}
           >
             {t("settlement.features.moneyDashboard.ui.fullAvailable", {
               amount: formatMoney(quickAmounts.full_available_amount, wallet.currency_code),

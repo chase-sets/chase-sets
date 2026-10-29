@@ -40,7 +40,7 @@ function formRequest(form: URLSearchParams) {
 describe("Seller Desk money route", () => {
   afterEach(() => vi.resetAllMocks());
 
-  it("loads wallet, ledger, the Settlement payout summary, and readiness from the owning context", async () => {
+  it("loads wallet, ledger, and the Settlement payout summary from the owning context", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue(
       actor(["payouts.view", "payouts.request", "payouts.setup", "payouts.reconcile"]),
     );

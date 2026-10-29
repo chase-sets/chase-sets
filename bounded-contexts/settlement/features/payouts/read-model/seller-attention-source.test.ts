@@ -28,7 +28,7 @@ describe("toBlockedPayoutAttentionItems", () => {
     expect(item.dueAt).toBeNull();
     expect(item.summary).toEqual({
       code: "payout-blocked",
-      params: { reference: "PO-1", reason: "reconciliation-hold" },
+      params: { reference: "PO-1", reason: "reconciliation hold" },
     });
     expect(item.deepLink).toEqual({ surface: "payout", href: "/account/desk/payouts/pay-1" });
     expect(isSellerAttentionItem(item, "settlement-blocked-payout")).toBe(true);
@@ -78,7 +78,10 @@ describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
     const items = await createBlockedPayoutAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("account_id = $1"), ["acct-1"]);
-    expect(items[0]?.summary.params).toEqual({ reference: "PO-1", reason: "identity-verification-required" });
+    expect(items[0]?.summary.params).toEqual({
+      reference: "PO-1",
+      reason: "identity verification required",
+    });
   });
 });
 
@@ -184,7 +187,7 @@ describe("selectBlockedPayoutAttentionRows", () => {
       id: "settlement-blocked-payout:failed",
       summary: {
         code: "payout-blocked",
-        params: { reference: "PYO-FAILED", reason: "recent-payout-failure" },
+        params: { reference: "PYO-FAILED", reason: "Review the recent payout failure before requesting more funds." },
       },
     });
   });

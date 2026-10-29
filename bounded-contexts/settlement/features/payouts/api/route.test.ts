@@ -52,7 +52,8 @@ describe("settlement payout routes", () => {
         unavailable_reason_details: [],
       },
     }));
-    const app = createAuthenticatedApp({ getPayoutSummary }, ["payouts.view"]);
+    const listPayouts = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = createAuthenticatedApp({ getPayoutSummary, listPayouts }, ["payouts.view"]);
 
     const response = await app.request("/payouts");
 
@@ -64,6 +65,32 @@ describe("settlement payout routes", () => {
       availability: { can_request: false, unavailable_reasons: ["payout-request-permission-required"] },
     });
     expect(getPayoutSummary).toHaveBeenCalledWith({ accountId: "acc_seller", canRequestPayouts: false });
+    expect(listPayouts).toHaveBeenCalledWith({ accountId: "acc_seller", limit: 50, offset: 0 });
+  });
+
+  it("preserves payout pagination while adding the Settlement summary fields", async () => {
+    const listPayouts = vi.fn(async () => ({
+      items: [{ payout_id: "p2" }, { payout_id: "p3" }],
+      total: 3,
+    }));
+    const getPayoutSummary = vi.fn(async () => ({
+      items: [],
+      total: 1,
+      count: 1,
+      completeness: { kind: "complete" as const, total: 1 },
+      next_payout: null,
+      blocked_payouts: [],
+      availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+    }));
+    const app = createAuthenticatedApp({ getPayoutSummary, listPayouts }, ["payouts.view"]);
+    const response = await app.request("/payouts?limit=2&offset=1");
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ payout_id: "p2" }, { payout_id: "p3" }],
+      total: 3,
+      count: 2,
+      completeness: { kind: "complete" },
+    });
+    expect(listPayouts).toHaveBeenCalledWith({ accountId: "acc_seller", limit: 2, offset: 1 });
   });
 
   it.each([

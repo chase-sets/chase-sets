@@ -88,7 +88,7 @@ export function selectNextPayoutSummary(payouts: readonly SettlementPayoutRow[])
 }
 
 function failedReason(row: SettlementPayoutRow) {
-  return row.failure_reason ?? row.provider_failure_code ?? row.provider_failure_message ?? "recent-payout-failure";
+  return row.failure_reason ?? row.provider_failure_message ?? row.provider_failure_code ?? "recent-payout-failure";
 }
 
 export function selectBlockedPayoutSummaryRows(
@@ -161,6 +161,7 @@ export function buildPayoutAvailability(input: {
   }
   if (
     input.freshness === "account-status" &&
+    input.readiness.status === "ready" &&
     input.readiness.updated_at &&
     Date.now() - Date.parse(input.readiness.updated_at) > 24 * 60 * 60 * 1000
   ) {

@@ -160,12 +160,14 @@ export async function listPayoutSummaryRows(
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM settlement_payout_pages
-       WHERE account_id = $1`,
+       WHERE account_id = $1
+         AND status IN ('requested', 'in-transit', 'failed')`,
       [accountId],
     ),
     db.query<SettlementPayoutRow>(
       `${payoutSelect}
        WHERE account_id = $1
+         AND status IN ('requested', 'in-transit', 'failed')
        ORDER BY updated_at DESC, payout_id DESC
        LIMIT $2`,
       [accountId, PAYOUT_SUMMARY_HARD_CAP + 1],

@@ -14,6 +14,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SettlementPayoutRow } from "./queries";
 import { listPayoutSummaryRows } from "./queries";
 import { selectBlockedPayoutSummaryRows } from "./payout-summary";
+import { payoutUnavailableReasonLabel, payoutUnavailableReasonLabels } from "../domain/reason-codes";
 
 export type BlockedPayoutKind = "failed" | "missing-provider-reference" | "stale-requested";
 export type BlockedPayoutNextAction = "retry" | "run-reconciliation";
@@ -56,10 +57,21 @@ export function toBlockedPayoutAttentionItems(
       source: "settlement-blocked-payout",
       entityId: row.payoutId,
       severity: "critical",
-      summary: { code: "payout-blocked", params: { reference: row.reference, reason: row.blockReason } },
+      summary: {
+        code: "payout-blocked",
+        params: { reference: row.reference, reason: sellerBlockReason(row.blockReason) },
+      },
       observedAt: row.observedAt,
     }),
   );
+}
+
+function sellerBlockReason(reason: string) {
+  if (reason in payoutUnavailableReasonLabels) return payoutUnavailableReasonLabel(reason);
+  if (/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(reason)) {
+    return payoutUnavailableReasonLabel(reason.replaceAll("_", "-"));
+  }
+  return reason;
 }
 
 export type BlockedPayoutAttentionSourceDependencies = Readonly<{
@@ -79,7 +91,15 @@ export function createBlockedPayoutAttentionSourceFromReadModel(db: PgQueryable)
   return createBlockedPayoutAttentionSource({
     loadBlockedPayoutRows: async (context) => {
       const result = await listPayoutSummaryRows(db, context.accountId);
-      if (result.completeness.kind !== "complete") return [];
+      if (result.completeness.kind !== "complete") {
+        console.warn("Settlement payout summary is incomplete; Seller Desk attention is bounded.", {
+          accountId: context.accountId,
+          total: result.completeness.total,
+          cap: result.completeness.cap,
+          reason: result.completeness.reason,
+        });
+        return [];
+      }
       return selectBlockedPayoutAttentionRows(result.items, context);
     },
   });

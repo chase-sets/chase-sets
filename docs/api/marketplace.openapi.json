@@ -439,8 +439,34 @@
               { "type": "object", "required": ["kind", "total", "cap", "reason"], "properties": { "kind": { "const": "bounded-incomplete" }, "total": { "type": "integer", "minimum": 0 }, "cap": { "type": "integer", "minimum": 1 }, "reason": { "const": "payout-summary-cap-exceeded" } } }
             ]
           },
-          "next_payout": { "type": ["object", "null"] },
-          "blocked_payouts": { "type": "array", "items": { "type": "object" } },
+          "next_payout": {
+            "type": ["object", "null"],
+            "required": ["payout_id", "amount", "requested_amount", "fee_amount", "currency_code", "estimated_arrival_at"],
+            "properties": {
+              "payout_id": { "type": "string" },
+              "amount": { "type": "string" },
+              "requested_amount": { "type": "string" },
+              "fee_amount": { "type": "string" },
+              "currency_code": { "type": "string" },
+              "estimated_arrival_at": { "type": "string", "format": "date-time" }
+            }
+          },
+          "blocked_payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["payout_id", "account_id", "reference", "block_reason", "kind", "next_action", "observed_at"],
+              "properties": {
+                "payout_id": { "type": "string" },
+                "account_id": { "type": "string" },
+                "reference": { "type": "string" },
+                "block_reason": { "type": "string" },
+                "kind": { "type": "string" },
+                "next_action": { "type": "string" },
+                "observed_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
           "availability": {
             "type": "object",
             "required": ["can_request", "unavailable_reasons", "unavailable_reason_details"],
