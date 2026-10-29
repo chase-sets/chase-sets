@@ -389,7 +389,17 @@ describe("Catalog Item projections", () => {
   );
 
   it("rejects an older page write after a newer write through the freshness predicate", async () => {
-    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    let pageUpdatedAt: string | null = null;
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages")) {
+        const excludedUpdatedAt = String((params?.[13] as readonly string[])[0]);
+        const guarded = sql.includes("WHERE catalog_admin_catalog_item_list_pages.updated_at <= EXCLUDED.updated_at");
+        if (!pageUpdatedAt || !guarded || Date.parse(pageUpdatedAt) <= Date.parse(excludedUpdatedAt)) {
+          pageUpdatedAt = excludedUpdatedAt;
+        }
+      }
+      return { rows: [] };
+    });
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
     const current = {
       type: "catalog.catalog-item.metadata-revised",
@@ -409,9 +419,23 @@ describe("Catalog Item projections", () => {
           current,
         ] as never,
     });
+    const older = { ...current, timing: { recordedAt: "2026-05-17T00:01:00.000Z" } } as never;
+    await handlers["catalog.catalog-item.metadata-revised"]?.(older, {
+      readSourceStreamHistory: async () =>
+        [
+          {
+            type: "catalog.catalog-item.created",
+            streamId: "catalog.item-cat_guard",
+            data: { itemId: "cat_guard", languageCode: "en", title: "Old", subtitle: null, description: "Old" },
+            timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+          },
+          older,
+        ] as never,
+    });
     const writes = query.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO catalog_admin_catalog_item_"));
-    expect(writes).toHaveLength(2);
+    expect(writes).toHaveLength(4);
     expect(writes.every(([sql]) => String(sql).includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
+    expect(pageUpdatedAt).toBe("2026-05-17T00:02:00.000Z");
   });
 
   it.each([
