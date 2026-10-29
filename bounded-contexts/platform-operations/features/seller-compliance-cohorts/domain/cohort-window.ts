@@ -1,13 +1,17 @@
 import type { SellerSaleFact } from "../../seller-compliance-sales/read-model/queries";
-import type { SellerComplianceCohortPolicyValue } from "./seller-compliance-cohort-policy";
+import { addUtcMonths as addUtcMonthsFromSales } from "../../seller-compliance-sales/read-model/queries";
+import type {
+  SellerComplianceCohortPolicyValue,
+  SellerComplianceClassificationRule,
+} from "./seller-compliance-cohort-policy";
 
 export type CohortState = "outside" | "member";
 export type DisclosureBand = "none" | "disclosure";
-
 export type CohortEvaluation = Readonly<{
   state: CohortState;
   band: DisclosureBand;
   entryEffectiveAt: string | null;
+  bandEffectiveAt: string | null;
   exitEffectiveAt: string | null;
   windowStart: string | null;
   windowEnd: string | null;
@@ -16,31 +20,40 @@ export type CohortEvaluation = Readonly<{
   qualifyingCount: number;
   qualifyingGrossCents: string;
 }>;
+export const addUtcMonths = addUtcMonthsFromSales;
+type Classification = "qualifying" | "unclassifiable" | "excluded";
 
-export function addUtcMonths(instant: string, months: number): string {
-  const anchor = new Date(instant);
-  if (!Number.isFinite(anchor.getTime()) || !Number.isInteger(months))
-    throw new Error("Invalid UTC month arithmetic input.");
-  const day = anchor.getUTCDate();
-  const targetMonth = anchor.getUTCMonth() + months;
-  const lastDay = new Date(Date.UTC(anchor.getUTCFullYear(), targetMonth + 1, 0)).getUTCDate();
-  return new Date(
-    Date.UTC(
-      anchor.getUTCFullYear(),
-      targetMonth,
-      Math.min(day, lastDay),
-      anchor.getUTCHours(),
-      anchor.getUTCMinutes(),
-      anchor.getUTCSeconds(),
-      anchor.getUTCMilliseconds(),
-    ),
-  ).toISOString();
+function fullRefund(sale: SellerSaleFact): boolean {
+  return (
+    sale.refundedOrderTotalCents !== null &&
+    sale.orderRefundCapCents !== null &&
+    sale.refundedOrderTotalCents === sale.orderRefundCapCents
+  );
 }
-
-function classify(
-  sale: SellerSaleFact,
-  policy: SellerComplianceCohortPolicyValue,
-): "qualifying" | "unclassifiable" | "excluded" {
+function matchesRule(value: Record<string, unknown>, rule: SellerComplianceClassificationRule): boolean {
+  if (rule.source === "productId" || rule.source === "catalogItemId") return value[rule.source] === rule.value;
+  if (rule.source === "selectedOptionId") {
+    const options = value.selectedOptions;
+    return (
+      Array.isArray(options) &&
+      options.some((option) => {
+        if (typeof option === "string") return option === rule.value;
+        if (typeof option !== "object" || option === null) return false;
+        const item = option as Record<string, unknown>;
+        return item.optionId === rule.value || item.id === rule.value || item.value === rule.value;
+      })
+    );
+  }
+  const graded = value.gradedCard;
+  if (graded === null || graded === undefined || graded === false) return false;
+  if (rule.value === "graded" || rule.value === "true") return true;
+  return typeof graded === "string"
+    ? graded === rule.value
+    : typeof graded === "object" &&
+        graded !== null &&
+        (graded as Record<string, unknown>).gradingCompany === rule.value;
+}
+function classify(sale: SellerSaleFact, policy: SellerComplianceCohortPolicyValue): Classification {
   if (
     sale.currencyCode !== policy.currencyCode ||
     sale.saleState !== "captured" ||
@@ -49,38 +62,41 @@ function classify(
     sale.reconciliationMismatches.length > 0
   )
     return "excluded";
-  const inputs = Array.isArray(sale.classificationInputs) ? sale.classificationInputs : [];
-  const rules = policy.classificationRules ?? [];
-  if (rules.length === 0) return "unclassifiable";
-  const allClassified =
-    inputs.length > 0 &&
-    inputs.every((input) => {
-      if (typeof input !== "object" || input === null) return false;
-      const value = input as Record<string, unknown>;
-      return rules.some(
-        (rule) =>
-          value[rule.source] === rule.value || value.productId === rule.value || value.catalogItemId === rule.value,
-      );
-    });
-  if (!allClassified) return "unclassifiable";
+  const isFullyRefunded = fullRefund(sale);
+  if (isFullyRefunded && policy.refundTreatment === "exclude-refunded") return "excluded";
   if (
-    sale.refundedOrderTotalCents !== null &&
-    sale.orderRefundCapCents !== null &&
-    sale.refundedOrderTotalCents === sale.orderRefundCapCents
+    sale.cancelledAt !== null &&
+    isFullyRefunded &&
+    (policy.postCaptureCancellationTreatment === "exclude-cancelled" ||
+      policy.postCaptureCancellationTreatment === "exclude-if-fully-refunded")
   )
     return "excluded";
+  const inputs = Array.isArray(sale.classificationInputs) ? sale.classificationInputs : [];
+  const rules = policy.classificationRules ?? [];
+  if (rules.length === 0)
+    return policy.unclassifiableTreatment === "count-unclassifiable" ? "qualifying" : "unclassifiable";
+  const lineResults = inputs.map(
+    (input) =>
+      typeof input === "object" &&
+      input !== null &&
+      rules.some((rule) => matchesRule(input as Record<string, unknown>, rule)),
+  );
+  if (lineResults.length === 0 || lineResults.some((matched) => !matched)) {
+    if (policy.mixedLineTreatment === "count-mixed" && lineResults.some(Boolean)) return "qualifying";
+    return policy.unclassifiableTreatment === "count-unclassifiable" ? "qualifying" : "unclassifiable";
+  }
   return "qualifying";
 }
-
-function gross(sale: SellerSaleFact): bigint | null {
+function gross(sale: SellerSaleFact, policy: SellerComplianceCohortPolicyValue): bigint | null {
   if (sale.sellerItemNetCents === null || sale.marketplaceSalesFeeCents === null) return null;
-  return BigInt(sale.sellerItemNetCents) + BigInt(sale.marketplaceSalesFeeCents);
+  const itemGross = BigInt(sale.sellerItemNetCents) + BigInt(sale.marketplaceSalesFeeCents);
+  return policy.qualifyingGrossBasis === "item-gross-plus-shipping" && sale.shippingChargeCents !== null
+    ? itemGross + BigInt(sale.shippingChargeCents)
+    : itemGross;
 }
-
 function threshold(value: string | null): bigint {
   return value === null ? 0n : BigInt(value);
 }
-
 type Candidate = Readonly<{
   start: string;
   end: string;
@@ -88,7 +104,6 @@ type Candidate = Readonly<{
   count: number;
   gross: bigint;
 }>;
-
 function candidateAt(
   start: string,
   sales: readonly SellerSaleFact[],
@@ -98,82 +113,50 @@ function candidateAt(
   const qualifying: SellerSaleFact[] = [];
   let total = 0n;
   for (const sale of sales) {
-    if (sale.occurredAt < start || sale.occurredAt >= end) continue;
-    if (classify(sale, policy) !== "qualifying") continue;
-    const amount = gross(sale);
+    if (sale.occurredAt < start || sale.occurredAt >= end || classify(sale, policy) !== "qualifying") continue;
+    const amount = gross(sale, policy);
     if (amount === null) continue;
     qualifying.push(sale);
     total += amount;
   }
   return { start, end, qualifying, count: qualifying.length, gross: total };
 }
-
-function qualifies(candidate: Candidate, policy: SellerComplianceCohortPolicyValue): boolean {
+function qualifies(
+  candidate: Candidate,
+  policy: SellerComplianceCohortPolicyValue,
+  grossThreshold = threshold(policy.qualifyingGrossCents),
+): boolean {
   const inclusive = policy.comparisonIsInclusive ?? true;
-  const countOk = inclusive
-    ? candidate.count >= (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER)
-    : candidate.count > (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER);
-  const grossOk = inclusive
-    ? candidate.gross >= threshold(policy.qualifyingGrossCents)
-    : candidate.gross > threshold(policy.qualifyingGrossCents);
-  return countOk && grossOk;
+  const countThreshold = policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER;
+  return (
+    (inclusive ? candidate.count >= countThreshold : candidate.count > countThreshold) &&
+    (inclusive ? candidate.gross >= grossThreshold : candidate.gross > grossThreshold)
+  );
 }
-
 function thresholdEffectiveAt(
   candidate: Candidate,
   policy: SellerComplianceCohortPolicyValue,
   grossThreshold: bigint,
-): string {
+): string | null {
   let count = 0;
   let total = 0n;
   for (const sale of candidate.qualifying) {
     count += 1;
-    total += gross(sale) ?? 0n;
+    total += gross(sale, policy) ?? 0n;
     const inclusive = policy.comparisonIsInclusive ?? true;
-    const countOk = inclusive
-      ? count >= (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER)
-      : count > (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER);
-    const grossOk = inclusive ? total >= grossThreshold : total > grossThreshold;
-    if (countOk && grossOk) return sale.occurredAt;
+    if (
+      (inclusive
+        ? count >= (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER)
+        : count > (policy.qualifyingTransactionCount ?? Number.MAX_SAFE_INTEGER)) &&
+      (inclusive ? total >= grossThreshold : total > grossThreshold)
+    )
+      return sale.occurredAt;
   }
-  return candidate.qualifying[candidate.qualifying.length - 1]?.occurredAt ?? candidate.start;
+  return null;
 }
-
-export function evaluateSellerComplianceCohort(
-  input: Readonly<{
-    sales: readonly SellerSaleFact[];
-    policy: SellerComplianceCohortPolicyValue;
-    evaluationAt: string;
-    previous?: Readonly<{ state: CohortState; band: DisclosureBand; entryEffectiveAt: string | null }>;
-  }>,
-): CohortEvaluation {
-  const { sales, policy, evaluationAt } = input;
-  if (
-    !policy.activated ||
-    policy.currencyCode === null ||
-    policy.windowMonths === null ||
-    policy.lookbackMonths === null ||
-    policy.qualifyingTransactionCount === null ||
-    policy.qualifyingGrossCents === null ||
-    policy.classificationRules === null
-  ) {
-    return {
-      state: "outside",
-      band: "none",
-      entryEffectiveAt: null,
-      exitEffectiveAt: null,
-      windowStart: null,
-      windowEnd: null,
-      nextReevaluationAt: null,
-      unclassifiableCount: 0,
-      qualifyingCount: 0,
-      qualifyingGrossCents: "0",
-    };
-  }
+function evaluateAt(sales: readonly SellerSaleFact[], policy: SellerComplianceCohortPolicyValue, evaluationAt: string) {
   const at = Date.parse(evaluationAt);
-  const windowMonths = policy.windowMonths;
-  const lookbackMonths = policy.lookbackMonths;
-  const floor = Date.parse(addUtcMonths(evaluationAt, -lookbackMonths));
+  const floor = Date.parse(addUtcMonths(evaluationAt, -(policy.lookbackMonths ?? 60)));
   const eligible = [...sales]
     .filter((sale) => Date.parse(sale.occurredAt) < at && Date.parse(sale.occurredAt) >= floor)
     .sort(
@@ -184,19 +167,81 @@ export function evaluateSellerComplianceCohort(
     );
   const candidates = eligible.map((sale) => candidateAt(sale.occurredAt, eligible, policy));
   const winner = candidates.find((candidate) => qualifies(candidate, policy)) ?? null;
-  const bandWinner =
-    winner !== null &&
-    ((policy.comparisonIsInclusive ?? true)
-      ? winner.gross >= threshold(policy.disclosureGrossCents)
-      : winner.gross > threshold(policy.disclosureGrossCents));
-  const unclassifiableCount = eligible.filter((sale) => classify(sale, policy) === "unclassifiable").length;
-  const expiryCandidates = eligible
-    .flatMap((sale) => [addUtcMonths(sale.occurredAt, windowMonths), addUtcMonths(sale.occurredAt, lookbackMonths)])
-    .filter((instant) => Date.parse(instant) > at)
-    .sort();
-  let nextReevaluationAt: string | null = expiryCandidates[0] ?? null;
-  if (winner === null) nextReevaluationAt = null;
+  return {
+    at,
+    eligible,
+    winner,
+    bandWinner: winner !== null && qualifies(winner, policy, threshold(policy.disclosureGrossCents)),
+  };
+}
+
+export function evaluateSellerComplianceCohort(
+  input: Readonly<{
+    sales: readonly SellerSaleFact[];
+    policy: SellerComplianceCohortPolicyValue;
+    evaluationAt: string;
+    previous?: Readonly<{
+      state: CohortState;
+      band: DisclosureBand;
+      entryEffectiveAt: string | null;
+      exitEffectiveAt?: string | null;
+    }>;
+  }>,
+): CohortEvaluation {
+  const { sales, policy, evaluationAt } = input;
+  if (
+    !policy.activated ||
+    policy.currencyCode === null ||
+    policy.windowMonths === null ||
+    policy.lookbackMonths === null ||
+    policy.qualifyingTransactionCount === null ||
+    policy.qualifyingGrossCents === null ||
+    policy.classificationRules === null ||
+    policy.saleUnit === null ||
+    policy.qualifyingGrossBasis === null ||
+    policy.refundTreatment === null ||
+    policy.postCaptureCancellationTreatment === null ||
+    policy.mixedLineTreatment === null ||
+    policy.unclassifiableTreatment === null
+  )
+    return {
+      state: "outside",
+      band: "none",
+      entryEffectiveAt: null,
+      bandEffectiveAt: null,
+      exitEffectiveAt: null,
+      windowStart: null,
+      windowEnd: null,
+      nextReevaluationAt: null,
+      unclassifiableCount: 0,
+      qualifyingCount: 0,
+      qualifyingGrossCents: "0",
+    };
+  const result = evaluateAt(sales, policy, evaluationAt);
+  const winner = result.winner;
   const previousMember = input.previous?.state === "member";
+  const windowMonths = policy.windowMonths as number;
+  const lookbackMonths = policy.lookbackMonths as number;
+  const expiries = result.eligible
+    .flatMap((sale) => [addUtcMonths(sale.occurredAt, windowMonths), addUtcMonths(sale.occurredAt, lookbackMonths)])
+    .filter((instant) => Date.parse(instant) > Date.parse(evaluationAt))
+    .sort();
+  let exitEffectiveAt: string | null = null;
+  if (previousMember && winner === null) {
+    const entry = input.previous?.entryEffectiveAt ?? "";
+    const candidates = result.eligible
+      .flatMap((sale) => [addUtcMonths(sale.occurredAt, windowMonths), addUtcMonths(sale.occurredAt, lookbackMonths)])
+      .filter((instant) => Date.parse(instant) > Date.parse(entry) && Date.parse(instant) <= Date.parse(evaluationAt))
+      .sort();
+    for (const instant of candidates) {
+      const at = evaluateAt(sales, policy, instant);
+      if (!at.winner || !qualifies(at.winner, policy)) {
+        exitEffectiveAt = instant;
+        break;
+      }
+    }
+    exitEffectiveAt ??= evaluationAt;
+  }
   const entryEffectiveAt =
     winner === null
       ? null
@@ -204,16 +249,20 @@ export function evaluateSellerComplianceCohort(
         ? (input.previous?.entryEffectiveAt ??
           thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents)))
         : thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents));
-  const exitEffectiveAt = previousMember && winner === null ? (expiryCandidates[0] ?? evaluationAt) : null;
+  const bandEffectiveAt =
+    winner === null || !result.bandWinner
+      ? null
+      : thresholdEffectiveAt(winner, policy, threshold(policy.disclosureGrossCents));
   return {
     state: winner === null ? "outside" : "member",
-    band: bandWinner ? "disclosure" : "none",
-    entryEffectiveAt: winner === null ? null : entryEffectiveAt,
+    band: result.bandWinner ? "disclosure" : "none",
+    entryEffectiveAt,
+    bandEffectiveAt,
     exitEffectiveAt,
     windowStart: winner?.start ?? null,
     windowEnd: winner?.end ?? null,
-    nextReevaluationAt,
-    unclassifiableCount,
+    nextReevaluationAt: winner === null ? null : (expiries[0] ?? null),
+    unclassifiableCount: result.eligible.filter((sale) => classify(sale, policy) === "unclassifiable").length,
     qualifyingCount: winner?.count ?? 0,
     qualifyingGrossCents: (winner?.gross ?? 0n).toString(),
   };

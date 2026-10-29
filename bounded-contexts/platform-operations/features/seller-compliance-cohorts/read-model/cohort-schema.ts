@@ -39,6 +39,15 @@ export const sellerComplianceCohortSchemaStatements: readonly string[] = [
     recorded_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (seller_account_id, evaluation_at, failure_kind)
   )`,
+  `CREATE TABLE IF NOT EXISTS platform_operations_seller_compliance_sweep_checkpoints (
+    trigger_name text PRIMARY KEY,
+    snapshot_change_sequence bigint NOT NULL,
+    after_seller_account_id text NULL,
+    policy_version text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_cohorts_due_idx ON platform_operations_seller_compliance_cohorts (next_reevaluation_at) WHERE next_reevaluation_at IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_transitions_unpublished_idx ON platform_operations_seller_compliance_cohort_transitions (recorded_at) WHERE published_at IS NULL`,
 ];
 
 export const sellerComplianceCohortSchemaSql = `${sellerComplianceCohortSchemaStatements.join(";\n\n")};\n`;

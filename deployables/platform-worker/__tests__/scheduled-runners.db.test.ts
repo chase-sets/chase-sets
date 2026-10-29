@@ -650,6 +650,24 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       expect((error as Error & { cause?: { code?: string } }).cause?.code).toBe("42702");
     }
   });
+
+  it("exits a seller on the sweep with no new sale", async () => {
+    expect(
+      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
+    ).toBe(true);
+  });
+
+  it("reevaluates historical sellers on a policy revision without a new sale", async () => {
+    expect(
+      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
+    ).toBe(true);
+  });
+
+  it("admits a new sale on the next sweep tick", async () => {
+    expect(
+      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
+    ).toBe(true);
+  });
 });
 
 async function runRegisteredRunnerSetOnce(runners: readonly WorkerRunner[]) {

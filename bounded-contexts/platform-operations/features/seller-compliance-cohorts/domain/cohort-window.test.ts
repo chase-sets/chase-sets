@@ -62,16 +62,117 @@ describe("seller compliance cohort window", () => {
   });
 
   it("enters only at inclusive count and gross edges", () => {
-    const result = evaluateSellerComplianceCohort({
-      sales: [sale("a", "2025-01-01T00:00:00.000Z", "250000"), sale("b", "2025-01-15T00:00:00.000Z", "250000")],
-      policy,
-      evaluationAt: "2025-01-20T00:00:00.000Z",
+    const make = (count: number, amount: string) =>
+      Array.from({ length: count }, (_, index) =>
+        sale(String(index), `2025-01-${String((index % 20) + 1).padStart(2, "0")}T00:00:00.000Z`, amount),
+      );
+    const exact = evaluateSellerComplianceCohort({
+      sales: make(200, "2500"),
+      policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
+      evaluationAt: "2025-01-31T00:00:00.000Z",
     });
-    expect(result.state).toBe("member");
-    expect(result.qualifyingGrossCents).toBe("500000");
+    const belowCount = evaluateSellerComplianceCohort({
+      sales: make(199, "2500"),
+      policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
+      evaluationAt: "2025-01-31T00:00:00.000Z",
+    });
+    const belowGross = evaluateSellerComplianceCohort({
+      sales: [...make(199, "2500"), sale("gross-below", "2025-01-01T00:00:00.000Z", "2499")],
+      policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
+      evaluationAt: "2025-01-31T00:00:00.000Z",
+    });
+    expect(exact.state).toBe("member");
+    expect(belowCount.state).toBe("outside");
+    expect(belowGross.state).toBe("outside");
+    expect(exact.qualifyingGrossCents).toBe("500000");
   });
 
   it("rejects activated policy with unresolved interpretation", () => {
     expect(() => decodeSellerComplianceCohortPolicyValue({ ...policy, refundTreatment: null })).toThrow();
+    expect(() => decodeSellerComplianceCohortPolicyValue({ ...policy, windowMonths: true })).toThrow();
+    expect(() =>
+      decodeSellerComplianceCohortPolicyValue({ ...policy, classificationRules: [{ source: "unknown", value: "x" }] }),
+    ).toThrow();
+  });
+
+  it("pins every window and month-arithmetic edge in UTC", () => {
+    expect(addUtcMonths("2025-03-31T00:00:00.000Z", -1)).toBe("2025-02-28T00:00:00.000Z");
+    const edge = evaluateSellerComplianceCohort({
+      sales: [sale("edge", "2025-01-20T00:00:00.000Z", "500000")],
+      policy,
+      evaluationAt: "2025-01-20T00:00:00.000Z",
+    });
+    expect(edge.state).toBe("outside");
+    const start = sale("start", "2025-01-01T00:00:00.000Z", "500000");
+    const end = sale("end", "2025-02-01T00:00:00.000Z", "500000");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [start],
+        policy: { ...policy, qualifyingTransactionCount: 1 },
+        evaluationAt: "2025-02-01T00:00:00.000Z",
+      }).state,
+    ).toBe("member");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [end],
+        policy: { ...policy, qualifyingTransactionCount: 1 },
+        evaluationAt: "2025-02-01T00:00:00.000Z",
+      }).state,
+    ).toBe("outside");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [sale("at", "2025-02-02T00:00:00.000Z", "500000")],
+        policy: { ...policy, qualifyingTransactionCount: 1 },
+        evaluationAt: "2025-02-02T00:00:00.000Z",
+      }).state,
+    ).toBe("outside");
+  });
+
+  it("sale-anchored windows agree with an exhaustive sliding scan under shuffled input", () => {
+    const sales = Array.from({ length: 200 }, (_, index) =>
+      sale(String(index), `2024-${String((index % 12) + 1).padStart(2, "0")}-01T00:00:00.000Z`, "250000"),
+    );
+    const expected = evaluateSellerComplianceCohort({
+      sales,
+      policy: { ...policy, qualifyingTransactionCount: 1 },
+      evaluationAt: "2025-01-01T00:00:00.000Z",
+    });
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [...sales].reverse(),
+        policy: { ...policy, qualifyingTransactionCount: 2 },
+        evaluationAt: "2025-01-01T00:00:00.000Z",
+      }),
+    ).toEqual(expected);
+  });
+
+  it("counts only classified, reconciled, policy-currency sales", () => {
+    const foreign = { ...sale("foreign", "2025-01-01T00:00:00.000Z", "500000"), currencyCode: "EUR" };
+    const result = evaluateSellerComplianceCohort({
+      sales: [foreign, sale("good", "2025-01-02T00:00:00.000Z", "500000")],
+      policy: { ...policy, qualifyingTransactionCount: 1 },
+      evaluationAt: "2025-01-03T00:00:00.000Z",
+    });
+    expect(result.qualifyingCount).toBe(1);
+  });
+
+  it("applies every interpretive treatment branch distinctly", () => {
+    const refunded = {
+      ...sale("refund", "2025-01-01T00:00:00.000Z", "500000"),
+      refundedOrderTotalCents: "500000",
+      orderRefundCapCents: "500000",
+    };
+    const excluded = evaluateSellerComplianceCohort({
+      sales: [refunded],
+      policy: { ...policy, qualifyingTransactionCount: 1 },
+      evaluationAt: "2025-01-02T00:00:00.000Z",
+    });
+    const counted = evaluateSellerComplianceCohort({
+      sales: [refunded],
+      policy: { ...policy, qualifyingTransactionCount: 1, refundTreatment: "count-refunded" },
+      evaluationAt: "2025-01-02T00:00:00.000Z",
+    });
+    expect(excluded.state).toBe("outside");
+    expect(counted.state).toBe("member");
   });
 });

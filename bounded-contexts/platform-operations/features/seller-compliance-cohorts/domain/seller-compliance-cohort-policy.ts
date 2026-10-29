@@ -7,12 +7,20 @@ export type SellerComplianceTreatment =
   | "exclude"
   | "count-captured"
   | "exclude-refunded"
+  | "count-refunded"
   | "exclude-cancelled"
+  | "exclude-if-fully-refunded"
+  | "count-cancelled"
   | "exclude-mixed"
-  | "exclude-unclassifiable";
+  | "count-mixed"
+  | "exclude-unclassifiable"
+  | "count-unclassifiable";
+
+export type SellerComplianceGrossBasis = "item-gross" | "item-gross-plus-shipping";
+export type SellerComplianceSaleUnit = "captured-order";
 
 export type SellerComplianceClassificationRule = Readonly<{
-  source: string;
+  source: "productId" | "catalogItemId" | "selectedOptionId" | "gradedCard";
   value: string;
 }>;
 
@@ -25,8 +33,8 @@ export type SellerComplianceCohortPolicyValue = Readonly<{
   windowMonths: number | null;
   lookbackMonths: number | null;
   comparisonIsInclusive: boolean | null;
-  saleUnit: string | null;
-  qualifyingGrossBasis: string | null;
+  saleUnit: SellerComplianceSaleUnit | null;
+  qualifyingGrossBasis: SellerComplianceGrossBasis | null;
   refundTreatment: SellerComplianceTreatment | null;
   postCaptureCancellationTreatment: SellerComplianceTreatment | null;
   mixedLineTreatment: SellerComplianceTreatment | null;
@@ -64,9 +72,14 @@ const treatments = new Set<string>([
   "exclude",
   "count-captured",
   "exclude-refunded",
+  "count-refunded",
   "exclude-cancelled",
+  "exclude-if-fully-refunded",
+  "count-cancelled",
   "exclude-mixed",
+  "count-mixed",
   "exclude-unclassifiable",
+  "count-unclassifiable",
 ]);
 const interpretiveFields: (keyof SellerComplianceCohortPolicyValue)[] = [
   "currencyCode",
@@ -96,7 +109,9 @@ function nullableString(record: Record<string, unknown>, key: string): string | 
 function nullableInteger(record: Record<string, unknown>, key: string, min: number, max: number): number | null {
   const value = record[key];
   if (value === null || value === undefined) return null;
-  const n = Number(value);
+  if (typeof value !== "number")
+    throw new SellerComplianceCohortPolicyDomainError(`${key} must be an integer between ${min} and ${max} or null.`);
+  const n = value;
   if (!Number.isInteger(n) || n < min || n > max)
     throw new SellerComplianceCohortPolicyDomainError(`${key} must be an integer between ${min} and ${max} or null.`);
   return n;
@@ -130,6 +145,14 @@ function nullableTreatment(record: Record<string, unknown>, key: string): Seller
   return value as SellerComplianceTreatment;
 }
 
+function nullableEnum<T extends string>(record: Record<string, unknown>, key: string, values: readonly T[]): T | null {
+  const value = record[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || !values.includes(value as T))
+    throw new SellerComplianceCohortPolicyDomainError(`${key} contains an unsupported value.`);
+  return value as T;
+}
+
 export function decodeSellerComplianceCohortPolicyValue(raw: JsonValue): SellerComplianceCohortPolicyValue {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
     throw new SellerComplianceCohortPolicyDomainError("Seller compliance cohort policy value must be an object.");
@@ -145,8 +168,8 @@ export function decodeSellerComplianceCohortPolicyValue(raw: JsonValue): SellerC
     windowMonths: nullableInteger(r, "windowMonths", 1, 24),
     lookbackMonths: nullableInteger(r, "lookbackMonths", 1, 60),
     comparisonIsInclusive: nullableBoolean(r, "comparisonIsInclusive"),
-    saleUnit: nullableString(r, "saleUnit"),
-    qualifyingGrossBasis: nullableString(r, "qualifyingGrossBasis"),
+    saleUnit: nullableEnum(r, "saleUnit", ["captured-order"] as const),
+    qualifyingGrossBasis: nullableEnum(r, "qualifyingGrossBasis", ["item-gross", "item-gross-plus-shipping"] as const),
     refundTreatment: nullableTreatment(r, "refundTreatment"),
     postCaptureCancellationTreatment: nullableTreatment(r, "postCaptureCancellationTreatment"),
     mixedLineTreatment: nullableTreatment(r, "mixedLineTreatment"),
@@ -161,9 +184,14 @@ export function decodeSellerComplianceCohortPolicyValue(raw: JsonValue): SellerC
       if (typeof entry !== "object" || entry === null || Array.isArray(entry))
         throw new SellerComplianceCohortPolicyDomainError("classificationRules entries must be objects.");
       const e = entry as Record<string, unknown>;
-      if (typeof e.source !== "string" || typeof e.value !== "string" || !e.source || !e.value)
+      if (
+        typeof e.source !== "string" ||
+        !["productId", "catalogItemId", "selectedOptionId", "gradedCard"].includes(e.source) ||
+        typeof e.value !== "string" ||
+        !e.value
+      )
         throw new SellerComplianceCohortPolicyDomainError("classificationRules entries require source and value.");
-      return { source: e.source, value: e.value };
+      return { source: e.source as SellerComplianceClassificationRule["source"], value: e.value };
     });
     return validateSellerComplianceCohortPolicyValue({ ...value, classificationRules });
   }
