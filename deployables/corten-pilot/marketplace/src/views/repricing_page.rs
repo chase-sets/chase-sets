@@ -173,7 +173,7 @@ fn rule_currency(run: &RepricingDryRun, rule: usize) -> Option<&str> {
 pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen) -> impl Render {
     let editing = screen.editor.is_some();
     let create = url::Repricing { place: Place::create() };
-    let health = super::on_marketplace("/account/desk/pricing-health");
+    let health = url::PricingHealth::default();
     let recommendations = url::Recommendations::default().href();
     html! {
         <header class={Header}>

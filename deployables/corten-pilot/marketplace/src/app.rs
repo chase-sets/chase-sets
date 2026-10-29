@@ -172,6 +172,7 @@ pub mod url {
     pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
     pub use payout::DeskPayout;
     pub use payout_setup::{PayoutSetup, PayoutSetupSession};
+    pub use pricing_health::PricingHealth;
     pub use purchase_reviews::PurchaseReview;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use recommendations::{Recommendations, RecommendationsLive};
@@ -1047,6 +1048,20 @@ pub mod url {
         }
     }
 
+    /// Pricing health (marketplace's `account-desk-pricing-health`): the verdict for a policy,
+    /// Compute verdict, Compare goals and Apply goal (see `pricing_health`). Every handler takes a
+    /// `PricingManager`.
+    #[corten::routes(state = crate::app::Shared, area = PricingHealth, caller = crate::auth::PricingManager)]
+    pub mod pricing_health {
+        /// The page, for the policy its address names; the writes post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/pricing-health", get = crate::pricing_health::page, post = crate::pricing_health::write)]
+        pub struct PricingHealth {
+            #[route(query)]
+            pub place: crate::pricing_health::Place,
+        }
+    }
+
     /// The pricing recommendations (marketplace's `account-repricing`): the page following a job,
     /// Refresh, Apply and Dismiss, and the job relayed live (see `recommendations`). Every handler
     /// takes a `PricingManager`.
@@ -1532,6 +1547,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
+        .area(|area| url::pricing_health::area(area, shared.clone()).components(views::PRICING_HEALTH))
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)

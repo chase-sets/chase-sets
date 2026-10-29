@@ -7611,3 +7611,291 @@ impl Imports for Caller<'_> {
         Err(ApiError::Status { status, code: None, message: String::new() })
     }
 }
+
+/// Pricing health (marketplace's `account-desk-pricing-health`, Pricing's `pricing-health` routes).
+const PRICING_HEALTH: &str = "/api/marketplace/account/pricing-health";
+
+/// A policy the page can show (`PricingHealthData.policies`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthPolicy {
+    pub policy_id: String,
+    pub name: String,
+    pub version: u64,
+    pub body_hash: Option<String>,
+}
+
+/// Listings and units (`population`, `uncategorized`, a risk bucket).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthCount {
+    pub listing_count: u64,
+    pub unit_count: u64,
+    /// The uncategorized listings' reasons, by reason.
+    pub reasons: BTreeMap<String, u64>,
+    /// A risk bucket's value, in the currency's units.
+    pub value_amount: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthCoverage {
+    pub listing_count: u64,
+    pub listing_total: u64,
+    pub unit_count: u64,
+    pub unit_total: u64,
+    pub listing_ratio: Option<f64>,
+    pub unit_ratio: Option<f64>,
+    pub missing_reasons: BTreeMap<String, u64>,
+    pub bound_status_count: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthCurveAge {
+    pub newest_age_days: Option<f64>,
+    pub oldest_age_days: Option<f64>,
+    pub stale_count: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthWait {
+    pub median_days: Option<f64>,
+    pub p90_days: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthRisk {
+    pub hopeless: HealthCount,
+    pub slow: HealthCount,
+    pub unknown_policy_listing_count: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthProfit {
+    pub value: Option<f64>,
+    pub cycle_days: Option<f64>,
+    pub economics_listing_count: u64,
+    pub unavailable_reason: Option<String>,
+    pub economics_unavailable_reasons: BTreeMap<String, u64>,
+    pub cost_basis_source_kinds: BTreeMap<String, u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthTurn {
+    /// A fractional daily return: shown as a percentage.
+    pub value: Option<f64>,
+    pub cycle_days: Option<f64>,
+    pub daily_return_hurdle: Option<f64>,
+    pub daily_return_hurdle_source_kinds: BTreeMap<String, u64>,
+    pub unavailable_reason: Option<String>,
+}
+
+/// One currency's verdict (`RepricingHealthCurrencySummary`); currencies are never added together.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthCurrency {
+    pub listed_value_amount: String,
+    pub modeled_value_amount: String,
+    pub modeled_value_delta_amount: String,
+    pub coverage: HealthCoverage,
+    pub curve_age: HealthCurveAge,
+    pub expected_wait: HealthWait,
+    pub expected_sales: HealthCount,
+    pub value_at_risk: HealthRisk,
+    pub profit_per_day: HealthProfit,
+    pub capital_turn: HealthTurn,
+}
+
+/// A stored verdict (`RepricingHealthSummary`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthSummary {
+    pub captured_at: String,
+    pub population: HealthCount,
+    pub currencies: BTreeMap<String, HealthCurrency>,
+    pub uncategorized: HealthCount,
+}
+
+/// The dry run a verdict came from (`PricingHealthRun`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthRun {
+    pub dry_run_id: String,
+    pub completed_at: String,
+    pub body_hash: String,
+}
+
+/// A goal the Adoption Gate cleared (`GoalChoice`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthGoal {
+    pub goal_id: String,
+    pub goal_version: u64,
+    pub parameters: BTreeMap<String, f64>,
+    pub required_curve_features: Vec<String>,
+}
+
+/// A goal's candidate run (`CandidateMetrics`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthCandidate {
+    pub goal_id: String,
+    pub goal_version: u64,
+    pub dry_run_id: String,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    pub requested_at: String,
+    pub body_hash: String,
+    pub target_policy_id: String,
+    pub target_revision: u64,
+    pub listing_count: Option<u64>,
+    pub raised: Option<u64>,
+    pub lowered: Option<u64>,
+    pub held: Option<u64>,
+    pub held_reasons: BTreeMap<String, u64>,
+    pub value: Option<BTreeMap<String, String>>,
+    pub median_wait_days: Option<BTreeMap<String, Option<f64>>>,
+    pub p90_wait_days: Option<BTreeMap<String, Option<f64>>>,
+    pub bound_status_count: Option<BTreeMap<String, f64>>,
+    pub coverage: Option<BTreeMap<String, f64>>,
+    pub profit_per_day: Option<BTreeMap<String, Option<f64>>>,
+    /// What the apply confirmation shows and Apply goal sends back, as Pricing sent them.
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
+    pub currency_code: Option<String>,
+    pub floor: Option<serde_json::Value>,
+    pub guardrails: Option<serde_json::Value>,
+}
+
+/// What the page recommends (`Recommendation`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthAdvice {
+    pub kind: String,
+    pub goal_id: Option<String>,
+    pub goal_version: Option<u64>,
+    pub currency: Option<String>,
+    pub delta: Option<f64>,
+    pub wait_delta: Option<f64>,
+    pub raised: Option<u64>,
+    pub lowered: Option<u64>,
+    pub held: Option<u64>,
+    pub reason: Option<String>,
+    pub count: Option<u64>,
+}
+
+/// A platform forecast grade (`PricingHealthGrade`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthGrade {
+    pub goal_id: String,
+    pub goal_version: u64,
+    pub closed_on: String,
+    pub forecast_kind: String,
+    pub model: String,
+    pub horizon_days: f64,
+    /// `disclosed` or `undisclosed`.
+    pub status: String,
+    pub values: Option<HealthGradeValues>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HealthGradeValues {
+    pub sold_share: Option<f64>,
+    pub expected_share: Option<f64>,
+    pub brier: Option<f64>,
+    pub base_rate_brier: Option<f64>,
+}
+
+/// The page's read (`PricingHealthData` with `canCompute`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PricingHealth {
+    pub policies: Vec<HealthPolicy>,
+    pub target: Option<HealthPolicy>,
+    pub health: Option<HealthSummary>,
+    pub run: Option<HealthRun>,
+    pub grades: Vec<HealthGrade>,
+    pub computing: bool,
+    pub goals: Vec<HealthGoal>,
+    pub comparison: Vec<HealthCandidate>,
+    pub recommendation: Option<HealthAdvice>,
+    /// `comparison`, `advanced-editor` or `create-editor`.
+    pub branch: Option<String>,
+    pub can_compute: bool,
+}
+
+/// Apply goal's request (`ApplyGoalRequest`): the candidate as the page showed it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyGoal {
+    pub dry_run_id: String,
+    pub target_revision: u64,
+    pub target_body_hash: String,
+    pub candidate_body_hash: String,
+    pub goal_id: String,
+    pub goal_version: u64,
+    pub parameters: serde_json::Map<String, serde_json::Value>,
+}
+
+/// What applying a goal did (`ApplyGoalResult`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AppliedGoal {
+    pub revision: u64,
+    pub movement: AppliedMovement,
+    pub alerts: AppliedAlerts,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AppliedMovement {
+    pub raised: u64,
+    pub lowered: u64,
+    pub held: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AppliedAlerts {
+    pub floor_binding: u64,
+}
+
+/// Pricing health's calls.
+pub trait PricingHealthCalls {
+    /// The verdict for `policy`, or Pricing's choice of policy without one.
+    async fn pricing_health(&self, policy: Option<&str>) -> Result<PricingHealth, ApiError>;
+    /// Compute a verdict, or compare the goals, for `policy` (`compute` or `compare`).
+    async fn pricing_health_command(&self, policy: &str, command: &str) -> Result<(), ApiError>;
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError>;
+}
+
+impl PricingHealthCalls for Caller<'_> {
+    async fn pricing_health(&self, policy: Option<&str>) -> Result<PricingHealth, ApiError> {
+        match policy {
+            Some(policy) => self.read(&format!("{PRICING_HEALTH}?policyId={}", segment(policy)), PRICING).await,
+            None => self.read(PRICING_HEALTH, PRICING).await,
+        }
+    }
+
+    async fn pricing_health_command(&self, policy: &str, command: &str) -> Result<(), ApiError> {
+        let req = self.request(Method::POST, &format!("{PRICING_HEALTH}/{}/{command}", segment(policy)), PRICING);
+        pricing_answer(req).await.map(|_| ()).map_err(|refusal| refusal.error)
+    }
+
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError> {
+        let path = format!("{PRICING_HEALTH}/{}/apply-goal", segment(policy));
+        let (body, _) =
+            pricing_answer(self.request(Method::POST, &path, PRICING).json(goal)).await.map_err(|refusal| refusal.error)?;
+        serde_json::from_value(body).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("an applied goal the page cannot read: {error}"),
+        })
+    }
+}

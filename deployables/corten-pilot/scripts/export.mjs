@@ -1043,6 +1043,7 @@ const outputs = [
         ["pricing.routes.marketplace.accountRepricing.", "recs_route"],
         ["pricing.routes.marketplace.bulkReprice.", "bulk_route"],
         ["pricing.features.pricingHealth.title", "pricing_health"],
+        ["pricing.features.pricingHealth.", "health"],
       ])),
       // A recommendation's item language (`formatLanguageCodeLabel`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),

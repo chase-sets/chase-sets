@@ -49,6 +49,7 @@ mod page_actions;
 mod payment_methods_page;
 mod payment_page;
 mod payout_setup_page;
+mod pricing_health_page;
 mod recommendations_page;
 mod recovery;
 mod repricing_page;
@@ -99,6 +100,7 @@ pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
 pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
+pub use pricing_health_page::PricingHealthPage;
 pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
@@ -230,6 +232,8 @@ pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::Che
 pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
 /// The pricing recommendations (`/account/repricing`).
 pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage];
+/// Pricing health (`/account/desk/pricing-health`).
+pub const PRICING_HEALTH: &[Component] = &[PricingHealthPage];
 /// Bulk reprice (`/account/bulk-reprice`).
 pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
 

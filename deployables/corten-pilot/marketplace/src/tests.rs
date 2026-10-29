@@ -489,6 +489,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = recommendations(&stand, &method, uri.path(), &body) {
         return answer;
     }
+    if let Some(answer) = pricing_health(session, &method, &uri, &body) {
+        return answer;
+    }
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
@@ -14703,4 +14706,222 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
     assert!(location.starts_with("/account/offers/submitted/off_paused?after_write="), "{location}");
     let (_, _, html) = pilot.send(get(location, Some("trader"))).await;
     assert!(text(&html).contains("Preparing submitted offer"), "{html}");
+}
+
+const HEALTH_SCREEN: &str = "/account/desk/pricing-health";
+
+/// Pricing health, as the stand-in answers it: two policies, the first with a stored verdict in
+/// USD, two goals, a completed and a running candidate, and one disclosed grade. `rpp_busy` is
+/// computing; `rpp_gone` is not found; `rpp_down` fails on Pricing's side. Compute and Compare
+/// are accepted; `canCompute` is Pricing's word for `pricer` only; Apply goal is refused for a body hash of `stale` and applied otherwise.
+fn pricing_health(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if !path.starts_with("/api/marketplace/account/pricing-health") {
+        return None;
+    }
+    let policy = uri.query().and_then(|q| q.strip_prefix("policyId=")).unwrap_or("rpp_1");
+    let target = |id: &str| json!({ "policyId": id, "name": if id == "rpp_2" { "Weekend" } else { "Everyday" }, "version": 4, "bodyHash": "hash_4" });
+    let currency = json!({
+        "listedValueAmount": "1250.00", "modeledValueAmount": "1180.50", "modeledValueDeltaAmount": "-69.50",
+        "coverage": { "listingCount": 8, "listingTotal": 10, "unitCount": 12, "unitTotal": 15, "listingRatio": 0.8, "unitRatio": 0.8,
+            "missingReasons": { "no-curve": 2 }, "boundStatusCount": 1 },
+        "curveAge": { "newestAgeDays": 1, "oldestAgeDays": 6.5, "staleCount": 1 },
+        "expectedWait": { "medianDays": 4.25, "p90Days": 21 },
+        "expectedSales": { "listingCount": 3, "valueAmount": "210.00" },
+        "valueAtRisk": { "hopeless": { "listingCount": 1, "unitCount": 1, "valueAmount": "40.00" },
+            "slow": { "listingCount": 2, "unitCount": 3, "valueAmount": "95.00" }, "unknownPolicyListingCount": 0 },
+        "profitPerDay": { "value": null, "cycleDays": null, "economicsListingCount": 0, "unavailableReason": "no-economics",
+            "economicsUnavailableReasons": {}, "costBasisSourceKinds": {} },
+        "capitalTurn": { "value": 0.0123, "cycleDays": 30, "dailyReturnHurdle": null, "dailyReturnHurdleSourceKinds": {}, "unavailableReason": null },
+    });
+    let candidate = |goal: &str, status: &str, run: &str| {
+        json!({
+            "goalId": goal, "goalVersion": 1, "dryRunId": run, "status": status, "requestedAt": "2026-10-29T08:00:00.000Z",
+            "completedAt": null, "bodyHash": format!("cand_{run}"), "targetPolicyId": "rpp_1", "targetRevision": 4, "listingCount": 10,
+            "raised": 3, "lowered": 2, "held": 5, "heldReasons": { "floor-binding": 2 }, "value": { "USD": "1300.00" },
+            "medianWaitDays": { "USD": 3.5 }, "p90WaitDays": { "USD": null }, "boundStatusCount": { "USD": 1 }, "coverage": { "USD": 0.8 },
+            "profitPerDay": { "USD": 12.75 }, "capitalTurn": null, "economicsSet": null, "flags": {},
+            "parameters": { "percentile": 65 }, "currencyCode": "USD", "floor": { "kind": "percent-of-cost", "value": 10 }, "guardrails": [],
+        })
+    };
+    let data = |id: &str| {
+        json!({
+            "policies": [target("rpp_1"), target("rpp_2")],
+            "target": target(id),
+            "health": if id == "rpp_1" { json!({ "capturedAt": "2026-10-29T08:00:00.000Z", "population": { "listingCount": 10, "unitCount": 15 },
+                "currencies": { "USD": currency }, "uncategorized": { "listingCount": 0, "unitCount": 0, "reasons": {} } }) } else { Value::Null },
+            "run": if id == "rpp_1" { json!({ "dryRunId": "dry_7", "requestedAt": "2026-10-29T07:59:00.000Z", "completedAt": "2026-10-29T08:00:00.000Z", "bodyHash": "hash_4" }) } else { Value::Null },
+            "grades": [{ "goalId": "fixed-percentile", "goalVersion": 1, "closedOn": "2026-10-01", "forecastKind": "sell-within", "model": "curve-v2",
+                "horizonDays": 30, "status": "disclosed", "values": { "soldShare": 0.42, "expectedShare": 0.4, "brier": 0.1834, "baseRateBrier": 0.25 } }],
+            "computing": id == "rpp_busy",
+            "goals": [
+                { "goalId": "fixed-percentile", "goalVersion": 1, "lifecycle": "selectable", "parameterSchema": {}, "parameters": { "percentile": 65 },
+                  "requiredCurveFeatures": [], "requiresEconomics": false },
+                { "goalId": "next-gen", "goalVersion": 2, "lifecycle": "selectable", "parameterSchema": {}, "parameters": { "k": 2 },
+                  "requiredCurveFeatures": ["storeWinShare"], "requiresEconomics": false },
+            ],
+            "comparison": [candidate("fixed-percentile", "completed", "dry_c1"), candidate("next-gen", "running", "dry_c2")],
+            "recommendation": { "kind": "switch", "goalId": "fixed-percentile", "goalVersion": 1, "currency": "USD", "delta": 1.5, "waitDelta": -2,
+                "raised": 3, "lowered": 2, "held": 5 },
+            "branch": "comparison",
+            "canCompute": session == "pricer",
+        })
+    };
+    Some(match (method.as_str(), path) {
+        ("GET", "/api/marketplace/account/pricing-health") => match policy {
+            "rpp_gone" => refusal(StatusCode::NOT_FOUND, "not_found", "Not found."),
+            "rpp_down" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Down."),
+            id => Json(data(id)).into_response(),
+        },
+        ("POST", p) if p.ends_with("/compute") => (StatusCode::ACCEPTED, Json(json!({ "dryRunId": "dry_8" }))).into_response(),
+        ("POST", p) if p.ends_with("/compare") => (StatusCode::ACCEPTED, Json(json!({ "runs": [] }))).into_response(),
+        ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetBodyHash\":\"stale\"") => {
+            (StatusCode::CONFLICT, Json(json!({ "error": { "code": "goal_apply_refused", "reason": "policy_changed" } }))).into_response()
+        }
+        ("POST", p) if p.ends_with("/apply-goal") => Json(json!({
+            "policyId": "rpp_1", "previousRevision": 4, "revision": 5, "bodyHash": "hash_5", "dryRunId": "dry_c1", "goalId": "fixed-percentile",
+            "goalVersion": 1, "parameters": { "percentile": 65 }, "state": {}, "movement": { "raised": 3, "lowered": 2, "held": 5 },
+            "alerts": { "floorBinding": 1, "evidenceFloorBinding": 0 },
+        })).into_response(),
+        _ => return None,
+    })
+}
+
+#[tokio::test]
+async fn pricing_health_shows_a_policys_verdict_its_goals_compared_and_the_platforms_grades() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(HEALTH_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fdesk%2Fpricing-health"));
+    let (status, _, _) = pilot.send(get(HEALTH_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no pricing.view");
+
+    let (status, _, html) = pilot.send(get(HEALTH_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    for expected in [
+        "Pricing Health",
+        "Active policy",
+        "Everyday",
+        "Stored snapshot, not live results",
+        "10 listings; 15 units",
+        "dry_7",
+        "$1,250.00",
+        "$1,180.50",
+        "-$69.50",
+        "8 / 10 listings (80%); 12 / 15 units (80%)",
+        "No Curve",
+        "Newest 1 days; oldest 6.5 days; stale 1 listings",
+        "Median 4.25 days; P90 21 days",
+        "3 listings; $210.00",
+        "1 listings; 1 units; $40.00",
+        "Unavailable USD/day; cycle Unavailable days",
+        "No Economics",
+        "1.23%",
+        "Stale curves at capture",
+        "Price at the 65th market percentile",
+        "Choose the market price at percentile 65.",
+        "Market-evidence pricing goal",
+        "Uses these registered curve features: Store Win Share. Parameters: k: 2.",
+        "Switch to Price at the 65th market percentile: USD 1.5/day, median wait -2 days; raised 3, lowered 2, held 5",
+        "rpp_1 / 4",
+        "USD 3.5",
+        "USD 80%",
+        "USD 12.75",
+        "Raised: 3; Lowered: 2; Held: 5",
+        "Floor Binding: 2",
+        "Running",
+        "fixed-percentile v1 / sell-within / 30 days / curve-v2",
+        "42%",
+        "0.1834",
+    ] {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    assert!(html.contains(r#"<option value="rpp_1" selected>Everyday</option>"#), "{html}");
+    assert!(html.contains(r#"value="compute""#) && html.contains(r#"value="compare""#));
+    // Apply goal on the completed candidate only, with the exact values Pricing checks.
+    assert_eq!(html.matches(r#"command="show-modal""#).count(), 1, "{html}");
+    for field in [
+        r#"name="dryRunId" value="dry_c1""#,
+        r#"name="targetRevision" value="4""#,
+        r#"name="targetBodyHash" value="hash_4""#,
+        r#"name="candidateBodyHash" value="cand_dry_c1""#,
+        r#"name="parameters" value="{&quot;percentile&quot;:65}""#,
+    ] {
+        assert!(html.contains(field), "{field}: {html}");
+    }
+    assert!(words.contains("Policy rpp_1, current revision 4, body hash hash_4."), "{words}");
+    assert!(html.contains(r#"href="/account/desk/repricing""#), "Back is the pilot's desk");
+    assert!(!html.contains("http-equiv=\"refresh\""), "not computing");
+
+    // A reader sees it without the writes.
+    let (status, _, html) = pilot.send(get(HEALTH_SCREEN, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Everyday") && !html.contains(r#"value="compute""#), "{html}");
+    let (status, _, _) = pilot.send(post(HEALTH_SCREEN, "price_reader", "intent=compute&policyId=rpp_1", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Computing reads itself again; a policy Pricing does not know is a 404; its failure is the page with Retry.
+    let (_, _, html) = pilot.send(get("/account/desk/pricing-health?policyId=rpp_busy", Some("pricer"))).await;
+    assert!(html.contains("Computing verdict.") && html.contains(r#"http-equiv="refresh" content="2""#), "{html}");
+    assert!(html.contains(r#"value="compute" disabled"#) && html.contains("No verdict for this policy revision yet"));
+    let (status, _, _) = pilot.send(get("/account/desk/pricing-health?policyId=rpp_gone", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, html) = pilot.send(get("/account/desk/pricing-health?policyId=rpp_down", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(
+        html.contains("Pricing Health is unavailable")
+            && html.contains("Retry")
+            && html.contains(r#"href="/account/desk/pricing-health?policyId=rpp_down""#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn pricing_health_computes_compares_and_applies_a_goal_and_says_what_was_refused() {
+    let pilot = Pilot::new().await;
+    for intent in ["compute", "compare"] {
+        let (status, headers, _) =
+            pilot.send(post(HEALTH_SCREEN, "pricer", &format!("intent={intent}&policyId=rpp_2"), false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{intent}");
+        assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/desk/pricing-health?policyId=rpp_2");
+        assert!(
+            pilot
+                .stand
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c.path == format!("/api/marketplace/account/pricing-health/rpp_2/{intent}"))
+        );
+    }
+    let apply = "intent=apply&policyId=rpp_1&dryRunId=dry_c1&targetRevision=4&targetBodyHash=hash_4&candidateBodyHash=cand_dry_c1\
+        &goalId=fixed-percentile&goalVersion=1&parameters=%7B%22percentile%22%3A65%7D";
+    let (status, _, html) = pilot.send(post(HEALTH_SCREEN, "pricer", apply, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        text(&html).contains("Pricing goal applied Revision 5 created. Raised 3, lowered 2, held 5; floor-binding alerts: 1."),
+        "{html}"
+    );
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/apply-goal")).map(|c| c.body.clone());
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.unwrap()).unwrap(),
+        json!({ "dryRunId": "dry_c1", "targetRevision": 4, "targetBodyHash": "hash_4", "candidateBodyHash": "cand_dry_c1",
+            "goalId": "fixed-percentile", "goalVersion": 1, "parameters": { "percentile": 65 } })
+    );
+    // A policy that changed since the comparison: marketplace's words, on the page again.
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("targetBodyHash=hash_4", "targetBodyHash=stale"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        html.contains("This goal could not be applied. The policy or preview may have changed; refresh and compare again."),
+        "{html}"
+    );
+    // A form that is not what the page wrote is refused before Pricing sees it.
+    let calls = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("goalVersion=1", "goalVersion=0"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The verdict could not be started."), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.path.ends_with("/apply-goal")));
 }

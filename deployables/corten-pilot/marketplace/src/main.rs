@@ -37,6 +37,7 @@ mod packing_slips;
 mod payment;
 mod payment_methods;
 mod payout_setup;
+mod pricing_health;
 mod public_listing;
 mod recommendations;
 mod recovery;
