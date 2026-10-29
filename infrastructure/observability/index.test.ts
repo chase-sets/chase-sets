@@ -47,6 +47,9 @@ import {
   recordProjectionWakeRelayCatchUp,
   recordProjectionWakeRelayFanOut,
   sanitizeLogFields,
+  classifyDiscoverySearchRetrievalFailure,
+  normalizeTraceCorrelationId,
+  discoverySearchRetrievalFailureFields,
   type CheckoutObservabilityEventSignal,
 } from "./index";
 
@@ -511,6 +514,25 @@ describe("Discovery search observability", () => {
 });
 
 describe("structured logging", () => {
+  it("normalizes trace correlation and classifies retrieval failures without message fields", () => {
+    expect(normalizeTraceCorrelationId("0123456789abcdef0123456789abcdef")).toBe("0123456789abcdef0123456789abcdef");
+    expect(normalizeTraceCorrelationId("account_123")).toBe("unknown");
+    const error = Object.assign(new Error("PRIVATE_SQL_SENTINEL"), { code: "42P01" });
+    expect(classifyDiscoverySearchRetrievalFailure(error)).toEqual({
+      errorClass: "Error",
+      sqlstateCategory: "42",
+    });
+    const fields = discoverySearchRetrievalFailureFields({ correlationId: "account_123", error });
+    expect(fields).toMatchObject({
+      type: "discovery.search.retrieval",
+      operation: "discovery.search.retrieval",
+      resource: "discovery.search.retrieval",
+      correlationId: "unknown",
+      errorClass: "Error",
+      sqlstateCategory: "42",
+    });
+    expect(JSON.stringify(fields)).not.toContain("PRIVATE_SQL_SENTINEL");
+  });
   it("redacts sensitive fields recursively", () => {
     expect(
       sanitizeLogFields({

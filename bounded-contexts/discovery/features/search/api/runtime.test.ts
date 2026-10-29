@@ -126,6 +126,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("lexical and final zero states: nonempty hybrid candidates survive later retrieval failure", async () => {
     const recordSearchQuery = vi.fn();
+    const recordSearchRetrievalFailure = vi.fn();
     const failure = new Error("synthetic hydration failure");
     const db = interpretationDb((sql, values) => {
       if (sql.startsWith("SELECT * FROM (")) return [{ catalog_item_id: "synthetic-candidate", title: "Candidate" }];
@@ -146,9 +147,16 @@ describe("Discovery search runtime telemetry", () => {
         cache: createQueryEmbeddingCache(),
         hybridEnabled: true,
         recordSearchQuery,
+        recordSearchRetrievalFailure,
       },
     );
-    await expect(runtime.searchItems({ search: "dragon" })).rejects.toBe(failure);
+    await expect(
+      runtime.searchItems({ search: "dragon" }, { correlationId: "0123456789abcdef0123456789abcdef" }),
+    ).rejects.toBe(failure);
+    expect(recordSearchRetrievalFailure).toHaveBeenCalledExactlyOnceWith({
+      correlationId: "0123456789abcdef0123456789abcdef",
+      error: failure,
+    });
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ lexicalZero: false, zeroResults: null, interpretation: "unknown", outcome: "failure" }),
     );
