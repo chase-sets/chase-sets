@@ -3,7 +3,7 @@ import {
   type PublicPolicyArtifact,
   type PublicPolicyPublicationReadiness,
 } from "./policy-artifact";
-
+import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting-differences";
 const walletInterestUnresolvedCanonicalClaims = [
   { claimId: "wallet-no-interest", productTruthRefs: [] },
   { claimId: "wallet-deposit-and-fdic-posture", productTruthRefs: [] },
@@ -603,16 +603,18 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "dispute-resolution-with-platform",
       title: "Dispute resolution with Chase Sets",
       draftText:
-        "Any dispute you have with Chase Sets itself, as opposed to another user, that these Terms and Chase Sets' Support Request process cannot resolve informally will be resolved by binding individual arbitration administered by the American Arbitration Association under its Consumer Arbitration Rules, and not by a court or jury, except that either party may bring an individual claim in small-claims court if it qualifies, and either party may seek injunctive relief in court for intellectual-property or unauthorized-access claims. You and Chase Sets each waive the right to a jury trial and to participate in a class, collective, or representative action; the arbitrator may not consolidate more than one person's claims and may not otherwise preside over a class or representative proceeding. Chase Sets pays the administrator's filing and arbitrator fees for an individual claim of $10,000 or less brought in good faith. Before starting arbitration or a small-claims action, you and Chase Sets agree to send a written notice of dispute to the other and try in good faith to resolve it informally for 45 days. You may opt out of this arbitration agreement by sending written notice to the notice address in the governing-law-and-forum subject below within 30 days of the date you first agree to this version of these Terms; opting out does not affect any other part of these Terms. If 25 or more similar arbitration demands are filed by or on behalf of coordinated claimants, Chase Sets and claimants' counsel follow the batch-filing protocol posted with the arbitration administrator's rules, resolving representative cases first before proceeding to the remainder.",
+        "Any dispute you have with Chase Sets itself, as opposed to another user, that these Terms and Chase Sets' Support Request process cannot resolve informally will be resolved by binding individual arbitration administered by the American Arbitration Association under its Consumer Arbitration Rules, and not by a court or jury, except that either party may bring an individual claim in small-claims court if it qualifies. You and Chase Sets each waive the right to a jury trial and to participate in a class, collective, or representative action; the arbitrator may not consolidate more than one person's claims and may not otherwise preside over a class or representative proceeding. Chase Sets pays the administrator's filing and arbitrator fees for an individual claim of $10,000 or less brought in good faith. Before starting arbitration or a small-claims action, you and Chase Sets agree to send a written notice of dispute to the other and try in good faith to resolve it informally for 45 days. You may opt out of this arbitration agreement by sending written notice to the notice address in the governing-law-and-forum subject below within 30 days of the date you first agree to this version of these Terms; opting out does not affect any other part of these Terms. If 25 or more similar arbitration demands are filed by or on behalf of coordinated claimants, Chase Sets and claimants' counsel follow the batch-filing protocol posted with the arbitration administrator's rules, resolving representative cases first before proceeding to the remainder.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Draft the ratified #5681 arbitration posture (individual arbitration, class-action waiver, opt-out, informal-resolution precondition, small-claims carve-out, batch-filing protocol, jury waiver) verbatim from the decision issue's recommended mechanics.",
+          "Draft the ratified #5681 arbitration posture (individual arbitration, class-action waiver, opt-out, informal-resolution precondition, small-claims carve-out, batch-filing protocol, jury waiver) from the decision issue's recommended mechanics; preserve unresolved drafting differences for counsel.",
         decisionRefs: [5681],
         productTruthRefs: [],
         openQuestions: [
           "This subject is legal drafting sourced from the ratified #5681 decision, not a claim about shipped product behavior; the arbitration mechanics numbers (claim threshold, notice windows, batch-filing count) are the ratified terms themselves, not operational values a policy document tracks, so the two-tier no-prose-number rule does not apply to them.",
-          "The injunctive-relief carveout for intellectual-property and unauthorized-access claims in this subject's draft text is an unratified drafted addition, not part of #5681's ratified mechanics list (AAA Consumer Arbitration Rules, $10,000 fee floor, 30-day opt-out, 45-day informal notice, small-claims carve-out, 25+ batch-filing protocol, jury waiver); no exact ratified evidence for it was located. Confirm with the #5681 decision owner or remove before counsel handoff.",
+          "The unratified injunctive-relief carve-out was removed under this question's recorded authorization before counsel handoff; adding one later needs a #5681 amendment.",
+          "The $10,000 amount is the claim threshold for platform-paid fees; counsel must resolve the remaining fee-condition wording difference recorded below.",
+          ...unratifiedArbitrationDraftingDifferences,
         ],
         assumptions: [
           {
