@@ -138,10 +138,12 @@ export function createInventoryServices(
       db,
       notificationWaiterPool: options.notificationWaiterPool,
       items: pendingItems,
+      rowItems: items,
       catalogItems,
       draftListingCreator: ports.draftListingCreator,
       draftListingDelivery: ports.draftListingDelivery,
       importProductRollout: ports.importProductRollout,
+      executeMutation: mutations.execute,
     }),
     mutations,
   );

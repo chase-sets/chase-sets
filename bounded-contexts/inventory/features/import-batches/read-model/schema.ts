@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_rows (
   committed_inventory_item_id text NULL,
   committed_listing_id text NULL,
   committed_at timestamptz NULL,
+  commit_generation integer NOT NULL DEFAULT 0,
+  commit_claim_token text NULL,
+  commit_claimed_until timestamptz NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   UNIQUE (batch_id, row_number)
@@ -160,7 +163,10 @@ ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS committed_inventory_item_id text NULL,
   ADD COLUMN IF NOT EXISTS committed_listing_id text NULL,
-  ADD COLUMN IF NOT EXISTS committed_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS committed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS commit_generation integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS commit_claim_token text NULL,
+  ADD COLUMN IF NOT EXISTS commit_claimed_until timestamptz NULL;
 
 ${durableJobSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
@@ -179,6 +185,18 @@ ${inventoryDraftListingOutboxSchemaSql}
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261028_inventory_import_row_commit_fences",
+    description: "Fence frozen import row effects to one durable work-unit claim.",
+    statements: [
+      `ALTER TABLE inventory_import_batch_rows
+         ADD COLUMN IF NOT EXISTS commit_generation integer NOT NULL DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS commit_claim_token text NULL,
+         ADD COLUMN IF NOT EXISTS commit_claimed_until timestamptz NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_commit_claim_idx
+         ON inventory_import_batch_rows (batch_id, commit_claimed_until, row_id);`,
+    ],
+  },
   {
     migrationId: "20261027_inventory_import_commit_inputs",
     description: "Persist immutable accepted import rows for durable commit jobs.",
