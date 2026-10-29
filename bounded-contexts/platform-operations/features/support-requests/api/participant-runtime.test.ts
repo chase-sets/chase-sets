@@ -32,7 +32,7 @@ describe("participant response derives resolution after hashing", () => {
         { offerResolutionType: null },
         { offerResolutionType: "" },
       ]) {
-        const f = await responseFixture(scenario.responseType);
+        const f = await responseFixture(scenario.responseType, "Offer");
         const body = { ...f.body, ...field };
         const result = await f.executeParticipant("record-response", body, f.id, attemptId, responseSeller);
         const history = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${f.id}` });
@@ -78,7 +78,7 @@ describe("participant response derives resolution after hashing", () => {
 describe("participant response refusal controls", () => {
   for (const scenario of responseCases) {
     it(`${scenario.responseType}: mismatches refuse without an append`, async () => {
-      const f = await responseFixture(scenario.responseType);
+      const f = await responseFixture(scenario.responseType, "Offer");
       const before = f.allEvents.length;
       const wrong = scenario.resolutionType === "replacement" ? "partial-refund" : "replacement";
       await expect(
@@ -99,7 +99,7 @@ describe("participant response refusal controls", () => {
     if (scenario.resolutionType === null) {
       for (const field of [{}, { offerResolutionType: null }]) {
         it(`${scenario.responseType}: ${JSON.stringify(field)} has no offer`, async () => {
-          const f = await responseFixture(scenario.responseType);
+          const f = await responseFixture(scenario.responseType, "Offer");
           await f.executeParticipant("record-response", { ...f.body, ...field }, f.id, attemptId, responseSeller);
           expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
         });
@@ -119,7 +119,7 @@ describe("participant response refusal controls", () => {
       { refundAmount: "0.00" },
       { refundAmount: "24.01" },
     ]) {
-      const f = await responseFixture("offer-partial-refund");
+      const f = await responseFixture("offer-partial-refund", "Offer");
       const before = f.allEvents.length;
       await expect(
         f.runtime.executeParticipantAttempt(
@@ -142,7 +142,7 @@ describe("participant response refusal controls", () => {
       ).rejects.toThrow();
       expect(f.allEvents).toHaveLength(before);
     }
-    const f = await responseFixture("offer-partial-refund");
+    const f = await responseFixture("offer-partial-refund", "Offer");
     const before = f.allEvents.length;
     await expect(f.executeParticipant("record-response", f.body, f.id)).rejects.toThrow(
       "Support responses must come from the seller or support.",
@@ -172,7 +172,7 @@ describe("participant response refusal controls", () => {
       "Closed support requests cannot accept responses.",
     );
     expect(f.allEvents).toHaveLength(terminalCount);
-    const wrongFlow = await responseFixture("provide-tracking");
+    const wrongFlow = await responseFixture("provide-tracking", "Offer");
     const flowCount = wrongFlow.allEvents.length;
     await expect(
       wrongFlow.executeParticipant(

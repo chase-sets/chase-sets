@@ -70,7 +70,7 @@ it.each(responseCases.filter((entry) => entry.resolutionType !== null))(
       { offerResolutionType: null },
       { offerResolutionType: "" },
     ]) {
-      const fixture = await responseFixture(scenario.responseType);
+      const fixture = await responseFixture(scenario.responseType, "Offer");
       fixture.setActor(responseSeller);
       const body = { ...fixture.body, ...field };
       const response = await fixture.app.request(`/support-requests/${fixture.id}/responses`, {
@@ -100,7 +100,7 @@ describe("operations response preservation", () => {
     for (const field of [{}, { offerResolutionType: null }, { offerResolutionType: 42 }, { offerResolutionType: "" }]) {
       const empty = field.offerResolutionType === "";
       it(`${empty ? "operations empty resolution remains refused" : "operations offer omission remains refused"}: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
-        const f = await operationsResponseFixture(scenario.responseType);
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
         const before = f.allEvents.length;
         const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
           method: "POST",
@@ -121,7 +121,7 @@ describe("operations response preservation", () => {
     }
     if (scenario.resolutionType) {
       it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
-        const f = await operationsResponseFixture(scenario.responseType);
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
         const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

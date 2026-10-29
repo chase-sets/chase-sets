@@ -30,7 +30,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("record-response v1 compatibility", () => {
   for (const explicit of [true, false]) {
     it(`${explicit ? "old explicit" : "omitted"} descriptor lookup and send replay retain bytes and append once`, async () => {
-      const f = await responseFixture("offer-partial-refund");
+      const f = await responseFixture("offer-partial-refund", "Offer");
       f.setActor(responseSeller);
       const body = { ...f.body, ...(explicit ? { offerResolutionType: "partial-refund" } : {}) };
       const hash = explicit

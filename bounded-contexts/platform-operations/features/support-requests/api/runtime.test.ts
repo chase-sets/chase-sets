@@ -48,7 +48,7 @@ const operatorSellerNonShipmentFinding = {
 describe("operations response preservation", () => {
   for (const scenario of responseCases) {
     it(`operations empty resolution remains refused: ${scenario.responseType}`, async () => {
-      const f = await operationsResponseFixture(scenario.responseType);
+      const f = await operationsResponseFixture(scenario.responseType, "Offer");
       const before = f.allEvents.length;
       await expect(
         f.runtime.recordResponse(
@@ -67,7 +67,7 @@ describe("operations response preservation", () => {
     });
     for (const field of [{}, { offerResolutionType: null }]) {
       it(`operations offer omission remains refused: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
-        const f = await operationsResponseFixture(scenario.responseType);
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
         const before = f.allEvents.length;
         const action = f.runtime.recordResponse(
           {
@@ -91,7 +91,7 @@ describe("operations response preservation", () => {
     }
     if (scenario.resolutionType) {
       it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
-        const f = await operationsResponseFixture(scenario.responseType);
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
         await f.runtime.recordResponse(
           {
             ...f.body,

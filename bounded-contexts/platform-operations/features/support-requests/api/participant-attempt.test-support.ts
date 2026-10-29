@@ -25,7 +25,7 @@ export const responseCases = [
   { responseType: "confirm-cannot-fulfill", resolutionType: null, flowType: "seller-cannot-fulfill" },
   { responseType: "request-support-review", resolutionType: null, flowType: "product-not-as-described" },
 ] as const;
-export async function responseFixture(responseType: SupportResponseType) {
+export async function responseFixture(responseType: SupportResponseType, summary: string) {
   const fixture = participantFixture();
   const scenario = responseCases.find((entry) => entry.responseType === responseType)!;
   const opener = scenario.flowType === "seller-cannot-fulfill" ? responseSeller : buyer;
@@ -38,13 +38,13 @@ export async function responseFixture(responseType: SupportResponseType) {
     id: opened.supportRequestId,
     body: {
       responseType,
-      summary: "Offer",
+      summary,
       ...(responseType === "offer-partial-refund" ? { refundAmount: "6.00" } : {}),
     },
   };
 }
-export async function operationsResponseFixture(responseType: SupportResponseType) {
-  const fixture = await responseFixture(responseType);
+export async function operationsResponseFixture(responseType: SupportResponseType, summary: string) {
+  const fixture = await responseFixture(responseType, summary);
   const operator = evidenceActor("owner", ["support.view", "support.manage"], true, "acc_operator");
   fixture.setActor(operator);
   fixture.db.query.mockResolvedValue({ rows: [{ support_request_id: fixture.id, resolution: null }] } as never);
