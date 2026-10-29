@@ -1,6 +1,6 @@
 import { catalogSeedIds, scenarioSeedFallbackAssets } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import type { CatalogItemId } from "../../../ids";
+import type { CatalogItemId, FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
 import type { CatalogItemImageFallback } from "../domain/domain";
 import type { BlueprintIds } from "../../blueprints/api/seed";
@@ -21,6 +21,15 @@ export async function seedCatalogItems(
   }> = {},
 ): Promise<void> {
   console.log("Seeding catalog items...");
+
+  const requiredFieldIdsByBlueprint: Record<string, readonly FieldId[]> = {
+    "pokemon-card-single": [fields["card-number"], fields["card-name"], fields.expansion, fields.rarity],
+    "pokemon-sealed-product": [fields.expansion, fields["pack-count"]],
+    "one-piece-card-print": [fields["card-number"], fields["card-name"], fields.set],
+    "one-piece-sealed-product": [fields.set, fields["pack-count"]],
+    "lorcana-card-print": [fields["card-number"], fields["card-name"], fields.set],
+    "lorcana-sealed-product": [fields.set, fields["sealed-product-form"]],
+  };
 
   type ItemDef = {
     itemId: CatalogItemId;
@@ -506,6 +515,8 @@ export async function seedCatalogItems(
   for (const item of selectedItems) {
     await sendSeedCommand(services.items.commandHandler, `catalog.item-${item.itemId}`, {
       type: "PublishCatalogItem",
+      blueprintIsActive: true,
+      requiredFieldIds: requiredFieldIdsByBlueprint[item.blueprintKey],
     });
 
     console.log(`  Item "${item.title.values.en}" created and published`);

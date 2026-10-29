@@ -142,6 +142,10 @@ export type RemoveCatalogItemFromCategoryCommand = Readonly<{
 
 export type PublishCatalogItemCommand = Readonly<{
   type: "PublishCatalogItem";
+  /** @deprecated Publication preconditions are resolved by the Catalog API boundary. */
+  blueprintIsActive?: boolean;
+  /** @deprecated Publication preconditions are resolved by the Catalog API boundary. */
+  requiredFieldIds?: readonly FieldId[];
   displayIdentity?: CatalogItemPublicationDisplayIdentityEvidence;
 }>;
 
