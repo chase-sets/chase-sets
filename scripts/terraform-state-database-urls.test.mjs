@@ -13,6 +13,7 @@ import {
   reconcileManagedPostgresCaSecret,
   writeManagedPostgresCa,
 } from "./terraform-state-database-urls.mjs";
+import { safeFailureFields } from "./lib/postgres-connection.mjs";
 
 const caPath = "/runner/temp/digitalocean-managed-postgres-ca.pem";
 const certificate = "-----BEGIN CERTIFICATE-----\nZmFrZS1jYQ==\n-----END CERTIFICATE-----\n";
@@ -96,6 +97,18 @@ function pooledTerraformState() {
   return state;
 }
 
+function pooledTerraformStateWithUnpooledContext() {
+  const state = pooledTerraformState();
+  const databases = state.resources.find((resource) => resource.type === "digitalocean_database_db");
+  const users = state.resources.find((resource) => resource.type === "digitalocean_database_user");
+  databases.instances.push({ index_key: "reputation", attributes: { name: "reputation-db" } });
+  users.instances.push({
+    index_key: "reputation",
+    attributes: { name: "reputation-user", password: "reputation-pass" },
+  });
+  return state;
+}
+
 describe("Terraform state database URL export", () => {
   it("derives masked GitHub env lines for every context by default", () => {
     const urls = databaseUrlsFromTerraformState(terraformState(), { environmentName: "staging", caPath });
@@ -133,6 +146,66 @@ describe("Terraform state database URL export", () => {
     ]);
   });
 
+  it("pooled context selection includes only transaction-pooled contexts", () => {
+    const urls = databaseUrlsFromTerraformState(pooledTerraformStateWithUnpooledContext(), {
+      connectionMode: "pooled",
+      selectionMode: "pooled-only",
+      environmentName: "production",
+      caPath,
+    });
+
+    expect(urls.map(({ contextName }) => contextName)).toEqual(["checkout", "control", "fulfillment"]);
+  });
+
+  it("pooled invalid state fails before CA retrieval with no fallback", async () => {
+    let fetched = 0;
+    const removals = [];
+    await expect(
+      exportTerraformStateDatabaseUrls(
+        {
+          statePath: "state.json",
+          githubEnvPath: "github.env",
+          caPath,
+          digitalOceanToken: "synthetic-token",
+          contexts: ["reputation"],
+          connectionMode: "pooled",
+          selectionMode: "pooled-only",
+          environmentName: "production",
+        },
+        {
+          readFile: async () => JSON.stringify(pooledTerraformStateWithUnpooledContext()),
+          fetch: async () => {
+            fetched += 1;
+          },
+          rm: async (path, options) => removals.push({ path, options }),
+          appendFile: async () => {
+            throw new Error("append must not run");
+          },
+          writeCa: async () => {
+            throw new Error("write must not run");
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "managed-postgres-state-invalid", context: "reputation" });
+    expect(fetched).toBe(0);
+    expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
+  });
+
+  it("pooled failure cleanup and safe fields expose only bounded state", () => {
+    expect(
+      safeFailureFields(
+        "managed-postgres-state-invalid",
+        Object.assign(new Error("secret-url-and-ca"), {
+          context: "reputation",
+          password: "secret",
+          token: "secret",
+          responseBody: "secret",
+          ca: certificate,
+        }),
+      ),
+    ).toEqual({ classification: "managed-postgres-state-invalid", context: "reputation" });
+  });
+
   it("fails closed when required state is missing", () => {
     expect(() => databaseUrlsFromTerraformState({ resources: [] }, { environmentName: "staging", caPath })).toThrow(
       "Staging Terraform state does not contain a usable DigitalOcean database cluster.",
@@ -150,7 +223,7 @@ describe("Terraform state database URL export", () => {
 
   it("parses CLI and environment options", () => {
     const options = parseTerraformStateDatabaseUrlArgs(
-      ["--state", "state.json", "--contexts", "payments, settlement"],
+      ["--state", "state.json", "--contexts", "payments, settlement", "--selection-mode", "pooled-only"],
       {
         GITHUB_ENV: "github.env",
         RUNNER_TEMP: "/runner/temp",
@@ -168,6 +241,7 @@ describe("Terraform state database URL export", () => {
       environmentName: "production",
       contexts: ["payments", "settlement"],
       connectionMode: "direct",
+      selectionMode: "pooled-only",
     });
   });
 
@@ -292,7 +366,7 @@ describe("Terraform state database URL export", () => {
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });
 
-  it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
+  it("shared action caller census preserves direct and trust-only callers", async () => {
     const expectedConsumers = [
       "catalog-completion-report.yml",
       "catalog-integration-staging-reset.yml",
@@ -335,7 +409,16 @@ describe("Terraform state database URL export", () => {
     expect(actionSource).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
     expect(actionSource).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
     expect(actionSource).toContain('--github-env "$GITHUB_ENV"');
+    expect(actionSource).toContain("AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode }}");
     expect(actionSource).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
+    expect(workflows.find(({ name }) => name === "platform-postgres-growth-evidence.yml")?.source).toContain(
+      "selection-mode: pooled-only",
+    );
+    for (const { name, source } of consumers) {
+      if (name !== "platform-postgres-growth-evidence.yml") {
+        expect(source).not.toContain("selection-mode: pooled-only");
+      }
+    }
   });
 
   it("reconciles exact CA bytes once and removes the process-owned temporary file", async () => {

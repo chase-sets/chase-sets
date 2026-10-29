@@ -14,6 +14,7 @@ const DIGITALOCEAN_CA_RESPONSE_MAX_BYTES = 65_536;
 export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
   const contextsOption = readOption(argv, "--contexts");
   const connectionModeOption = readOption(argv, "--connection-mode");
+  const selectionModeOption = readOption(argv, "--selection-mode");
   return {
     mode: readOption(argv, "--mode") ?? "url-export",
     statePath: readOption(argv, "--state") ?? readEnv("TERRAFORM_STATE_PATH", env),
@@ -31,6 +32,7 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
     connectionMode: connectionModeOption ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) ?? "direct",
     connectionModeSpecified:
       connectionModeOption != null || readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) != null,
+    selectionMode: selectionModeOption ?? readEnv("TERRAFORM_STATE_DATABASE_URL_SELECTION_MODE", env) ?? "all",
     namespace: readOption(argv, "--namespace") ?? readEnv("CHASE_SETS_KUBERNETES_NAMESPACE", env),
     kubectlPath: readOption(argv, "--kubectl") ?? readEnv("KUBECTL_PATH", env) ?? "kubectl",
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
@@ -94,35 +96,47 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
     throw new Error(errors.join("\n"));
   }
 
-  const state = parseTerraformState(await read(options.statePath, "utf8"));
-  const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
-  const certificate = await fetchDigitalOceanManagedPostgresCa(
-    {
-      clusterId,
-      digitalOceanToken: options.digitalOceanToken,
-    },
-    dependencies,
-  );
-  const urls = databaseUrlsFromTerraformState(state, {
-    contexts: options.contexts,
-    environmentName: options.environmentName,
-    connectionMode: options.connectionMode,
-    caPath: options.caPath,
-  });
-  const lines = githubEnvLinesForDatabaseUrls(urls, options.caPath);
-
-  for (const { url } of urls) {
-    log(`::add-mask::${url}`);
-  }
   try {
+    const state = parseTerraformState(await read(options.statePath, "utf8"));
+    const pooledSelection = options.selectionMode === "pooled-only";
+    const urls = pooledSelection
+      ? databaseUrlsFromTerraformState(state, {
+          contexts: options.contexts,
+          environmentName: options.environmentName,
+          connectionMode: options.connectionMode,
+          selectionMode: options.selectionMode,
+          caPath: options.caPath,
+        })
+      : undefined;
+    const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
+    const certificate = await fetchDigitalOceanManagedPostgresCa(
+      {
+        clusterId,
+        digitalOceanToken: options.digitalOceanToken,
+      },
+      dependencies,
+    );
+    const selectedUrls =
+      urls ??
+      databaseUrlsFromTerraformState(state, {
+        contexts: options.contexts,
+        environmentName: options.environmentName,
+        connectionMode: options.connectionMode,
+        selectionMode: options.selectionMode,
+        caPath: options.caPath,
+      });
+    const lines = githubEnvLinesForDatabaseUrls(selectedUrls, options.caPath);
+
+    for (const { url } of selectedUrls) {
+      log(`::add-mask::${url}`);
+    }
     await writeCa(options.caPath, certificate);
     await append(options.githubEnvPath, `${lines.join("\n")}\n`);
+    return selectedUrls;
   } catch (error) {
     await remove(options.caPath, { force: true }).catch(() => undefined);
     throw error;
   }
-
-  return urls;
 }
 
 export function databaseUrlsFromTerraformState(state, options = {}) {
@@ -144,9 +158,16 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
     (resource) => resource.type === "digitalocean_database_connection_pool" && resource.name === "contexts",
   );
   const connectionMode = options.connectionMode ?? "direct";
+  const selectionMode = options.selectionMode ?? "all";
   const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
   if (!["direct", "pooled"].includes(connectionMode)) {
     throw new Error(`Unsupported Terraform state database connection mode '${connectionMode}'.`);
+  }
+  if (!["all", "pooled-only"].includes(selectionMode)) {
+    throw new Error(`Unsupported Terraform state database selection mode '${selectionMode}'.`);
+  }
+  if (selectionMode === "pooled-only" && connectionMode !== "pooled") {
+    throw new Error("Pooled-only Terraform state selection requires pooled connections.");
   }
   if (connectionMode === "direct" && (!clusterAttrs.host || !clusterAttrs.port)) {
     throw new Error(
@@ -157,7 +178,14 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
   const databaseByContext = indexedResourceMap(databases);
   const userByContext = indexedResourceMap(users);
   const poolByContext = indexedResourceMap(pools);
-  const contextNames = contextNamesForSelection(options.contexts, databaseByContext, userByContext, environmentName);
+  const contextNames = contextNamesForSelection(
+    options.contexts,
+    databaseByContext,
+    userByContext,
+    poolByContext,
+    environmentName,
+    selectionMode,
+  );
 
   return contextNames.map((contextName) => {
     const database = databaseByContext.get(contextName);
@@ -168,9 +196,23 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
     const password = connectionMode === "pooled" ? pool?.password || user?.password : user?.password;
     const databaseName = connectionMode === "pooled" ? pool?.name : database?.name;
     if (!contextName || !databaseName || !connection?.host || !connection?.port || !username || !password) {
+      if (selectionMode === "pooled-only") {
+        throw trustError(
+          "managed-postgres-state-invalid",
+          `Terraform state is missing a transaction pool for '${contextName ?? "unknown"}'.`,
+          { context: contextName ?? "unknown" },
+        );
+      }
       throw new Error(`Terraform state is missing database/user data for '${contextName ?? "unknown"}'.`);
     }
-    if (connectionMode === "pooled" && pool.mode && pool.mode !== "transaction") {
+    if (connectionMode === "pooled" && pool.mode !== "transaction") {
+      if (selectionMode === "pooled-only") {
+        throw trustError(
+          "managed-postgres-state-invalid",
+          `Terraform state database pool for '${contextName}' is not a transaction pool.`,
+          { context: contextName },
+        );
+      }
       throw new Error(`Terraform state database pool for '${contextName}' is not a transaction pool.`);
     }
 
@@ -301,13 +343,43 @@ export async function writeManagedPostgresCa(caPath, certificate) {
   }
 }
 
-function contextNamesForSelection(contexts, databaseByContext, userByContext, environmentName) {
+function contextNamesForSelection(
+  contexts,
+  databaseByContext,
+  userByContext,
+  poolByContext,
+  environmentName,
+  selectionMode,
+) {
   if (Array.isArray(contexts) && contexts.length > 0) {
+    if (selectionMode === "pooled-only") {
+      const invalidContext = contexts.find((contextName) => poolByContext.get(contextName)?.mode !== "transaction");
+      if (invalidContext) {
+        throw trustError(
+          "managed-postgres-state-invalid",
+          `Terraform state does not contain a transaction pool for '${invalidContext}'.`,
+          { context: invalidContext },
+        );
+      }
+    }
     return contexts;
   }
 
-  const contextNames = [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
+  const contextNames =
+    selectionMode === "pooled-only"
+      ? [...poolByContext.entries()]
+          .filter(([, pool]) => pool.mode === "transaction")
+          .map(([contextName]) => contextName)
+          .sort()
+      : [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
   if (contextNames.length === 0) {
+    if (selectionMode === "pooled-only") {
+      throw trustError(
+        "managed-postgres-state-invalid",
+        "Terraform state does not contain transaction-pooled contexts.",
+        { context: "unknown" },
+      );
+    }
     throw new Error(
       `${environmentLabel(environmentName)} Terraform state does not contain context database users and databases.`,
     );

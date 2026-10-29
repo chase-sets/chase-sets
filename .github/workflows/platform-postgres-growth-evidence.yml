@@ -78,6 +78,7 @@ jobs:
         with:
           environment: ${{ env.TARGET_ENVIRONMENT }}
           connection-mode: pooled
+          selection-mode: pooled-only
 
       - name: Build Postgres growth evidence
         id: growth
