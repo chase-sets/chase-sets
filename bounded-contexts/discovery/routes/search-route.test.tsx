@@ -233,7 +233,7 @@ describe("marketplace search route", () => {
         if (url.pathname.endsWith("/categories")) {
           return secondaryFailure === "categories"
             ? Response.json({ message: "categories unavailable" }, { status: 500 })
-            : Response.json({ items: [], total: 0, count: 0 });
+            : Response.json({ items: [{ ...searchData().categories[0], display_order: 1 }], total: 1, count: 1 });
         }
         if (secondaryFailure === "newest" && url.searchParams.get("sort") === "newest")
           return Response.json({ message: "new arrivals unavailable" }, { status: 500 });
@@ -282,7 +282,7 @@ describe("marketplace search route", () => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
       if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
-      return Response.json(searchDataWithResults().data);
+      return Response.json(searchDataWithCursor().data);
     });
     vi.stubGlobal("fetch", fetchMock);
     let routeData: unknown;
@@ -299,41 +299,53 @@ describe("marketplace search route", () => {
       }, []);
       return <SearchRoute />;
     }
-    type SearchRouteObject = RouteObject & { clientLoader: typeof clientLoader };
-    const searchRoute: SearchRouteObject = {
+    const searchRoute: RouteObject = {
       id: "search",
       path: "/search",
-      loader,
-      clientLoader,
+      loader: (args) =>
+        clientLoader({
+          ...args,
+          serverLoader: () => loader(args),
+        } as Parameters<typeof clientLoader>[0]),
       Component: RoutedSearch,
     };
     router = createMemoryRouter([searchRoute], { initialEntries: ["/search?q=charizard"] });
     routeData = router.state.loaderData.search;
-    mockUseLoaderData.mockImplementation(() => routeData);
+    mockUseLoaderData.mockImplementation(() => router.state.loaderData.search);
     mockUseLocation.mockImplementation(() => router.state.location);
     mockUseNavigate.mockImplementation(() => router.navigate);
     mockUseNavigation.mockImplementation(() => router.state.navigation);
     mockUseRevalidator.mockImplementation(() => ({ revalidate: router.revalidate, state: router.state.revalidation }));
     mockUseSearchParams.mockImplementation(() => [new URLSearchParams(router.state.location.search), vi.fn()]);
-    render(<RouterProvider router={router} />);
+    try {
+      render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy());
-    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy(),
+      );
+      expect(screen.queryByText("No items found")).toBeNull();
+      expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
 
-    const failedFetches = fetchMock.mock.calls.length;
-    failed = false;
-    await act(async () => {
-      await router.navigate("/search?q=charizard", { replace: true });
-    });
-    await waitFor(() => expect(screen.queryByText("Search results could not load. Try again in a moment.")).toBeNull());
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(failedFetches);
-    expect(routeData).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
-    expect(
-      readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard")),
-    ).toMatchObject({
-      searchFailed: false,
-      data: { items: [{ slug: "pikachu" }] },
-    });
+      const failedFetches = fetchMock.mock.calls.length;
+      failed = false;
+      await act(async () => {
+        await router.navigate("/search?q=charizard", { replace: true });
+      });
+      await waitFor(() =>
+        expect(screen.queryByText("Search results could not load. Try again in a moment.")).toBeNull(),
+      );
+      expect(routeData).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(failedFetches);
+      expect(screen.getByRole("link", { name: /Pikachu/ })).toBeTruthy();
+      expect(
+        readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard")),
+      ).toMatchObject({
+        searchFailed: false,
+        data: { items: [{ slug: "pikachu" }] },
+      });
+    } finally {
+      router.dispose();
+    }
   });
 
   it("falls back to an empty search state when loader data is unavailable", () => {
