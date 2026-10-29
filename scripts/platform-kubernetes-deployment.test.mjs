@@ -255,6 +255,7 @@ describe("release-tuple support deployment instance", () => {
 function withManagedPostgresCa(options) {
   return {
     ...options,
+    env: { GITHUB_RUN_ID: "107110001", GITHUB_RUN_ATTEMPT: "1", ...options.env },
     managedPostgresCaSha256: options.managedPostgresCaSha256 ?? managedPostgresCaSha256,
   };
 }
