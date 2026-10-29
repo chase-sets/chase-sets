@@ -1,7 +1,7 @@
 // Reads the Support Request participant page pilot in a browser as marketplace's seed seller, with
 // JavaScript and without it, against the real platform API, and compares it with Platform
-// Operations' own answer and with marketplace's page: the case's reference, who acts next (the rule
-// the pilot copies, chase-sets/chase-sets#10715), one timeline entry per moment the API holds, and
+// Operations' own answer and with marketplace's page: the case's reference, who acts next (the detail
+// read's participantPolicy, chase-sets/chase-sets#10715), one timeline entry per moment the API holds, and
 // which of the viewer's forms are shown. A case the seller is not on answers 404. Then the page at
 // 390 px. It reads only: it never submits a form.
 // Usage: node scripts/smoke-market-support.mjs [pilot-url] [state-file] [marketplace-url] [api-url]
@@ -37,13 +37,9 @@ async function context(javaScriptEnabled, viewport) {
 
 const terminal = (status) => ["resolved", "closed", "cancelled"].includes(status);
 
-/** Who acts next, by marketplace's supportNextActor. */
+/** Who acts next, as the API's participantPolicy says. */
 function nextActor(request) {
-  if (terminal(request.status)) return null;
-  if (request.pending_offer) return request.pending_offer.pendingWithRole;
-  const item = request.checklist.find((i) => i.required && i.satisfiedAt === null && i.ownerRole !== "support");
-  if (item) return item.ownerRole;
-  return { "waiting-on-buyer": "buyer", "waiting-on-seller": "seller" }[request.status] ?? "support";
+  return request.participantPolicy?.nextActor ?? null;
 }
 
 /** The moments marketplace's timeline shows. */
@@ -93,7 +89,7 @@ for (const javaScriptEnabled of [true, false]) {
         : next === "support"
           ? "Support is reviewing this case"
           : `Waiting on ${next === "buyer" ? "buyer" : "seller"} until the deadline`;
-    check(expected === null || title === expected, `${label}: ${id}: who acts next, by marketplace's rule (${title})`);
+    check(expected === null || title === expected, `${label}: ${id}: who acts next, as the API says (${title})`);
     const entries = await page.locator("[data-support-moment]").count();
     check(entries === moments(request), `${label}: ${id}: a timeline entry per moment (${entries} of ${moments(request)})`);
     const forms = await page.locator('input[name="intent"]').evaluateAll((inputs) => inputs.map((i) => i.getAttribute("value")));

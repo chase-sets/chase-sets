@@ -12690,6 +12690,17 @@ fn support_api(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, b
                 "flow": { "flowType": "product-damaged", "title": "Product arrived damaged",
                     "automationSummary": "The seller has 48 hours to respond.",
                     "allowedResponses": if seller { json!(["provide-tracking", "offer-partial-refund", "request-support-review"]) } else { json!([]) } },
+                // As projectSupportParticipantPolicy answers: sup_1 waits on the seller, who may
+                // respond or ask for review; sup_offer on the buyer, who opened it, so may also cancel.
+                "participantPolicy": {
+                    "nextActor": if offer { "buyer" } else { "seller" },
+                    "deadlineAt": "2099-01-01 00:00:00+00",
+                    "actions": match (offer, seller) {
+                        (false, true) => json!([{ "kind": "record-response" }, { "kind": "escalate" }]),
+                        (true, false) => json!([{ "kind": "accept-offer" }, { "kind": "decline-offer" }, { "kind": "cancel" }]),
+                        _ => json!([]),
+                    },
+                },
             }))
             .into_response()
         }

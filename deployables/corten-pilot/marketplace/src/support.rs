@@ -5,9 +5,9 @@
 //! the seller of the order see it; anyone else gets Not found, as marketplace's loader answers.
 //!
 //! Which party acts next, the deadline in effect, and which of the viewer's actions the page offers
-//! are Platform Operations' rules but live in marketplace's web layer
-//! (chase-sets/chase-sets#10715). The pilot copies them here as written; remove them once the
-//! detail read answers.
+//! come from the detail read's `participantPolicy` (chase-sets/chase-sets#10715). The offer a
+//! seller's response makes (`offer_outcome`) is still worked out here, as marketplace's page does
+//! (chase-sets/chase-sets#10787 asks the API to derive it).
 //!
 //! Every write posts to the page and is a participant attempt (`participant-attempt.ts`): the form's
 //! `SubmitKey` is its `Idempotency-Key`, and the request's canonical form is hashed into
@@ -110,40 +110,7 @@ pub fn terminal(status: &str) -> bool {
     matches!(status, "resolved" | "closed" | "cancelled")
 }
 
-/// Who acts next (`supportNextActor`, chase-sets/chase-sets#10715): nobody once the case is over;
-/// the party a pending offer waits on; the owner of the first required, unsatisfied checklist item
-/// that is not support's; else by status.
-pub fn next_actor(request: &SupportRequest) -> Option<Role> {
-    if terminal(&request.status) {
-        return None;
-    }
-    if let Some(offer) = &request.pending_offer {
-        return Some(Role::of(&offer.pending_with_role));
-    }
-    let open = request.checklist.iter().find(|i| i.required && i.satisfied_at.is_none() && i.owner_role != "support");
-    if let Some(item) = open {
-        return Some(Role::of(&item.owner_role));
-    }
-    Some(match request.status.as_str() {
-        "waiting-on-buyer" => Role::Buyer,
-        "waiting-on-seller" => Role::Seller,
-        _ => Role::Support,
-    })
-}
-
-/// The deadline in effect (`participantDeadline`, chase-sets/chase-sets#10715): the seller's
-/// condition attestation or response; support's review; else the seller's response or support's
-/// review.
-pub fn deadline(request: &SupportRequest, next: Option<Role>) -> Option<&str> {
-    let seller = || request.seller_condition_attestation_due_at.as_deref().or(request.seller_response_due_at.as_deref());
-    match next {
-        Some(Role::Seller) => seller(),
-        Some(Role::Support) => request.support_review_due_at.as_deref(),
-        _ => request.seller_response_due_at.as_deref().or(request.support_review_due_at.as_deref()),
-    }
-}
-
-/// The offer a response makes (`responseResolutionType`, chase-sets/chase-sets#10715).
+/// The offer a response makes (`responseResolutionType`, chase-sets/chase-sets#10787).
 pub fn offer_outcome(response_type: &str) -> Option<&'static str> {
     match response_type {
         "accept-return" => Some("return-for-refund"),
@@ -327,8 +294,8 @@ fn viewer_role(request: &SupportRequest, account: &str) -> Option<Role> {
     }
 }
 
-/// The page's screen: the rules above, and the gates of `SupportRequestDetailPage`
-/// (chase-sets/chase-sets#10715).
+/// The page's screen: the API's participant policy (who acts next, the deadline, the viewer's
+/// actions) drawn as `SupportRequestDetailPage` draws it.
 pub fn screen(
     request: SupportRequest,
     role: Role,
@@ -337,29 +304,35 @@ pub fn screen(
     action: Option<String>,
     said: Said,
 ) -> SupportScreen {
-    let next = next_actor(&request);
-    let acts = next == Some(role);
-    let pending = request.pending_offer.is_some();
-    let prompts: Vec<SupportChecklistItem> = if acts && !pending {
-        let own = |i: &&SupportChecklistItem| i.owner_role == role.as_str() && i.required && i.satisfied_at.is_none();
-        request.checklist.iter().filter(own).cloned().collect()
+    let policy = &request.participant_policy;
+    let allows = |kind: &str| policy.actions.iter().any(|a| a.kind == kind);
+    let prompts: Vec<SupportChecklistItem> = request
+        .checklist
+        .iter()
+        .filter(|item| {
+            policy
+                .actions
+                .iter()
+                .any(|a| a.kind == "submit-evidence" && a.checklist_item_key.as_deref() == Some(item.key.as_str()))
+        })
+        .cloned()
+        .collect();
+    let responses = if allows("record-response") {
+        request.flow.allowed_responses.iter().filter(|r| *r != REVIEW).cloned().collect()
     } else {
         Vec::new()
     };
-    let free = acts && prompts.is_empty() && !pending;
-    let seller = free && role == Role::Seller;
-    let allowed = &request.flow.allowed_responses;
-    let due = deadline(&request, next).map(str::to_owned);
+    let due = policy.deadline_at.clone();
     SupportScreen {
         viewer_role: role,
         account: account.to_owned(),
-        next_actor: next,
+        next_actor: policy.next_actor.as_deref().map(Role::of),
         countdown: due.as_deref().and_then(parse_timestamp).map(|at| countdown(at, now)),
         deadline: due,
-        offer_decision: acts && pending,
-        responses: if seller { allowed.iter().filter(|r| *r != REVIEW).cloned().collect() } else { Vec::new() },
-        review: (seller && allowed.iter().any(|r| r == REVIEW)) || (free && role == Role::Buyer),
-        cancel: acts && request.opened_by_account_id == account,
+        offer_decision: request.pending_offer.is_some() && (allows("accept-offer") || allows("decline-offer")),
+        responses,
+        review: allows("escalate"),
+        cancel: allows("cancel"),
         prompts,
         timeline: timeline(&request),
         action,
@@ -704,7 +677,7 @@ fn settled(lookup: &crate::api::ParticipantLookup, action_kind: &str, id: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{SupportOffer, SupportResolution};
+    use crate::api::{SupportOffer, SupportParticipantAction, SupportParticipantPolicy, SupportResolution};
 
     fn at(text: &str) -> SystemTime {
         parse_timestamp(text).unwrap()
@@ -778,53 +751,54 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_next_party_is_the_offers_then_the_checklists_then_the_statuss() {
-        assert_eq!(next_actor(&case("resolved")), None);
-        assert_eq!(next_actor(&case("waiting-on-seller")), Some(Role::Seller));
-        assert_eq!(next_actor(&case("waiting-on-buyer")), Some(Role::Buyer));
-        assert_eq!(next_actor(&case("open")), Some(Role::Support));
-        let listed = SupportRequest {
-            checklist: vec![item("support", false), item("buyer", true), item("seller", false)],
-            ..case("waiting-on-buyer")
-        };
-        assert_eq!(next_actor(&listed), Some(Role::Seller), "the first open item that is not support's");
-        let offered = SupportRequest {
-            pending_offer: Some(SupportOffer { pending_with_role: "buyer".into(), ..SupportOffer::default() }),
-            ..listed
-        };
-        assert_eq!(next_actor(&offered), Some(Role::Buyer));
-
-        let mut due = case("waiting-on-seller");
-        assert_eq!(deadline(&due, Some(Role::Seller)), Some("2026-10-29 09:00:00+00"));
-        due.seller_condition_attestation_due_at = Some("2026-10-28 18:00:00+00".into());
-        assert_eq!(deadline(&due, Some(Role::Seller)), Some("2026-10-28 18:00:00+00"), "the attestation first");
-        assert_eq!(deadline(&due, Some(Role::Support)), Some("2026-10-30 09:00:00+00"));
-        due.seller_response_due_at = None;
-        assert_eq!(deadline(&due, Some(Role::Buyer)), Some("2026-10-30 09:00:00+00"));
+    fn policy(next: Option<&str>, deadline: Option<&str>, actions: &[(&str, Option<&str>)]) -> SupportParticipantPolicy {
+        SupportParticipantPolicy {
+            next_actor: next.map(str::to_owned),
+            deadline_at: deadline.map(str::to_owned),
+            actions: actions
+                .iter()
+                .map(|(kind, item)| SupportParticipantAction {
+                    kind: (*kind).into(),
+                    checklist_item_key: item.map(str::to_owned),
+                })
+                .collect(),
+        }
     }
 
     #[test]
-    fn the_page_offers_the_viewer_only_what_is_theirs_to_do() {
+    fn the_page_draws_the_apis_policy_and_offers_only_its_actions() {
         let now = at("2026-10-28T09:00:00Z");
         let mut seller_turn = case("waiting-on-seller");
         seller_turn.flow.allowed_responses = vec!["provide-tracking".into(), "offer-partial-refund".into(), REVIEW.into()];
+        seller_turn.participant_policy =
+            policy(Some("seller"), Some("2026-10-29 09:00:00+00"), &[("record-response", None), ("escalate", None)]);
         let seller = screen(seller_turn.clone(), Role::Seller, "acc_seller", now, None, Said::default());
-        assert_eq!(seller.responses, ["provide-tracking", "offer-partial-refund"]);
+        assert_eq!(seller.next_actor, Some(Role::Seller));
+        assert_eq!(seller.deadline.as_deref(), Some("2026-10-29 09:00:00+00"));
+        assert_eq!(seller.responses, ["provide-tracking", "offer-partial-refund"], "never Request support review");
         assert!(seller.review && !seller.cancel && !seller.offer_decision && seller.prompts.is_empty());
         assert_eq!(seller.countdown, Some(Countdown { overdue: false, value: 24, unit: "hours" }));
-        let buyer = screen(seller_turn.clone(), Role::Buyer, "acc_buyer", now, None, Said::default());
+
+        seller_turn.participant_policy.actions.clear();
+        let buyer = screen(seller_turn, Role::Buyer, "acc_buyer", now, None, Said::default());
         assert!(buyer.responses.is_empty() && !buyer.review && !buyer.cancel, "not the buyer's turn");
 
-        let prompted = SupportRequest { checklist: vec![item("buyer", false)], ..case("waiting-on-buyer") };
+        let mut prompted =
+            SupportRequest { checklist: vec![item("buyer", false), item("seller", false)], ..case("waiting-on-buyer") };
+        prompted.participant_policy = policy(Some("buyer"), None, &[("submit-evidence", Some("buyer-proof")), ("cancel", None)]);
         let buyer = screen(prompted, Role::Buyer, "acc_buyer", now, None, Said::default());
-        assert_eq!(buyer.prompts.len(), 1);
-        assert!(!buyer.review && buyer.cancel, "evidence first; the buyer opened it, so may cancel");
+        assert_eq!(
+            buyer.prompts.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(),
+            ["buyer-proof"],
+            "only the items the API names"
+        );
+        assert!(!buyer.review && buyer.cancel && buyer.countdown.is_none());
         assert_eq!(prompt_types(&buyer.prompts[0]).collect::<Vec<_>>(), ["photo"], "never support's note");
 
         let mut offered = case("waiting-on-buyer");
         offered.pending_offer =
             Some(SupportOffer { offer_id: "sof_1".into(), pending_with_role: "buyer".into(), ..SupportOffer::default() });
+        offered.participant_policy = policy(Some("buyer"), None, &[("accept-offer", None), ("decline-offer", None)]);
         let buyer = screen(offered, Role::Buyer, "acc_buyer", now, None, Said::default());
         assert!(buyer.offer_decision && buyer.prompts.is_empty() && !buyer.review);
 

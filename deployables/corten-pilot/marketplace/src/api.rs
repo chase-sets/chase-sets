@@ -6985,6 +6985,29 @@ pub struct SupportRequest {
     pub responses: Vec<SupportResponse>,
     pub offers: Vec<SupportOffer>,
     pub flow: SupportFlow,
+    /// Who acts next, the deadline in effect and what the viewer may do, as the API decides them.
+    #[serde(rename = "participantPolicy")]
+    pub participant_policy: SupportParticipantPolicy,
+}
+
+/// `SupportParticipantPolicy`: who acts next (`buyer`, `seller`, `support`, or nobody once the
+/// case is over), the deadline that party works against, and the viewer's actions, empty unless
+/// the viewer acts next.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SupportParticipantPolicy {
+    pub next_actor: Option<String>,
+    pub deadline_at: Option<String>,
+    pub actions: Vec<SupportParticipantAction>,
+}
+
+/// One action the policy allows: `submit-evidence` (with its checklist item), `accept-offer`,
+/// `decline-offer`, `record-response`, `escalate` or `cancel`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SupportParticipantAction {
+    pub kind: String,
+    pub checklist_item_key: Option<String>,
 }
 
 /// The request's flow, as the API projects it for the viewer (`SupportFlowDetail`).

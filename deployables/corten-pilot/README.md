@@ -32,7 +32,10 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Catalog > Scopes (the list), `/catalog/scopes` |
 | `admin/` | Catalog > a scope's page, `/catalog/scopes/{id}` |
 | `admin/` | Platform > Attention Queue, `/platform/operations-attention` |
-| `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` |
+| `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}`, with its Publish, Set Field Value and Add content line dialogs |
+| `admin/` | Catalog's home, `/catalog`, a dimension's and a field's page, `/catalog/dimensions/{id}`, `/catalog/fields/{id}`, and the scope attention review, `/catalog/scopes/attention/review` |
+| `admin/` | Commerce > a postage policy, `/commerce/postage-policies/{id}` |
+| `admin/` | Platform > Projections, `/platform/projections` |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` |
 | `marketplace/` | Inventory > Inventory, `/account/inventory` |
@@ -47,7 +50,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Seller Desk > Money and a payout's page, `/account/desk/money`, `/account/desk/payouts/{id}` |
 | `marketplace/` | Seller Desk > payout setup, `/account/desk/settings` (`?mode=manage`) |
 | `marketplace/` | Buy > Cart, `/account/cart` |
-| `marketplace/` | Buy > Checkout, `/checkout/buy/session/{id}` |
+| `marketplace/` | Buy > Checkout, `/checkout/buy/session/{id}`, and its confirmation, `/checkout/buy/session/{id}/confirmation` |
 | `marketplace/` | Buy > a payment, `/account/payments/{id}` |
 | `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out` |
 | `marketplace/` | The account's own page, `/account` |
@@ -86,6 +89,9 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Inventory import, `/account/inventory/imports`, `/account/inventory/imports/{batch}` |
 | `marketplace/` | The buyer's submitted offers, `/account/offers/submitted` |
 | `marketplace/` | A submitted offer's page, `/account/offers/submitted/{id}` |
+| `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
+| `marketplace/` | Product alerts, `/account/product-alerts` |
+| `marketplace/` | marketplace's older money addresses, which move to the Seller Desk: `/account/payouts`, `/account/settlement`, `/account/payouts/{id}`, `/account/payouts/setup` and `/account/wallet/adjustments/{reference}` |
 | `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
 
 What each screen covers and leaves out, screen by screen, is in the
@@ -195,7 +201,7 @@ commit that says what changed. The history of every move is in the
 | Gap | Workaround | Remove when |
 |---|---|---|
 | [todd-skelton/corten#319 A page relayed by <corten-live> cannot ask a browser without JavaScript to read it again](https://github.com/todd-skelton/corten/issues/319) | `bulk_reprice::render` and `recommendations::render` write `<noscript><meta http-equiv="refresh" content="2"></noscript>` while a job runs | [todd-skelton/corten#340 ReadAgain::without_javascript: a page a <corten-live> keeps fresh asks only a browser without JavaScript to reload](https://github.com/todd-skelton/corten/pull/340), merged on Corten `main` as `70d2fa1f`: move the pin and use `ReadAgain::without_javascript` |
-| [todd-skelton/corten#341 A nav built from data, or whose current entry is the deepest that holds the page, keeps the first page's aria-current after a client navigation](https://github.com/todd-skelton/corten/issues/341) | `markNav` in `marketplace/static/app.js` and `admin/static/app.js`, with `data-nav-path` on the nav links | fixed on Corten `main` after `723c5e2` by [todd-skelton/corten#342 req.nav_of: a whole nav, with only the deepest entry that holds the page current](https://github.com/todd-skelton/corten/pull/342): move the pin and use `req.nav_of` |
+| [todd-skelton/corten#341 A nav built from data, or whose current entry is the deepest that holds the page, keeps the first page's aria-current after a client navigation](https://github.com/todd-skelton/corten/issues/341) | `markNav` in `marketplace/static/app.js` and `admin/static/app.js`, with `data-nav-path` on the nav links | fixed on Corten `main` after `723c5e2` by [todd-skelton/corten#342 req.nav_of: a whole nav, with only the deepest entry that holds the page current](https://github.com/todd-skelton/corten/pull/342), and after a patch by [todd-skelton/corten#348 The runtime marks nav links after a patch that puts one on the page](https://github.com/todd-skelton/corten/pull/348) (`9c589685`): move the pin, use `req.nav_of` and drop `markNav` |
 | [todd-skelton/corten#310 A #[route(prefix)] field inside a #[route(query)] set is written into links but Params reads it back empty](https://github.com/todd-skelton/corten/issues/310) | `items::Address` and `search::Terms` keep a hand-written `Deserialize` over the raw query | [todd-skelton/corten#312 A query set is read the way a route reads its own, so its prefix fields round-trip](https://github.com/todd-skelton/corten/pull/312) merges |
 | [todd-skelton/corten#307 A script's relative import of another script module is not preloaded, so the page waits a round trip for it, and the guide does not describe it](https://github.com/todd-skelton/corten/issues/307) | none: `stripe.js` loads one round trip after the step's script | [todd-skelton/corten#308 A script's relative imports of other script modules are preloaded with it](https://github.com/todd-skelton/corten/pull/308), merged on Corten `main` as `e4512627`: move the pin; a relative import must then name a listed script |
 
@@ -261,7 +267,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10707 [identity] A security.manage owner can list another user's or account's consents by naming its ids, or every consent by naming neither](https://github.com/chase-sets/chase-sets/issues/10707) | [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#10710 [platform-operations] List each blocked projection's streams and poison events in the projections read (the repair queue and Operations Attention show none)](https://github.com/chase-sets/chase-sets/issues/10710) | [admin/src/projections/api.rs](admin/src/projections/api.rs), [admin/src/projections/mod.rs](admin/src/projections/mod.rs), [admin/src/projections/views/detail_sheet.rs](admin/src/projections/views/detail_sheet.rs), [scripts/smoke-projections.mjs](scripts/smoke-projections.mjs) |
 | [chase-sets/chase-sets#10712 [settlement] Answer the money dashboard's next payout, blocked payouts and payout availability from the Settlement API](https://github.com/chase-sets/chase-sets/issues/10712) | [marketplace/src/money.rs](marketplace/src/money.rs), [scripts/smoke-market-money.mjs](scripts/smoke-market-money.mjs) |
-| [chase-sets/chase-sets#10715 [platform-operations] Return who acts next on a Support Request, the deadline in effect and the participant's actions from its detail read](https://github.com/chase-sets/chase-sets/issues/10715) | [scripts/smoke-market-support.mjs](scripts/smoke-market-support.mjs), [marketplace/src/support.rs](marketplace/src/support.rs) |
+| [chase-sets/chase-sets#10787 [platform-operations] Derive a support response's offer resolution from its response type in the API instead of requiring the page to send it](https://github.com/chase-sets/chase-sets/issues/10787) | [marketplace/src/support.rs](marketplace/src/support.rs) |
 | [chase-sets/chase-sets#10724 [platform-operations] Return each Support Request's customer remedy status and next deadline from the list reads, and enforce intake photos in the API](https://github.com/chase-sets/chase-sets/issues/10724) | [marketplace/src/support_list.rs](marketplace/src/support_list.rs) |
 | [chase-sets/chase-sets#10749 [checkout] Return each Sell List line's readiness and the list's payout totals from the Sell List read](https://github.com/chase-sets/chase-sets/issues/10749) | [marketplace/src/sell_list.rs](marketplace/src/sell_list.rs) |
 | [chase-sets/chase-sets#10753 [checkout] Work out seller checkout's seller readiness in the Checkout API instead of trusting the evidence the page posts](https://github.com/chase-sets/chase-sets/issues/10753) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
