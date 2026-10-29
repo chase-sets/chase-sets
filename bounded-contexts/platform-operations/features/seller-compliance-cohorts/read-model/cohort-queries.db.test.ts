@@ -59,7 +59,7 @@ describeDatabase("seller compliance cohort persistence", () => {
     await writeSellerComplianceCohort(pool, input);
     const first = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohorts`);
     const transitions = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohort_transitions`);
-    await writeSellerComplianceCohort(pool, input);
+    await writeSellerComplianceCohort(pool, { ...input, observedAt: "2025-01-04T00:00:00.000Z" });
     const second = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohorts`);
     const transitionsAgain = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohort_transitions`);
     expect(second.rows).toEqual(first.rows);
@@ -93,6 +93,33 @@ describeDatabase("seller compliance cohort persistence", () => {
     ]);
     expect(rows.rows[0].effective_at).toEqual(rows.rows[1].effective_at);
     expect(rows.rows[1].target_band).toBe("disclosure");
+  });
+
+  it("appends entered and disclosure transitions when a re-entry already carries disclosure", async () => {
+    await writeSellerComplianceCohort(pool, {
+      sellerAccountId: "seller-reentry",
+      policyVersion: "policy@1",
+      observedAt: "2025-01-01T00:00:00.000Z",
+      evaluation: evaluation("outside"),
+    });
+    await writeSellerComplianceCohort(pool, {
+      sellerAccountId: "seller-reentry",
+      policyVersion: "policy@1",
+      observedAt: "2025-01-02T00:00:00.000Z",
+      evaluation: evaluation("member", "disclosure"),
+    });
+    const rows = await pool.query(
+      `SELECT transition_id,kind,transition_version FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id = $1 ORDER BY transition_version`,
+      ["seller-reentry"],
+    );
+    expect(rows.rows).toEqual([
+      { transition_id: "seller-reentry:1:entered", kind: "entered", transition_version: "1" },
+      {
+        transition_id: "seller-reentry:2:disclosure-band-changed",
+        kind: "disclosure-band-changed",
+        transition_version: "2",
+      },
+    ]);
   });
 
   it("processes candidates in bounded resumable pages", async () => {

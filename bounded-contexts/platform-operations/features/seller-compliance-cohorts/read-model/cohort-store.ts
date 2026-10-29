@@ -17,6 +17,22 @@ export type StoredCohort = Readonly<{
   unclassifiableCount: number;
   nextReevaluationAt: string | null;
 }>;
+
+function timestampToIso(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function normalize(row: StoredCohort & Record<string, unknown>): StoredCohort {
+  return {
+    ...row,
+    entryEffectiveAt: timestampToIso(row.entryEffectiveAt as Date | string | null),
+    exitEffectiveAt: timestampToIso(row.exitEffectiveAt as Date | string | null),
+    windowStart: timestampToIso(row.windowStart as Date | string | null),
+    windowEnd: timestampToIso(row.windowEnd as Date | string | null),
+    nextReevaluationAt: timestampToIso(row.nextReevaluationAt as Date | string | null),
+  };
+}
 export async function readSellerComplianceCohort(
   db: PgQueryable,
   sellerAccountId: string,
@@ -25,7 +41,7 @@ export async function readSellerComplianceCohort(
     `SELECT seller_account_id AS "sellerAccountId", state, disclosure_band AS band, version::text, policy_version AS "policyVersion", entry_effective_at AS "entryEffectiveAt", exit_effective_at AS "exitEffectiveAt", window_start AS "windowStart", window_end AS "windowEnd", qualifying_count AS "qualifyingCount", qualifying_gross_cents::text AS "qualifyingGrossCents", unclassifiable_count AS "unclassifiableCount", next_reevaluation_at AS "nextReevaluationAt" FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id = $1`,
     [sellerAccountId],
   );
-  return result.rows[0] ?? null;
+  return result.rows[0] ? normalize(result.rows[0] as StoredCohort & Record<string, unknown>) : null;
 }
 
 export async function writeSellerComplianceCohort(
@@ -37,7 +53,7 @@ export async function writeSellerComplianceCohort(
       `SELECT seller_account_id AS "sellerAccountId", state, disclosure_band AS band, version::text, policy_version AS "policyVersion", entry_effective_at AS "entryEffectiveAt", exit_effective_at AS "exitEffectiveAt", window_start AS "windowStart", window_end AS "windowEnd", qualifying_count AS "qualifyingCount", qualifying_gross_cents::text AS "qualifyingGrossCents", unclassifiable_count AS "unclassifiableCount", next_reevaluation_at AS "nextReevaluationAt" FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id = $1 FOR UPDATE`,
       [input.sellerAccountId],
     );
-    const old = current.rows[0];
+    const old = current.rows[0] ? normalize(current.rows[0] as StoredCohort & Record<string, unknown>) : undefined;
     const derivedChanged =
       !old ||
       old.state !== input.evaluation.state ||
@@ -52,19 +68,15 @@ export async function writeSellerComplianceCohort(
       old.unclassifiableCount !== input.evaluation.unclassifiableCount ||
       old.nextReevaluationAt !== input.evaluation.nextReevaluationAt;
     if (!derivedChanged) return;
-    const membershipChanged = !old || old.state !== input.evaluation.state || old.band !== input.evaluation.band;
-    const kinds: readonly string[] = !membershipChanged
-      ? []
-      : old === undefined
-        ? [
-            input.evaluation.state === "member" ? "entered" : "exited",
-            ...(input.evaluation.state === "member" && input.evaluation.band === "disclosure"
-              ? ["disclosure-band-changed"]
-              : []),
-          ]
-        : old.state !== input.evaluation.state
-          ? [input.evaluation.state === "member" ? "entered" : "exited"]
-          : ["disclosure-band-changed"];
+    const prior = old ?? { state: "outside", band: "none", version: "0" };
+    const kinds: readonly string[] =
+      prior.state !== input.evaluation.state
+        ? input.evaluation.state === "member"
+          ? ["entered", ...(input.evaluation.band === "disclosure" ? ["disclosure-band-changed"] : [])]
+          : ["exited"]
+        : prior.band !== input.evaluation.band
+          ? ["disclosure-band-changed"]
+          : [];
     const version = BigInt(old?.version ?? "0") + BigInt(kinds.length);
     const values = [
       input.sellerAccountId,

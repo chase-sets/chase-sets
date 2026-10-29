@@ -1,6 +1,7 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   sellerComplianceCohortPolicy,
+  SellerComplianceCohortPolicyDomainError,
   type SellerComplianceCohortPolicyValue,
 } from "../domain/seller-compliance-cohort-policy";
 import { evaluateSellerComplianceCohort, addUtcMonths } from "../domain/cohort-window";
@@ -54,6 +55,7 @@ export function createSellerComplianceCohortRuntime(
     sellerAccountId: string,
     evaluationAt: string,
     resolved?: Readonly<{ value: SellerComplianceCohortPolicyValue; version: string }>,
+    revisionEffectiveAt?: string,
   ): Promise<boolean> {
     let current = resolved;
     if (!current) {
@@ -80,6 +82,7 @@ export function createSellerComplianceCohortRuntime(
       sales,
       policy: current.value,
       evaluationAt,
+      revisionEffectiveAt,
       previous: previous
         ? {
             state: previous.state as "outside" | "member",
@@ -98,38 +101,77 @@ export function createSellerComplianceCohortRuntime(
     });
     return true;
   }
+  type Trigger = "t1-changed" | "t2-due" | "t3-revision";
+  type Candidate = Readonly<{ sellerAccountId: string; trigger: Trigger }>;
+
+  async function checkpoint(trigger: Trigger) {
+    const result = await deps.db.query<{
+      snapshot_change_sequence: string;
+      after_seller_account_id: string | null;
+      policy_version: string;
+    }>(
+      `SELECT snapshot_change_sequence::text, after_seller_account_id, policy_version FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
+      [trigger],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async function candidateSellers(
     now: string,
     limit: number,
     snapshot: string,
     policy: SellerComplianceCohortPolicyValue,
     policyVersion: string,
-    afterSellerAccountId: string | null,
-  ): Promise<string[]> {
+    trigger: Trigger,
+  ): Promise<{ candidates: Candidate[]; snapshot: string; full: boolean }> {
     const from = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString();
-    const ids = new Set<string>();
-    const changed = await listSellersWithChangedCompletedSales(deps.db, {
-      fromInclusive: from,
-      toExclusive: now,
-      snapshotChangeSequence: snapshot,
-      afterSellerAccountId,
-      limit,
-    });
-    changed.sellerAccountIds.forEach((id) => ids.add(id));
-    const due = await deps.db.query<{ seller_account_id: string }>(
-      `SELECT seller_account_id FROM platform_operations_seller_compliance_cohorts WHERE (next_reevaluation_at <= $1 OR policy_version <> $4) AND ($3::text IS NULL OR seller_account_id > $3::text) ORDER BY seller_account_id ASC LIMIT $2`,
-      [now, limit, afterSellerAccountId, policyVersion],
+    const saved = await checkpoint(trigger);
+    const after = saved && saved.snapshot_change_sequence === snapshot ? saved.after_seller_account_id : null;
+    if (trigger === "t1-changed") {
+      const changed = await listSellersWithChangedCompletedSales(deps.db, {
+        fromInclusive: from,
+        toExclusive: now,
+        snapshotChangeSequence: snapshot,
+        afterSellerAccountId: after,
+        limit,
+      });
+      return {
+        candidates: changed.sellerAccountIds.map((sellerAccountId) => ({ sellerAccountId, trigger })),
+        snapshot,
+        full: changed.sellerAccountIds.length === limit,
+      };
+    }
+    if (trigger === "t2-due") {
+      const due = await deps.db.query<{ seller_account_id: string }>(
+        `SELECT seller_account_id FROM platform_operations_seller_compliance_cohorts WHERE next_reevaluation_at <= $1 AND ($2::text IS NULL OR seller_account_id > $2::text) ORDER BY seller_account_id ASC LIMIT $3`,
+        [now, after, limit],
+      );
+      return {
+        candidates: due.rows.map((row) => ({ sellerAccountId: row.seller_account_id, trigger })),
+        snapshot,
+        full: due.rows.length === limit,
+      };
+    }
+    const revision = await deps.db.query<{ seller_account_id: string }>(
+      `SELECT seller_account_id FROM platform_operations_seller_compliance_cohorts WHERE policy_version <> $1 AND ($2::text IS NULL OR seller_account_id > $2::text) ORDER BY seller_account_id ASC LIMIT $3`,
+      [policyVersion, after, limit],
     );
-    due.rows.forEach((row) => ids.add(row.seller_account_id));
-    const occurrence = await listSellersWithSalesOccurringInWindow(deps.db, {
-      fromInclusive: addUtcMonths(now, -(policy.lookbackMonths ?? 60)),
-      toExclusive: now,
-      snapshotChangeSequence: snapshot,
-      afterSellerAccountId,
-      limit,
-    });
-    occurrence.sellerAccountIds.forEach((id) => ids.add(id));
-    return [...ids].sort().slice(0, limit);
+    const ids = new Set(revision.rows.map((row) => row.seller_account_id));
+    if (!saved || saved.policy_version !== policyVersion) {
+      const occurrence = await listSellersWithSalesOccurringInWindow(deps.db, {
+        fromInclusive: addUtcMonths(now, -(policy.lookbackMonths ?? 60)),
+        toExclusive: now,
+        snapshotChangeSequence: snapshot,
+        afterSellerAccountId: after,
+        limit,
+      });
+      occurrence.sellerAccountIds.forEach((id) => ids.add(id));
+    }
+    const candidates = [...ids]
+      .sort()
+      .slice(0, limit)
+      .map((sellerAccountId) => ({ sellerAccountId, trigger }));
+    return { candidates, snapshot, full: candidates.length === limit };
   }
   async function sweep(params: Readonly<{ now?: string; limit?: number }> = {}): Promise<number> {
     const now = params.now ?? new Date().toISOString();
@@ -143,50 +185,55 @@ export function createSellerComplianceCohortRuntime(
         effectiveFrom: value.effectiveFrom,
       };
     } catch (error) {
-      const candidates = await deps.db.query<{ seller_account_id: string }>(
+      const existing = await deps.db.query<{ seller_account_id: string }>(
         `SELECT seller_account_id FROM platform_operations_seller_compliance_cohorts ORDER BY seller_account_id ASC LIMIT $1`,
         [limit],
       );
-      for (const row of candidates.rows)
-        await recordFailure(row.seller_account_id, now, error instanceof Error ? error.message : String(error), null);
-      return candidates.rows.length;
+      const changed = await listSellersWithChangedCompletedSales(deps.db, {
+        fromInclusive: new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString(),
+        toExclusive: now,
+        snapshotChangeSequence: await readSellerComplianceSnapshotChangeSequence(deps.db),
+        afterSellerAccountId: null,
+        limit,
+      });
+      const ids = [
+        ...new Set([...existing.rows.map((row) => row.seller_account_id), ...changed.sellerAccountIds]),
+      ].slice(0, limit);
+      const kind = error instanceof SellerComplianceCohortPolicyDomainError ? "policy-decode" : "policy-resolution";
+      for (const seller of ids)
+        await recordFailure(seller, now, error instanceof Error ? error.message : String(error), null, kind);
+      return ids.length;
     }
     if (!resolved.value.activated) return 0;
-    const checkpoint = await deps.db.query<{
-      snapshot_change_sequence: string;
-      after_seller_account_id: string | null;
-    }>(
-      `SELECT snapshot_change_sequence::text, after_seller_account_id FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
-      ["cohort-sweep"],
-    );
-    const snapshot =
-      checkpoint.rows[0]?.snapshot_change_sequence ?? (await readSellerComplianceSnapshotChangeSequence(deps.db));
-    const afterSellerAccountId = checkpoint.rows[0]?.after_seller_account_id ?? null;
-    const sellers = await candidateSellers(
-      now,
-      limit,
-      snapshot,
-      resolved.value,
-      resolved.version,
-      afterSellerAccountId,
-    );
-    const evaluationAt =
-      resolved.effectiveFrom && Date.parse(resolved.effectiveFrom) <= Date.parse(now) ? resolved.effectiveFrom : now;
+    const snapshot = await readSellerComplianceSnapshotChangeSequence(deps.db);
     let processed = 0;
-    for (const seller of sellers) {
-      await evaluateSeller(seller, evaluationAt, { value: resolved.value, version: resolved.version });
-      processed += 1;
-    }
-    if (sellers.length === limit) {
-      await deps.db.query(
-        `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, updated_at=$5`,
-        ["cohort-sweep", snapshot, sellers[sellers.length - 1], resolved.version, now],
-      );
-    } else {
-      await deps.db.query(
-        `DELETE FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
-        ["cohort-sweep"],
-      );
+    const evaluated = new Set<string>();
+    for (const trigger of ["t1-changed", "t2-due", "t3-revision"] as const) {
+      const page = await candidateSellers(now, limit - processed, snapshot, resolved.value, resolved.version, trigger);
+      const evaluationAt = trigger === "t3-revision" && resolved.effectiveFrom ? resolved.effectiveFrom : now;
+      for (const candidate of page.candidates) {
+        if (evaluated.has(candidate.sellerAccountId)) continue;
+        await evaluateSeller(
+          candidate.sellerAccountId,
+          evaluationAt,
+          { value: resolved.value, version: resolved.version },
+          trigger === "t3-revision" ? (resolved.effectiveFrom ?? undefined) : undefined,
+        );
+        evaluated.add(candidate.sellerAccountId);
+        processed += 1;
+      }
+      if (page.full && page.candidates.length > 0) {
+        await deps.db.query(
+          `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, updated_at=$5`,
+          [trigger, page.snapshot, page.candidates[page.candidates.length - 1]!.sellerAccountId, resolved.version, now],
+        );
+      } else {
+        await deps.db.query(
+          `DELETE FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
+          [trigger],
+        );
+      }
+      if (processed >= limit) break;
     }
     return processed;
   }

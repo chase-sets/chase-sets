@@ -2,19 +2,13 @@ import { definePolicy, type PolicyDefinition } from "@chase-sets/platform-policy
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { MONEY_AMOUNT_MAX_CENTS } from "@chase-sets/primitives/money";
 
-export type SellerComplianceTreatment =
-  | "count"
-  | "exclude"
-  | "count-captured"
-  | "exclude-refunded"
-  | "count-refunded"
+export type SellerComplianceRefundTreatment = "exclude-refunded" | "count-refunded";
+export type SellerComplianceCancellationTreatment =
   | "exclude-cancelled"
   | "exclude-if-fully-refunded"
-  | "count-cancelled"
-  | "exclude-mixed"
-  | "count-mixed"
-  | "exclude-unclassifiable"
-  | "count-unclassifiable";
+  | "count-cancelled";
+export type SellerComplianceMixedLineTreatment = "exclude-mixed" | "count-mixed";
+export type SellerComplianceUnclassifiableTreatment = "exclude-unclassifiable" | "count-unclassifiable";
 
 export type SellerComplianceGrossBasis = "item-gross" | "item-gross-plus-shipping";
 export type SellerComplianceSaleUnit = "captured-order";
@@ -35,10 +29,10 @@ export type SellerComplianceCohortPolicyValue = Readonly<{
   comparisonIsInclusive: boolean | null;
   saleUnit: SellerComplianceSaleUnit | null;
   qualifyingGrossBasis: SellerComplianceGrossBasis | null;
-  refundTreatment: SellerComplianceTreatment | null;
-  postCaptureCancellationTreatment: SellerComplianceTreatment | null;
-  mixedLineTreatment: SellerComplianceTreatment | null;
-  unclassifiableTreatment: SellerComplianceTreatment | null;
+  refundTreatment: SellerComplianceRefundTreatment | null;
+  postCaptureCancellationTreatment: SellerComplianceCancellationTreatment | null;
+  mixedLineTreatment: SellerComplianceMixedLineTreatment | null;
+  unclassifiableTreatment: SellerComplianceUnclassifiableTreatment | null;
   classificationRules: readonly SellerComplianceClassificationRule[] | null;
 }>;
 
@@ -67,20 +61,6 @@ export class SellerComplianceCohortPolicyDomainError extends Error {
   }
 }
 
-const treatments = new Set<string>([
-  "count",
-  "exclude",
-  "count-captured",
-  "exclude-refunded",
-  "count-refunded",
-  "exclude-cancelled",
-  "exclude-if-fully-refunded",
-  "count-cancelled",
-  "exclude-mixed",
-  "count-mixed",
-  "exclude-unclassifiable",
-  "count-unclassifiable",
-]);
 const interpretiveFields: (keyof SellerComplianceCohortPolicyValue)[] = [
   "currencyCode",
   "qualifyingTransactionCount",
@@ -137,12 +117,16 @@ function nullableCents(record: Record<string, unknown>, key: string): string | n
   return text;
 }
 
-function nullableTreatment(record: Record<string, unknown>, key: string): SellerComplianceTreatment | null {
+function nullableTreatment<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  values: readonly T[],
+): T | null {
   const value = record[key];
   if (value === null || value === undefined) return null;
-  if (typeof value !== "string" || !treatments.has(value))
+  if (typeof value !== "string" || !values.includes(value as T))
     throw new SellerComplianceCohortPolicyDomainError(`${key} contains an unsupported treatment.`);
-  return value as SellerComplianceTreatment;
+  return value as T;
 }
 
 function nullableEnum<T extends string>(record: Record<string, unknown>, key: string, values: readonly T[]): T | null {
@@ -170,10 +154,17 @@ export function decodeSellerComplianceCohortPolicyValue(raw: JsonValue): SellerC
     comparisonIsInclusive: nullableBoolean(r, "comparisonIsInclusive"),
     saleUnit: nullableEnum(r, "saleUnit", ["captured-order"] as const),
     qualifyingGrossBasis: nullableEnum(r, "qualifyingGrossBasis", ["item-gross", "item-gross-plus-shipping"] as const),
-    refundTreatment: nullableTreatment(r, "refundTreatment"),
-    postCaptureCancellationTreatment: nullableTreatment(r, "postCaptureCancellationTreatment"),
-    mixedLineTreatment: nullableTreatment(r, "mixedLineTreatment"),
-    unclassifiableTreatment: nullableTreatment(r, "unclassifiableTreatment"),
+    refundTreatment: nullableTreatment(r, "refundTreatment", ["exclude-refunded", "count-refunded"] as const),
+    postCaptureCancellationTreatment: nullableTreatment(r, "postCaptureCancellationTreatment", [
+      "exclude-cancelled",
+      "exclude-if-fully-refunded",
+      "count-cancelled",
+    ] as const),
+    mixedLineTreatment: nullableTreatment(r, "mixedLineTreatment", ["exclude-mixed", "count-mixed"] as const),
+    unclassifiableTreatment: nullableTreatment(r, "unclassifiableTreatment", [
+      "exclude-unclassifiable",
+      "count-unclassifiable",
+    ] as const),
     classificationRules: null,
   };
   const rules = r.classificationRules;

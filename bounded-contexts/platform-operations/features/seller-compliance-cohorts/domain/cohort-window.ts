@@ -1,5 +1,8 @@
 import type { SellerSaleFact } from "../../seller-compliance-sales/read-model/queries";
-import { addUtcMonths as addUtcMonthsFromSales } from "../../seller-compliance-sales/read-model/queries";
+import {
+  addUtcMonths as addUtcMonthsFromSales,
+  isLookbackAnchorEligible,
+} from "../../seller-compliance-sales/read-model/queries";
 import type {
   SellerComplianceCohortPolicyValue,
   SellerComplianceClassificationRule,
@@ -66,9 +69,8 @@ function classify(sale: SellerSaleFact, policy: SellerComplianceCohortPolicyValu
   if (isFullyRefunded && policy.refundTreatment === "exclude-refunded") return "excluded";
   if (
     sale.cancelledAt !== null &&
-    isFullyRefunded &&
     (policy.postCaptureCancellationTreatment === "exclude-cancelled" ||
-      policy.postCaptureCancellationTreatment === "exclude-if-fully-refunded")
+      (isFullyRefunded && policy.postCaptureCancellationTreatment === "exclude-if-fully-refunded"))
   )
     return "excluded";
   const inputs = Array.isArray(sale.classificationInputs) ? sale.classificationInputs : [];
@@ -186,6 +188,7 @@ export function evaluateSellerComplianceCohort(
       entryEffectiveAt: string | null;
       exitEffectiveAt?: string | null;
     }>;
+    revisionEffectiveAt?: string;
   }>,
 ): CohortEvaluation {
   const { sales, policy, evaluationAt } = input;
@@ -223,14 +226,23 @@ export function evaluateSellerComplianceCohort(
   const windowMonths = policy.windowMonths as number;
   const lookbackMonths = policy.lookbackMonths as number;
   const expiries = result.eligible
-    .flatMap((sale) => [addUtcMonths(sale.occurredAt, windowMonths), addUtcMonths(sale.occurredAt, lookbackMonths)])
+    .flatMap((sale) => [
+      addUtcMonths(sale.occurredAt, windowMonths),
+      new Date(Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1).toISOString(),
+    ])
     .filter((instant) => Date.parse(instant) > Date.parse(evaluationAt))
     .sort();
   let exitEffectiveAt: string | null = null;
   if (previousMember && winner === null) {
     const entry = input.previous?.entryEffectiveAt ?? "";
-    const candidates = result.eligible
-      .flatMap((sale) => [addUtcMonths(sale.occurredAt, windowMonths), addUtcMonths(sale.occurredAt, lookbackMonths)])
+    const candidates = sales
+      .flatMap((sale) => [
+        addUtcMonths(sale.occurredAt, windowMonths),
+        isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, addUtcMonths(sale.occurredAt, lookbackMonths))
+          ? new Date(Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1).toISOString()
+          : null,
+      ])
+      .filter((instant): instant is string => instant !== null)
       .filter((instant) => Date.parse(instant) > Date.parse(entry) && Date.parse(instant) <= Date.parse(evaluationAt))
       .sort();
     for (const instant of candidates) {
@@ -240,7 +252,7 @@ export function evaluateSellerComplianceCohort(
         break;
       }
     }
-    exitEffectiveAt ??= evaluationAt;
+    exitEffectiveAt = input.revisionEffectiveAt ?? exitEffectiveAt ?? evaluationAt;
   }
   const entryEffectiveAt =
     winner === null
