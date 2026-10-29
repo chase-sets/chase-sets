@@ -1,15 +1,14 @@
 // @ts-check
-// The payment page's secure step (marketplace's StripeConfirmationCard). Stripe.js loads from
-// Stripe (as @stripe/stripe-js 9.9.0's loadStripe loads it), once per page load; the fields mount in the step and Confirm payment turns on once they are
-// ready. A Checkout Session's secret (cs_...) uses Stripe's Checkout Elements, any other the
+// The payment page's secure step (marketplace's StripeConfirmationCard). Stripe.js loads as
+// stripe.js loads it, once per page load; the fields mount in the step and Confirm payment turns
+// on once they are ready. A Checkout Session's secret (cs_...) uses Stripe's Checkout Elements, any other the
 // Payment Element. Loading has one deadline over the whole chain, since Stripe sets none. Confirm
 // is Stripe's own; once it succeeds the payment's status changes when the provider tells
 // Payments, so the step says the payment is being updated and reads the status part until it
 // changes (the page's watch, a ReadAgain in its markup).
 import { keep, patch } from "corten";
+import { appearance, loadStripe } from "./stripe.js";
 
-/** Stripe.js for @stripe/stripe-js 9.9.0's release train. */
-const STRIPE_JS = "https://js.stripe.com/dahlia/stripe.js";
 /** Half the account-payment UAT's 60 s readiness ceiling, as marketplace's. */
 const DEADLINE_MS = 30_000;
 /** How long a watch started by Confirm lasts, as the page's own. */
@@ -63,68 +62,6 @@ const kept = () =>
         email: "",
       }),
   );
-
-/** @type {Promise<any> | null} */
-let loading = null;
-
-/** Stripe's constructor, its script added to the page the first time. */
-function loadStripe() {
-  const page = /** @type {any} */ (window);
-  if (page.Stripe) return Promise.resolve(page.Stripe);
-  loading ??= new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = STRIPE_JS;
-    script.async = true;
-    script.addEventListener("load", () => (page.Stripe ? resolve(page.Stripe) : reject(new Error())));
-    script.addEventListener("error", () => {
-      loading = null;
-      script.remove();
-      reject(new Error());
-    });
-    document.head.append(script);
-  });
-  return loading;
-}
-
-/**
- * A theme token's computed value (a color as rgb(), a length in px), since Stripe cannot read
- * custom properties or light-dark().
- * @param {HTMLElement} inside @param {string} property @param {string} token @param {string} fallback
- */
-function computed(inside, property, token, fallback) {
-  const probe = document.createElement("span");
-  probe.hidden = true;
-  probe.style.setProperty(property, `var(${token})`);
-  inside.append(probe);
-  const value = getComputedStyle(probe).getPropertyValue(property).trim();
-  probe.remove();
-  return value || fallback;
-}
-
-/**
- * Stripe's appearance from the page's theme (marketplace's createStripeElementsAppearance, its
- * variables).
- * @param {HTMLElement} inside
- */
-function appearance(inside) {
-  const color = (/** @type {string} */ token, /** @type {string} */ fallback) => computed(inside, "color", token, fallback);
-  return {
-    theme: "flat",
-    variables: {
-      borderRadius: computed(inside, "border-top-left-radius", "--radius-md", "8px"),
-      colorBackground: color("--color-surface", "#ffffff"),
-      colorDanger: color("--color-danger", "#b91c1c"),
-      colorPrimary: color("--color-primary", "#4845c6"),
-      colorSuccess: color("--color-success", "#15803d"),
-      colorText: color("--color-text", "#211d33"),
-      colorTextSecondary: color("--color-text-secondary", "#4d4763"),
-      colorTextPlaceholder: color("--color-text-secondary", "#4d4763"),
-      colorWarning: color("--color-warning", "#b45309"),
-      fontWeightMedium: "600",
-      fontWeightNormal: "400",
-    },
-  };
-}
 
 /** @param {State} state */
 function unmount(state) {

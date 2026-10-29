@@ -6271,6 +6271,114 @@ impl PaymentCalls for Caller<'_> {
     }
 }
 
+const PAYMENT_METHODS: &str = "/api/marketplace/account/payment-methods";
+
+/// A saved payment method as its account manages it (`savedCheckoutInstrumentSnapshot` with the
+/// management fields, `GET /account/payment-methods`), the fields the page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PaymentMethod {
+    pub instrument_id: String,
+    pub account_id: String,
+    /// `card`, `bank-account` or `platform-credit`.
+    pub payment_method_category: String,
+    pub display_label: String,
+    /// `ready`, `setup-required` or `removed`.
+    pub readiness: String,
+    pub is_default: bool,
+    pub updated_at: String,
+}
+
+/// A setup session for a new payment method (`savedCheckoutSetupSessionSnapshot`): Stripe's
+/// SetupIntent secret and the publishable key its fields mount with, or a page of the provider's.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SetupSession {
+    pub setup_reference_id: String,
+    pub processor_client_secret: Option<String>,
+    pub processor_redirect_url: Option<String>,
+    pub processor_publishable_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SetupReconciled {
+    #[serde(default)]
+    instrument: Option<PaymentMethod>,
+}
+
+/// A change to a saved payment method (`POST /account/payment-methods/{id}/default` or `/remove`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MethodChange {
+    Default,
+    Remove,
+}
+
+/// The payment methods page's calls. Each write is a Saved Checkout Instrument Attempt: the body
+/// names the account the page was drawn for (`account_changed` when it is not the caller's) and
+/// the attempt, which Payments applies once.
+pub trait PaymentMethodCalls {
+    /// The account's payment methods, removed ones too.
+    async fn payment_methods(&self) -> Result<Vec<PaymentMethod>, ApiError>;
+    /// What came of a setup: the payment method it saved, or `None` while the provider has not said.
+    async fn reconcile_setup(&self, setup: &str) -> Result<Option<PaymentMethod>, ApiError>;
+    /// Ask the provider again about every payment method (Refresh).
+    async fn reconcile_payment_methods(&self) -> Result<(), ApiError>;
+    /// Start adding a payment method, coming back to `return_path`.
+    async fn start_setup(&self, account: &str, attempt: &str, return_path: &str) -> Result<SetupSession, ApiError>;
+    /// Make a payment method the default, or remove it; the receipt the next read waits for.
+    async fn change_payment_method(
+        &self,
+        change: MethodChange,
+        instrument: &str,
+        account: &str,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError>;
+}
+
+impl PaymentMethodCalls for Caller<'_> {
+    async fn payment_methods(&self) -> Result<Vec<PaymentMethod>, ApiError> {
+        let body: Items<PaymentMethod> = self.read(PAYMENT_METHODS, PAYMENTS).await?;
+        Ok(body.items)
+    }
+
+    async fn reconcile_setup(&self, setup: &str) -> Result<Option<PaymentMethod>, ApiError> {
+        let path = format!("{PAYMENT_METHODS}/setup-sessions/{}/reconcile", segment(setup));
+        let req = self.request(Method::POST, &path, PAYMENTS).json(&serde_json::json!({}));
+        let (body, _): (SetupReconciled, _) = self.write(req).await?;
+        Ok(body.instrument)
+    }
+
+    async fn reconcile_payment_methods(&self) -> Result<(), ApiError> {
+        let req = self.request(Method::POST, &format!("{PAYMENT_METHODS}/reconcile"), PAYMENTS).json(&serde_json::json!({}));
+        let _: (serde_json::Value, _) = self.write(req).await?;
+        Ok(())
+    }
+
+    async fn start_setup(&self, account: &str, attempt: &str, return_path: &str) -> Result<SetupSession, ApiError> {
+        let body = serde_json::json!({ "accountId": account, "attemptId": attempt, "returnUrlPath": return_path });
+        let req = self.request(Method::POST, &format!("{PAYMENT_METHODS}/setup-sessions"), PAYMENTS).json(&body);
+        let (setup, _) = self.write(req).await?;
+        Ok(setup)
+    }
+
+    async fn change_payment_method(
+        &self,
+        change: MethodChange,
+        instrument: &str,
+        account: &str,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError> {
+        let verb = match change {
+            MethodChange::Default => "default",
+            MethodChange::Remove => "remove",
+        };
+        let path = format!("{PAYMENT_METHODS}/{}/{verb}", segment(instrument));
+        let body = serde_json::json!({ "accountId": account, "attemptId": attempt });
+        let (_, receipt): (serde_json::Value, _) = self.write(self.request(Method::POST, &path, PAYMENTS).json(&body)).await?;
+        Ok(receipt)
+    }
+}
+
 const SUPPORT: &str = "platform-operations";
 const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 

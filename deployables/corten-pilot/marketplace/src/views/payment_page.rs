@@ -26,6 +26,10 @@ use crate::{
     text::PaymentMsg,
 };
 
+// Stripe.js and the theme in Stripe's terms, which both secure steps' scripts import
+// (`payment_entry.js` here, `payment_setup.js` on the saved payment methods page).
+corten::script::script!(pub mod stripe = "stripe.js");
+
 /// The page's content, which the status part redraws.
 #[derive(Id)]
 pub struct PaymentContentId;

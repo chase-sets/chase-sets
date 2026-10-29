@@ -159,6 +159,7 @@ pub mod url {
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
+    pub use payment_methods::PaymentMethods;
     pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
     pub use payout::DeskPayout;
     pub use purchase_reviews::PurchaseReview;
@@ -899,6 +900,21 @@ pub mod url {
         }
     }
 
+    /// The account's saved payment methods (Payments' `account-payment-methods`, see
+    /// `payment_methods`): the page, and its writes, which post to it as marketplace's form does.
+    /// Every handler takes a `PaymentBuyer` (`orders.view`; Payments needs `orders.manage` to write).
+    #[corten::routes(state = crate::app::Shared, area = PaymentMethods, caller = crate::auth::PaymentBuyer)]
+    pub mod payment_methods {
+        /// The page, read after a change's receipt or a setup's outcome, and Add, Set default,
+        /// Remove and Refresh.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write)]
+        pub struct PaymentMethods {
+            #[route(query)]
+            pub place: crate::payment_methods::Place,
+        }
+    }
+
     /// The account's support: its cases and Report a problem (Platform Operations' marketplace
     /// `account-support`, see `support_list`), and a Support Request's participant page
     /// (`account-support-detail`): the case, what its buyer or seller is asked for, and their
@@ -1257,6 +1273,15 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
+/// What Stripe.js and its fields need: its script, its frames and the APIs they call.
+fn stripe(p: corten::security::Sources) -> corten::security::Sources {
+    p.script_src(STRIPE_JS)
+        .frame_src(STRIPE_JS)
+        .frame_src("https://hooks.stripe.com")
+        .connect_src("https://api.stripe.com")
+        .connect_src("https://merchant-ui-api.stripe.com")
+}
+
 // The app's `static/` directory, compiled into the program, so the binary is the whole deploy
 // (todd-skelton/corten#268).
 corten::assets::embed!(pub struct Static = "static");
@@ -1325,16 +1350,10 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
-        // Stripe.js and its fields are allowed on the payment pages only (todd-skelton/corten#275).
-        .area(|area| {
-            url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(|p| {
-                p.script_src(STRIPE_JS)
-                    .frame_src(STRIPE_JS)
-                    .frame_src("https://hooks.stripe.com")
-                    .connect_src("https://api.stripe.com")
-                    .connect_src("https://merchant-ui-api.stripe.com")
-            })
-        })
+        // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
+        // only (todd-skelton/corten#275).
+        .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
+        .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))

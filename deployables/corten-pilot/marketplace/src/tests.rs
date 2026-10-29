@@ -425,6 +425,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "price_reader" => actor(&["pricing.view"]),
             // A buyer at checkout who may see the wallet and saved addresses and save a card.
             "payer" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
+            // Saved payment methods: `card_reader` may only see them, `card_none` has none.
+            "card_reader" => actor(&["orders.view"]),
+            "card_none" => actor(&["orders.view", "orders.manage"]),
             // The Seller Desk's money page: `banker` may request, reconcile and set up payouts,
             // `payout_reader` may only see them.
             "banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
@@ -574,6 +577,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = account_payments(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = payment_methods(session, &method, uri.path(), &body) {
         return answer;
     }
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
@@ -806,6 +812,86 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
         "confirm" => committed(StatusCode::OK, "checkout", "15", json!({ "payment_id": "pay_1" })),
         _ => return None,
     })
+}
+
+/// Attempt ids the payment methods stand-in answers by: Payments could not confirm it (503
+/// `attempt_unconfirmed`), it is another attempt's (409 `attempt_conflict`), it was refused (400
+/// `validation_failed`), or the session ended (401). Any other is applied.
+const PM_UNCONFIRMED: &str = "00000000-0000-4000-8000-000000000503";
+const PM_CONFLICT: &str = "00000000-0000-4000-8000-000000000409";
+const PM_REFUSED: &str = "00000000-0000-4000-8000-000000000400";
+const PM_REAUTH: &str = "00000000-0000-4000-8000-000000000401";
+const PM_OK: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+/// The account's saved payment methods, as Payments answers them: `spm_card` is the ready default,
+/// `spm_bank` needs setup, `spm_gone` was removed (`card_none` has none). A setup starts as
+/// `spr_1` with a SetupIntent's secret; `spr_saved` saved a card, `spr_wait` has not been told,
+/// `spr_unknown` is not the account's and `spr_down` has no answer. A change to `spm_missing` is
+/// not found; any change applied answers with a receipt at 61.
+fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix("/api/marketplace/account/payment-methods")?;
+    let method_of = |id: &str, category: &str, readiness: &str, default: bool| {
+        json!({
+            "instrument_id": id, "account_id": "acc_seller", "payment_method_category": category,
+            "provider": "stripe", "display_label": format!("Synthetic {id}"), "confirmation_experience": "embedded",
+            "readiness": readiness, "is_default": default, "created_at": "2026-10-20T15:00:00.000Z",
+            "updated_at": "2026-10-28T13:05:00.000Z", "allow_redisplay": "always", "consent_id": null, "removed_at": null,
+        })
+    };
+    let refused =
+        |status: StatusCode, code: &str| (status, Json(json!({ "error": { "code": code, "message": code } }))).into_response();
+    if *method == Method::GET && rest.is_empty() {
+        let items = if session == "card_none" {
+            Vec::new()
+        } else {
+            vec![
+                method_of("spm_card", "card", "ready", true),
+                method_of("spm_bank", "bank-account", "setup-required", false),
+                method_of("spm_gone", "card", "removed", false),
+            ]
+        };
+        return Some(Json(json!({ "items": items })).into_response());
+    }
+    if *method != Method::POST {
+        return None;
+    }
+    if rest == "/reconcile" {
+        return Some(Json(json!({ "checked": 3, "updated": 0, "removed": 0, "items": [] })).into_response());
+    }
+    if let Some(setup) = rest.strip_prefix("/setup-sessions/").and_then(|r| r.strip_suffix("/reconcile")) {
+        return Some(match setup {
+            "spr_saved" => Json(json!({ "instrument": method_of("spm_new", "card", "ready", false) })).into_response(),
+            "spr_wait" => Json(json!({ "instrument": null })).into_response(),
+            "spr_down" => StatusCode::BAD_GATEWAY.into_response(),
+            _ => refused(StatusCode::BAD_REQUEST, "validation_failed"),
+        });
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if sent["accountId"] != "acc_seller" {
+        return Some(refused(StatusCode::CONFLICT, "account_changed"));
+    }
+    match sent["attemptId"].as_str().unwrap_or_default() {
+        PM_UNCONFIRMED => return Some(refused(StatusCode::SERVICE_UNAVAILABLE, "attempt_unconfirmed")),
+        PM_CONFLICT => return Some(refused(StatusCode::CONFLICT, "attempt_conflict")),
+        PM_REFUSED => return Some(refused(StatusCode::BAD_REQUEST, "validation_failed")),
+        PM_REAUTH => return Some(StatusCode::UNAUTHORIZED.into_response()),
+        _ => {}
+    }
+    if rest == "/setup-sessions" {
+        let setup = json!({
+            "setup_reference_id": "spr_1", "processor_setup_reference": "seti_1", "processor_client_secret": "seti_1_secret_x",
+            "processor_redirect_url": null, "processor_status": "requires_payment_method", "processor_publishable_key": "pk_test_1",
+        });
+        return Some((StatusCode::CREATED, Json(setup)).into_response());
+    }
+    let (id, verb) = rest.strip_prefix('/')?.split_once('/')?;
+    if !matches!(verb, "default" | "remove") {
+        return None;
+    }
+    if id == "spm_missing" {
+        return Some(refused(StatusCode::NOT_FOUND, "not_found"));
+    }
+    Some(committed(StatusCode::OK, "payments", "61", method_of(id, "card", "ready", verb == "default")))
 }
 
 /// A buyer's payments, as Payments answers them. `pay_1` waits for the buyer with a Payment
@@ -12922,4 +13008,214 @@ async fn the_confirmation_waits_for_its_write_and_says_when_it_was_not_saved() {
     let (status, headers, _) = pilot.send(get("/checkout/sell/session/chk_done/confirmation", None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().contains("/register?returnTo="), "{headers:?}");
+}
+
+// The account's saved payment methods (`payment_methods`).
+
+const PAYMENT_METHODS: &str = "/account/payment-methods";
+
+/// The calls the payment methods page made to Payments.
+fn payment_method_calls(pilot: &Pilot) -> Vec<Call> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/marketplace/account/payment-methods"))
+        .cloned()
+        .collect()
+}
+
+fn method_form(intent: &str, instrument: &str, attempt: &str) -> String {
+    format!("intent={intent}&account_id=acc_seller&attempt={attempt}&instrument_id={instrument}")
+}
+
+#[tokio::test]
+async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get(PAYMENT_METHODS, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains("https://js.stripe.com"), "Add's secure step may load Stripe.js: {csp}");
+    assert!(html.contains("Saved payment methods") && html.contains("Synthetic spm_card"), "{html}");
+    assert!(
+        html.contains(">Setup Required<") && html.contains("Bank account"),
+        "a readiness in words, a kind by its label: {html}"
+    );
+    assert!(html.contains(">Default<"), "{html}");
+    // The default has Remove only; the other has Set default and Remove; a removed one has neither.
+    assert!(!html.contains(r#"name="intent" value="default"><input type="hidden" name="account_id" value="acc_seller"><input type="hidden" name="instrument_id" value="spm_card">"#), "{html}");
+    assert_eq!(html.matches(r#"name="instrument_id" value="spm_bank""#).count(), 2, "{html}");
+    assert_eq!(html.matches(r#"name="instrument_id" value="spm_card""#).count(), 1, "{html}");
+    assert!(!html.contains(r#"value="spm_gone""#), "{html}");
+    assert!(html.contains(r#"value="reconcile""#) && html.contains(r#"value="add""#), "Refresh and Add: {html}");
+    assert!(html.matches("data-submit").count() >= 4, "each write its own attempt: {html}");
+    assert!(html.contains(r#"href="/account/cart""#), "Back to Buy Cart is the pilot's cart: {html}");
+    assert!(!html.contains("payment_setup.mount"), "no setup yet: {html}");
+
+    let (_, _, html) = pilot.send(get(PAYMENT_METHODS, Some("card_reader"))).await;
+    assert!(
+        html.contains("Synthetic spm_card") && !html.contains("<form"),
+        "a reader without orders.manage has no writes: {html}"
+    );
+
+    let (_, _, html) = pilot.send(get(PAYMENT_METHODS, Some("card_none"))).await;
+    assert!(html.contains("No saved payment methods") && html.contains("Add payment method"), "{html}");
+}
+
+#[tokio::test]
+async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("add", "", PM_OK), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store", "the setup's secret is in the answer");
+    assert!(html.contains("payment_setup.mount(") && html.contains("seti_1_secret_x") && html.contains("pk_test_1"), "{html}");
+    assert!(html.contains("payment_setup.save(") && html.contains("/account/payment-methods?setupReferenceId=spr_1"), "{html}");
+    assert!(html.contains("Save payment method"), "{html}");
+    let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body, json!({ "accountId": "acc_seller", "attemptId": PM_OK, "returnUrlPath": "/account/payment-methods" }));
+}
+
+#[tokio::test]
+async fn set_default_and_remove_go_to_the_page_read_after_their_receipt() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("default", "spm_bank", PM_OK), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/payment-methods?afterWrite=") && to.contains("done=default"), "{to}");
+    let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/spm_bank/default")).expect("the change");
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "accountId": "acc_seller", "attemptId": PM_OK }));
+
+    let (status, _, html) = pilot.send(get(&to, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Payment method change saved."), "{html}");
+    let read = payment_method_calls(&pilot).into_iter().rfind(|c| c.method == Method::GET).unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the change");
+
+    // With the runtime, the redirect is its own answer.
+    let (status, headers, _) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("remove", "spm_card", PM_OK), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().contains("done=remove"));
+}
+
+#[tokio::test]
+async fn an_unconfirmed_change_keeps_its_attempt_and_asks_to_check_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("remove", "spm_card", PM_UNCONFIRMED), false)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(html.contains("We could not confirm that change yet."), "{html}");
+    assert!(
+        html.contains(&format!(r#"name="attempt" value="{PM_UNCONFIRMED}""#)) && html.contains(">Check again<"),
+        "the same attempt: {html}"
+    );
+    assert!(html.contains(r#"name="instrument_id" value="spm_bank""#), "the other forms are still drawn: {html}");
+}
+
+#[tokio::test]
+async fn a_change_payments_refuses_says_so_and_one_out_of_date_offers_only_reload() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("default", "spm_bank", PM_REFUSED), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("That payment method change was not made."), "{html}");
+
+    let (status, _, html) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("default", "spm_missing", PM_OK), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a payment method that is not there is refused: {html}");
+
+    let (status, _, html) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("remove", "spm_bank", PM_CONFLICT), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("This page is out of date for that change.") && html.contains(">Reload<"), "{html}");
+    assert_eq!(
+        html.matches(r#"name="instrument_id" value="spm_bank""#).count(),
+        1,
+        "Remove is Reload, Set default is still a form: {html}"
+    );
+
+    let (status, headers, _) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("remove", "spm_bank", PM_REAUTH), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a session that ended signs in again");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"));
+}
+
+#[tokio::test]
+async fn a_form_for_another_account_or_without_an_attempt_is_refused_before_payments_hears_of_it() {
+    let pilot = Pilot::new().await;
+    let other = "intent=remove&account_id=acc_other&attempt=3f2504e0-4f89-41d3-9a0c-0305e82c3301&instrument_id=spm_card";
+    let (status, _, html) = pilot.send(post(PAYMENT_METHODS, "payer", other, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("The signed-in account changed.") && html.contains(">Reload<"), "{html}");
+    let (status, _, _) =
+        pilot.send(post(PAYMENT_METHODS, "payer", &method_form("remove", "spm_card", "not-an-attempt"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("default", "", PM_OK), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "no payment method");
+    let (status, _, html) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("delete", "spm_card", PM_OK), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a payment method action."), "{html}");
+    assert!(payment_method_calls(&pilot).iter().all(|c| c.method == Method::GET), "only the page's reads");
+}
+
+#[tokio::test]
+async fn refresh_asks_the_provider_again_and_draws_the_page() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(PAYMENT_METHODS, "payer", "intent=reconcile", false)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, PAYMENT_METHODS));
+    assert!(
+        payment_method_calls(&pilot).iter().any(|c| c.method == Method::POST && c.path.ends_with("/payment-methods/reconcile"))
+    );
+}
+
+#[tokio::test]
+async fn a_setup_the_page_comes_back_from_is_saved_or_read_again_until_its_time() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payment-methods?setupReferenceId=spr_saved", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Payment method saved"), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/payment-methods?setupReferenceId=spr_wait&until={}", now + 290), Some("payer"))).await;
+    assert!(
+        html.contains("Setup pending") && html.contains(r#"data-corten-read-again="2""#),
+        "read again while Stripe is not done: {html}"
+    );
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/payment-methods?setupReferenceId=spr_down&until={}", now + 290), Some("payer"))).await;
+    assert!(html.contains("Setup pending") && html.contains("data-corten-read-again"), "no answer is not a refusal: {html}");
+
+    let (_, _, html) = pilot.send(get("/account/payment-methods?setupReferenceId=spr_wait", Some("payer"))).await;
+    assert!(
+        html.contains("Setup pending") && !html.contains("data-corten-read-again"),
+        "Payments' return address: no watch: {html}"
+    );
+    let (_, _, html) = pilot
+        .send(get(&format!("/account/payment-methods?setupReferenceId=spr_wait&until={}", now + 7_200), Some("payer")))
+        .await;
+    assert!(!html.contains("data-corten-read-again"), "not hours ahead: {html}");
+
+    let (status, _, html) = pilot.send(get("/account/payment-methods?setupReferenceId=spr_unknown", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Payment method update failed") && !html.contains("Setup pending"), "{html}");
+}
+
+#[tokio::test]
+async fn the_payment_methods_are_an_accounts_with_orders_view() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("payment-methods"), "sign in and back");
+    let (status, _, _) = pilot.send(get(PAYMENT_METHODS, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, Some("guest"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payment-methods")
+    );
 }

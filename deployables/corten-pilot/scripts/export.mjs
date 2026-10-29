@@ -114,6 +114,9 @@
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
 // - marketplace/locales/payment.en.json: a buyer's payment page's English catalog
 //   (payments.routes.marketplace.accountPayment.*, at the root).
+// - marketplace/locales/payment_methods.en.json: the saved payment methods page's English catalog
+//   (payments.routes.marketplace.accountPaymentMethods.*, at the root, and the secure step's words from
+//   payments.routes.marketplace.accountPayment.* as step.*).
 // - marketplace/locales/support.en.json: a Support Request participant page's English catalog
 //   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
 //   the support operations page's deadline words as deadline.* and not_applicable, and
@@ -965,6 +968,15 @@ const outputs = [
   [
     "marketplace/locales/payment.en.json",
     json(await catalog("payments.ts", "paymentsEnglishTranslations", [["payments.routes.marketplace.accountPayment.", ""]])),
+  ],
+  [
+    "marketplace/locales/payment_methods.en.json",
+    json(
+      await catalog("payments.ts", "paymentsEnglishTranslations", [
+        ["payments.routes.marketplace.accountPaymentMethods.", ""],
+        ["payments.routes.marketplace.accountPayment.", "step"],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/support.en.json",
