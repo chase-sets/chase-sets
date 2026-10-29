@@ -582,7 +582,7 @@ describe("Admin page projections", () => {
     expect(itemList.response.status).toBe(200);
     expect(itemList.json.items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ catalog_item_id: itemId, blueprint: { name: "New Blueprint" } }),
+        expect.objectContaining({ catalog_item_id: itemId, blueprint: { blueprintId, name: "New Blueprint" } }),
       ]),
     );
     const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
@@ -658,9 +658,10 @@ describe("Admin page projections", () => {
     );
     const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(itemDetail.json.title).toBe("Newer");
-    if ("updated_at" in itemDetail.json) {
-      expect(itemDetail.json.updated_at).toBe(newerEvent.timing.recordedAt);
-    }
+    // The API serializes microseconds (".449000Z") and the event milliseconds (".449Z"): compare instants.
+    const newerRecordedAt = Date.parse(newerEvent.timing.recordedAt);
+    expect(Number.isFinite(newerRecordedAt)).toBe(true);
+    expect(Date.parse(itemDetail.json.updated_at)).toBe(newerRecordedAt);
   });
 
   it("expands rich reference records from catalog item field values", async () => {

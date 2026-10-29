@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { isTransientProjectionError } from "@chase-sets/event-core/projector";
+import { isTransientProjectionError, type ProjectorHandlerContext } from "@chase-sets/event-core/projector";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildCatalogAdminCatalogItemProjectionHandlers } from "./admin-projection";
 import { buildCatalogItemProjectionHandlers } from "./projection";
 
@@ -462,8 +464,8 @@ describe("Catalog Item projections", () => {
         }
         return { rows: [] };
       });
-      const admin = buildCatalogAdminCatalogItemProjectionHandlers({ query } as never);
-      const item = buildCatalogItemProjectionHandlers({ query } as never);
+      const admin = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+      const item = buildCatalogItemProjectionHandlers({ query });
       const renderedName = (pages: Map<string, Page>) => {
         const blueprint = pages.get(itemId)?.blueprint;
         return blueprint ? (JSON.parse(blueprint) as { name: string }).name : null;
@@ -471,54 +473,84 @@ describe("Catalog Item projections", () => {
       return { admin, item, query, items, listPages, detailPages, blueprintNames, renderedName, calls };
     };
 
-    const created = (recordedAt: string) =>
-      ({
-        type: "catalog.catalog-item.created",
-        streamId: `catalog.item-${itemId}`,
-        data: { itemId, languageCode: "en", title: "Before", subtitle: null, description: "Description" },
-        timing: { recordedAt },
-      }) as never;
-    const assigned = {
-      type: "catalog.catalog-item.blueprint-assigned",
-      streamId: `catalog.item-${itemId}`,
-      data: { blueprintId },
-      timing: { recordedAt: T1 },
-    } as never;
-    const linked = {
-      type: "catalog.catalog-item.external-product-reference-linked",
-      streamId: `catalog.item-${itemId}`,
-      data: { providerKey: "synthetic-provider", externalKey: "synthetic-product", selectedOptions: [] },
-      timing: { recordedAt: T2 },
-    };
-    const tags = {
-      type: "catalog.catalog-item.tags-set",
-      streamId: `catalog.item-${itemId}`,
-      data: { tags: ["rare"] },
-      timing: { recordedAt: T2 },
-    };
-    const rename = {
-      type: "catalog.blueprint.revised",
-      streamId: `catalog.blueprint-${blueprintId}`,
-      data: {},
-      timing: { recordedAt: T3 },
-    };
+    type SourcePosition = Readonly<{
+      id: string;
+      streamId: string;
+      streamVersion: number;
+      globalPosition: number;
+      recordedAt: string;
+    }>;
+    const sourceEvent = (type: string, data: Record<string, unknown>, position: SourcePosition): TransportEvent =>
+      buildTransportEvent(type, data, {
+        id: position.id,
+        streamId: position.streamId,
+        streamVersion: position.streamVersion,
+        globalPosition: String(position.globalPosition),
+        tenantId: "tnt_dependent_name",
+        metadata: {},
+        audit: { performedByUserId: "usr_dependent_name", forAccountId: "acc_dependent_name" },
+        trace: {},
+        timing: { occurredAt: position.recordedAt, recordedAt: position.recordedAt },
+      });
+    const historyThrough =
+      (...events: readonly TransportEvent[]): NonNullable<ProjectorHandlerContext["readSourceStreamHistory"]> =>
+      async () =>
+        events;
+    const itemStreamId = `catalog.item-${itemId}`;
+    const created = sourceEvent(
+      "catalog.catalog-item.created",
+      { itemId, languageCode: "en", title: "Before", subtitle: null, description: "Description" },
+      { id: "evt_dependent_name_created", streamId: itemStreamId, streamVersion: 1, globalPosition: 1, recordedAt: T0 },
+    );
+    const assigned = sourceEvent(
+      "catalog.catalog-item.blueprint-assigned",
+      { blueprintId },
+      {
+        id: "evt_dependent_name_assigned",
+        streamId: itemStreamId,
+        streamVersion: 2,
+        globalPosition: 2,
+        recordedAt: T1,
+      },
+    );
+    // `linked` and `tags` are alternative third item events: each scenario's item history holds only one of them.
+    const linked = sourceEvent(
+      "catalog.catalog-item.external-product-reference-linked",
+      { providerKey: "synthetic-provider", externalKey: "synthetic-product", selectedOptions: [] },
+      { id: "evt_dependent_name_linked", streamId: itemStreamId, streamVersion: 3, globalPosition: 3, recordedAt: T2 },
+    );
+    const tags = sourceEvent(
+      "catalog.catalog-item.tags-set",
+      { tags: ["rare"] },
+      { id: "evt_dependent_name_tags", streamId: itemStreamId, streamVersion: 3, globalPosition: 3, recordedAt: T2 },
+    );
+    const rename = sourceEvent(
+      "catalog.blueprint.revised",
+      {},
+      {
+        id: "evt_dependent_name_rename",
+        streamId: `catalog.blueprint-${blueprintId}`,
+        streamVersion: 2,
+        globalPosition: 4,
+        recordedAt: T3,
+      },
+    );
 
     for (const order of ["item-before-admin", "admin-before-item"] as const) {
       const world = makeWorld();
-      await world.item["catalog.catalog-item.created"]?.(created(T0));
+      await world.item["catalog.catalog-item.created"]?.(created);
       await world.item["catalog.catalog-item.blueprint-assigned"]?.(assigned);
       await world.admin["catalog.catalog-item.blueprint-assigned"]?.(assigned, {
-        readSourceStreamHistory: async () => [created(T0), assigned],
+        readSourceStreamHistory: historyThrough(created, assigned),
       });
-      const history = async (event: never) => [created(T0), assigned, event];
       if (order === "item-before-admin") {
         await world.item["catalog.catalog-item.external-product-reference-linked"]?.(linked);
         await world.admin["catalog.catalog-item.external-product-reference-linked"]?.(linked, {
-          readSourceStreamHistory: () => history(linked),
+          readSourceStreamHistory: historyThrough(created, assigned, linked),
         });
       } else {
         await world.admin["catalog.catalog-item.external-product-reference-linked"]?.(linked, {
-          readSourceStreamHistory: () => history(linked),
+          readSourceStreamHistory: historyThrough(created, assigned, linked),
         });
         await world.item["catalog.catalog-item.external-product-reference-linked"]?.(linked);
       }
@@ -530,13 +562,12 @@ describe("Catalog Item projections", () => {
 
     for (const event of [tags, linked]) {
       const world = makeWorld();
-      await world.item["catalog.catalog-item.created"]?.(created(T0));
+      await world.item["catalog.catalog-item.created"]?.(created);
       await world.item["catalog.catalog-item.blueprint-assigned"]?.(assigned);
       await world.admin["catalog.catalog-item.blueprint-assigned"]?.(assigned, {
-        readSourceStreamHistory: async () => [created(T0), assigned],
+        readSourceStreamHistory: historyThrough(created, assigned),
       });
-      const history = async () => [created(T0), assigned, event];
-      await world.admin[event.type]?.(event, { readSourceStreamHistory: history });
+      await world.admin[event.type]?.(event, { readSourceStreamHistory: historyThrough(created, assigned, event) });
       world.blueprintNames.set(blueprintId, "New Blueprint");
       let transient = false;
       try {
