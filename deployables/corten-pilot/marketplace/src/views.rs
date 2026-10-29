@@ -24,6 +24,7 @@ use crate::{
 mod account_home_page;
 mod account_page;
 mod address_page;
+mod bulk_reprice_page;
 mod cart_item;
 mod checkout_page;
 mod consents_page;
@@ -69,6 +70,7 @@ mod team_page;
 pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
+pub use bulk_reprice_page::{BulkRepricePage, bulk_reprice_part};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
@@ -224,6 +226,8 @@ pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::Che
 /// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
 /// editor's choice as it changes.
 pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
+/// Bulk reprice (`/account/bulk-reprice`).
+pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];

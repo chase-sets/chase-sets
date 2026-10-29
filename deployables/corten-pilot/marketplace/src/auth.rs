@@ -146,6 +146,23 @@ impl Identify<Shared> for PricingManager {
     }
 }
 
+/// A seller on bulk reprice (marketplace's `account-bulk-reprice`): reading and writing both need
+/// `listings.manage`, as its loader and action require (Pricing checks again). Anyone not signed
+/// in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct BulkRepricer(pub Viewer);
+
+impl Identify<Shared> for BulkRepricer {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(LISTINGS_MANAGE) => Ok(BulkRepricer(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A buyer with an account cart. The guest cart is not ported: a visitor without an account, or a
 /// guest checkout's session, is sent to marketplace's own cart, which reads it.
 #[derive(Clone, Debug, Hash)]

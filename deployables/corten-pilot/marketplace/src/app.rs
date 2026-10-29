@@ -150,6 +150,7 @@ pub mod url {
     pub use account_select::AccountSelect;
     pub use accounts::{Account, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
+    pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use checkout::{BuyCheckout, BuyConfirmation};
@@ -1045,6 +1046,42 @@ pub mod url {
         }
     }
 
+    /// Bulk reprice (marketplace's `account-bulk-reprice`): the page following a job, Upload,
+    /// Cancel, the job's part relayed live, and the template and results CSVs (see `bulk_reprice`).
+    /// Every handler takes a `BulkRepricer`.
+    #[corten::routes(state = crate::app::Shared, area = BulkReprice, caller = crate::auth::BulkRepricer)]
+    pub mod bulk_reprice {
+        /// The page, following the job its address names; Upload posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/bulk-reprice", get = crate::bulk_reprice::page, post = crate::bulk_reprice::upload)]
+        pub struct BulkReprice {
+            #[route(query)]
+            pub place: crate::bulk_reprice::Place,
+        }
+
+        /// The CSV template, as Pricing sends it.
+        #[route("/account/bulk-reprice/template.csv", get = crate::bulk_reprice::template)]
+        pub struct BulkRepriceTemplate;
+
+        /// Cancel a running job.
+        #[route("/account/bulk-reprice/jobs/{id}/cancel", post = crate::bulk_reprice::cancel)]
+        pub struct BulkRepriceCancel<'a> {
+            pub id: &'a str,
+        }
+
+        /// A finished job's results, as Pricing sends them.
+        #[route("/account/bulk-reprice/jobs/{id}/results.csv", get = crate::bulk_reprice::results)]
+        pub struct BulkRepriceResults<'a> {
+            pub id: &'a str,
+        }
+
+        /// A running job's part, drawn again on each event its stream sends.
+        #[route("/account/bulk-reprice/jobs/{id}/live", get = crate::bulk_reprice::live)]
+        pub struct BulkRepriceLive<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`):
     /// the list, drawn again live, and a match's page with its writes (see `offer_matches`). Every
     /// handler takes an `OfferReviewer`.
@@ -1473,6 +1510,10 @@ pub fn app(config: Config) -> App {
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
+        // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
+        .area(|area| {
+            url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)
+        })
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))
         .area(|area| url::submitted_offers::area(area, shared.clone()).components(views::SUBMITTED_OFFERS))
         .area(|area| {

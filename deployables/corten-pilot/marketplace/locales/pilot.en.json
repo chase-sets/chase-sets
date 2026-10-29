@@ -216,6 +216,12 @@
     "policy_actions": "Policy actions",
     "unknown_setting": "A setting this page can't show yet"
   },
+  "bulk_reprice": {
+    "pages": "Bulk reprice pages",
+    "unavailable": "Bulk reprice isn't available yet.",
+    "too_large": "That file is too large. Upload a CSV of up to 16 MB.",
+    "not_text": "Choose a CSV file of text with at least one row."
+  },
   "auth": {
     "sign_in_title": "Sign In | Marketplace",
     "account_selection_title": "Select Account | Marketplace"

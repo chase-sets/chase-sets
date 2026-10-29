@@ -6200,6 +6200,97 @@ impl RepricingCalls for Caller<'_> {
     }
 }
 
+const BULK_REPRICE: &str = "/api/marketplace/account/bulk-reprice";
+
+/// A bulk reprice job (`BulkRepriceJobStatus`, a durable job's public snapshot).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkRepriceJob {
+    pub job_id: String,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    #[serde(default)]
+    pub progress: BulkRepriceProgress,
+    pub result: Option<BulkRepriceResult>,
+    pub error_message: Option<String>,
+}
+
+impl BulkRepriceJob {
+    pub fn finished(&self) -> bool {
+        matches!(self.status.as_str(), "completed" | "failed")
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct BulkRepriceProgress {
+    pub completed: u64,
+    pub total: u64,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct BulkRepriceResult {
+    pub applied: u64,
+    pub unchanged: u64,
+    pub failed: u64,
+}
+
+/// Bulk reprice's calls (Pricing's `bulk-reprice` routes). While Pricing has bulk reprice switched
+/// off, every one answers 404 (chase-sets/chase-sets#10772).
+pub trait BulkRepriceCalls {
+    async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
+    /// Start a job for `csv_text` (a file's text and name, or pasted rows).
+    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError>;
+    async fn cancel_bulk_reprice(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
+    /// The template (`template.csv`) or a job's results (`jobs/{id}/results.csv`), as Pricing sends it.
+    async fn bulk_reprice_csv(&self, path: &str) -> Result<reqwest::Response, ApiError>;
+}
+
+impl BulkRepriceCalls for Caller<'_> {
+    async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError> {
+        self.read(&format!("{BULK_REPRICE}/jobs/{}", segment(id)), PRICING).await
+    }
+
+    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError> {
+        let body = serde_json::json!({ "csvText": csv_text, "sourceFilename": filename });
+        let req = self.request(Method::POST, BULK_REPRICE, PRICING).json(&body);
+        let (job, _) = pricing_answer(req).await.map_err(|refusal| refusal.error)?;
+        serde_json::from_value(job).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a bulk reprice job the page cannot read: {error}"),
+        })
+    }
+
+    async fn cancel_bulk_reprice(&self, id: &str) -> Result<BulkRepriceJob, ApiError> {
+        let req = self
+            .request(Method::POST, &format!("{BULK_REPRICE}/jobs/{}/cancel", segment(id)), PRICING)
+            .json(&serde_json::json!({}));
+        let (job, _) = pricing_answer(req).await.map_err(|refusal| refusal.error)?;
+        serde_json::from_value(job).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a bulk reprice job the page cannot read: {error}"),
+        })
+    }
+
+    async fn bulk_reprice_csv(&self, path: &str) -> Result<reqwest::Response, ApiError> {
+        let res = self.request(Method::GET, &format!("{BULK_REPRICE}/{path}"), PRICING).send().await?;
+        if res.status().is_success() {
+            return Ok(res);
+        }
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        Err(ApiError::Status { status, code: None, message: String::new() })
+    }
+}
+
+/// The path of a bulk reprice job's status stream (server-sent events, each the job).
+pub fn bulk_reprice_job_events(id: &str) -> String {
+    format!("{BULK_REPRICE}/jobs/{}/events", segment(id))
+}
+
 /// The path of a dry run's status stream (`/dry-runs/{id}/events`, server-sent `status` events).
 pub fn repricing_dry_run_events(id: &str) -> String {
     format!("{REPRICING}/dry-runs/{}/events", segment(id))

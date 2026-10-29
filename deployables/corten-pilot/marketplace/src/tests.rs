@@ -483,6 +483,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = repricing(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &body) {
+        return answer;
+    }
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
@@ -9731,6 +9734,171 @@ fn repricing_policy_stand() -> Value {
                 "terminal": { "kind": "pause", "reason": "my own words" } } },
         ],
     })
+}
+
+const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
+const BULK_SCREEN: &str = "/account/bulk-reprice";
+
+/// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
+/// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
+/// `job_1` running (its stream says it finished, and it reads as finished once cancelled or once
+/// the stream was opened), `job_done` finished with its results, and any other job not found.
+fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(BULK_API)?;
+    let job = |id: &str, status: &str| {
+        let done = status == "completed";
+        json!({
+            "jobId": id, "status": status,
+            "progress": { "phase": if done { "completed" } else { "processing" }, "completed": if done { 3 } else { 1 }, "total": 3,
+                          "message": if done { "Applied 2 of 3 rows." } else { "Repricing rows." } },
+            "result": if done { json!({ "applied": 2, "unchanged": 1, "failed": 0, "total": 3 }) } else { Value::Null },
+            "errorMessage": null,
+        })
+    };
+    let finished = || stand.runs.lock().unwrap().contains_key("bulk-job_1-done");
+    Some(match (method.as_str(), rest) {
+        ("GET", "/template.csv") => (
+            [
+                (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (header::CONTENT_DISPOSITION, r#"attachment; filename="chase-sets-bulk-reprice-template.csv""#),
+            ],
+            "sellerSku,listingId,newPrice\n",
+        )
+            .into_response(),
+        ("POST", "") if body.contains("OFF") => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+        ("POST", "") if body.contains("bad") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Row 2: newPrice must be a price.")
+        }
+        ("POST", "") => (StatusCode::ACCEPTED, Json(job("job_1", "queued"))).into_response(),
+        ("GET", "/jobs/job_1") if finished() => Json(job("job_1", "completed")).into_response(),
+        ("GET", "/jobs/job_1") => Json(job("job_1", "running")).into_response(),
+        ("GET", "/jobs/job_done") => Json(job("job_done", "completed")).into_response(),
+        ("GET", "/jobs/job_1/events") => {
+            stand.runs.lock().unwrap().insert("bulk-job_1-done".into(), json!(true));
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                "id: 1\nevent: job.updated\ndata: {}\n\nid: 2\nevent: job.completed\ndata: {}\n\nid: 3\nevent: job.completed\ndata: {}\n\n",
+            )
+                .into_response()
+        }
+        ("POST", "/jobs/job_1/cancel") => {
+            stand.runs.lock().unwrap().insert("bulk-job_1-done".into(), json!(true));
+            Json(job("job_1", "failed")).into_response()
+        }
+        ("POST", "/jobs/job_done/cancel") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "That job has already finished.")
+        }
+        ("GET", "/jobs/job_done/results.csv") => (
+            [
+                (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (header::CONTENT_DISPOSITION, r#"attachment; filename="bulk-reprice-job_done-results.csv""#),
+            ],
+            "row,outcome\n1,applied\n",
+        )
+            .into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Bulk reprice job not found."),
+    })
+}
+
+#[tokio::test]
+async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(BULK_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fbulk-reprice"));
+    let (status, _, _) = pilot.send(get(BULK_SCREEN, Some("lookout"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "listings.view is not enough to read it");
+
+    let (status, _, html) = pilot.send(get(BULK_SCREEN, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in ["Bulk reprice", "Download CSV template", "Upload CSV", "Columns: sellerSku, listingId, newPrice."] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(
+        html.contains(r#"enctype="multipart/form-data""#) && html.contains(r#"name="file""#) && !html.contains("corten-live")
+    );
+    assert!(html.contains(r#"href="/account/bulk-reprice/template.csv""#));
+
+    // The template and a finished job's results are Pricing's, with their type and name.
+    let (status, headers, csv) = pilot.send(get("/account/bulk-reprice/template.csv", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(csv.starts_with("sellerSku,listingId,newPrice"), "{csv}");
+    assert!(headers[header::CONTENT_DISPOSITION].to_str().unwrap().contains("chase-sets-bulk-reprice-template.csv"));
+    let (status, _, csv) = pilot.send(get("/account/bulk-reprice/jobs/job_done/results.csv", Some("lister"))).await;
+    assert_eq!((status, csv.as_str()), (StatusCode::OK, "row,outcome\n1,applied\n"));
+    let (status, _, _) = pilot.send(get("/account/bulk-reprice/jobs/job_9/results.csv", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why() {
+    let pilot = Pilot::new().await;
+    let file: &[u8] = b"sellerSku,newPrice\nSKU-1,4.50\n";
+    let (status, headers, _) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "prices.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).map(|c| c.body.clone()).unwrap();
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
+
+    // While it runs: the form is off, the job's part is live, and without a script the page reads again.
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<corten-live"#) && html.contains(r#"src="/account/bulk-reprice/jobs/job_1/live""#), "{html}");
+    assert!(html.contains(r#"<noscript data-corten-head><meta http-equiv="refresh" content="2"></noscript>"#), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "with a script the part is live, not the page read whole");
+    assert!(
+        html.contains(r#"data-bulk-reprice-job="running""#) && html.contains("Repricing rows.") && html.contains("of 3 rows")
+    );
+    assert!(html.contains(r#"action="/account/bulk-reprice/jobs/job_1/cancel""#) && !html.contains("Download results CSV"));
+    assert!(html.contains(r#"name="file" accept=".csv,text/csv" required disabled"#), "the upload is off while a job runs");
+
+    // The live relay draws the part on each event and ends once the job finished.
+    let events = pilot.events(get("/account/bulk-reprice/jobs/job_1/live", Some("lister")), 4).await;
+    let kinds: Vec<&str> = events.iter().map(|(event, _, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "{events:?}");
+    assert!(events[0].2.contains(r#"data-bulk-reprice-job="completed""#) && events[0].2.contains("Download results CSV"));
+    assert!(events[0].2.contains(r#"data-bulk-reprice-active="false""#));
+
+    // A finished job: its counts and results, no refresh, the form on again.
+    let (_, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_done", Some("lister"))).await;
+    assert!(!html.contains("corten-live") && !html.contains("http-equiv"));
+    assert!(html.contains("Applied 2 of 3 rows.") && html.contains(r#"href="/account/bulk-reprice/jobs/job_done/results.csv""#));
+    // A job Pricing does not have is none, as marketplace's loader reads it.
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_9", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("Job status"));
+
+    // Pricing's refusal is drawn; Pricing switched off says bulk reprice is not available.
+    let bad: &[u8] = b"sellerSku,newPrice\nbad,x\n";
+    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", bad)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Row 2: newPrice must be a price."), "{html}");
+    let off: &[u8] = b"sellerSku,newPrice\nOFF,1\n";
+    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", off)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
+    // A file that is not text is refused here, not sent; a seller who may not change listings is refused.
+    let calls = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, _) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", &[0xff, 0xfe, 0x00])])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &[], &[("file", "p.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
+    assert_eq!(sent, 0);
+}
+
+#[tokio::test]
+async fn cancel_goes_back_to_the_job_and_a_refused_cancel_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post("/account/bulk-reprice/jobs/job_1/cancel", "lister", "", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
+    let (status, _, html) = pilot.send(post("/account/bulk-reprice/jobs/job_done/cancel", "lister", "", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("That job has already finished.") && html.contains("Applied 2 of 3 rows."), "{html}");
 }
 
 /// The repricing calls the pilot made (method, path and body).

@@ -12,6 +12,7 @@ mod addresses;
 mod api;
 mod app;
 mod auth;
+mod bulk_reprice;
 mod buying;
 mod cart;
 mod cart_attempt;
