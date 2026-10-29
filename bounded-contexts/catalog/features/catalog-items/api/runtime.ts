@@ -38,6 +38,7 @@ import {
 import {
   getCatalogItemByGtin,
   getCatalogItemDetail,
+  getCatalogItemPublicationBlueprint,
   loadCatalogItemPublicationIdentityRows,
   listCatalogItemsForBulkEdit,
   listCatalogItemBulkRows,
@@ -333,12 +334,20 @@ function createCatalogItemCommandHandler(
       return aggregateCommandHandler(input);
     }
 
-    const bulkRows = await listCatalogItemsForBulkPublish(deps.db, [itemId]).catch(() => []);
-    const bulkRow = bulkRows[0];
-    if (!bulkRow) {
+    const blueprintId = loaded.state.blueprintId;
+    const blueprint = blueprintId
+      ? await getCatalogItemPublicationBlueprint(deps.db, blueprintId).catch(() => undefined)
+      : null;
+    if (blueprint === undefined) {
       throw new CatalogItemPublicationError("unavailable");
     }
-    const precondition = publicationPreconditionForRow({ ...bulkRow, field_values: loaded.state.fieldValues });
+    const precondition = publicationPreconditionForRow({
+      status: loaded.state.status,
+      blueprint_id: blueprintId,
+      blueprint_status: blueprint?.blueprint_status ?? null,
+      blueprint_field_rules: blueprint?.blueprint_field_rules ?? null,
+      field_values: loaded.state.fieldValues,
+    });
     if (precondition) {
       throw new CatalogItemPublicationPreconditionError(precondition.reason, precondition.missingFieldIds);
     }
@@ -780,7 +789,10 @@ function classifyBulkPublishCandidate(
 }
 
 function publicationPreconditionForRow(
-  row: BulkPublishCatalogItemRow,
+  row: Pick<
+    BulkPublishCatalogItemRow,
+    "status" | "blueprint_id" | "blueprint_status" | "blueprint_field_rules" | "field_values"
+  >,
 ): Readonly<{ reason: string; missingFieldIds: readonly string[] }> | null {
   const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
   const populatedFieldIds = new Set(
