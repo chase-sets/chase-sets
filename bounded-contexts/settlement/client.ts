@@ -13,8 +13,10 @@ import type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
-import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
-import type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+import type { SettlementPayoutReadinessRow as PayoutReadinessProjection } from "./features/payout-readiness/read-model/queries";
+import type { PayoutSetupDecision, PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+
+export type SettlementPayoutReadinessRow = PayoutReadinessProjection & PayoutSetupDecision;
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -430,6 +432,5 @@ export type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
-export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 export type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 export const settlementApi = createSettlementApiClient();
