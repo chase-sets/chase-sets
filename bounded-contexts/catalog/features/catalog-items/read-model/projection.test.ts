@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { buildCatalogAdminCatalogItemProjectionHandlers } from "./admin-projection";
 import { buildCatalogItemProjectionHandlers } from "./projection";
 
@@ -324,78 +325,253 @@ describe("Catalog Item projections", () => {
     ).toBe(true);
   });
 
-  it.each(["admin-before-item", "item-before-admin"] as const)(
-    "converges dependent-name refreshes in the %s order",
-    async (order) => {
+  it("converges dependent-name refreshes across item projector order and lag for list and detail pages", async () => {
+    const itemId = "cat_dependent_name";
+    const blueprintId = "bpr_dependent_name";
+    const T0 = "2026-05-17T00:00:00.000Z";
+    const T1 = "2026-05-17T00:01:00.000Z";
+    const T2 = "2026-05-17T00:02:00.000Z";
+    const T3 = "2026-05-17T00:03:00.000Z";
+
+    type Page = { updated_at: string; blueprint: string | null; title: string; tags: string };
+    type MutableCatalogItemRow = Omit<CatalogItemTestRow, "blueprint_id" | "tags"> & {
+      blueprint_id: string | null;
+      tags: unknown;
+    };
+    const pageParamIndexes = {
+      list: { blueprint: 10, tags: 12, updatedAt: 13 },
+      detail: { blueprint: 12, tags: 18, updatedAt: 22 },
+    } as const;
+    const pageParam = (
+      kind: keyof typeof pageParamIndexes,
+      params: readonly unknown[] | undefined,
+      name: keyof (typeof pageParamIndexes)[typeof kind],
+    ) => (params?.[pageParamIndexes[kind][name]] as readonly unknown[] | undefined)?.[0];
+
+    const makeWorld = () => {
+      const items = new Map<string, MutableCatalogItemRow>();
+      const listPages = new Map<string, Page>();
+      const detailPages = new Map<string, Page>();
+      const blueprintNames = new Map([[blueprintId, "Old Blueprint"]]);
+      const externalProductReferences: Array<Record<string, unknown>> = [];
       const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
       const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
         calls.push([sql, params]);
-        if (sql.includes("SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1")) {
-          return { rows: [{ catalog_item_id: "cat_dependent_name" }] };
-        }
         if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
-          return { rows: [{ ...baseCatalogItemRow("cat_dependent_name"), blueprint_id: "bpr_dependent_name" }] };
+          const ids = (params?.[0] as readonly string[] | undefined) ?? [];
+          return { rows: ids.flatMap((id) => (items.has(id) ? [items.get(id)!] : [])) };
+        }
+        if (sql.includes("SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1")) {
+          return {
+            rows: [...items.values()]
+              .filter((item) => item.blueprint_id === params?.[0])
+              .map((item) => ({ catalog_item_id: item.catalog_item_id })),
+          };
+        }
+        if (sql.includes("UNION ALL") && sql.includes("catalog_admin_catalog_item_list_pages")) {
+          const ids = (params?.[0] as readonly string[] | undefined) ?? [];
+          return {
+            rows: ids.flatMap((id) =>
+              [listPages.get(id), detailPages.get(id)]
+                .filter(Boolean)
+                .map((page) => ({ catalog_item_id: id, updated_at: page!.updated_at })),
+            ),
+          };
         }
         if (sql.includes("FROM catalog_blueprints")) {
-          return { rows: [{ blueprint_id: "bpr_dependent_name", name: "New Blueprint" }] };
+          const ids = (params?.[0] as readonly string[] | undefined) ?? [];
+          return { rows: ids.flatMap((id) => (blueprintNames.has(id) ? [{ id, name: blueprintNames.get(id)! }] : [])) };
+        }
+        if (sql.includes("catalog_external_product_references")) {
+          return {
+            rows: externalProductReferences.filter((row) =>
+              (params?.[0] as readonly string[] | undefined)?.includes(String(row.catalog_item_id)),
+            ),
+          };
+        }
+        if (sql.includes("INSERT INTO catalog_items")) {
+          const base = baseCatalogItemRow(String(params?.[0]));
+          items.set(base.catalog_item_id, {
+            ...base,
+            language_code: String(params?.[1]),
+            title: String(params?.[3]),
+            title_i18n: parseLocalizedTextFixture(params?.[2], base.title_i18n),
+            description: String(params?.[7]),
+            description_i18n: parseLocalizedTextFixture(params?.[6], base.description_i18n),
+            updated_at: String(params?.[8]),
+          });
+          return { rows: [] };
+        }
+        if (sql.includes("UPDATE catalog_items SET blueprint_id")) {
+          const item = items.get(String(params?.[0]));
+          if (item)
+            items.set(item.catalog_item_id, {
+              ...item,
+              blueprint_id: String(params?.[1]),
+              updated_at: String(params?.[2]),
+            });
+          return { rows: [] };
+        }
+        if (sql.includes("UPDATE catalog_items SET tags")) {
+          const item = items.get(String(params?.[0]));
+          if (item)
+            items.set(item.catalog_item_id, {
+              ...item,
+              tags: JSON.parse(String(params?.[1])),
+              updated_at: String(params?.[2]),
+            });
+          return { rows: [] };
+        }
+        if (sql.includes("UPDATE catalog_items SET updated_at = GREATEST")) {
+          const item = items.get(String(params?.[0]));
+          if (item && Date.parse(String(params?.[1])) > Date.parse(item.updated_at))
+            items.set(item.catalog_item_id, { ...item, updated_at: String(params?.[1]) });
+          return { rows: [] };
+        }
+        if (sql.includes("INSERT INTO catalog_external_product_references")) {
+          externalProductReferences.push({
+            catalog_item_id: params?.[2],
+            provider_key: params?.[0],
+            external_key: params?.[1],
+            selected_options: JSON.parse(String(params?.[3])),
+            updated_at: params?.[4],
+          });
+          return { rows: [] };
+        }
+        if (
+          sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages") ||
+          sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages")
+        ) {
+          const kind = sql.includes("_detail_pages") ? "detail" : "list";
+          const updatedAt = String(pageParam(kind, params, "updatedAt"));
+          const page: Page = {
+            updated_at: updatedAt,
+            blueprint: (pageParam(kind, params, "blueprint") as string | null) ?? null,
+            title: String((params?.[3] as readonly unknown[] | undefined)?.[0] ?? ""),
+            tags: String(pageParam(kind, params, "tags") ?? "[]"),
+          };
+          const pages = kind === "detail" ? detailPages : listPages;
+          const existing = pages.get(itemId);
+          const normalizedSql = sql.replace(/\s+/g, " ").trim();
+          const exactGuard = normalizedSql.endsWith(
+            `WHERE catalog_admin_catalog_item_${kind}_pages.updated_at <= EXCLUDED.updated_at`,
+          );
+          if (!existing || !exactGuard || Date.parse(existing.updated_at) <= Date.parse(updatedAt))
+            pages.set(itemId, page);
+          return { rows: [] };
         }
         return { rows: [] };
       });
-      const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
-      const itemEvent = {
-        type: "catalog.catalog-item.metadata-revised",
-        streamId: "catalog.item-cat_dependent_name",
-        data: { languageCode: "en", title: "Updated Item", subtitle: null, description: "Description" },
-        timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
-      } as never;
-      const blueprintEvent = {
-        type: "catalog.blueprint.revised",
-        streamId: "catalog.blueprint-bpr_dependent_name",
-        data: {},
-        timing: { recordedAt: "2026-05-17T00:02:00.000Z" },
-      } as never;
-      const history = [
-        {
-          type: "catalog.catalog-item.created",
-          streamId: "catalog.item-cat_dependent_name",
-          data: {
-            itemId: "cat_dependent_name",
-            languageCode: "en",
-            title: "Before",
-            subtitle: null,
-            description: "Description",
-          },
-          timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
-        },
-        itemEvent,
-      ] as never;
+      const admin = buildCatalogAdminCatalogItemProjectionHandlers({ query } as never);
+      const item = buildCatalogItemProjectionHandlers({ query } as never);
+      const renderedName = (pages: Map<string, Page>) => {
+        const blueprint = pages.get(itemId)?.blueprint;
+        return blueprint ? (JSON.parse(blueprint) as { name: string }).name : null;
+      };
+      return { admin, item, query, items, listPages, detailPages, blueprintNames, renderedName, calls };
+    };
 
-      if (order === "admin-before-item") {
-        await handlers["catalog.blueprint.revised"]?.(blueprintEvent);
-        await handlers["catalog.catalog-item.metadata-revised"]?.(itemEvent, {
-          readSourceStreamHistory: async () => history,
+    const created = (recordedAt: string) =>
+      ({
+        type: "catalog.catalog-item.created",
+        streamId: `catalog.item-${itemId}`,
+        data: { itemId, languageCode: "en", title: "Before", subtitle: null, description: "Description" },
+        timing: { recordedAt },
+      }) as never;
+    const assigned = {
+      type: "catalog.catalog-item.blueprint-assigned",
+      streamId: `catalog.item-${itemId}`,
+      data: { blueprintId },
+      timing: { recordedAt: T1 },
+    } as never;
+    const linked = {
+      type: "catalog.catalog-item.external-product-reference-linked",
+      streamId: `catalog.item-${itemId}`,
+      data: { providerKey: "synthetic-provider", externalKey: "synthetic-product", selectedOptions: [] },
+      timing: { recordedAt: T2 },
+    };
+    const tags = {
+      type: "catalog.catalog-item.tags-set",
+      streamId: `catalog.item-${itemId}`,
+      data: { tags: ["rare"] },
+      timing: { recordedAt: T2 },
+    };
+    const rename = {
+      type: "catalog.blueprint.revised",
+      streamId: `catalog.blueprint-${blueprintId}`,
+      data: {},
+      timing: { recordedAt: T3 },
+    };
+
+    for (const order of ["item-before-admin", "admin-before-item"] as const) {
+      const world = makeWorld();
+      await world.item["catalog.catalog-item.created"]?.(created(T0));
+      await world.item["catalog.catalog-item.blueprint-assigned"]?.(assigned);
+      await world.admin["catalog.catalog-item.blueprint-assigned"]?.(assigned, {
+        readSourceStreamHistory: async () => [created(T0), assigned],
+      });
+      const history = async (event: never) => [created(T0), assigned, event];
+      if (order === "item-before-admin") {
+        await world.item["catalog.catalog-item.external-product-reference-linked"]?.(linked);
+        await world.admin["catalog.catalog-item.external-product-reference-linked"]?.(linked, {
+          readSourceStreamHistory: () => history(linked),
         });
       } else {
-        await handlers["catalog.catalog-item.metadata-revised"]?.(itemEvent, {
-          readSourceStreamHistory: async () => history,
+        await world.admin["catalog.catalog-item.external-product-reference-linked"]?.(linked, {
+          readSourceStreamHistory: () => history(linked),
         });
-        await handlers["catalog.blueprint.revised"]?.(blueprintEvent);
+        await world.item["catalog.catalog-item.external-product-reference-linked"]?.(linked);
       }
+      world.blueprintNames.set(blueprintId, "New Blueprint");
+      await world.admin["catalog.blueprint.revised"]?.(rename);
+      expect(world.renderedName(world.listPages)).toBe("New Blueprint");
+      expect(world.renderedName(world.detailPages)).toBe("New Blueprint");
+    }
 
-      const pageWrites = calls.filter(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_"));
-      expect(pageWrites.length).toBeGreaterThanOrEqual(2);
-      expect(pageWrites.every(([sql]) => sql.includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
-    },
-  );
+    for (const event of [tags, linked]) {
+      const world = makeWorld();
+      await world.item["catalog.catalog-item.created"]?.(created(T0));
+      await world.item["catalog.catalog-item.blueprint-assigned"]?.(assigned);
+      await world.admin["catalog.catalog-item.blueprint-assigned"]?.(assigned, {
+        readSourceStreamHistory: async () => [created(T0), assigned],
+      });
+      const history = async () => [created(T0), assigned, event];
+      await world.admin[event.type]?.(event, { readSourceStreamHistory: history });
+      world.blueprintNames.set(blueprintId, "New Blueprint");
+      let transient = false;
+      try {
+        await world.admin["catalog.blueprint.revised"]?.(rename);
+      } catch (error) {
+        transient = isTransientProjectionError(error);
+      }
+      expect(transient).toBe(true);
+      await world.item[event.type]?.(event);
+      await world.admin["catalog.blueprint.revised"]?.(rename);
+      expect(world.renderedName(world.listPages)).toBe("New Blueprint");
+      expect(world.renderedName(world.detailPages)).toBe("New Blueprint");
+    }
+  });
 
   it("rejects an older page write after a newer write through the freshness predicate", async () => {
     let pageUpdatedAt: string | null = null;
+    let detailUpdatedAt: string | null = null;
+    const pageParamIndexes = {
+      list: { updatedAt: 13 },
+      detail: { updatedAt: 22 },
+    } as const;
     const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
-      if (sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages")) {
-        const excludedUpdatedAt = String((params?.[13] as readonly string[])[0]);
-        const guarded = sql.includes("WHERE catalog_admin_catalog_item_list_pages.updated_at <= EXCLUDED.updated_at");
-        if (!pageUpdatedAt || !guarded || Date.parse(pageUpdatedAt) <= Date.parse(excludedUpdatedAt)) {
-          pageUpdatedAt = excludedUpdatedAt;
+      const kind = sql.includes("_detail_pages") ? "detail" : sql.includes("_list_pages") ? "list" : null;
+      if (kind) {
+        const excludedUpdatedAt = String((params?.[pageParamIndexes[kind].updatedAt] as readonly string[])[0]);
+        const normalizedSql = sql.replace(/\s+/g, " ").trim();
+        const exactGuard = normalizedSql.endsWith(
+          `WHERE catalog_admin_catalog_item_${kind}_pages.updated_at <= EXCLUDED.updated_at`,
+        );
+        if (!exactGuard) throw new Error(`unexpected ${kind} freshness predicate`);
+        const current = kind === "detail" ? detailUpdatedAt : pageUpdatedAt;
+        if (!current || Date.parse(current) <= Date.parse(excludedUpdatedAt)) {
+          if (kind === "detail") detailUpdatedAt = excludedUpdatedAt;
+          else pageUpdatedAt = excludedUpdatedAt;
         }
       }
       return { rows: [] };
@@ -404,7 +580,7 @@ describe("Catalog Item projections", () => {
     const current = {
       type: "catalog.catalog-item.metadata-revised",
       streamId: "catalog.item-cat_guard",
-      data: { languageCode: "en", title: "Current", subtitle: null, description: "Current" },
+      data: { languageCode: "en", title: "Newer", subtitle: null, description: "Newer" },
       timing: { recordedAt: "2026-05-17T00:02:00.000Z" },
     } as never;
     await handlers["catalog.catalog-item.metadata-revised"]?.(current, {
@@ -422,7 +598,7 @@ describe("Catalog Item projections", () => {
     const older = {
       type: "catalog.catalog-item.metadata-revised",
       streamId: "catalog.item-cat_guard",
-      data: { languageCode: "en", title: "Current", subtitle: null, description: "Current" },
+      data: { languageCode: "en", title: "Older", subtitle: null, description: "Older" },
       timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
     } as never;
     await handlers["catalog.catalog-item.metadata-revised"]?.(older, {
@@ -439,8 +615,11 @@ describe("Catalog Item projections", () => {
     });
     const writes = query.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO catalog_admin_catalog_item_"));
     expect(writes).toHaveLength(4);
-    expect(writes.every(([sql]) => String(sql).includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
+    expect(writes).toHaveLength(4);
+    expect(writes.filter(([sql]) => String(sql).includes("_list_pages"))).toHaveLength(2);
+    expect(writes.filter(([sql]) => String(sql).includes("_detail_pages"))).toHaveLength(2);
     expect(pageUpdatedAt).toBe("2026-05-17T00:02:00.000Z");
+    expect(detailUpdatedAt).toBe("2026-05-17T00:02:00.000Z");
   });
 
   it.each([
