@@ -5038,7 +5038,8 @@ async fn a_failed_search_says_so_with_a_502_and_keeps_the_filters() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/search?q=broken", None)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(html.contains("The platform API did not answer."), "{html}");
+    // Marketplace's words for a failed search (chase-sets/chase-sets#10610).
+    assert!(html.contains("Search results could not load. Try again in a moment."), "{html}");
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
     assert!(!html.contains("No items found"), "a failed read is not an empty one: {html}");
 }
