@@ -20,6 +20,8 @@ import { useState, type ReactNode } from "react";
 import type { ChannelConnectionStatus, PublicChannelConnection } from "../domain/contracts";
 import type { ChannelConnectionAllowedAction } from "../domain/domain";
 
+export type { ChannelConnectionAllowedAction } from "../domain/domain";
+
 const listFilters: readonly Readonly<{ status: ChannelConnectionStatus | "default"; labelKey: string }>[] = [
   { status: "default", labelKey: "channels.connections.filter.default" },
   { status: "pending-setup", labelKey: "channels.connections.filter.pendingSetup" },

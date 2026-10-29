@@ -30,7 +30,6 @@ function commandResult(state: PublicChannelConnection | null): ChannelConnection
           environment: state.environment,
           status: state.status,
           createdAt: state.createdAt,
-          allowedActions: state.status ? allowedChannelConnectionActions(state.status) : [],
           credentialReference: null,
           bindings: [],
         }
