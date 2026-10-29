@@ -44,6 +44,7 @@ export const sellerComplianceCohortSchemaStatements: readonly string[] = [
     snapshot_change_sequence bigint NOT NULL,
     after_seller_account_id text NULL,
     policy_version text NOT NULL,
+    pass_started_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_cohorts_due_idx ON platform_operations_seller_compliance_cohorts (next_reevaluation_at) WHERE next_reevaluation_at IS NOT NULL`,

@@ -20,17 +20,16 @@ export function createSellerComplianceCohortRuntime(
 ) {
   async function loadSales(
     sellerAccountId: string,
-    at: string,
-    policy: SellerComplianceCohortPolicyValue,
+    fromInclusive: string,
+    toExclusive: string,
   ): Promise<readonly SellerSaleFact[]> {
-    const from = addUtcMonths(at, -(policy.lookbackMonths ?? 60));
     const sales: SellerSaleFact[] = [];
     let cursor = null;
     do {
       const page = await listSellerCompletedSalesPage(deps.db, {
         sellerAccountId,
-        fromInclusive: from,
-        toExclusive: at,
+        fromInclusive,
+        toExclusive,
         cursor,
         limit: 100,
       });
@@ -76,26 +75,37 @@ export function createSellerComplianceCohortRuntime(
       }
     }
     if (!current.value.activated) return false;
-    const sales = await loadSales(sellerAccountId, evaluationAt, current.value);
+    const { value: policy, version: policyVersion } = current;
     const previous = await readSellerComplianceCohort(deps.db, sellerAccountId);
-    const evaluation = evaluateSellerComplianceCohort({
-      sales,
-      policy: current.value,
-      evaluationAt,
-      revisionEffectiveAt: previous && previous.policyVersion !== current.version ? revisionEffectiveAt : undefined,
-      previous: previous
-        ? {
-            state: previous.state as "outside" | "member",
-            band: previous.band as "none" | "disclosure",
-            entryEffectiveAt: previous.entryEffectiveAt,
-            exitEffectiveAt: previous.exitEffectiveAt,
-          }
-        : undefined,
-    });
+    const evaluate = (sales: readonly SellerSaleFact[]) =>
+      evaluateSellerComplianceCohort({
+        sales,
+        policy,
+        evaluationAt,
+        revisionEffectiveAt: previous && previous.policyVersion !== policyVersion ? revisionEffectiveAt : undefined,
+        previous: previous
+          ? {
+              state: previous.state as "outside" | "member",
+              band: previous.band as "none" | "disclosure",
+              entryEffectiveAt: previous.entryEffectiveAt,
+              exitEffectiveAt: previous.exitEffectiveAt,
+            }
+          : undefined,
+      });
+    const lookbackMonths = policy.lookbackMonths ?? 60;
+    const verdictFloor = addUtcMonths(evaluationAt, -lookbackMonths);
+    let evaluation = evaluate(await loadSales(sellerAccountId, verdictFloor, evaluationAt));
+    // An exit is dated by the window that rolled off, which can lie before this tick's lookback floor.
+    const exitFloor =
+      previous?.state === "member" && previous.entryEffectiveAt !== null
+        ? addUtcMonths(previous.entryEffectiveAt, -lookbackMonths)
+        : null;
+    if (evaluation.state === "outside" && exitFloor !== null && Date.parse(exitFloor) < Date.parse(verdictFloor))
+      evaluation = evaluate(await loadSales(sellerAccountId, exitFloor, evaluationAt));
     if (!previous && evaluation.state === "outside") return false;
     await writeSellerComplianceCohort(deps.pool, {
       sellerAccountId,
-      policyVersion: current.version,
+      policyVersion,
       observedAt: evaluationAt,
       evaluation,
     });
@@ -110,11 +120,27 @@ export function createSellerComplianceCohortRuntime(
       snapshot_change_sequence: string;
       after_seller_account_id: string | null;
       policy_version: string;
+      pass_started_at: Date | string;
     }>(
-      `SELECT snapshot_change_sequence::text, after_seller_account_id, policy_version FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
+      `SELECT snapshot_change_sequence::text, after_seller_account_id, policy_version, pass_started_at FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,
       [trigger],
     );
-    return result.rows[0] ?? null;
+    const row = result.rows[0];
+    if (!row) return null;
+    const passStartedAt = row.pass_started_at;
+    return { ...row, pass_started_at: typeof passStartedAt === "string" ? passStartedAt : passStartedAt.toISOString() };
+  }
+
+  async function writeCheckpoint(
+    trigger: Trigger,
+    page: Readonly<{ snapshot: string; afterSellerAccountId: string | null; passStartedAt: string }>,
+    policyVersion: string,
+    now: string,
+  ) {
+    await deps.db.query(
+      `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,pass_started_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, pass_started_at=$5, updated_at=$6`,
+      [trigger, page.snapshot, page.afterSellerAccountId, policyVersion, page.passStartedAt, now],
+    );
   }
 
   async function candidateSellers(
@@ -124,8 +150,13 @@ export function createSellerComplianceCohortRuntime(
     policy: SellerComplianceCohortPolicyValue,
     policyVersion: string,
     trigger: Trigger,
-  ): Promise<{ candidates: Candidate[]; snapshot: string; afterSellerAccountId: string | null; full: boolean }> {
-    const from = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString();
+  ): Promise<{
+    candidates: Candidate[];
+    snapshot: string;
+    afterSellerAccountId: string | null;
+    passStartedAt: string;
+    full: boolean;
+  }> {
     const saved = await checkpoint(trigger);
     const completed =
       saved !== null && saved.after_seller_account_id === null && saved.policy_version === policyVersion;
@@ -137,6 +168,9 @@ export function createSellerComplianceCohortRuntime(
       );
     const passSnapshot = resume ? saved!.snapshot_change_sequence : snapshot;
     const after = resume ? saved!.after_seller_account_id : null;
+    const passStartedAt = resume ? saved!.pass_started_at : now;
+    // A resumed pass keeps the recording-time window it started with, so no change ages out before the cursor reaches it.
+    const from = new Date(Date.parse(passStartedAt) - 24 * 60 * 60 * 1000).toISOString();
     if (trigger === "t1-changed") {
       const changed = await listSellersWithChangedCompletedSales(deps.db, {
         fromInclusive: from,
@@ -170,6 +204,7 @@ export function createSellerComplianceCohortRuntime(
       return {
         candidates: ids.map((sellerAccountId) => ({ sellerAccountId, trigger })),
         snapshot: passSnapshot,
+        passStartedAt,
         afterSellerAccountId: ids.at(-1) ?? null,
         full: changed.sellerAccountIds.length === limit || changedSinceCheckpoint.rows.length === limit,
       };
@@ -182,6 +217,7 @@ export function createSellerComplianceCohortRuntime(
       return {
         candidates: due.rows.map((row) => ({ sellerAccountId: row.seller_account_id, trigger })),
         snapshot: passSnapshot,
+        passStartedAt,
         afterSellerAccountId: due.rows.at(-1)?.seller_account_id ?? null,
         full: due.rows.length === limit,
       };
@@ -195,13 +231,20 @@ export function createSellerComplianceCohortRuntime(
       return {
         candidates: rawIds.map((sellerAccountId) => ({ sellerAccountId, trigger, revisionOnly: true })),
         snapshot: passSnapshot,
+        passStartedAt,
         afterSellerAccountId: rawIds.at(-1) ?? null,
         full: rawIds.length === limit,
       };
     }
     if (trigger === "t3-occurrence") {
       if (completed && saved!.snapshot_change_sequence === snapshot) {
-        return { candidates: [], snapshot: saved!.snapshot_change_sequence, afterSellerAccountId: null, full: false };
+        return {
+          candidates: [],
+          snapshot: saved!.snapshot_change_sequence,
+          afterSellerAccountId: null,
+          passStartedAt,
+          full: false,
+        };
       }
       const occurrence = await listSellersWithSalesOccurringInWindow(deps.db, {
         fromInclusive: addUtcMonths(now, -(policy.lookbackMonths ?? 60)),
@@ -225,6 +268,7 @@ export function createSellerComplianceCohortRuntime(
       return {
         candidates: [...ids].map((sellerAccountId) => ({ sellerAccountId, trigger })),
         snapshot: passSnapshot,
+        passStartedAt,
         afterSellerAccountId: rawIds.at(-1) ?? null,
         full: rawIds.length === limit,
       };
@@ -236,7 +280,7 @@ export function createSellerComplianceCohortRuntime(
     now: string,
     limit: number,
     snapshot: string,
-  ): Promise<{ candidates: Candidate[]; snapshot: string; full: boolean }> {
+  ): Promise<{ candidates: Candidate[]; snapshot: string; passStartedAt: string; full: boolean }> {
     const saved = await checkpoint("failure");
     const passSnapshot = saved?.snapshot_change_sequence ?? snapshot;
     const after = saved?.after_seller_account_id ?? failureAfterSellerAccountId;
@@ -261,6 +305,7 @@ export function createSellerComplianceCohortRuntime(
     return {
       candidates: ids.map((sellerAccountId) => ({ sellerAccountId, trigger: "failure" })),
       snapshot: passSnapshot,
+      passStartedAt: saved?.pass_started_at ?? now,
       full: existing.rows.length === limit || changed.sellerAccountIds.length === limit || ids.length === limit,
     };
   }
@@ -289,9 +334,11 @@ export function createSellerComplianceCohortRuntime(
         );
       if (page.full && page.candidates.length > 0) {
         failureAfterSellerAccountId = page.candidates[page.candidates.length - 1]!.sellerAccountId;
-        await deps.db.query(
-          `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, updated_at=$5`,
-          ["failure", page.snapshot, page.candidates[page.candidates.length - 1]!.sellerAccountId, "failure", now],
+        await writeCheckpoint(
+          "failure",
+          { ...page, afterSellerAccountId: failureAfterSellerAccountId },
+          "failure",
+          now,
         );
       } else {
         failureAfterSellerAccountId = null;
@@ -332,15 +379,9 @@ export function createSellerComplianceCohortRuntime(
         processed += 1;
       }
       if (page.full && (page.candidates.length > 0 || trigger === "t3-revision" || trigger === "t3-occurrence")) {
-        await deps.db.query(
-          `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, updated_at=$5`,
-          [trigger, page.snapshot, page.afterSellerAccountId, resolved.version, now],
-        );
+        await writeCheckpoint(trigger, page, resolved.version, now);
       } else if (trigger === "t3-revision" || trigger === "t3-occurrence") {
-        await deps.db.query(
-          `INSERT INTO platform_operations_seller_compliance_sweep_checkpoints (trigger_name,snapshot_change_sequence,after_seller_account_id,policy_version,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (trigger_name) DO UPDATE SET snapshot_change_sequence=$2, after_seller_account_id=$3, policy_version=$4, updated_at=$5`,
-          [trigger, page.snapshot, null, resolved.version, now],
-        );
+        await writeCheckpoint(trigger, { ...page, afterSellerAccountId: null }, resolved.version, now);
       } else {
         await deps.db.query(
           `DELETE FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name = $1`,

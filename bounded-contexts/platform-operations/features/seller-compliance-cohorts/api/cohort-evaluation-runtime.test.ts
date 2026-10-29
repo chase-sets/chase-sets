@@ -56,7 +56,11 @@ function fakeRuntime(options: {
   changed?: readonly string[];
   versions?: Record<string, string>;
 }) {
-  const checkpoints = new Map<string, { snapshot: string; after: string | null; policyVersion: string }>();
+  const checkpoints = new Map<
+    string,
+    { snapshot: string; after: string | null; policyVersion: string; passStartedAt: string }
+  >();
+  const queries: { text: string; values: readonly unknown[] }[] = [];
   const rows = Object.fromEntries(
     (options.sellers ?? []).map((seller) => [
       seller,
@@ -81,6 +85,7 @@ function fakeRuntime(options: {
   let snapshot = "9";
   const changed = new Set(options.changed ?? []);
   const query = async (text: string, values: readonly unknown[] = []) => {
+    queries.push({ text, values });
     if (text.includes("MAX(change_sequence)")) return { rows: [{ snapshot }], rowCount: 1 };
     if (text.startsWith("SELECT snapshot_change_sequence")) {
       const checkpoint = checkpoints.get(String(values[0]));
@@ -91,6 +96,7 @@ function fakeRuntime(options: {
                 snapshot_change_sequence: checkpoint.snapshot,
                 after_seller_account_id: checkpoint.after,
                 policy_version: checkpoint.policyVersion,
+                pass_started_at: checkpoint.passStartedAt,
               },
             ]
           : [],
@@ -102,6 +108,7 @@ function fakeRuntime(options: {
         snapshot: String(values[1]),
         after: values[2] as string | null,
         policyVersion: String(values[3]),
+        passStartedAt: String(values[4]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -152,8 +159,11 @@ function fakeRuntime(options: {
     if (text.includes("ORDER BY occurred_at ASC")) {
       const seller = String(values[0]);
       evaluated.push(seller);
+      const inWindow = (value: ReturnType<typeof sale>) =>
+        Date.parse(String(values[1])) <= Date.parse(value.occurredAt) &&
+        Date.parse(value.occurredAt) < Date.parse(String(values[2]));
       return {
-        rows: [sale(seller)].map((value) => ({
+        rows: [sale(seller)].filter(inWindow).map((value) => ({
           payment_id: value.paymentId,
           order_id: value.orderId,
           seller_account_id: seller,
@@ -216,6 +226,7 @@ function fakeRuntime(options: {
       } as never,
     }),
     evaluated,
+    queries,
     bump: () => {
       snapshot = "10";
     },
@@ -269,5 +280,41 @@ describe("seller compliance cohort runtime", () => {
     });
     await expect(failing.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 2 })).resolves.toBe(2);
     await expect(failing.sweep({ now: "2025-05-20T01:00:00.000Z", limit: 2 })).resolves.toBe(1);
+  });
+
+  it("resumes a T1 pass inside the recording-time window it started with", async () => {
+    const world = fakeRuntime({ sellers: ["s01", "s02"], changed: ["s01", "s02"] });
+    await expect(world.runtime.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 1 })).resolves.toBe(1);
+    // 30 hours later a window recomputed from this tick would start after both changes.
+    await expect(world.runtime.sweep({ now: "2025-05-21T06:00:00.000Z", limit: 1 })).resolves.toBe(1);
+    const t1Pages = world.queries
+      .filter((entry) => entry.text.includes("changed_at >= $2"))
+      .map((entry) => entry.values.slice(1, 4));
+    expect(t1Pages).toEqual([
+      ["2025-05-19T00:00:00.000Z", "2025-05-20T00:00:00.000Z", null],
+      ["2025-05-19T00:00:00.000Z", "2025-05-21T06:00:00.000Z", "s01"],
+    ]);
+    expect(world.evaluated).toEqual(["s01", "s02"]);
+  });
+
+  it("dates a no-new-sale exit by the window that rolled off before the tick's lookback floor", async () => {
+    const world = fakeRuntime({ sellers: ["s01"] });
+    // The 2025-05-01 sale is eligible through 2025-07-01, so it lies before this tick's 2025-05-02 floor.
+    await expect(world.runtime.evaluateSeller("s01", "2025-07-02T00:00:00.000Z")).resolves.toBe(true);
+    const update = world.queries.find((entry) =>
+      entry.text.startsWith("UPDATE platform_operations_seller_compliance_cohorts"),
+    );
+    expect(update?.values.slice(1, 5)).toEqual(["outside", "none", null, "2025-07-01T00:00:00.001Z"]);
+    const exited = world.queries.find((entry) =>
+      entry.text.startsWith("INSERT INTO platform_operations_seller_compliance_cohort_transitions"),
+    );
+    expect(exited?.values.slice(0, 6)).toEqual([
+      "s01:2:exited",
+      "s01",
+      "2",
+      "exited",
+      "2025-07-01T00:00:00.001Z",
+      "2025-07-02T00:00:00.000Z",
+    ]);
   });
 });
