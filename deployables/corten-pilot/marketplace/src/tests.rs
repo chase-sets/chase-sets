@@ -486,6 +486,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &body) {
         return answer;
     }
+    if let Some(answer) = recommendations(&stand, &method, uri.path(), &body) {
+        return answer;
+    }
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
@@ -9798,6 +9801,181 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Optio
             .into_response(),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Bulk reprice job not found."),
     })
+}
+
+const RECS_SCREEN: &str = "/account/repricing";
+
+/// Pricing's recommendations, as the stand-in answers them: two (a proposed update with an offer
+/// anchor and an applied draft), and its jobs: a command starts `rjob_1`, which runs until its
+/// stream has been read and then completed (the read after it has one more, applied); an empty
+/// Apply is refused; any other job is not found.
+fn recommendations(stand: &Stand, method: &Method, path: &str, body: &str) -> Option<Response> {
+    let done = || stand.runs.lock().unwrap().contains_key("rjob_1-done");
+    let row = |id: &str, title: &str, status: &str, action: &str, signal: &str| {
+        json!({
+            "recommendation_id": id, "catalog_catalog_item_id": format!("ci_{id}"), "seller_account_id": "acct_1",
+            "action_type": action, "status": status, "listing_id": null, "inventory_item_id": null,
+            "catalog_item_title": title, "catalog_item_language_code": "ja", "catalog_item_subtitle": "Base Set 4/102",
+            "catalog_item_status": "active", "market_price_amount": 12.5, "market_currency": "USD", "market_signal_type": signal,
+            "market_observed_at": "2026-10-29T08:00:00.000Z", "current_price_amount": 14, "current_price_currency_code": "USD",
+            "recommended_list_amount": 12.25, "recommendation_reason": "Lowest active listing is lower.", "quantity_cap": null,
+            "applied_listing_id": null, "last_error": null, "recommendation_published_at": null, "stock_on_hand_quantity": 2,
+            "stock_reserved_quantity": 0, "active_listing_count": 5, "lowest_listing_price_amount": 11.99, "active_offer_count": 1,
+            "highest_offer_price_amount": 10, "committed_order_quantity": 0, "delivered_quantity": 3, "returned_quantity": 1,
+            "updated_at": "2026-10-29T08:00:00.000Z",
+        })
+    };
+    let job = |status: &str| {
+        let message = if status == "completed" { "Applied 1 recommendation." } else { "Applying recommendations." };
+        json!({ "jobId": "rjob_1", "status": status, "progress": { "phase": "processing", "completed": 0, "total": 1, "message": message }, "result": null, "errorMessage": null })
+    };
+    Some(match (method.as_str(), path) {
+        ("GET", "/api/marketplace/account/recommendations") => {
+            let mut items = vec![
+                row("rec_1", "Charizard", "proposed", "active-listing-price-update", "offer"),
+                row("rec_2", "Pikachu", "applied", "draft-listing-create", "competition"),
+            ];
+            if done() {
+                items.push(row("rec_3", "Mewtwo", "applied", "draft-listing-price-update", "competition"));
+            }
+            Json(json!({ "items": items, "total": items.len() })).into_response()
+        }
+        ("POST", "/api/marketplace/account/recommendations/apply") if body.contains("[]") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Select at least one recommendation.")
+        }
+        (
+            "POST",
+            "/api/marketplace/account/recommendations/refresh"
+            | "/api/marketplace/account/recommendations/apply"
+            | "/api/marketplace/account/recommendations/dismiss",
+        ) => (StatusCode::ACCEPTED, Json(job("queued"))).into_response(),
+        ("GET", "/api/marketplace/account/recommendation-jobs/rjob_1") => {
+            Json(job(if done() { "completed" } else { "running" })).into_response()
+        }
+        ("GET", "/api/marketplace/account/recommendation-jobs/rjob_1/events") => {
+            let first = !stand.runs.lock().unwrap().contains_key("rjob_1-read");
+            stand.runs.lock().unwrap().insert("rjob_1-read".into(), json!(true));
+            if !first {
+                stand.runs.lock().unwrap().insert("rjob_1-done".into(), json!(true));
+            }
+            ([(header::CONTENT_TYPE, "text/event-stream")], "id: 1\nevent: job.updated\ndata: {}\n\n").into_response()
+        }
+        (_, p) if p.starts_with("/api/marketplace/account/recommendation-jobs/") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Recommendation job not found.")
+        }
+        _ => return None,
+    })
+}
+
+#[tokio::test]
+async fn recommendations_are_for_a_seller_with_pricing_view_and_their_actions_need_pricing_manage() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(RECS_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Frepricing"));
+    let (status, _, _) = pilot.send(get(RECS_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no pricing.view");
+
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    for expected in [
+        "Recommendations",
+        "Market signals",
+        "Charizard",
+        "Base Set 4/102",
+        "Japanese",
+        "Update active",
+        "Offer anchor",
+        "$12.50",
+        "Lowest active: $11.99",
+        "$12.25",
+        "Current: $14.00",
+        "Lowest active listing is lower.",
+        "Offers: 1; Highest: $10.00",
+        "Delivered: 3; Returned: 1",
+        "Create draft",
+    ] {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    // The signals: 2 recommendations, 4 units on hand, 10 active listings, 2 offers.
+    let stats: Vec<_> =
+        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+    assert_eq!(stats, ["2", "4", "10", "2"], "{html}");
+    assert!(html.contains(r#"value="refresh-recommendations""#) && html.contains(r#"value="apply-recommendations""#));
+    assert!(html.contains(r#"name="recommendationId" value="rec_1""#), "a proposed one can be picked");
+    assert!(
+        html.contains(r#"value="rec_2" aria-label="Select recommendation for Pikachu" disabled"#),
+        "an applied one cannot: {html}"
+    );
+    assert!(html.contains(r#"href="/account/bulk-reprice""#) && html.contains(r#"href="/account/desk/repricing""#));
+    assert!(!html.contains("corten-live"));
+
+    // A reader sees them and changes nothing.
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Charizard") && !html.contains("refresh-recommendations") && !html.contains("recommendationId"));
+    let (status, _, _) = pilot.send(post(RECS_SCREEN, "price_reader", "intent=refresh-recommendations", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_recommendation_job_is_followed_live_and_the_list_is_read_again_once_it_finished() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post(RECS_SCREEN, "pricer", "intent=apply-recommendations&recommendationId=rec_1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/repricing?jobId=rjob_1");
+    let sent = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.ends_with("/recommendations/apply"))
+        .map(|c| c.body.clone());
+    assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "recommendationIds": ["rec_1"] }));
+
+    let (_, _, html) = pilot.send(get("/account/repricing?jobId=rjob_1", Some("pricer"))).await;
+    assert!(
+        html.contains(r#"src="/account/repricing/jobs/rjob_1/live""#) && html.contains("Applying recommendations."),
+        "{html}"
+    );
+    assert!(html.contains(r#"<noscript data-corten-head><meta http-equiv="refresh" content="2"></noscript>"#));
+    assert!(html.contains(r#"value="refresh-recommendations" disabled"#), "the actions are off while it runs");
+
+    // The first event: the notice only; the next (the job finished): the part, read again.
+    let events = pilot.events(get("/account/repricing/jobs/rjob_1/live", Some("pricer")), 3).await;
+    let kinds: Vec<&str> = events.iter().map(|(event, _, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "{events:?}");
+    assert!(
+        events[0].2.starts_with(r#"<div id="recommendations-notice""#)
+            && events[0].2.contains(r#"data-recommendations-job="running""#),
+        "{events:?}"
+    );
+    let events = pilot.events(get("/account/repricing/jobs/rjob_1/live", Some("pricer")), 3).await;
+    let kinds: Vec<&str> = events.iter().map(|(event, _, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "{events:?}");
+    let part = &events[0].2;
+    assert!(
+        part.starts_with(r#"<div id="recommendations-part""#)
+            && part.contains("Mewtwo")
+            && part.contains("Applied 1 recommendation."),
+        "{part}"
+    );
+    assert!(!part.contains(r#"value="refresh-recommendations" disabled"#), "the actions are on again");
+
+    // Pricing's refusal is drawn with its words; an unknown intent says so; a job not there is none.
+    let (status, _, html) = pilot.send(post(RECS_SCREEN, "pricer", "intent=apply-recommendations", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Select at least one recommendation."), "{html}");
+    let (status, _, html) = pilot.send(post(RECS_SCREEN, "pricer", "intent=reprice-everything", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Unknown recommendation action."));
+    let (status, _, html) = pilot.send(get("/account/repricing?jobId=rjob_9", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("corten-live"));
 }
 
 #[tokio::test]

@@ -174,7 +174,7 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
     let editing = screen.editor.is_some();
     let create = url::Repricing { place: Place::create() };
     let health = super::on_marketplace("/account/desk/pricing-health");
-    let recommendations = super::on_marketplace("/account/repricing");
+    let recommendations = url::Recommendations::default().href();
     html! {
         <header class={Header}>
             <p class={Eyebrow}>{t.list_eyebrow()}</p>
@@ -183,7 +183,7 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
             <nav class={Row} aria-label={p.repricing_pages()}>
                 <a class={(Button, Secondary)} href={url::Desk}>{p.repricing_desk()}</a>
                 <a class={(Button, Secondary)} href={&health}>{t.pricing_health()}</a>
-                <a class={(Button, Secondary)} href={&recommendations}>{t.recommendations()}</a>
+                <a class={(Button, Secondary)} href={&recommendations}>{t.recs_recommendations()}</a>
                 if screen.manage && !editing {
                     <a class={Button} href={&create}>{t.editor_create()}</a>
                 }

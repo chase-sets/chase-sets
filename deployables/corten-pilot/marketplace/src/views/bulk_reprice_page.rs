@@ -18,7 +18,6 @@ pub struct BulkPartId;
 /// The page.
 #[component(css)]
 pub fn BulkRepricePage<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Render {
-    let recommendations = super::on_marketplace("/account/repricing");
     let live = screen.job.as_ref().filter(|_| screen.active()).map(|job| url::BulkRepriceLive { id: &job.job_id }.href());
     html! {
         <header class={Header}>
@@ -27,7 +26,7 @@ pub fn BulkRepricePage<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) ->
             <p class={Muted}>{t.bulk_upload_a_csv()}</p>
             <nav class={Row} aria-label={p.bulk_reprice_pages()}>
                 <a class={(Button, Secondary)} href={url::BulkRepriceTemplate} download>{t.bulk_download_template()}</a>
-                <a class={(Button, Ghost)} href={&recommendations}>{t.bulk_recommendations()}</a>
+                <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
             </nav>
         </header>
         if let Some(error) = &screen.error {

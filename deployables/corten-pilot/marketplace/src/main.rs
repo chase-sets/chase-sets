@@ -38,6 +38,7 @@ mod payment;
 mod payment_methods;
 mod payout_setup;
 mod public_listing;
+mod recommendations;
 mod recovery;
 mod repricing;
 mod repricing_policy;

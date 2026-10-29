@@ -13,7 +13,7 @@ use corten::{
     prelude::*,
 };
 
-use super::{inventory_page::Picker, listing_new_page::handlers as picker, on_marketplace};
+use super::{inventory_page::Picker, listing_new_page::handlers as picker};
 use crate::{
     api::{ImportBatch, ImportRow, segment},
     app::url,
@@ -78,7 +78,7 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a Imp
                 <nav class={Actions} aria-label={t.page_inventory_import()}>
                     <a class={(Button, Secondary)} href={url::Inventory::default()}>{t.page_inventory()}</a>
                     <a class={(Button, Secondary)} href={url::SellerListings::default()}>{t.page_listings()}</a>
-                    <a class={(Button, Ghost)} href={on_marketplace("/account/repricing")}>{t.page_pricing()}</a>
+                    <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.page_pricing()}</a>
                 </nav>
             </header>
             <div class={Notices} role="status" aria-live="polite">

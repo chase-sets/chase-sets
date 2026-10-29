@@ -174,6 +174,7 @@ pub mod url {
     pub use payout_setup::{PayoutSetup, PayoutSetupSession};
     pub use purchase_reviews::PurchaseReview;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
+    pub use recommendations::{Recommendations, RecommendationsLive};
     pub use repricing::{Repricing, RepricingDryRunLive, RepricingPolicy};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_reviews::SaleReview;
@@ -1046,6 +1047,26 @@ pub mod url {
         }
     }
 
+    /// The pricing recommendations (marketplace's `account-repricing`): the page following a job,
+    /// Refresh, Apply and Dismiss, and the job relayed live (see `recommendations`). Every handler
+    /// takes a `PricingManager`.
+    #[corten::routes(state = crate::app::Shared, area = Recommendations, caller = crate::auth::PricingManager)]
+    pub mod recommendations {
+        /// The page, following the job its address names; Refresh, Apply and Dismiss post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/repricing", get = crate::recommendations::page, post = crate::recommendations::write)]
+        pub struct Recommendations {
+            #[route(query)]
+            pub place: crate::recommendations::Place,
+        }
+
+        /// A running job's notice, drawn again on each event, then the page's part.
+        #[route("/account/repricing/jobs/{id}/live", get = crate::recommendations::live)]
+        pub struct RecommendationsLive<'a> {
+            pub id: &'a str,
+        }
+    }
+
     /// Bulk reprice (marketplace's `account-bulk-reprice`): the page following a job, Upload,
     /// Cancel, the job's part relayed live, and the template and results CSVs (see `bulk_reprice`).
     /// Every handler takes a `BulkRepricer`.
@@ -1510,6 +1531,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
+        .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)

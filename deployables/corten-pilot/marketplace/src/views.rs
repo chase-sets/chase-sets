@@ -49,6 +49,7 @@ mod page_actions;
 mod payment_methods_page;
 mod payment_page;
 mod payout_setup_page;
+mod recommendations_page;
 mod recovery;
 mod repricing_page;
 mod reviews_page;
@@ -98,6 +99,7 @@ pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
 pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
+pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
@@ -226,6 +228,8 @@ pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::Che
 /// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
 /// editor's choice as it changes.
 pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
+/// The pricing recommendations (`/account/repricing`).
+pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage];
 /// Bulk reprice (`/account/bulk-reprice`).
 pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
 

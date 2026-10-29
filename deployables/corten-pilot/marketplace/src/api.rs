@@ -6286,6 +6286,103 @@ impl BulkRepriceCalls for Caller<'_> {
     }
 }
 
+const RECOMMENDATIONS: &str = "/api/marketplace/account/recommendations";
+const RECOMMENDATION_JOBS: &str = "/api/marketplace/account/recommendation-jobs";
+
+/// A pricing recommendation (`AccountRecommendationListItem`): the fields the page shows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Recommendation {
+    pub recommendation_id: String,
+    pub catalog_catalog_item_id: String,
+    /// `active-listing-price-update`, `draft-listing-price-update` or `draft-listing-create`.
+    pub action_type: String,
+    /// `proposed`, `applied`, `dismissed` or `failed`.
+    pub status: String,
+    pub catalog_item_title: Option<String>,
+    pub catalog_item_language_code: Option<String>,
+    pub catalog_item_subtitle: Option<String>,
+    pub catalog_item_status: Option<String>,
+    pub market_price_amount: Option<f64>,
+    pub market_currency: String,
+    /// `competition` or `offer`.
+    pub market_signal_type: String,
+    pub current_price_amount: Option<f64>,
+    pub recommended_list_amount: Option<f64>,
+    pub recommendation_reason: Option<String>,
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub stock_on_hand_quantity: u64,
+    #[serde(default)]
+    pub active_listing_count: u64,
+    pub lowest_listing_price_amount: Option<f64>,
+    #[serde(default)]
+    pub active_offer_count: u64,
+    pub highest_offer_price_amount: Option<f64>,
+    #[serde(default)]
+    pub delivered_quantity: u64,
+    #[serde(default)]
+    pub returned_quantity: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Recommendations {
+    pub items: Vec<Recommendation>,
+}
+
+/// A recommendation job (`PricingRecommendationJobStatus`): Refresh, Apply or Dismiss.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecommendationJob {
+    pub job_id: String,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    #[serde(default)]
+    pub progress: BulkRepriceProgress,
+    pub error_message: Option<String>,
+}
+
+impl RecommendationJob {
+    pub fn finished(&self) -> bool {
+        matches!(self.status.as_str(), "completed" | "failed")
+    }
+}
+
+/// The recommendations' calls (Pricing's `recommendations` and `recommendation-jobs` routes).
+pub trait RecommendationCalls {
+    /// The first 100, as marketplace's loader reads them.
+    async fn recommendations(&self) -> Result<Recommendations, ApiError>;
+    async fn recommendation_job(&self, id: &str) -> Result<RecommendationJob, ApiError>;
+    /// `refresh` (no ids), `apply` or `dismiss` the recommendations `ids`: the job that does it.
+    async fn recommendation_command(&self, command: &str, ids: &[String]) -> Result<RecommendationJob, ApiError>;
+}
+
+impl RecommendationCalls for Caller<'_> {
+    async fn recommendations(&self) -> Result<Recommendations, ApiError> {
+        self.read(&format!("{RECOMMENDATIONS}?limit=100&offset=0"), PRICING).await
+    }
+
+    async fn recommendation_job(&self, id: &str) -> Result<RecommendationJob, ApiError> {
+        self.read(&format!("{RECOMMENDATION_JOBS}/{}", segment(id)), PRICING).await
+    }
+
+    async fn recommendation_command(&self, command: &str, ids: &[String]) -> Result<RecommendationJob, ApiError> {
+        let body = if command == "refresh" { serde_json::json!({}) } else { serde_json::json!({ "recommendationIds": ids }) };
+        let req = self.request(Method::POST, &format!("{RECOMMENDATIONS}/{command}"), PRICING).json(&body);
+        let (job, _) = pricing_answer(req).await.map_err(|refusal| refusal.error)?;
+        serde_json::from_value(job).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a recommendation job the page cannot read: {error}"),
+        })
+    }
+}
+
+/// The path of a recommendation job's status stream (server-sent events, each the job).
+pub fn recommendation_job_events(id: &str) -> String {
+    format!("{RECOMMENDATION_JOBS}/{}/events", segment(id))
+}
+
 /// The path of a bulk reprice job's status stream (server-sent events, each the job).
 pub fn bulk_reprice_job_events(id: &str) -> String {
     format!("{BULK_REPRICE}/jobs/{}/events", segment(id))

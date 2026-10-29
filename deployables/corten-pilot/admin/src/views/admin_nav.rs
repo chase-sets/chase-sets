@@ -85,7 +85,9 @@ pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render 
                     let href = link(here, item);
                     <li>
                         if let Some(href) = &href {
-                            <a class={Item} href={href} aria-current={current(href, path).then_some("page")}>{&item.label}</a>
+                            <a class={Item} href={href} aria-current={current(href, path).then_some("page")} data-nav-path={href}>
+                                {&item.label}
+                            </a>
                         } else {
                             <span class={Group}>{&item.label}</span>
                         }

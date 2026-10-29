@@ -27,6 +27,7 @@ const OWN: &[&str] = &[
     <url::Cart as Route>::PATH,
     <url::SellList as Route>::PATH,
     <url::DeskOffers as Route>::PATH,
+    <url::Recommendations as Route>::PATH,
 ];
 
 /// Where a nav entry goes: the pilot's own page, or marketplace's.
@@ -63,13 +64,15 @@ pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render
         <header class={Bar}>
             <a class={Brand} href={marketplace("/").map(|u| u.to_string()).unwrap_or_default()}>{p.shell_marketplace()}</a>
             <span class={Tag}>{p.shell_pilot()}</span>
-            <nav aria-label={p.shell_navigation()}>
+            <nav aria-label={p.shell_navigation()} data-nav-rule="deepest">
                 <ul class={Items}>
                     for (item, children) in &items {
                         <li>
                             if children.is_empty() {
                                 if let Some(href) = link(item) {
-                                    <a class={Item} href={&href} aria-current={is(item)}>{&item.label}</a>
+                                    <a class={Item} href={&href} aria-current={is(item)} data-nav-path={item.href.as_deref()}>
+                                        {&item.label}
+                                    </a>
                                 }
                             } else {
                                 <details class={Group}>
@@ -77,7 +80,16 @@ pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render
                                     <ul class={Menu}>
                                         for child in children {
                                             if let Some(href) = link(child) {
-                                                <li><a class={Item} href={&href} aria-current={is(child)}>{&child.label}</a></li>
+                                                <li>
+                                                    <a
+                                                        class={Item}
+                                                        href={&href}
+                                                        aria-current={is(child)}
+                                                        data-nav-path={child.href.as_deref()}
+                                                    >
+                                                        {&child.label}
+                                                    </a>
+                                                </li>
                                             }
                                         }
                                     </ul>

@@ -132,7 +132,8 @@
 //   (pricing.features.repricingPolicies.ui.{shared,policyList,editor,activity}.* as shared.*, list.*,
 //   editor.* and activity.*, a policy's page's .policyDetail.*, .policyBody.* and .goal.* as detail.*,
 //   body.* and goal.*, the route's words as route.*, bulk reprice's page and route as bulk.* and
-//   bulk_route.*, and the two links' labels).
+//   bulk_route.*, the recommendations' page and route as recs.* and recs_route.*, and Pricing
+//   Health's title).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -1027,8 +1028,8 @@ const outputs = [
   ],
   [
     "marketplace/locales/repricing.en.json",
-    json(
-      await catalog("pricing.ts", "pricingEnglishTranslations", [
+    json({
+      ...(await catalog("pricing.ts", "pricingEnglishTranslations", [
         ["pricing.features.repricingPolicies.ui.shared.", "shared"],
         ["pricing.features.repricingPolicies.ui.policyList.", "list"],
         ["pricing.features.repricingPolicies.ui.editor.", "editor"],
@@ -1038,11 +1039,14 @@ const outputs = [
         ["pricing.features.repricingPolicies.ui.goal.", "goal"],
         ["pricing.routes.marketplace.accountDeskRepricing.", "route"],
         ["pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.", "bulk"],
+        ["pricing.features.recommendations.ui.recommendationListPage.", "recs"],
+        ["pricing.routes.marketplace.accountRepricing.", "recs_route"],
         ["pricing.routes.marketplace.bulkReprice.", "bulk_route"],
         ["pricing.features.pricingHealth.title", "pricing_health"],
-        ["pricing.features.recommendations.ui.recommendationListPage.recommendations", "recommendations"],
-      ]),
-    ),
+      ])),
+      // A recommendation's item language (`formatLanguageCodeLabel`).
+      ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
+    }),
   ],
   [
     "marketplace/locales/offer-matches.en.json",
