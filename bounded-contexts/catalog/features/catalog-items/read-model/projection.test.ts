@@ -200,6 +200,134 @@ describe("Catalog Item projections", () => {
     );
   });
 
+  it("uses the complete item stream when admin and item projections interleave", async () => {
+    const created = {
+      type: "catalog.catalog-item.created",
+      streamId: "catalog.item-cat_interleaved",
+      data: {
+        itemId: "cat_interleaved",
+        languageCode: "en",
+        title: "Before",
+        subtitle: null,
+        description: "Description",
+      },
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never;
+    const revised = {
+      type: "catalog.catalog-item.metadata-revised",
+      streamId: "catalog.item-cat_interleaved",
+      data: {
+        languageCode: "en",
+        title: "After",
+        subtitle: null,
+        description: "Updated description",
+      },
+      timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+    } as never;
+
+    for (const order of ["admin-before-item", "item-before-admin"] as const) {
+      const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
+      const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        calls.push([sql, params]);
+        return { rows: [] };
+      });
+      const adminHandlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+      const itemHandlers = buildCatalogItemProjectionHandlers({ query });
+      const sourceContext = {
+        readSourceStreamHistory: async () => [created, revised],
+      };
+
+      if (order === "admin-before-item") {
+        await adminHandlers["catalog.catalog-item.metadata-revised"]?.(revised, sourceContext);
+        await itemHandlers["catalog.catalog-item.metadata-revised"]?.(revised);
+      } else {
+        await itemHandlers["catalog.catalog-item.metadata-revised"]?.(revised);
+        await adminHandlers["catalog.catalog-item.metadata-revised"]?.(revised, sourceContext);
+      }
+
+      const pageWrites = calls.filter(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_"));
+      expect(pageWrites).toHaveLength(2);
+      expect(pageWrites.every(([sql]) => sql.includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
+      expect(pageWrites.every(([, params]) => (params?.[3] as readonly string[])[0] === "After")).toBe(true);
+      expect(calls.some(([sql]) => sql.includes("SELECT * FROM catalog_items WHERE catalog_item_id = ANY($1)"))).toBe(
+        false,
+      );
+    }
+  });
+
+  it.each([
+    ["catalog.catalog-item.field-value-set", { fieldId: "field_1", value: "value" }],
+    ["catalog.catalog-item.category-assigned", { categoryId: "category_1" }],
+    ["catalog.catalog-item.tags-set", { tags: ["rare"] }],
+    ["catalog.catalog-item.image-fallback-set", { imageFallback: { url: "https://example.test/fallback" } }],
+    [
+      "catalog.catalog-item.external-product-reference-linked",
+      { providerKey: "provider", externalKey: "product", selectedOptions: [] },
+    ],
+    ["catalog.catalog-item.published", { blueprintId: null }],
+  ] as const)("rebuilds admin pages from source facts for %s", async (type, data) => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+    const created = {
+      type: "catalog.catalog-item.created",
+      streamId: "catalog.item-cat_family",
+      data: { itemId: "cat_family", languageCode: "en", title: "Before", subtitle: null, description: "Description" },
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never;
+    const sourceEvent = {
+      type,
+      streamId: "catalog.item-cat_family",
+      data,
+      timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+    } as never;
+    const readSourceStreamHistory = vi.fn(async () => [created, sourceEvent]);
+
+    await handlers[type]?.(sourceEvent, { readSourceStreamHistory });
+
+    expect(readSourceStreamHistory).toHaveBeenCalledOnce();
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_list_pages"))).toBe(
+      true,
+    );
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"))).toBe(
+      true,
+    );
+    const detailWrite = query.mock.calls.find(([sql]) =>
+      sql.includes("INSERT INTO catalog_admin_catalog_item_detail_pages"),
+    );
+    const detailParams = detailWrite?.[1] as readonly unknown[];
+    if (type === "catalog.catalog-item.field-value-set") {
+      expect(JSON.parse(String((detailParams[14] as readonly string[])[0]))).toEqual([
+        { fieldId: "field_1", fieldName: "field_1", value: "value", reference: null },
+      ]);
+    }
+    if (type === "catalog.catalog-item.category-assigned") {
+      expect(JSON.parse(String((detailParams[15] as readonly string[])[0]))).toEqual([
+        { categoryId: "category_1", name: "category_1" },
+      ]);
+    }
+    if (type === "catalog.catalog-item.tags-set") {
+      expect(JSON.parse(String((detailParams[18] as readonly string[])[0]))).toEqual(["rare"]);
+    }
+    if (type === "catalog.catalog-item.image-fallback-set") {
+      expect(JSON.parse(String((detailParams[21] as readonly string[])[0]))).toEqual({
+        url: "https://example.test/fallback",
+      });
+    }
+    if (type === "catalog.catalog-item.external-product-reference-linked") {
+      expect(JSON.parse(String((detailParams[17] as readonly string[])[0]))).toEqual([
+        {
+          providerKey: "provider",
+          externalKey: "product",
+          selectedOptions: [],
+          updatedAt: "2026-05-17T00:01:00.000Z",
+        },
+      ]);
+    }
+    if (type === "catalog.catalog-item.published") {
+      expect((detailParams[13] as readonly string[])[0]).toBe("active");
+    }
+  });
+
   it("batches multi-level reference graph fan-out by frontier", async () => {
     const relationshipFrontiers: string[][] = [];
     const itemReferenceFrontiers: string[][] = [];
