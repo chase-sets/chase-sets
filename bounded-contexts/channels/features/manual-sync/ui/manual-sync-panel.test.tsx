@@ -209,6 +209,7 @@ function panel(state: ChannelSyncRunState | null): ManualSyncPanel {
       environment: "production",
       status: "active",
       createdAt: "2026-09-10T11:00:00.000Z",
+      allowedActions: ["pause", "disconnect"],
     },
     inboundCoverage: { state: "dark", reason: "no-inbound-authority" },
     run: value,

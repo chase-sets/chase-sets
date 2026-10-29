@@ -12,6 +12,7 @@ const connection: PublicChannelConnection = {
   environment: "sandbox",
   status: "active",
   createdAt: "2026-09-01T00:00:00.000Z",
+  allowedActions: ["pause", "disconnect"],
 };
 const page: ChannelConnectionPage = { items: [connection] };
 const methods = [
