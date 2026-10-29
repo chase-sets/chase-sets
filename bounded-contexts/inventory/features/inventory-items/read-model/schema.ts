@@ -1,4 +1,4 @@
-import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 
 export const inventoryItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -161,5 +161,54 @@ $migration$`,
       `ALTER TABLE inventory_items
   VALIDATE CONSTRAINT inventory_items_acquisition_cost_currency_check`,
     ],
+  },
+  {
+    migrationId: "20261028_inventory_offline_sale_ledger_handoff",
+    description: "Retire quantity-bearing offline-sale audit writes and reconcile retained ledger detail atomically.",
+    statements: [],
+    dataStep: async (db: BcSchemaMigrationClient) => {
+      const deadline = Date.now() + 60_000;
+      async function query<Row = Record<string, unknown>>(sql: string) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error("60-second deadline exceeded");
+        }
+        await db.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
+        const result = await db.query<Row>(sql);
+        if (Date.now() >= deadline) {
+          throw new Error("60-second deadline exceeded");
+        }
+        return result;
+      }
+
+      try {
+        await query("SET LOCAL lock_timeout = '5s'");
+        await query("LOCK TABLE inventory_item_ledger IN ACCESS EXCLUSIVE MODE");
+        const retained = await query("SELECT ledger_entry_id FROM inventory_item_ledger LIMIT 100001");
+        if (retained.rows.length > 100_000) {
+          throw new Error("ledger exceeds the 100000-row handoff bound");
+        }
+        await query(`ALTER TABLE inventory_item_ledger
+          ADD CONSTRAINT inventory_item_ledger_offline_sale_null_delta
+          CHECK (NOT (kind = 'offline-sale'
+            AND event_type = 'inventory.item.offline-sale-recorded'
+            AND quantity_delta IS NOT NULL)) NOT VALID`);
+        await query(`UPDATE inventory_item_ledger SET quantity_delta = NULL
+          WHERE kind = 'offline-sale'
+            AND event_type = 'inventory.item.offline-sale-recorded'
+            AND quantity_delta IS NOT NULL`);
+        await query(`ALTER TABLE inventory_item_ledger
+          VALIDATE CONSTRAINT inventory_item_ledger_offline_sale_null_delta`);
+        const remaining = await query(`SELECT ledger_entry_id FROM inventory_item_ledger
+          WHERE kind = 'offline-sale'
+            AND event_type = 'inventory.item.offline-sale-recorded'
+            AND quantity_delta IS NOT NULL LIMIT 1`);
+        if (remaining.rows.length !== 0) {
+          throw new Error("quantity-bearing offline-sale audit rows remain");
+        }
+      } catch (cause) {
+        throw new Error("Inventory offline-sale ledger handoff incomplete", { cause });
+      }
+    },
   },
 ];
