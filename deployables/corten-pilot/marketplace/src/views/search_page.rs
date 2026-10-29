@@ -52,8 +52,8 @@ const PRICE_PATTERN: &str = r"(0|[1-9][0-9]*)(\.[0-9]{1,2})?";
 /// Marketplace's saved-search settings (`productAlertSettingsHref`).
 const SAVED_SEARCH: &str = "/search?notifications=settings&notificationSection=product-alerts";
 
-/// A failed read's results: none. (A page with no read shows the filters, an error banner and a
-/// 502; marketplace says "No items found": chase-sets/chase-sets#10610.)
+/// A failed read's results: none. A page with no read shows the filters, an error banner and a
+/// 502, as marketplace's does since chase-sets/chase-sets#10610.
 static NO_RESULTS: SearchResults = SearchResults {
     items: Vec::new(),
     facets: Vec::new(),
@@ -260,7 +260,7 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
                     if failed {
                         <div class={Banner} data-tone="danger" role="alert">
                             <p class={BannerTitle}>{t.page_error()}</p>
-                            <p>{p.error_failed()}</p>
+                            <p>{t.page_results_error_description()}</p>
                         </div>
                     }
                     if !marked.is_empty() {

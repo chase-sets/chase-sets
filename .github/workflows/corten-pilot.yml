@@ -2,34 +2,24 @@ name: Corten Pilot
 
 # The Corten pilot (deployables/corten-pilot) is a Cargo workspace of standalone Rust apps that are
 # not deployed and are not part of the platform gates. This check is advisory: it is not a required
-# status check and does not run in the merge queue, so it never blocks a merge. It runs on changes to
-# the pilot and to every source its export reads (the React apps' text, nav and tokens), on main, and
-# once a day, so drift between main and the pilot shows up where it happens. A failure caused by a
-# change elsewhere is noted on that PR and fixed by the pilot's owner (deployables/corten-pilot/AGENTS.md).
+# status check (main requires only "PR Required"), the delivery loop waits only on required checks,
+# and it does not run in the merge queue, so it never blocks a merge.
+#
+# It runs on every pull request and every push to main, except changes to documentation alone, so
+# drift between main and the pilot shows up on the PR that causes it rather than days later. The
+# pilot's export reads the React apps' text, nav and tokens through their TypeScript imports, which
+# reach most of the workspace, so a path list would miss causes. A failure caused by a change
+# elsewhere is noted on that PR and fixed by the pilot's owner (deployables/corten-pilot/AGENTS.md).
 on:
   pull_request:
-    paths:
-      - "deployables/corten-pilot/**"
-      - "deployables/marketplace/**"
-      - "deployables/admin-web/**"
-      - "deployables/public-web/**"
-      - "bounded-contexts/**"
-      - "contracts/**"
-      - "packages/design-system/**"
-      - "infrastructure/platform-runtime/**"
-      - ".github/workflows/corten-pilot.yml"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   push:
     branches: ["main", "pilot/corten"]
-    paths:
-      - "deployables/corten-pilot/**"
-      - "deployables/marketplace/**"
-      - "deployables/admin-web/**"
-      - "deployables/public-web/**"
-      - "bounded-contexts/**"
-      - "contracts/**"
-      - "packages/design-system/**"
-      - "infrastructure/platform-runtime/**"
-      - ".github/workflows/corten-pilot.yml"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   schedule:
     - cron: "17 11 * * *"
   workflow_dispatch: {}

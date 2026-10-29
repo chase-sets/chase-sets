@@ -136,8 +136,9 @@ node scripts/measure.mjs screen=<screen> marketplace=http://localhost:7753 pilot
 ```
 
 `corten check` needs TypeScript on the `PATH` to type-check the apps' scripts (CI puts the repo's
-`node_modules/.bin` there). One image per app: `docker build --build-arg APP=marketplace .`
-(or `admin`, `public`); nothing deploys it.
+`node_modules/.bin` there). The pilot has no image and nothing deploys it: the root `.dockerignore`
+keeps it out of the platform image, and a `deployables/*/Dockerfile` would make every pilot PR build
+and preview the platform.
 
 | Variable | Default | |
 |---|---|---|
@@ -236,7 +237,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10606 [platform-operations] Give the Operations Attention queue's Open links their admin section (every one is a 404)](https://github.com/chase-sets/chase-sets/issues/10606) | [admin/src/operations/mod.rs](admin/src/operations/mod.rs), [scripts/smoke-operations-attention.mjs](scripts/smoke-operations-attention.mjs) |
 | [chase-sets/chase-sets#10607 [platform-operations] Register and publish the Operations Attention realtime topic (the API refuses it, so the queue never goes live)](https://github.com/chase-sets/chase-sets/issues/10607) | [admin/src/operations/mod.rs](admin/src/operations/mod.rs), [scripts/smoke-operations-attention.mjs](scripts/smoke-operations-attention.mjs) |
 | [chase-sets/chase-sets#10609 [discovery] Search answers 500 on the first request after a quiet minute](https://github.com/chase-sets/chase-sets/issues/10609) | [scripts/smoke-market-search.mjs](scripts/smoke-market-search.mjs) |
-| [chase-sets/chase-sets#10610 [discovery] Search says No items found when the search read fails](https://github.com/chase-sets/chase-sets/issues/10610) | [marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs) |
 | [chase-sets/chase-sets#10612 [discovery] Answer an unknown set page with 404, and a failed set read with 5xx, not 200](https://github.com/chase-sets/chase-sets/issues/10612) | [scripts/smoke-market-set.mjs](scripts/smoke-market-set.mjs), [marketplace/src/sets.rs](marketplace/src/sets.rs) |
 | [chase-sets/chase-sets#10614 [discovery] Tell a visitor their listing report was received (the page ignores ?reported=1)](https://github.com/chase-sets/chase-sets/issues/10614) | [marketplace/src/public_listing.rs](marketplace/src/public_listing.rs) |
 | [chase-sets/chase-sets#10615 [discovery] A repeat listing report shows a 500 page instead of saying it was already reported](https://github.com/chase-sets/chase-sets/issues/10615) | [marketplace/src/public_listing.rs](marketplace/src/public_listing.rs) |
@@ -293,5 +293,6 @@ None of them leaves a workaround behind:
 | [chase-sets/chase-sets#10504 [checkout] Return Cart readiness, subtotal and savings from the cart read](https://github.com/chase-sets/chase-sets/issues/10504) | [marketplace/src/cart.rs](marketplace/src/cart.rs) |
 | [chase-sets/chase-sets#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520) | [scripts/smoke-catalog.mjs](scripts/smoke-catalog.mjs) |
 | [chase-sets/chase-sets#10558 [discovery] Return item-detail Listings and Offers in canonical order with each product's lowest Listing and best Offer](https://github.com/chase-sets/chase-sets/issues/10558) | [marketplace/src/items.rs](marketplace/src/items.rs) |
+| [chase-sets/chase-sets#10610 [discovery] Search says No items found when the search read fails](https://github.com/chase-sets/chase-sets/issues/10610) | [marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs) |
 | [chase-sets/chase-sets#10686 [auth] Password sign-in failures through the web hosts share one IP bucket: five wrong passwords lock everyone out for five minutes](https://github.com/chase-sets/chase-sets/issues/10686) | [marketplace/src/sign_in.rs](marketplace/src/sign_in.rs), [scripts/smoke-sign-in.mjs](scripts/smoke-sign-in.mjs) |
 | [chase-sets/chase-sets#10687 [auth] A return address or magic-link path starting with /\ passes Auth's same-site check and leads to another site after sign-in](https://github.com/chase-sets/chase-sets/issues/10687) | [marketplace/src/sign_in.rs](marketplace/src/sign_in.rs) |

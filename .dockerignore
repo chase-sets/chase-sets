@@ -10,6 +10,8 @@ node_modules
 **/*.tfstate
 **/*.tfstate.*
 infrastructure/digitalocean
+# The Corten pilot is not deployed and is not part of the platform image (deployables/corten-pilot/AGENTS.md).
+deployables/corten-pilot
 .env
 .env.*
 !.env.example

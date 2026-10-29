@@ -42,6 +42,7 @@
   "page.dynamic.filter.label": "{facet}: {value}",
   "page.english": "English",
   "page.error": "Error",
+  "page.results.error.description": "Search results could not load. Try again in a moment.",
   "page.any.market.activity": "Any market activity",
   "page.facet.choices": "{facet} choices",
   "page.facet.option.search.empty": "No matching {facet} options",

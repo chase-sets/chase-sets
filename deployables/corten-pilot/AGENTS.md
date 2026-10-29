@@ -8,7 +8,9 @@ share.
 Owner: Todd Skelton. The pilot is worked in its own Codex task (the "Corten pilot" thread), not by
 the delivery loop: a lane does not take pilot work, and a lane whose change makes the advisory
 `corten-pilot.yml` check fail notes it on its PR instead of fixing the pilot. Keep it isolated: it is
-not deployed and is not part of the platform gates. Business
+not deployed and is not part of the platform gates. The root `.dockerignore` keeps it out of the
+platform image; do not add a `Dockerfile` here, since `deployables/*/Dockerfile` makes every pilot
+PR build and preview the platform. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
 apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` only on purpose, in its
@@ -25,7 +27,8 @@ For recipes (pages, forms with validation, handlers, live data, styles, tests), 
 skill: https://github.com/todd-skelton/corten/tree/main/skills/corten. Install it with your
 agent's skill installer, or read it there.
 
-1. Pages are handlers that return `req.page(title, view)`. Markup lives in `html!` in Rust, never
+1. Pages are handlers that return `req.page(html! { <Layout ..>..</Layout> })`: the document,
+   its title and its head are components (`views::Layout`). Markup lives in `html!` in Rust, never
    in strings. A piece of markup used twice is a `#[component]`.
 2. A form that updates part of a page has `data-patch`; its handler answers `req.patch(view)`
    when `req.mode == Mode::Action` and the whole page otherwise, so it works without JavaScript.
