@@ -419,7 +419,12 @@ describe("Catalog Item projections", () => {
           current,
         ] as never,
     });
-    const older = { ...current, timing: { recordedAt: "2026-05-17T00:01:00.000Z" } } as never;
+    const older = {
+      type: "catalog.catalog-item.metadata-revised",
+      streamId: "catalog.item-cat_guard",
+      data: { languageCode: "en", title: "Current", subtitle: null, description: "Current" },
+      timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+    } as never;
     await handlers["catalog.catalog-item.metadata-revised"]?.(older, {
       readSourceStreamHistory: async () =>
         [
