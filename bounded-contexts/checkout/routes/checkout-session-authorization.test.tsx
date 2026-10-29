@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,8 +198,7 @@ const savedInstrument = {
 
 let router: ReturnType<typeof createMemoryRouter> | undefined;
 let unmount: (() => void) | undefined;
-const nativeRequestSubmit = HTMLFormElement.prototype.requestSubmit;
-let submitListener: ((event: SubmitEvent) => void) | undefined;
+let requestSubmitSpy: ReturnType<typeof vi.spyOn> | undefined;
 
 function routeApi(session = checkoutSession(), withSavedInstrument = false) {
   mockGetCheckoutSession.mockResolvedValue(session);
@@ -238,26 +237,21 @@ async function mount(initialEntry: string) {
     { initialEntries: [initialEntry] },
   );
   await settleRouter();
-  submitListener = (event) => {
-    event.preventDefault();
-    const form = event.target as HTMLFormElement;
-    const formData = new FormData(form);
-    const submitter = event.submitter as HTMLButtonElement | HTMLInputElement | null;
-    if (submitter?.name) {
-      formData.set(submitter.name, submitter.value);
-    }
-    void router!.navigate(router!.state.location.pathname + router!.state.location.search, {
-      formMethod: "post",
-      formData,
-    });
-  };
-  document.addEventListener("submit", submitListener);
   const rendered = render(<RouterProvider router={router} />);
   unmount = rendered.unmount;
   await settleRouter();
 }
 
+async function settlePhase() {
+  await settleRouter();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expectNoCheckoutWrites();
+}
+
 function expectNoCheckoutWrites() {
+  expect(requestSubmitSpy).not.toHaveBeenCalled();
   expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   expect(mockSelectShippingOption).not.toHaveBeenCalled();
   expect(mockSelectShippingAddress).not.toHaveBeenCalled();
@@ -267,6 +261,7 @@ function expectNoCheckoutWrites() {
 
 describe("checkout session authorization through the data router", () => {
   beforeEach(() => {
+    requestSubmitSpy = vi.spyOn(HTMLFormElement.prototype, "requestSubmit");
     applyCheckoutRouteMockDefaults();
     vi.stubGlobal(
       "fetch",
@@ -282,12 +277,6 @@ describe("checkout session authorization through the data router", () => {
     mockCreateIdentityRequestApiClient.mockReturnValue({});
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateOrderingRequestApiClient.mockReturnValue({});
-    Object.defineProperty(HTMLFormElement.prototype, "requestSubmit", {
-      configurable: true,
-      value(submitter: HTMLElement | null = null) {
-        this.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter }));
-      },
-    });
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("1", "evt_shipping"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("2", "evt_address"));
     mockSelectAuthenticityCheckOptIn.mockResolvedValue(checkoutCommit("3", "evt_authenticity"));
@@ -305,45 +294,67 @@ describe("checkout session authorization through the data router", () => {
     router?.dispose();
     router = undefined;
     unmount = undefined;
-    if (submitListener) document.removeEventListener("submit", submitListener);
-    submitListener = undefined;
     cleanup();
-    Object.defineProperty(HTMLFormElement.prototype, "requestSubmit", {
-      configurable: true,
-      value: nativeRequestSubmit,
-    });
+    requestSubmitSpy?.mockRestore();
+    requestSubmitSpy = undefined;
     vi.resetAllMocks();
     vi.unstubAllGlobals();
   });
 
   it.each([
-    ["guest", guestCheckoutActor(), false],
-    ["signed-in", signedInActor, false],
-    ["saved-method", signedInActor, true],
-  ] as const)("navigation does not authorize checkout for %s", async (_kind, actor, withSavedInstrument) => {
-    mockResolveActorFromAuthApi.mockResolvedValue(actor);
-    routeApi(checkoutSession(), withSavedInstrument);
+    ["cart", "guest", guestCheckoutActor(), false],
+    ["cart", "signed-in", signedInActor, false],
+    ["cart", "saved-method", signedInActor, true],
+    ["buy-now", "guest", guestCheckoutActor(), false],
+    ["buy-now", "signed-in", signedInActor, false],
+    ["buy-now", "saved-method", signedInActor, true],
+  ] as const)(
+    "navigation does not authorize checkout for %s %s",
+    async (sourceType, _kind, actor, withSavedInstrument) => {
+      mockResolveActorFromAuthApi.mockResolvedValue(actor);
+      routeApi(checkoutSession(sourceType), withSavedInstrument);
 
-    await mount("/checkout/buy/session/chk_route_matrix");
-    expect(screen.getAllByRole("heading", { name: /checkout/i }).length).toBeGreaterThan(0);
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-    expectNoCheckoutWrites();
+      const sessionPath = "/checkout/buy/session/chk_route_matrix";
+      await mount(sessionPath);
+      expect(screen.getAllByRole("heading", { name: /checkout/i }).length).toBeGreaterThan(0);
+      await settlePhase();
 
-    await act(async () => {
-      await router!.revalidate();
-      await settleRouter();
-      await router!.navigate("/checkout/buy/session/chk_route_matrix");
-      await settleRouter();
-      await router!.navigate("/checkout/buy/session/chk_route_matrix?resumePaymentStart=1");
-      await settleRouter();
-      await router!.navigate("/checkout/buy/session/chk_route_matrix?edit=delivery");
-      await settleRouter();
-    });
+      await act(async () => {
+        await router!.revalidate();
+      });
+      await settlePhase();
 
-    expectNoCheckoutWrites();
-  });
+      unmount?.();
+      const remounted = render(<RouterProvider router={router!} />);
+      unmount = remounted.unmount;
+      await settlePhase();
+
+      await act(async () => {
+        await router!.navigate(sessionPath);
+      });
+      await settlePhase();
+
+      await act(async () => {
+        await router!.navigate(`${sessionPath}?measurement=1`);
+      });
+      await settlePhase();
+
+      await act(async () => {
+        await router!.navigate(-1);
+      });
+      await settlePhase();
+
+      await act(async () => {
+        await router!.navigate(`${sessionPath}?resumePaymentStart=1`);
+      });
+      await settlePhase();
+
+      await act(async () => {
+        await router!.navigate(`${sessionPath}?edit=delivery`);
+      });
+      await settlePhase();
+    },
+  );
 
   it("only Pay commits a fresh checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInActor);
@@ -352,11 +363,18 @@ describe("checkout session authorization through the data router", () => {
     await mount("/checkout/buy/session/chk_route_matrix");
     const payButtons = screen.getAllByRole("button", { name: /pay now/i });
     expect(payButtons.length).toBeGreaterThan(0);
+    expect((payButtons[0] as HTMLButtonElement).disabled).toBe(false);
 
     await userEvent.click(payButtons[0]);
-    // jsdom does not implement the native requestSubmit default action; the click above
-    // selects the visible Pay control, and this submits that same form through the router.
-    fireEvent.submit(document.getElementById("checkout-confirmation-form")!, { submitter: payButtons[0] });
+    const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement;
+    const formData = new FormData(form);
+    formData.set("intent", payButtons[0].getAttribute("value") ?? "confirm-checkout");
+    await act(async () => {
+      await router!.navigate(router!.state.location.pathname + router!.state.location.search, {
+        formMethod: "post",
+        formData,
+      });
+    });
     await settleRouter();
 
     expect(mockSelectShippingOption).toHaveBeenCalledTimes(1);
