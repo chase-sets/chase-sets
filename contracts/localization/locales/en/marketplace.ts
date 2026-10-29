@@ -1,4 +1,21 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
+  "marketplace.features.listings.capacityRecovery.waiting":
+    "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",
+  "marketplace.features.listings.capacityRecovery.summary":
+    "Listing {reference} could not resume after inventory capacity returned. {action}",
+  "marketplace.features.listings.capacityRecovery.evidence":
+    "Review the Listing evidence checklist, correct unmet requirements, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.away":
+    "Turn Seller Listing Availability back on, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.visibility":
+    "Review the Listing's native visibility and fee enrollment before publishing.",
+  "marketplace.features.listings.capacityRecovery.measure":
+    "Resolve the Product's shipping measure, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.price":
+    "Set a complete price and currency before publishing this Listing.",
+  "marketplace.features.listings.capacityRecovery.unavailable":
+    "Publication checks are unavailable. Open this Listing and retry publication when checks are available.",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
   "marketplace.marketFollowing.itemOnly":

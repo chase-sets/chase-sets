@@ -125,6 +125,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
   recordDiscoveryQueryEmbeddingLoad,
+  recordDiscoverySearchRetrievalFailure,
   recordProjectionInterestIndexLookup,
   recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
@@ -276,13 +277,7 @@ const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-  const marketplaceServices = runtime?.services.marketplace as
-    | {
-        listings?: {
-          createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-        };
-      }
-    | undefined;
+  const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
   const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
   if (!createDraft) {
     throw new Error("Marketplace draft listing service is unavailable.");
@@ -345,6 +340,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       searchTelemetry: {
         recordSearchQuery: recordDiscoverySearchQuerySignal,
         recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+        recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
       },
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },

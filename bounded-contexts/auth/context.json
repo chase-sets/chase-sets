@@ -5,7 +5,7 @@
   "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
-  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"],
+  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "service-actors", "sessions", "sign-in"],
   "allowedSupportDirectories": [
     "api-support",
     "auth-support",
@@ -799,6 +799,11 @@
       "purpose": "Own registration feature behavior, read models, and UI contracts for the auth context.",
       "expectedConsumers": ["Internal auth module composition"]
     },
+    "service-actors": {
+      "classification": "slice",
+      "purpose": "Own staging service-actor credential parsing and receipt-lookup actor resolution for the auth context.",
+      "expectedConsumers": ["Auth server composition", "Channels eBay receipt actor client"]
+    },
     "sessions": {
       "classification": "slice",
       "purpose": "Own sessions feature behavior, read models, and UI contracts for the auth context.",
@@ -817,7 +822,7 @@
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "request-support": {
       "classification": "support",

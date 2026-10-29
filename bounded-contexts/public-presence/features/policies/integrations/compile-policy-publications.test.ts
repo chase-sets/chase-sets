@@ -495,7 +495,7 @@ describe("public policy corpus compiler", () => {
     // ratified-decision and shipped-control review-text reconciliation.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:4b0f5c740fc3875acc518c964a675d931143320fda34bc44a6f11e135f0c61f8");
+    ).toBe("sha256:f7017190f077c3fec907653d167e0a590021819f81d82e1321c45c3ef1692539");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

@@ -72,6 +72,51 @@ describeDb("marketplace schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("ledgers fresh and amount-only supply upgrades without inventing acquisition currency", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    expect(await readColumnNames(pool, "marketplace_supply_items")).toContain("acquisition_cost_currency_code");
+    const migrationId = "20261028_marketplace_supply_acquisition_cost_currency";
+    expect(
+      (
+        await pool.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+    await pool.query(`ALTER TABLE marketplace_supply_items DROP COLUMN acquisition_cost_currency_code;
+      INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity, acquisition_cost_amount)
+      VALUES ('inv_amount_only', 'acc_legacy', 'cat_legacy', 'cat_legacy::', 'loc_legacy', 2, 5.25)`);
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    // Execute the registered migration independently: boot SQL must not mask a missing ledger statement.
+    const migration = marketplaceModule.schemaMigrations?.find((entry) => entry.migrationId === migrationId);
+    expect(migration).toBeDefined();
+    for (const statement of migration!.statements ?? []) await pool.query(statement);
+    expect(
+      (
+        await pool.query(
+          "SELECT acquisition_cost_amount::text, acquisition_cost_currency_code FROM marketplace_supply_items WHERE item_id = 'inv_amount_only'",
+        )
+      ).rows,
+    ).toEqual([{ acquisition_cost_amount: "5.25", acquisition_cost_currency_code: null }]);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    expect(
+      (
+        await pool.query(
+          "SELECT acquisition_cost_amount::text, acquisition_cost_currency_code FROM marketplace_supply_items WHERE item_id = 'inv_amount_only'",
+        )
+      ).rows,
+    ).toEqual([{ acquisition_cost_amount: "5.25", acquisition_cost_currency_code: null }]);
+    expect(
+      (
+        await pool.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+  });
+
   it("upgrades native fee constraints and projects real channel-only creation, photos and withdrawal without poison", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);

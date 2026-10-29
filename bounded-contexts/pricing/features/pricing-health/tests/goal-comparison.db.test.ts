@@ -133,6 +133,11 @@ describeDb("Pricing Goal comparison whole target scope", () => {
           },
         ],
       },
+      economics: {
+        resolve: async () => {
+          throw new Error("No inventory item is present in this synthetic fixture.");
+        },
+      },
     });
     const queued = await health.compare("acc_7910", "rpp_synthetic_comparison", dryRunContext);
     expect(queued).toHaveLength(1);

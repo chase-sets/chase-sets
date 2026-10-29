@@ -12,7 +12,7 @@ import {
   resolveLocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
-import type { BlueprintId, CategoryId, FieldId } from "../../../ids";
+import type { BlueprintId, CategoryId } from "../../../ids";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -38,6 +38,7 @@ import {
 import {
   getCatalogItemByGtin,
   getCatalogItemDetail,
+  getCatalogItemPublicationBlueprint,
   loadCatalogItemPublicationIdentityRows,
   listCatalogItemsForBulkEdit,
   listCatalogItemBulkRows,
@@ -130,6 +131,17 @@ export class CatalogItemPublicationError extends CatalogDomainError {
     this.code = code;
     this.readiness = readiness;
     this.missingTokens = missingTokens;
+  }
+}
+
+export class CatalogItemPublicationPreconditionError extends CatalogDomainError {
+  public readonly code = "publication-precondition" as const;
+  public readonly missingFieldIds: readonly string[];
+
+  public constructor(message: string, missingFieldIds: readonly string[] = []) {
+    super(message);
+    this.name = "CatalogItemPublicationPreconditionError";
+    this.missingFieldIds = missingFieldIds;
   }
 }
 
@@ -320,6 +332,24 @@ function createCatalogItemCommandHandler(
     const itemId = loaded.state.id;
     if (!itemId) {
       return aggregateCommandHandler(input);
+    }
+
+    const blueprintId = loaded.state.blueprintId;
+    const blueprint = blueprintId
+      ? await getCatalogItemPublicationBlueprint(deps.db, blueprintId).catch(() => undefined)
+      : null;
+    if (blueprint === undefined) {
+      throw new CatalogItemPublicationError("unavailable");
+    }
+    const precondition = publicationPreconditionForRow({
+      status: loaded.state.status,
+      blueprint_id: blueprintId,
+      blueprint_status: blueprint?.blueprint_status ?? null,
+      blueprint_field_rules: blueprint?.blueprint_field_rules ?? null,
+      field_values: loaded.state.fieldValues,
+    });
+    if (precondition) {
+      throw new CatalogItemPublicationPreconditionError(precondition.reason, precondition.missingFieldIds);
     }
 
     const firstRows = await loadCatalogItemPublicationIdentityRows(deps.db, [itemId]).catch(() => new Map());
@@ -616,8 +646,6 @@ async function publishBulk(
         streamId: `catalog.item-${candidate.catalog_item_id}`,
         command: {
           type: "PublishCatalogItem",
-          blueprintIsActive: true,
-          requiredFieldIds: candidate.required_field_ids as readonly FieldId[],
         },
         context,
       });
@@ -730,26 +758,12 @@ function classifyBulkPublishCandidate(
   readiness: EvaluatedPublicationReadiness,
 ): BulkPublishCandidate {
   const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
-  const populatedFieldIds = new Set(
-    asArray<FieldValue>(row.field_values)
-      .map((fieldValue) => fieldValue.fieldId)
-      .filter(Boolean),
-  );
-  const missingRequiredFieldIds = requiredFieldIds.filter((fieldId) => !populatedFieldIds.has(fieldId));
   let reason: string | null = null;
   let reasonCode: CatalogItemPublicationReasonCode | null = null;
 
-  if (row.status !== "draft") {
-    reason = "Only draft Catalog Items can be bulk published.";
-    reasonCode = "publication-precondition";
-  } else if (!row.blueprint_id) {
-    reason = "Catalog Item requires a blueprint before publish.";
-    reasonCode = "publication-precondition";
-  } else if (row.blueprint_status !== "active") {
-    reason = "Catalog Item blueprint must be active before publish.";
-    reasonCode = "publication-precondition";
-  } else if (missingRequiredFieldIds.length > 0) {
-    reason = `Missing required field values: ${missingRequiredFieldIds.join(", ")}.`;
+  const precondition = publicationPreconditionForRow(row);
+  if (precondition) {
+    reason = precondition.reason;
     reasonCode = "publication-precondition";
   } else if (readiness.status !== "current-resolved") {
     reason = publicationReadinessMessage(readiness.status, readiness.missing_tokens);
@@ -772,6 +786,35 @@ function classifyBulkPublishCandidate(
     missing_tokens: readiness.missing_tokens,
     required_field_ids: requiredFieldIds,
   };
+}
+
+function publicationPreconditionForRow(
+  row: Pick<
+    BulkPublishCatalogItemRow,
+    "status" | "blueprint_id" | "blueprint_status" | "blueprint_field_rules" | "field_values"
+  >,
+): Readonly<{ reason: string; missingFieldIds: readonly string[] }> | null {
+  const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
+  const populatedFieldIds = new Set(
+    asArray<FieldValue>(row.field_values)
+      .map((fieldValue) => fieldValue.fieldId)
+      .filter(Boolean),
+  );
+  const missingFieldIds = requiredFieldIds.filter((fieldId) => !populatedFieldIds.has(fieldId));
+
+  if (row.status !== "draft") {
+    return { reason: "Only draft Catalog Items can be bulk published.", missingFieldIds: [] };
+  }
+  if (!row.blueprint_id) {
+    return { reason: "Catalog Item requires a blueprint before publish.", missingFieldIds: [] };
+  }
+  if (row.blueprint_status !== "active") {
+    return { reason: "Catalog Item blueprint must be active before publish.", missingFieldIds: [] };
+  }
+  if (missingFieldIds.length > 0) {
+    return { reason: `Missing required field values: ${missingFieldIds.join(", ")}.`, missingFieldIds };
+  }
+  return null;
 }
 
 function requiredFieldIdsFromBlueprint(fieldRules: unknown): string[] {

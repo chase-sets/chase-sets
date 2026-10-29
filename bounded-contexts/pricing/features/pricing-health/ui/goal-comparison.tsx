@@ -1,6 +1,19 @@
 import type { ReactNode } from "react";
-import { formatDateTime, formatMoney } from "@chase-sets/localization";
-import { Banner, Card, DataTable, Fieldset, LinkButton, Stack, Text } from "@chase-sets/design-system";
+import { formatDateTime, formatMoney, hasTranslation } from "@chase-sets/localization";
+import {
+  Banner,
+  Card,
+  DataTable,
+  Fieldset,
+  KeyValueList,
+  LinkButton,
+  ProgressiveDisclosure,
+  Stack,
+  Text,
+  TextInput,
+} from "@chase-sets/design-system";
+import { useState } from "react";
+import type { NavigateFunction } from "react-router";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import {
   goalExplanation,
@@ -9,11 +22,36 @@ import {
   healthNumber,
   healthPercent,
   healthReasonLabel,
+  localizedEconomicsFact,
+  localizedEconomicsReason,
+  localizedEconomicsSource,
   localizedGoalStatus,
   recommendationCopy,
 } from "./copy";
 
-export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>) {
+export function GoalPicker({
+  goals,
+  navigate,
+}: Readonly<{ goals: readonly GoalChoice[]; navigate?: NavigateFunction }>) {
+  const [parameters, setParameters] = useState(() =>
+    Object.fromEntries(goals.map((goal) => [`${goal.goalId}@${goal.goalVersion}`, { ...goal.parameters }])),
+  );
+  const updateUrl = (next: typeof parameters) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set(
+      "goals",
+      JSON.stringify(
+        goals.map((goal) => ({
+          goalId: goal.goalId,
+          goalVersion: goal.goalVersion,
+          parameters: next[`${goal.goalId}@${goal.goalVersion}`] ?? goal.parameters,
+        })),
+      ),
+    );
+    if (navigate) void navigate(`${url.pathname}${url.search}`, { replace: true });
+    else window.history.replaceState({}, "", url);
+  };
   return (
     <Card elevation="tinted" data-testid="pricing-health-goal-picker">
       <Card.Header>
@@ -25,16 +63,112 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
           <Banner tone="info" title={copy("goals.empty")} />
         ) : (
           <Stack gap={3}>
-            {goals.map((goal) => (
-              <Fieldset key={`${goal.goalId}@${goal.goalVersion}`} legend={goalLabel(goal)}>
-                <Text size="sm">{goalExplanation(goal)}</Text>
-              </Fieldset>
-            ))}
+            {goals.map((goal) => {
+              const key = `${goal.goalId}@${goal.goalVersion}`;
+              const current = parameters[key] ?? goal.parameters;
+              return (
+                <Fieldset key={key} legend={goalLabel({ ...goal, parameters: current })}>
+                  <Text size="sm">{goalExplanation({ ...goal, parameters: current })}</Text>
+                  <ProgressiveDisclosure
+                    title={copy("goals.advanced")}
+                    panelLabel={copy("goals.confirm.goal", {
+                      goal: goalLabel({ ...goal, parameters: current }),
+                      version: goal.goalVersion,
+                    })}
+                  >
+                    <Stack gap={2}>
+                      {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
+                        const value = current[parameter] ?? bounds.default;
+                        const invalid = !Number.isFinite(value) || value < bounds.minimum || value > bounds.maximum;
+                        return (
+                          <TextInput
+                            key={parameter}
+                            type="number"
+                            label={healthCopyParameterLabel(goal, parameter)}
+                            name={`goal.${goal.goalId}.${goal.goalVersion}.${parameter}`}
+                            value={Number.isNaN(value) ? "" : String(value)}
+                            min={bounds.minimum}
+                            max={bounds.maximum}
+                            step="any"
+                            error={invalid ? copy("goals.validation") : undefined}
+                            onChange={(event) => {
+                              const next = {
+                                ...parameters,
+                                [key]: { ...current, [parameter]: Number(event.target.value) },
+                              };
+                              setParameters(next);
+                              const nextValues = next[key] ?? current;
+                              if (
+                                Object.entries(goal.parameterSchema).every(([name, schema]) => {
+                                  const candidate = nextValues[name];
+                                  return (
+                                    Number.isFinite(candidate) &&
+                                    candidate >= schema.minimum &&
+                                    candidate <= schema.maximum
+                                  );
+                                })
+                              )
+                                updateUrl(next);
+                            }}
+                          />
+                        );
+                      })}
+                    </Stack>
+                    {goal.requiresEconomics ? (
+                      <>
+                        <Text size="sm">
+                          {goal.economics?.availability === "resolved"
+                            ? copy("goals.economics.provenance")
+                            : goal.economics?.availability === "unavailable"
+                              ? copy("goals.economics.unavailableReason", {
+                                  reason: localizedEconomicsReason(goal.economics.reason ?? "unknown"),
+                                })
+                              : copy("goals.economics.unavailable")}
+                        </Text>
+                        {goal.economics?.facts ? (
+                          <KeyValueList
+                            items={Object.entries(goal.economics.facts).map(([name, fact]) => ({
+                              key: localizedEconomicsFact(name),
+                              value: `${formatFactValue(name, fact.effectiveValue)} · ${localizedEconomicsSource(
+                                fact.source,
+                              )}${fact.sourceReason ? ` · ${localizedEconomicsReason(fact.sourceReason)}` : ""}${
+                                fact.override ? ` · ${copy("goals.economics.override")}` : ""
+                              } · ${formatDateTime(fact.observedAt)}`,
+                            }))}
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      <Text size="sm">{copy("goals.economics.default")}</Text>
+                    )}
+                  </ProgressiveDisclosure>
+                </Fieldset>
+              );
+            })}
           </Stack>
         )}
       </Card.Body>
     </Card>
   );
+}
+
+function healthCopyParameterLabel(goal: GoalChoice, parameter: string): string {
+  const key = `pricing.features.pricingHealth.goals.parameter.${goal.goalId}.${parameter}`;
+  return hasTranslation(key) ? copy(`goals.parameter.${goal.goalId}.${parameter}`) : copy("goals.label.generic");
+}
+
+function formatFactValue(name: string, value: unknown): string {
+  if (value === null) return copy("unavailable");
+  if (value && typeof value === "object" && "amount" in value && "currency" in value) {
+    const money = value as { amount: string; currency: string };
+    return formatMoney(money.amount, money.currency);
+  }
+  if (typeof value === "number") {
+    if (name.endsWith("Bps")) return healthPercent(value / 10_000);
+    if (name === "dailyReturnHurdle") return healthPercent(value);
+    return healthNumber(value);
+  }
+  return String(value);
 }
 
 export function GoalComparison({

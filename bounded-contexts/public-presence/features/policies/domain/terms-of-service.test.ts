@@ -9,6 +9,7 @@ import {
   termsOfServicePolicyArtifact,
   type TermsOfServiceSubjectId,
 } from "./terms-of-service";
+import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting-differences";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
 
@@ -50,7 +51,34 @@ describe("Terms drift reconciliation", () => {
     expect(content).toContain("counsel");
     expect(content).not.toMatch(/No prior IP-license|not-yet-made decision/);
   });
+
+  it("removes the unratified injunctive-relief carve-out and preserves the authorized open question", () => {
+    const section = termsSection("dispute-resolution-with-platform");
+    const errors = arbitrationCarveoutErrors(section.draftText, section.reviewManifest.openQuestions);
+    expect(errors).toEqual([]);
+
+    const mutatedDraft = section.draftText.replace(
+      "except that either party may bring an individual claim in small-claims court if it qualifies.",
+      "except that either party may bring an individual claim in small-claims court if it qualifies, and either party may seek injunctive relief in court.",
+    );
+    expect(arbitrationCarveoutErrors(mutatedDraft, section.reviewManifest.openQuestions)).toContain(
+      "unratified injunctive-relief carve-out remains in the draft",
+    );
+  });
 });
+
+function arbitrationCarveoutErrors(draftText: string, openQuestions: readonly string[]): readonly string[] {
+  const errors: string[] = [];
+  if (/injunctive relief/i.test(draftText)) errors.push("unratified injunctive-relief carve-out remains in the draft");
+  const authorization = openQuestions.join(" ");
+  if (!authorization.includes("removed under this question's recorded authorization")) {
+    errors.push("removal authorization is not recorded");
+  }
+  if (!authorization.includes("adding one later needs a #5681 amendment")) {
+    errors.push("#5681 amendment requirement is not recorded");
+  }
+  return errors;
+}
 
 /** Resolves every comma-separated range of a `path:ranges` citation, one slice per range. */
 function citedRanges(reference: string): readonly { range: string; text: string }[] {

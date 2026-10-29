@@ -35,6 +35,7 @@ const candidate = buildMergeQualificationCandidate({
   candidateSha: sha,
   candidateTreeSha: "e".repeat(40),
   builtImageDigest: `sha256:${"f".repeat(64)}`,
+  policyRevision: revision,
   capturedAt: "2026-07-21T10:00:00Z",
 }).record;
 const run = {
@@ -579,16 +580,15 @@ describe("original revision recovery", () => {
       { run: { ...run, event: "workflow_run" } },
       { run: { ...run, display_title: "Merge Qualification merge_group 20-1" } },
     ]) {
-      expect(
-        recoverMergeQualificationDecision({
-          run,
-          parentRun,
-          candidate,
-          policyContent: policy,
-          policyRevision: revision,
-          ...override,
-        }).errors.length,
-      ).toBeGreaterThan(0);
+      const result = recoverMergeQualificationDecision({
+        run,
+        parentRun,
+        candidate,
+        policyContent: policy,
+        policyRevision: revision,
+        ...override,
+      });
+      expect(result.errors.length).toBeGreaterThan(0);
     }
   });
   it("recovers original disabled policy without discovering a candidate", () => {
@@ -1096,6 +1096,8 @@ describe("candidate publication byte contract", () => {
             path.join(dir, "queue.json"),
             "--queue-base-sha",
             candidate.queueBaseSha,
+            "--policy-revision",
+            candidate.policyRevision,
             "--built-image-digest",
             digest,
             "--captured-at",

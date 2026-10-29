@@ -15,7 +15,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => ({
 import Route, { action, loader } from "../../../routes/marketplace/account-support-detail";
 
 const actor = evidenceActor("viewer", ["support.view", "support.manage"]);
-import { supportParticipantDetailFixture as detail } from "./participant-router.test-data";
+import { supportParticipantDetailFixture as detail, withParticipantPolicy } from "./participant-router.test-data";
 function mount() {
   const router = createMemoryRouter([{ path: "/account/support/:id", loader, action, element: <Route /> }], {
     initialEntries: ["/account/support/sup_router"],
@@ -44,13 +44,18 @@ describe("real-router transition/accessibility/reload matrix", () => {
         });
       }
       return new Response(
-        JSON.stringify({
-          ...detail(),
-          checklist: [],
-          flow_type: "product-damaged",
-          flow: getSupportFlowDefinition("product-damaged"),
-          status: reflected ? "waiting-on-buyer" : "waiting-on-seller",
-        }),
+        JSON.stringify(
+          withParticipantPolicy(
+            {
+              ...detail(),
+              checklist: [],
+              flow_type: "product-damaged",
+              flow: getSupportFlowDefinition("product-damaged"),
+              status: reflected ? "waiting-on-buyer" : "waiting-on-seller",
+            },
+            "acc_seller",
+          ),
+        ),
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -130,7 +135,9 @@ describe("real-router transition/accessibility/reload matrix", () => {
           },
         ] as never;
       }
-      return new Response(JSON.stringify(request), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify(withParticipantPolicy(request, "acc_buyer")), {
+        headers: { "content-type": "application/json" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     const router = mount();

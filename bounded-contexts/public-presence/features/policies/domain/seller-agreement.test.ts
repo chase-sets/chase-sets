@@ -7,8 +7,124 @@ import {
   requiredSellerAgreementSubjectIds,
   sellerAgreementPolicyArtifact,
 } from "./seller-agreement";
+import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting-differences";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
+
+function arbitrationSections() {
+  return {
+    terms: termsOfServicePolicyArtifact.sections.find(({ id }) => id === "dispute-resolution-with-platform")!,
+    seller: sellerAgreementPolicyArtifact.sections.find(({ id }) => id === "dispute-resolution")!,
+  };
+}
+
+type ArbitrationSection = {
+  draftText: string;
+  reviewManifest: {
+    scopeNote: string;
+    openQuestions: readonly string[];
+  };
+};
+
+function arbitrationThresholdErrors(
+  termsQuestions: readonly string[],
+  sellerQuestions: readonly string[],
+): readonly string[] {
+  const errors: string[] = [];
+  const text = [termsQuestions.join(" "), sellerQuestions.join(" ")];
+  if (text.some((questions) => !questions.includes("claim threshold") || questions.includes("fee floor"))) {
+    errors.push("both manifests must use claim-threshold wording");
+  }
+  return errors;
+}
+
+function differenceList(section: ArbitrationSection): readonly string[] {
+  return section.reviewManifest.openQuestions.filter((question) => question.startsWith("Counsel difference —"));
+}
+
+function quotedDraft(entry: string, document: "Terms of Service" | "Seller Agreement"): string {
+  const marker = `${document}:`;
+  const markerStart = entry.indexOf(marker);
+  if (markerStart < 0) {
+    return "";
+  }
+
+  const quotedPart = entry.slice(markerStart + marker.length).trimStart();
+  const opening = quotedPart[0];
+  const closing = opening === "“" ? "”" : opening === '"' ? '"' : undefined;
+  if (!closing) {
+    return "";
+  }
+
+  let closingIndex = -1;
+  for (let index = 1; index < quotedPart.length; index += 1) {
+    if (quotedPart[index] !== closing) {
+      continue;
+    }
+    const remainder = quotedPart.slice(index + 1);
+    if (
+      (document === "Terms of Service" && /^\s*\.?\s+Seller Agreement:\s*[“"]/.test(remainder)) ||
+      (document === "Seller Agreement" &&
+        (remainder.trim() === "" || remainder.startsWith(" The Seller Agreement has no separate")))
+    ) {
+      closingIndex = index;
+      break;
+    }
+  }
+  if (closingIndex <= 0) {
+    return "";
+  }
+  return quotedPart.slice(1, closingIndex);
+}
+
+function arbitrationDifferenceErrors(terms: ArbitrationSection, seller: ArbitrationSection): readonly string[] {
+  const errors: string[] = [];
+  const termsDifferences = differenceList(terms);
+  const sellerDifferences = differenceList(seller);
+  if (termsDifferences.length !== unratifiedArbitrationDraftingDifferences.length) {
+    errors.push("Terms manifest must carry the complete difference list");
+  }
+  if (JSON.stringify(termsDifferences) !== JSON.stringify(sellerDifferences)) {
+    errors.push("both manifests must carry one identical difference list");
+  }
+  for (const entry of termsDifferences) {
+    const termsQuote = quotedDraft(entry, "Terms of Service");
+    const sellerQuote = quotedDraft(entry, "Seller Agreement");
+    if (
+      !termsQuote ||
+      !sellerQuote ||
+      !terms.draftText.includes(termsQuote) ||
+      !seller.draftText.includes(sellerQuote)
+    ) {
+      errors.push("every difference must quote both current drafts");
+    }
+  }
+  if (
+    [terms.reviewManifest.scopeNote, seller.reviewManifest.scopeNote].some((note) => /verbatim|uniformly/i.test(note))
+  ) {
+    errors.push("scope notes must not claim verbatim or uniformly text");
+  }
+  return errors;
+}
+
+function ratifiedArbitrationValueErrors(termsDraft: string, sellerDraft: string): readonly string[] {
+  const errors: string[] = [];
+  const required = [
+    ["AAA Consumer Arbitration Rules", "Consumer Arbitration Rules"],
+    ["$10,000", "$10,000"],
+    ["30-day opt-out", "within 30 days"],
+    ["45-day notice", "45 days"],
+    ["small-claims carve-out", "small-claims court"],
+    ["25-demand batching", "25 or more"],
+    ["class waiver", "class, collective, or representative action"],
+    ["jury waiver", "jury trial"],
+  ] as const;
+  for (const [label, fragment] of required) {
+    if (!termsDraft.includes(fragment) || !sellerDraft.includes(fragment))
+      errors.push(`both drafts must retain ${label}`);
+  }
+  return errors;
+}
 
 function resolveIdentityCitation(reference: string) {
   const match = reference.match(/^(bounded-contexts\/identity\/features\/accounts\/domain\/domain\.ts):([0-9,-]+)/);
@@ -137,6 +253,72 @@ describe("Seller Agreement policy artifact", () => {
       const section = sellerAgreementPolicyArtifact.sections.find((candidate) => candidate.id === subjectId);
       expect(section?.reviewManifest.decisionRefs.length ?? 0).toBeGreaterThan(0);
     }
+  });
+
+  it("uses claim-threshold wording rather than fee-floor wording in both arbitration manifests", () => {
+    const sections = arbitrationSections();
+    expect(
+      arbitrationThresholdErrors(
+        sections.terms.reviewManifest.openQuestions,
+        sections.seller.reviewManifest.openQuestions,
+      ),
+    ).toEqual([]);
+
+    const mutated = sections.seller.reviewManifest.openQuestions.map((question) =>
+      question.replace("claim threshold", "fee floor"),
+    );
+    expect(arbitrationThresholdErrors(sections.terms.reviewManifest.openQuestions, mutated)).toContain(
+      "both manifests must use claim-threshold wording",
+    );
+  });
+
+  it("keeps the Terms and Seller Agreement unratified-differences manifest identical and source-linked", () => {
+    const sections = arbitrationSections();
+    expect(arbitrationDifferenceErrors(sections.terms, sections.seller)).toEqual([]);
+
+    const mutatedSeller = {
+      ...sections.seller,
+      draftText: sections.seller.draftText.replace("substantially similar", "different"),
+    };
+    expect(arbitrationDifferenceErrors(sections.terms, mutatedSeller)).toContain(
+      "every difference must quote both current drafts",
+    );
+
+    const firstDifference = differenceList(sections.seller)[0]!;
+    const unquotedSellerDifference = firstDifference.replace('Seller Agreement: "', "Seller Agreement: ").slice(0, -1);
+    const unquotedDifferenceManifest = (section: ArbitrationSection) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.map((question) =>
+          question === firstDifference ? unquotedSellerDifference : question,
+        ),
+      },
+    });
+    expect(
+      arbitrationDifferenceErrors(
+        unquotedDifferenceManifest(sections.terms),
+        unquotedDifferenceManifest(sections.seller),
+      ),
+    ).toContain("every difference must quote both current drafts");
+
+    const forbiddenScope = {
+      ...sections.seller,
+      reviewManifest: { ...sections.seller.reviewManifest, scopeNote: "State the mechanics uniformly for counsel." },
+    };
+    expect(arbitrationDifferenceErrors(sections.terms, forbiddenScope)).toContain(
+      "scope notes must not claim verbatim or uniformly text",
+    );
+  });
+
+  it("preserves every #5681 ratified value in both dispute subjects", () => {
+    const sections = arbitrationSections();
+    expect(ratifiedArbitrationValueErrors(sections.terms.draftText, sections.seller.draftText)).toEqual([]);
+
+    const mutatedTerms = sections.terms.draftText.replace("45 days", "forty-five days");
+    expect(ratifiedArbitrationValueErrors(mutatedTerms, sections.seller.draftText)).toContain(
+      "both drafts must retain 45-day notice",
+    );
   });
 
   it("keeps commercial policy figures out of prose apart from fixed dispute mechanics and the ruled postal address", () => {

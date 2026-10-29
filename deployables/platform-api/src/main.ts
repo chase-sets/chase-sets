@@ -68,6 +68,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
   recordDiscoveryQueryEmbeddingLoad,
+  recordDiscoverySearchRetrievalFailure,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -372,6 +373,7 @@ const runtime = createPlatformApiHost({
     searchTelemetry: {
       recordSearchQuery: recordDiscoverySearchQuerySignal,
       recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+      recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
@@ -633,6 +635,7 @@ const ucpProfileResolver = createUcpProfileResolver({
 });
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
+  receiptLookupActor: config.receiptLookupActor,
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,

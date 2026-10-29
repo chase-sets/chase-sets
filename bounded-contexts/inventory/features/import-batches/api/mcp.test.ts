@@ -256,7 +256,11 @@ describe("inventory import batch MCP handlers", () => {
     const result = await handlers.toolHandlers["inventory.commit-import-batch"]?.({
       actor,
       tool: null as never,
-      arguments: { accountId: actor.accountId, batchId: "imb_1" },
+      arguments: {
+        accountId: actor.accountId,
+        batchId: "imb_1",
+        idempotencyKey: "0cb7e69f-629a-4c25-8f0e-f4e2ac313f3a",
+      },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
     });
@@ -266,6 +270,24 @@ describe("inventory import batch MCP handlers", () => {
       expect.objectContaining({ tenantId: actor.tenantId }),
     );
     expect(fake.commitBatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects commit acceptance without the required idempotency key", async () => {
+    const enqueueCommitBatchJob = vi.fn<InventoryImportBatchServices["enqueueCommitBatchJob"]>();
+    const handlers = createInventoryImportBatchMcpHandlers(
+      { ...services(), enqueueCommitBatchJob },
+      storageLocations(),
+    );
+    await expect(
+      handlers.toolHandlers["inventory.commit-import-batch"]?.({
+        actor,
+        tool: null as never,
+        arguments: { accountId: actor.accountId, batchId: "imb_1" },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toThrow("A caller-created Inventory mutation attempt is required.");
+    expect(enqueueCommitBatchJob).not.toHaveBeenCalled();
   });
 
   it("rejects dry-run writes before mutating import state", async () => {

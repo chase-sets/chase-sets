@@ -103,6 +103,5 @@ export type CheckoutSessionPageProps = {
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
   initialEditSection?: CheckoutEditSection | null;
-  autoResumePaymentStart?: boolean;
   preparedPaymentEntry?: ReactNode;
 };

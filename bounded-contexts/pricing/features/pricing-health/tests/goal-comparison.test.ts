@@ -4,6 +4,7 @@ import {
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
+  validateGoalParameterRequests,
 } from "../api/goal-comparison";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 
@@ -69,6 +70,47 @@ describe("Pricing Health goal comparison", () => {
     ]);
     expect(body.rules[0]?.directive.floor).toEqual(target.rules[0]!.directive.floor);
     expect(body.rules[0]?.directive.guardrails).toEqual(target.rules[0]!.directive.guardrails);
+  });
+
+  it("validates the complete parameter payload against each registered schema", () => {
+    const choices = selectableGoalChoices(pricingGoalDefinitions(), [
+      {
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        lifecycle: "selectable",
+        incumbentVersion: null,
+        selectable: true,
+        promotable: true,
+        reason: null,
+        grades: null,
+      },
+    ]);
+    expect(
+      validateGoalParameterRequests(choices, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 70 } },
+      ])[0]?.parameters,
+    ).toEqual({ percentile: 70 });
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 101 } },
+      ]),
+    ).toThrow(/goal-parameter-out-of-bounds/);
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 70 } },
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 71 } },
+      ]),
+    ).toThrow(/duplicate goal/);
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 70 }, extra: true } as never,
+      ]),
+    ).toThrow(/unknown keys/);
+    expect(() =>
+      validateGoalParameterRequests(choices, [
+        { goalId: "target-horizon", goalVersion: 1, parameters: { horizonDays: 14 } },
+      ]),
+    ).toThrow(/goal is not selectable/);
   });
 
   it("returns one deterministic recommendation and refuses incomplete comparisons", () => {
