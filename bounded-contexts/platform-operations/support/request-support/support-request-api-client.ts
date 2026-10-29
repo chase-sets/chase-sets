@@ -48,6 +48,7 @@ import type {
   SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
+  SupportRequestParticipantDetailResponse,
 } from "../../features/support-requests/ui/contracts";
 
 export type {
@@ -58,6 +59,7 @@ export type {
   SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
+  SupportRequestParticipantDetailResponse,
 } from "../../features/support-requests/ui/contracts";
 
 type SupportRequestApiClientOptions = Readonly<{
@@ -202,7 +204,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     getSupportRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetailResponse>(
+      parseJsonResponse<SupportRequestParticipantDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}`, {
           headers: resolveHeaders(options.headers),
         }),
