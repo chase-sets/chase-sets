@@ -85,7 +85,8 @@ function assertReceiptUploadGated(document) {
   const uploads = steps.filter(
     (step) =>
       String(step.uses ?? "").startsWith("actions/upload-artifact@") &&
-      step.with?.path !== "artifacts/catalog-whole-game-rehearsal/receipt.json",
+      step.with?.path !== "artifacts/catalog-whole-game-rehearsal/receipt.json" &&
+      step.with?.path === scopeSyncBatchPreviewProbeArtifactPath,
   );
   expect(runIndex).toBeGreaterThanOrEqual(0);
   expect(validateIndex).toBeGreaterThan(runIndex);
@@ -330,7 +331,10 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
         continue;
       expect(resolveJourneyMatrix(workflowSource, option), option).not.toBeNull();
     }
-    const withoutArm = workflowSource.replace("|scope-sync-batch-preview-probe)", ")");
+    const withoutArm = workflowSource.replace(
+      "|scope-sync-batch-preview-probe|admin-origin-generate-probe)",
+      "|admin-origin-generate-probe)",
+    );
     expect(resolveJourneyMatrix(withoutArm, scopeSyncBatchPreviewProbeJourneyScope)).toBeNull();
     expect(workflow().concurrency).toEqual({
       group: "platform-staging-mutating-operations",
@@ -368,6 +372,7 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     const fence = scanPlaywrightArtifactUploads();
     expect(fence.status).toBe("pass");
     expect(fence.uploads.filter((upload) => upload.file === workflowFile).map((upload) => upload.paths)).toEqual([
+      ["artifacts/catalog-admin-origin-generate/receipt.json"],
       [scopeSyncBatchPreviewProbeArtifactPath],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
