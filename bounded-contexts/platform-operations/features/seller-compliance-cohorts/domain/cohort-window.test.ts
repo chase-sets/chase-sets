@@ -3,9 +3,10 @@ import { addUtcMonths, evaluateSellerComplianceCohort } from "./cohort-window";
 import {
   SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
   decodeSellerComplianceCohortPolicyValue,
+  type SellerComplianceCohortPolicyValue,
 } from "./seller-compliance-cohort-policy";
 
-const policy = {
+const policy: SellerComplianceCohortPolicyValue = {
   ...SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
   activated: true,
   currencyCode: "USD",
