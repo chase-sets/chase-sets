@@ -39,10 +39,10 @@ export type SellerCheckoutReadinessFactSource = (
   key: SellerCheckoutReadinessKey,
 ) => Promise<SellerCheckoutReadinessFacts | null>;
 
-type SourceFacts = Pick<SellerCheckoutReadinessResult, "sourceRevision" | "sourceTimestamp">;
+type SourceStamp = Pick<SellerCheckoutReadinessResult, "sourceRevision" | "sourceTimestamp">;
 
 const labelPreferences: ReadonlySet<unknown> = new Set(sellerCheckoutLabelPreferences);
-const noSourceFacts: SourceFacts = { sourceRevision: null, sourceTimestamp: null };
+const noSourceStamp: SourceStamp = { sourceRevision: null, sourceTimestamp: null };
 
 function hasIdPrefix<Prefix extends string>(value: unknown, prefix: Prefix): value is `${Prefix}${string}` {
   return typeof value === "string" && value.length > prefix.length && value.startsWith(prefix);
@@ -126,12 +126,12 @@ function dimension<BlockedReason extends string>(
   return fact === null ? { status: "ready", reason: "ready" } : { status: "blocked", reason: blockedReason, fact };
 }
 
-function blocked(fact: SellerCheckoutBlockingFact, source: SourceFacts = noSourceFacts): SellerCheckoutReadinessResult {
+function blocked(fact: SellerCheckoutBlockingFact, stamp: SourceStamp = noSourceStamp): SellerCheckoutReadinessResult {
   return {
     schemaVersion: "fulfillment.seller-checkout-readiness.v1",
     label: dimension("label-not-ready", fact),
     provider: dimension("provider-not-ready", fact),
-    ...source,
+    ...stamp,
   };
 }
 
@@ -180,7 +180,7 @@ export async function readSellerCheckoutReadiness(
     return blocked("unavailable");
   }
 
-  const fromRecord: SourceFacts = { sourceRevision: facts.revision, sourceTimestamp };
+  const fromRecord: SourceStamp = { sourceRevision: facts.revision, sourceTimestamp };
   if (facts.mergedIntoAccountId !== null) {
     return blocked("stale", fromRecord);
   }
