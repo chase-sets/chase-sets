@@ -20,6 +20,7 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
+  "registry-gc-read-only",
   "agent-grant-revocation-activation-refused",
   "doks-admission-webhook-unreachable",
   "unknown",
@@ -86,6 +87,13 @@ const ROOT_CAUSES = Object.freeze({
       "The deploy restores the last-known-good release and retries once; when that retry is refused or fails, confirm the admission webhook answers a server dry-run, then rerun the failed Platform Deploy run.",
     phase: "production-deploy",
     affectedComponent: "doks-control-plane",
+  },
+  "registry-gc-read-only": {
+    summary: "DigitalOcean Container Registry garbage collection is active and the registry is read-only.",
+    remediation:
+      "Wait for the identified garbage collection to reach terminal succeeded, then retry the registry mutation; do not bypass the gate.",
+    phase: "registry-gc",
+    affectedComponent: "digitalocean-container-registry",
   },
   unknown: {
     summary: "The deployment failed without a known safe classification.",
@@ -345,6 +353,20 @@ export function classifyDeploymentRootCause(input = {}) {
     .map((step) => [step.name, step.componentName, step.phase, step.reasonCode, step.message].join(" "))
     .join("\n");
   const allText = `${stepText}\n${text}`;
+  const registryGcEvidence = (input.diagnostics ?? []).find(
+    (diagnostic) =>
+      diagnostic &&
+      typeof diagnostic === "object" &&
+      diagnostic.rootCauseCode === "registry-gc-read-only" &&
+      diagnostic.active === true,
+  );
+  if (registryGcEvidence) {
+    return rootCauseRecord("registry-gc-read-only", input, steps, text, {
+      providerReason: registryGcEvidence.status || registryGcEvidence.detail || "active garbage collection",
+      phase: "registry-gc",
+      affectedComponent: "digitalocean-container-registry",
+    });
+  }
   const stagingDnsPattern =
     /DomainZoneInvalid|DomainCNAMEMismatch|domain (?:name )?.{0,40}(?:already exists|conflict|collision)|CNAME.{0,40}(?:mismatch|conflict)|staging-dns/i;
   const terraformPattern =
@@ -460,6 +482,7 @@ export function parsePlatformDeployIncidentOptions(argv, env = process.env) {
       "",
     productionRootCauseCode:
       readOption(argv, "--production-root-cause-code") ?? readEnv("PRODUCTION_ROOT_CAUSE_CODE", env) ?? "",
+    buildRootCauseCode: readOption(argv, "--build-root-cause-code") ?? readEnv("BUILD_ROOT_CAUSE_CODE", env) ?? "",
     rootCauseSummary: readOption(argv, "--root-cause-summary") ?? readEnv("ROOT_CAUSE_SUMMARY", env) ?? "",
     affectedComponent: readOption(argv, "--affected-component") ?? readEnv("AFFECTED_COMPONENT", env) ?? "",
     rootCausePhase: readOption(argv, "--root-cause-phase") ?? readEnv("ROOT_CAUSE_PHASE", env) ?? "",
@@ -523,6 +546,8 @@ export function classifyPlatformDeployRun(input = {}) {
     rootCause = rootCauseFromCode(legacyCode, input);
   } else if (input.deployProductionResult === "failure") {
     rootCause = rootCauseFromCode(input.productionRootCauseCode || "production-verification", input);
+  } else if (input.buildImageResult === "failure") {
+    rootCause = rootCauseFromCode(input.buildRootCauseCode || "unknown", input);
   } else {
     rootCause = rootCauseFromCode("unknown", input);
   }

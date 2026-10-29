@@ -24,6 +24,7 @@ import type { RecordExternalChannelSale } from "../../features/channel-sales/api
 import {
   createInventoryImportBatchRuntime,
   type InventoryDraftListingCreator,
+  type InventoryDraftListingDelivery,
 } from "../../features/import-batches/api/runtime";
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
@@ -70,6 +71,7 @@ export type InventoryServices = Readonly<{
 export type InventoryHostPorts = Readonly<{
   checkoutReservationAuthority?: InventoryCheckoutReservationAuthority;
   draftListingCreator?: InventoryDraftListingCreator;
+  draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
 
@@ -136,9 +138,12 @@ export function createInventoryServices(
       db,
       notificationWaiterPool: options.notificationWaiterPool,
       items: pendingItems,
+      rowItems: items,
       catalogItems,
       draftListingCreator: ports.draftListingCreator,
+      draftListingDelivery: ports.draftListingDelivery,
       importProductRollout: ports.importProductRollout,
+      executeMutation: mutations.execute,
     }),
     mutations,
   );

@@ -268,6 +268,12 @@ export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-f
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   candidateId: string;
   status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
+  /**
+   * Optional and version-1 only: `reference-only` marks a `skipped-not-eligible`
+   * candidate with no item-producing member, whose members supply provenance and
+   * references but never author a Catalog Item. Stored results that omit it stay valid.
+   */
+  disposition?: "reference-only";
   /** Historical matched Catalog Item from the reviewed snapshot; never application authority. */
   catalogItemId: string | null;
   reason: string | null;
@@ -524,6 +530,11 @@ export type SourceObservationIntegrationJobStore = DurableJobStore<
   SourceObservationIntegrationJobResult,
   SourceObservationIntegrationJob
 >;
+
+export type SourceObservationIntegrationJobActiveSnapshot = Readonly<{
+  items: readonly SourceObservationIntegrationJob[];
+  completeness: "complete" | "incomplete";
+}>;
 
 export type SourceObservationIntegrationWorkUnitStore = DurableJobWorkUnitStore<
   SourceObservationIntegrationJobPayload,
@@ -1102,6 +1113,9 @@ export type IntegrationJobServices = Readonly<{
   listActiveIntegrationJobs: (input: {
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
+  listActiveIntegrationJobSnapshot?: (input: {
+    context?: EventStoreContext | null;
+  }) => Promise<SourceObservationIntegrationJobActiveSnapshot>;
   listRecentIntegrationJobs: (input: {
     context?: EventStoreContext | null;
     limit?: number;

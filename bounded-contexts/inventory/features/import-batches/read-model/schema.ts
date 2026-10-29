@@ -2,6 +2,7 @@ import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-st
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { contractInventoryImportSources } from "../api/source-migration";
+import { inventoryDraftListingOutboxSchemaSql } from "../api/draft-listing-delivery";
 
 export const inventoryImportSnapshotSchemaSql = `
 ALTER TABLE inventory_import_batch_job_inputs
@@ -76,6 +77,9 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_rows (
   committed_inventory_item_id text NULL,
   committed_listing_id text NULL,
   committed_at timestamptz NULL,
+  commit_generation integer NOT NULL DEFAULT 0,
+  commit_claim_token text NULL,
+  commit_claimed_until timestamptz NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   UNIQUE (batch_id, row_number)
@@ -95,6 +99,22 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
   default_storage_location_id text NULL,
   created_at timestamptz NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS inventory_import_commit_inputs (
+  input_id text PRIMARY KEY,
+  tenant_id text NOT NULL,
+  actor_user_id text NOT NULL,
+  account_id text NOT NULL,
+  batch_id text NOT NULL REFERENCES inventory_import_batches(batch_id) ON DELETE CASCADE,
+  snapshot_version integer NOT NULL CHECK (snapshot_version = 1),
+  snapshot_hash text NOT NULL CHECK (snapshot_hash ~ '^[a-f0-9]{64}$'),
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  accepted_rows jsonb NOT NULL,
+  created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_import_commit_inputs_batch_idx
+  ON inventory_import_commit_inputs (account_id, batch_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS inventory_import_batch_job_inputs_account_idx
   ON inventory_import_batch_job_inputs (account_id, created_at DESC);
@@ -143,7 +163,10 @@ ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS committed_inventory_item_id text NULL,
   ADD COLUMN IF NOT EXISTS committed_listing_id text NULL,
-  ADD COLUMN IF NOT EXISTS committed_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS committed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS commit_generation integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS commit_claim_token text NULL,
+  ADD COLUMN IF NOT EXISTS commit_claimed_until timestamptz NULL;
 
 ${durableJobSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
@@ -157,9 +180,43 @@ ${durableJobWorkUnitSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
   workUnitsTable: "inventory_import_batch_work_units",
 })}
+
+${inventoryDraftListingOutboxSchemaSql}
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261028_inventory_import_row_commit_fences",
+    description: "Fence frozen import row effects to one durable work-unit claim.",
+    statements: [
+      `ALTER TABLE inventory_import_batch_rows
+         ADD COLUMN IF NOT EXISTS commit_generation integer NOT NULL DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS commit_claim_token text NULL,
+         ADD COLUMN IF NOT EXISTS commit_claimed_until timestamptz NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_commit_claim_idx
+         ON inventory_import_batch_rows (batch_id, commit_claimed_until, row_id);`,
+    ],
+  },
+  {
+    migrationId: "20261027_inventory_import_commit_inputs",
+    description: "Persist immutable accepted import rows for durable commit jobs.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS inventory_import_commit_inputs (
+  input_id text PRIMARY KEY,
+  tenant_id text NOT NULL,
+  actor_user_id text NOT NULL,
+  account_id text NOT NULL,
+  batch_id text NOT NULL REFERENCES inventory_import_batches(batch_id) ON DELETE CASCADE,
+  snapshot_version integer NOT NULL CHECK (snapshot_version = 1),
+  snapshot_hash text NOT NULL CHECK (snapshot_hash ~ '^[a-f0-9]{64}$'),
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  accepted_rows jsonb NOT NULL,
+  created_at timestamptz NOT NULL
+);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_commit_inputs_batch_idx
+        ON inventory_import_commit_inputs (account_id, batch_id, created_at DESC)`,
+    ],
+  },
   {
     migrationId: "20261016_inventory_import_safe_snapshots",
     description: "Install safe versioned import source readers and bounded row storage before writer cutover.",

@@ -953,6 +953,7 @@ describe("producer-time candidate identity from the pre-merge merge-queue snapsh
   const queueBaseSha = "c".repeat(40);
   const prHeadSha = "d".repeat(40);
   const digest = `sha256:${"e".repeat(64)}`;
+  const policyRevision = "f".repeat(40);
   const capturedAt = "2026-07-22T01:20:00.000Z";
 
   const inFlightRun = () => ({
@@ -985,6 +986,7 @@ describe("producer-time candidate identity from the pre-merge merge-queue snapsh
       mergeQueueSnapshot: snapshotOf([queuedEntry()]),
       queueBaseSha,
       builtImageDigest: digest,
+      policyRevision,
       capturedAt,
       ...overrides,
     });
@@ -1006,6 +1008,7 @@ describe("producer-time candidate identity from the pre-merge merge-queue snapsh
         candidateSha,
         candidateTreeSha: candidateTree,
         builtImageDigest: digest,
+        policyRevision,
         capturedAt,
       });
     }
@@ -1093,6 +1096,7 @@ describe("producer-time candidate identity from the pre-merge merge-queue snapsh
       associatedPullRequestPages: [association],
       queueBaseSha,
       builtImageDigest: digest,
+      policyRevision,
       capturedAt,
     });
     expect(rebuilt.errors).toEqual([]);
@@ -1125,6 +1129,8 @@ describe("producer-time candidate identity from the pre-merge merge-queue snapsh
         runPath,
         "--queue-base-sha",
         queueBaseSha,
+        "--policy-revision",
+        policyRevision,
         "--built-image-digest",
         digest,
         "--captured-at",

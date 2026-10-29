@@ -687,6 +687,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
     "synthetic; revocation completion and foreign Account denial",
   ],
   "account-management-interruption.spec.ts": [3, 0, 0, 1, "synthetic; interruption recovery and account isolation"],
+  "account-form-pending.spec.ts": [1, 0, 0, 1, "synthetic; account form pending state"],
   "account-payment.spec.ts": [1, 1, 0, 1, "synthetic/configured"],
   "buy-funnel-redesign.spec.ts": [1, 2, 0, 1, "synthetic/configured/seeded"],
   "critical-flows.spec.ts": [1, 4, 0, 1, "synthetic/configured/later-session/seeded"],
@@ -713,6 +714,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "pricing-health-verdict.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-compare-goals.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-apply-goal.spec.ts": [0, 0, 1, 0, "seeded-form"],
+  "pricing-health-what-if.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "seller-time-away-capacity.spec.ts": [0, 0, 1, 0, "seeded-form"],
 };
 const trackedMarketplaceSources = execFileSync("git", ["ls-files", "-z", "--", ...censusRoots], {
@@ -905,7 +907,7 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
   return {
     scanned: files.size,
     totalRuntime: consumers.size,
-    synthetic: 6,
+    synthetic: 7,
     direct: 10,
     receiptedSessionReads,
     form: 10,
@@ -920,8 +922,8 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 30,
-      synthetic: 6,
+      totalRuntime: 32,
+      synthetic: 7,
       direct: 10,
       receiptedSessionReads: 1,
       form: 10,
@@ -932,7 +934,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=30 synthetic=6 direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=31 synthetic=7 direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
@@ -955,7 +957,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(30);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(32);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {

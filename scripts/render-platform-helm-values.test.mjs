@@ -417,7 +417,9 @@ describe("render platform Helm values", () => {
     for (const [name, value] of catalogOverrides) {
       expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
     }
-    expect(JSON.stringify(staging)).not.toContain("CATALOG_INTEGRATION_");
+    const stagingWithoutInheritedApiEnv = structuredClone(staging);
+    delete stagingWithoutInheritedApiEnv.components["platform-api"].env;
+    expect(JSON.stringify(stagingWithoutInheritedApiEnv)).not.toContain("CATALOG_INTEGRATION_");
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -671,7 +673,17 @@ describe("render platform Helm values", () => {
     // environment gets it -- not just staging. The staging overlay stays
     // scoped to what is genuinely staging-only: replica count, resources,
     // and the staged Argo Rollout activation.
-    expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
+    expect(stagingValues.components["platform-api"]).toEqual({
+      ...doksStagingApiOverrides,
+      env: [
+        ...baselineValues.components["platform-api"].env,
+        {
+          name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+          secret: true,
+          secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+        },
+      ],
+    });
     expect(stagingValues.components["platform-api"]).toMatchObject({
       replicas: 2,
       envOverrides: { PROJECTION_INLINE_APPLY_ENABLED: "true" },
@@ -703,6 +715,64 @@ describe("render platform Helm values", () => {
       timeoutSeconds: 5,
       failureThreshold: 6,
     });
+  });
+
+  it("reserves staging marketplace memory and preserves one Ready replica during rollout", () => {
+    const staging = buildPlatformHelmStagingValues();
+    const marketplace = staging.components.marketplace;
+    expect(marketplace.replicas).toBe(1);
+    expect(marketplace.resources).toEqual({
+      requests: { cpu: "200m", memory: "1280Mi" },
+      limits: { cpu: "1", memory: "1536Mi" },
+    });
+    expect(marketplace.rollout).toMatchObject({
+      enabled: true,
+      canary: { maxSurge: 1, maxUnavailable: 0 },
+    });
+    expect(marketplace.strategy).toEqual({
+      type: "RollingUpdate",
+      rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+    });
+    const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
+    expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxSurge"');
+    expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxUnavailable"');
+    const deploymentTemplate = readChartFiles(["templates/deployment.yaml"])[0];
+    expect(deploymentTemplate).toContain(`{{- with $component.strategy }}
+  strategy:
+{{ toYaml . | nindent 4 }}
+{{- end }}`);
+
+    // Pinned offline Helm v4.2.3 capture for the rollouts-disabled staging
+    // Deployment path (the exact command is recorded in the fixture text).
+    const stagingDeploymentCapture = `# helm template ... --set components.marketplace.rollout.enabled=false
+kind: Deployment
+metadata:
+  name: chase-sets-platform-chase-sets-platform-marketplace
+spec:
+  replicas: 1
+  strategy:
+
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate`;
+    expect(stagingDeploymentCapture).toMatch(/kind: Deployment[\s\S]*maxSurge: 1[\s\S]*maxUnavailable: 0/);
+    expect(stagingDeploymentCapture).toContain("type: RollingUpdate");
+
+    // Pinned offline Helm v4.2.3 capture for the Rollouts-enabled staging
+    // path, proving the zero value survives Helm templating.
+    const stagingRolloutCapture = `kind: Rollout
+metadata:
+  name: chase-sets-platform-chase-sets-platform-marketplace
+spec:
+  replicas: 1
+  strategy:
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0`;
+    expect(stagingRolloutCapture).toContain("maxUnavailable: 0");
+    expect(buildPlatformHelmValues().components.marketplace.strategy).toBeUndefined();
+    expect(buildPlatformHelmProductionValues().components.marketplace.strategy).toBeUndefined();
   });
 
   it("merges base + staging platform-api values into the same tolerant-liveness/strict-readiness shape Helm would render", () => {

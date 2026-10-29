@@ -36,6 +36,7 @@ import {
   type ListingEvidenceAltTextRecovery,
 } from "./listing-evidence-readiness";
 import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "../../reviews/ui/authored-text-guidance";
+import { inventoryCapacityRecoveryAction } from "./inventory-capacity-status";
 
 function formatOptionalMoney(amount: string | null, currencyCode: string | null) {
   return amount && currencyCode
@@ -197,6 +198,18 @@ export function MarketplaceListingDetailPage({
           tone="warning"
           title={t("marketplace.features.listings.ui.listingDetailPage.price.incomplete")}
           description={t("marketplace.features.listings.ui.listingDetailPage.price.incomplete.description")}
+        />
+      ) : null}
+
+      {listing.status === "paused" && listing.pause_reason === "inventory-capacity" ? (
+        <MarketplaceNotice
+          tone={listing.inventory_capacity_recovery_block ? "warning" : "info"}
+          title={t("marketplace.features.listings.capacityRecovery.title")}
+          description={
+            listing.inventory_capacity_recovery_block
+              ? inventoryCapacityRecoveryAction(listing.inventory_capacity_recovery_block)
+              : t("marketplace.features.listings.capacityRecovery.waiting")
+          }
         />
       ) : null}
 

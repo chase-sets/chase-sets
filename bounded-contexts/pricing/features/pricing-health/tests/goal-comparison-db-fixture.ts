@@ -1,6 +1,10 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { normalizeMoneyAmount, normalizeSignedMoneyAmount } from "@chase-sets/primitives/money";
 import { createPricingHealthServices } from "../api/services";
+import type { EconomicsServices } from "../../economics/api/services";
+import type { EconomicsFact, EconomicsFacts, ResolveEconomicsRequest } from "../../economics/domain/contracts";
+import type { EconomicsResolution } from "../../economics/domain/resolution";
 import { createForecastLedgerRuntime } from "../../forecast-ledger/api/runtime";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
@@ -18,6 +22,61 @@ export const comparisonNow = "2026-10-20T00:00:00.000Z";
 export const comparisonPolicyId = "rpp_synthetic_comparison";
 export const comparisonAccountId = "acc_7910";
 
+const syntheticFact = <T>(value: T, observedAt: string): EconomicsFact<T> => ({
+  sourceValue: value,
+  effectiveValue: value,
+  source: { kind: "policy-owned", policyRevision: "synthetic-registry-surface" },
+  override: null,
+  observedAt,
+});
+
+/** Explicitly unavailable Economics for registry-driven composition only; it never contacts a provider. */
+export async function syntheticUnavailableEconomics(request: ResolveEconomicsRequest): Promise<EconomicsResolution> {
+  const currency = request.marketUnitPrice.currency;
+  const money = { amount: normalizeMoneyAmount("0.00"), currency };
+  const facts: EconomicsFacts = {
+    platformFeeRelativeBps: syntheticFact(0, request.effectiveAt),
+    platformFeeFixedPerUnitAmount: syntheticFact(money, request.effectiveAt),
+    platformFeeCapPerUnitAmount: syntheticFact(null, request.effectiveAt),
+    sellerHandlingRelativeBps: syntheticFact(0, request.effectiveAt),
+    sellerHandlingFixedPerUnitAmount: syntheticFact(money, request.effectiveAt),
+    sellerHandlingCapPerUnitAmount: syntheticFact(null, request.effectiveAt),
+    shippingAllowanceBps: syntheticFact(0, request.effectiveAt),
+    costBasisShareOfMarketBps: syntheticFact(5_000, request.effectiveAt),
+    costBasisCoverageBps: syntheticFact(0, request.effectiveAt),
+    costBasisDiscountPerUnitAmount: syntheticFact(
+      { ...money, amount: normalizeSignedMoneyAmount("0.00") },
+      request.effectiveAt,
+    ),
+    turnaroundDays: syntheticFact(0, request.effectiveAt),
+    dailyReturnHurdle: syntheticFact(0, request.effectiveAt),
+  };
+  return {
+    kind: "unavailable",
+    reason: "provider-unavailable",
+    accountId: request.accountId,
+    channel: request.scope,
+    currency,
+    effectiveAt: request.effectiveAt,
+    revision: "synthetic-registry-surface",
+    facts,
+    diagnostics: {
+      observedHoldDays: null,
+      capitalCycleDays: null,
+      hurdleStatus: "defaulted",
+      hurdleReason: "provider-unavailable",
+      inventoryWatermark: "synthetic",
+      pricingWatermark: "synthetic",
+      generatedAt: request.effectiveAt,
+      inventoryObservedAt: request.effectiveAt,
+      pricingObservedAt: request.effectiveAt,
+      generatedAgeSeconds: 0,
+      inventorySourceAgeSeconds: 0,
+      pricingSourceAgeSeconds: 0,
+    },
+  };
+}
+
 export const comparisonAdvancedTargets = [
   [
     "multi-rule",
@@ -33,7 +92,14 @@ export const comparisonAdvancedTargets = [
   ],
 ] as const;
 
-export function comparisonTestServices(db: PgTransactionalPool) {
+export function comparisonTestServices(
+  db: PgTransactionalPool,
+  economics: Pick<EconomicsServices, "resolve"> = {
+    resolve: async () => {
+      throw new Error("Synthetic comparison fixture must not resolve live Economics.");
+    },
+  },
+) {
   const eventStore = createPostgresEventStore({ pool: db });
   const policies = createPolicyRuntime({ eventStore, db });
   const forecastLedger = createForecastLedgerRuntime({
@@ -58,6 +124,7 @@ export function comparisonTestServices(db: PgTransactionalPool) {
     forecastLedger,
     repricingPolicies,
     repricingEngine,
+    economics,
   });
   return { health, policies: repricingPolicies, worker: repricingEngine, forecastLedger };
 }
@@ -66,12 +133,14 @@ export async function createComparisonPolicy(
   db: PgTransactionalPool,
   services: ReturnType<typeof comparisonTestServices>,
   rules = dryRunBody.rules,
+  overrides: Partial<RepricingDryRunBody> = {},
 ) {
   await services.policies.commandHandler({
     streamId: services.policies.streamIdForPolicy(comparisonPolicyId),
     context: dryRunContext,
     command: {
       ...dryRunBody,
+      ...overrides,
       rules,
       type: "CreateRepricingPolicy",
       policyId: comparisonPolicyId,

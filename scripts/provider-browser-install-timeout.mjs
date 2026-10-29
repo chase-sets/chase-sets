@@ -211,7 +211,13 @@ export async function runHostedInstaller({
 export function runInstaller({
   identity,
   env = process.env,
+  timeoutSeconds = INSTALLER_TIMEOUT_SECONDS,
   cacheHit = false,
+  installerCommand = "bash",
+  installerArgs = ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
+  installerEnv = {},
+  requireComplete = true,
+  cancelSignal,
   now = () => new Date(),
   spawnImpl = spawn,
   signalGroupImpl = signalGroup,
@@ -230,18 +236,24 @@ export function runInstaller({
     retryCount: 0,
     terminalOutcome: "refused",
   };
-  if (!isValidTimingRecord(base) || env.INSTALLER_TIMEOUT_SECONDS !== "600") {
+  if (
+    !isValidTimingRecord(base) ||
+    env.INSTALLER_TIMEOUT_SECONDS !== "600" ||
+    !Number.isSafeInteger(timeoutSeconds) ||
+    timeoutSeconds < 1 ||
+    timeoutSeconds > INSTALLER_TIMEOUT_SECONDS
+  ) {
     throw new Error("provider-browser-install authority or 600-second bound refused");
   }
-  const childEnv = buildMinimalProcessEnvironment(
-    env,
-    Object.fromEntries(
+  const childEnv = buildMinimalProcessEnvironment(env, {
+    ...Object.fromEntries(
       ["GITHUB_ACTIONS", "RUNNER_ENVIRONMENT", "ImageOS", "ImageVersion", "BOUNDARY_HEAD_SHA"].map((name) => [
         name,
         env[name],
       ]),
     ),
-  );
+    ...installerEnv,
+  });
   let phase = "runner-identity";
   let cache = "not-applicable";
   let source = "provider-download";
@@ -253,12 +265,17 @@ export function runInstaller({
   let child;
   let installerStatus;
   let released = false;
+  let abortListener;
+  let spawned = false;
+  // Set only when no installer child ever started; callers must not retry it.
+  let startRefused = false;
 
   return new Promise((resolve) => {
     const finish = (status) => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      if (abortListener && cancelSignal) cancelSignal.removeEventListener("abort", abortListener);
       const endedAt = now().toISOString();
       const record = {
         ...base,
@@ -270,7 +287,7 @@ export function runInstaller({
         terminalOutcome: failure ?? "success",
       };
       write(timingRecordLine(record));
-      resolve({ status: failure ? 1 : status, record });
+      resolve({ status: failure ? 1 : status, record, ...(startRefused ? { startRefused } : {}) });
     };
     const stop = (outcome) => {
       if (stopping || settled) return;
@@ -294,18 +311,24 @@ export function runInstaller({
       }, INSTALLER_TIMEOUT_GRACE_MS);
     };
     try {
-      child = spawnImpl(process.execPath, [fileURLToPath(import.meta.url), supervisorArgument], {
+      const installerSpec = Buffer.from(
+        JSON.stringify({ command: installerCommand, args: installerArgs }),
+        "utf8",
+      ).toString("base64url");
+      child = spawnImpl(process.execPath, [fileURLToPath(import.meta.url), supervisorArgument, installerSpec], {
         detached: true,
         env: childEnv,
         stdio: ["ignore", "pipe", "pipe", "ipc"],
         windowsHide: true,
       });
     } catch {
+      startRefused = true;
       failure = "refused";
       finish(1);
       return;
     }
     if (!Number.isSafeInteger(child.pid) || child.pid < 1) {
+      startRefused = true;
       failure = "refused";
       child.once("error", () => {});
       finish(1);
@@ -313,7 +336,7 @@ export function runInstaller({
     }
 
     const releaseIfComplete = () => {
-      if (!released && !stopping && !settled && installerStatus === 0 && complete && !failure) {
+      if (!released && !stopping && !settled && installerStatus === 0 && (!requireComplete || complete) && !failure) {
         released = true;
         clearTimeout(deadline);
         child.send("release");
@@ -355,7 +378,12 @@ export function runInstaller({
     };
     consume(child.stdout);
     consume(child.stderr);
-    deadline = setTimeout(() => stop("timeout"), INSTALLER_TIMEOUT_MS);
+    deadline = setTimeout(() => stop("timeout"), timeoutSeconds * 1000);
+    if (cancelSignal) {
+      abortListener = () => stop("cancelled");
+      if (cancelSignal.aborted) abortListener();
+      else cancelSignal.addEventListener("abort", abortListener, { once: true });
+    }
     child.once("message", (message) => {
       if (stopping || settled) return;
       installerStatus = message?.installerStatus;
@@ -365,13 +393,25 @@ export function runInstaller({
       }
       releaseIfComplete();
     });
-    child.once("error", () => {
+    // A spawn error arrives before "spawn" and leaves no child to clean up. A later
+    // error belongs to a started child, which may still be live: it takes the same
+    // TERM, grace and KILL barrier, and an error while stopping changes nothing.
+    child.once("spawn", () => {
+      spawned = true;
+    });
+    child.on("error", () => {
+      if (stopping || settled) return;
+      if (spawned) {
+        stop("refused");
+        return;
+      }
+      startRefused = true;
       failure = "refused";
       finish(1);
     });
     child.once("close", (status) => {
       if (stopping || settled) return;
-      if (status !== 0 || !released || !complete || failure) {
+      if (status !== 0 || !released || (requireComplete && !complete) || failure) {
         stop(failure ?? "refused");
         return;
       }
@@ -380,11 +420,17 @@ export function runInstaller({
   });
 }
 
-export function superviseInstaller({ runtime = process, spawnImpl = spawn, signalGroupImpl = signalGroup } = {}) {
+export function superviseInstaller({
+  runtime = process,
+  spawnImpl = spawn,
+  signalGroupImpl = signalGroup,
+  installerCommand = "bash",
+  installerArgs = ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
+} = {}) {
   // This detached group leader survives TERM and installer exit until the
   // owner releases it or kills the group, reserving its group id during grace.
   runtime.on("SIGTERM", () => {});
-  const installer = spawnImpl("bash", ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"], {
+  const installer = spawnImpl(installerCommand, installerArgs, {
     stdio: ["ignore", "inherit", "inherit"],
   });
   installer.once("error", () => runtime.send({ installerStatus: 1 }));
@@ -407,7 +453,18 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href &&
   process.argv[2] === supervisorArgument
 ) {
-  superviseInstaller();
+  let installerSpec = {};
+  try {
+    installerSpec = process.argv[3] ? JSON.parse(Buffer.from(process.argv[3], "base64url").toString("utf8")) : {};
+  } catch {
+    process.exitCode = 1;
+  }
+  if (process.exitCode !== 1) {
+    superviseInstaller({
+      installerCommand: installerSpec.command,
+      installerArgs: installerSpec.args,
+    });
+  }
 } else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = (await runHostedInstaller()).status;
 }

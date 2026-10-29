@@ -66,6 +66,11 @@ describeDb("Pricing Health real loader and grade queries", () => {
           db: pools.pricing,
           goalAdoptions: async () => [],
         }),
+        economics: {
+          resolve: async () => {
+            throw new Error("The listing has no inventory item; no Economics call is expected.");
+          },
+        },
       }),
     };
   }

@@ -1,6 +1,12 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createAuthBootstrapContext } from "@chase-sets/auth-context";
+import {
+  createAuthBootstrapContext,
+  AUTH_SESSION_COOKIE_NAME,
+  type ReceiptLookupServiceActor,
+} from "@chase-sets/auth-context";
+import { resolveReceiptLookupServiceActor, type ReceiptLookupActorOptions } from "@chase-sets/auth/server";
+import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
 import { verifyPlatformInternalAuthSecret } from "@chase-sets/platform-runtime/internal-auth";
@@ -12,6 +18,7 @@ export type TenantContextEnv = {
   Variables: {
     actor: ResolvedActor | null;
     context: EventStoreContext | null;
+    receiptLookupServiceActor: ReceiptLookupServiceActor | null;
   };
 };
 
@@ -97,6 +104,30 @@ export function createIdentityAuthMiddleware(
 
 export type PlatformActorResolver = (request: Request) => Promise<ResolvedActor | null>;
 
+export function createReceiptLookupActorMiddleware(options?: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">) {
+  return async (c: Context<TenantContextEnv>, next: Next): Promise<Response | void> => {
+    const request = c.req.raw;
+    const hasHumanSession = (request.headers.get("cookie") ?? "")
+      .split(";")
+      .some((entry) => entry.trim().startsWith(`${AUTH_SESSION_COOKIE_NAME}=`));
+    if (!request.headers.has("authorization") && hasHumanSession) {
+      await next();
+      return;
+    }
+    c.header("Cache-Control", "no-store");
+    const result = resolveReceiptLookupServiceActor(request, {
+      ...options,
+      canonicalAdminOrigin: linkIntentOrigins["admin-web"].staging,
+      readCredential: options?.readCredential ?? (() => undefined),
+    });
+    if (result.status !== 200) return c.json({ error: result.error }, result.status);
+    c.set("receiptLookupServiceActor", result.actor);
+    c.set("actor", null);
+    c.set("context", null);
+    await next();
+  };
+}
+
 /**
  * Declared anonymous routes are matched before the actor is resolved, so an exempt request performs
  * no actor resolution at all. Every request that does not match an exact declaration keeps the
@@ -108,6 +139,10 @@ export function createPlatformActorMiddleware(
 ) {
   const anonymousRoutes = options.anonymousRoutes ?? [];
   return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<void> {
+    if (c.get("receiptLookupServiceActor")) {
+      await next();
+      return;
+    }
     if (isAnonymousAllowed(anonymousRoutes, c.req.method, new URL(c.req.url).pathname)) {
       c.set("actor", null);
       c.set("context", null);

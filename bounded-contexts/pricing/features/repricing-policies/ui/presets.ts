@@ -1,5 +1,6 @@
 import type { RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
-import type { RepricingFloor, RepricingPolicyScope, RepricingRuleDirective } from "../domain/domain";
+import { compilePresetBody, recognizeAuthoringIntent } from "../domain/authoring-intent";
+export type { RepricingPreset } from "../domain/authoring-intent";
 
 export const repricingPresets = {
   "track-market": {
@@ -35,67 +36,20 @@ export const repricingPresets = {
     defaultValue: 10,
   },
 } as const;
-export type RepricingPreset = keyof typeof repricingPresets;
 export type PolicyEditorBody = RepricingDryRunBody & Readonly<{ name: string }>;
 
-export function compileRepricingPreset(
-  input: Readonly<{
-    preset: RepricingPreset;
-    name: string;
-    currencyCode: string;
-    floor: RepricingFloor;
-    knob: number;
-    ageDays?: number;
-    scope: RepricingPolicyScope;
-  }>,
-): PolicyEditorBody {
-  const marketChain = [
-    { source: "market-estimate" },
-    { source: "lowest-competing-ask" },
-    { source: "last-sold" },
-  ] as const;
-  const directive: RepricingRuleDirective = {
-    currencyCode: input.currencyCode,
-    anchorChain:
-      input.preset === "beat-lowest"
-        ? [{ source: "lowest-competing-ask" }, { source: "market-estimate" }]
-        : input.preset === "premium"
-          ? [{ source: "comp-percentile", percentile: 75 }, { source: "market-estimate" }]
-          : marketChain,
-    offset: {
-      mode: "percent",
-      percent: input.preset === "beat-lowest" || input.preset === "slow-stock" ? -input.knob : input.knob,
-    },
-    floor: input.floor,
-    ceiling: null,
-    tolerance: { mode: "percent", percent: input.preset === "beat-lowest" ? 1 : input.preset === "premium" ? 3 : 2 },
-    rounding: { mode: "none" },
-    maxMovePercent: input.preset === "premium" ? 15 : input.preset === "slow-stock" ? 25 : 20,
-    terminal: { kind: "hold" },
-  };
-  return {
-    name: input.name,
-    scope: input.scope,
-    excludedListingIds: [],
-    maxChangesPerDay: 250,
-    rules:
-      input.preset === "slow-stock"
-        ? [
-            { conditions: [{ type: "listing-age-at-least", days: input.ageDays ?? 45 }], directive },
-            {
-              conditions: [],
-              directive: {
-                ...directive,
-                offset: { mode: "percent", percent: 0 },
-                tolerance: { mode: "percent", percent: 5 },
-                maxMovePercent: 10,
-              },
-            },
-          ]
-        : [{ conditions: [], directive }],
-  };
-}
+export const compileRepricingPreset = compilePresetBody;
 
 export function openRepricingPreset(body: PolicyEditorBody) {
-  return { tier: body.rules.length === 1 ? ("structured" as const) : ("advanced" as const), body };
+  const intent = recognizeAuthoringIntent(body);
+  return {
+    tier: intent
+      ? intent.source.kind === "preset"
+        ? ("preset" as const)
+        : ("goal" as const)
+      : body.rules.length === 1
+        ? ("structured" as const)
+        : ("advanced" as const),
+    body,
+  };
 }

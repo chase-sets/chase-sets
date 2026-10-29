@@ -72,17 +72,26 @@ export function sourceObservationRoutes(
       return c.json({ providerSendWindow }, providerSendWindow.state === "unavailable" ? 503 : 200);
     }
     const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));
-    const [readiness, profiles, recentJobs] = await Promise.all([
+    const [readiness, profiles, recentJobs, activeJobs] = await Promise.all([
       services.getCatalogIntegrationControlPlaneReadiness(),
       profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),
       services.listRecentIntegrationJobs({ context: c.get("context") }),
+      services.listActiveIntegrationJobSnapshot
+        ? services.listActiveIntegrationJobSnapshot({ context: c.get("context") })
+        : (services.listActiveIntegrationJobs?.({ context: c.get("context") }) ?? Promise.resolve([])).then(
+            (items) => ({
+              items,
+              completeness: "incomplete" as const,
+            }),
+          ),
     ]);
 
     return c.json({
       ...buildCatalogIntegrationControlPlaneOverview({
         readiness,
         profiles,
-        activeJobs: recentJobs,
+        activeJobs,
+        recentJobs,
         audience,
         countSpend: await readCountSpend?.(),
       }),

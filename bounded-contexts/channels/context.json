@@ -679,18 +679,20 @@
       "surfaces": [
         "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
         "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
-        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
+        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1",
+        "api-client:bounded-contexts/channels/features/ebay-account-deletion/api/receipt-actor-client.ts:POST H86e8b6f60f8f#1"
       ],
       "visibleDestination": {
         "routeId": "ebay-account-deletion-lookup",
         "description": "Staff receives the current exact-match receipt metadata directly; POST keeps the sensitive user ID out of URLs and performs no mutation."
       },
       "proof": {
-        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action validates that closed response and returns it directly.",
+        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action and bounded service client validate that closed response and return it directly without a write.",
         "tests": [
           "deployables/platform-api/__tests__/ebay-account-deletion-staff-composition.test.ts",
           "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-lookup.db.test.ts",
-          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx"
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-responses.test.ts"
         ]
       }
     },

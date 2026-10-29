@@ -1,4 +1,10 @@
 export * from "./support/route-support/auth-host";
+export {
+  parseReceiptLookupCredential,
+  resolveReceiptLookupServiceActor,
+  type ReceiptLookupActorOptions,
+  type ReceiptLookupCredential,
+} from "./features/service-actors/api/receipt-lookup";
 export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {

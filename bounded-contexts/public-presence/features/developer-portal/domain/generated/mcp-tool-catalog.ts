@@ -6641,42 +6641,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use before publishing listings or accepting offers."],
   },
   {
-    name: "identity.list-memberships",
-    title: "List Memberships",
-    description: "List account memberships and role permissions.",
-    availability: "planned",
-    serviceId: "identity",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "account",
-      requiredPermissions: ["memberships.view"],
-      requiredScopes: ["account:read"],
-      accountScoped: true,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use before inviting, changing, or revoking team access."],
-  },
-  {
     name: "insights.get-account-summary",
     title: "Get Account Summary",
     description: "Read account performance and marketplace workflow summary.",

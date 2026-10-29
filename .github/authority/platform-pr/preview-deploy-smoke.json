@@ -433,6 +433,13 @@
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Build and push platform image#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
     }
   ]
 }

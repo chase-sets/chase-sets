@@ -102,8 +102,8 @@ export function validateRepricingDryRunBody(body: RepricingDryRunBody, accountId
   });
   const event = events[0];
   if (event?.type !== "pricing.repricing-policy.created") throw new Error("Invalid policy body.");
-  const { scope, excludedListingIds, rules, maxChangesPerDay } = event.data;
-  return { scope, excludedListingIds, rules, maxChangesPerDay };
+  const { scope, excludedListingIds, rules, maxChangesPerDay, authoringIntent } = event.data;
+  return { scope, excludedListingIds, rules, maxChangesPerDay, ...(authoringIntent ? { authoringIntent } : {}) };
 }
 
 export function createRepricingDryRunServices(

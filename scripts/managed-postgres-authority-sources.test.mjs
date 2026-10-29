@@ -398,6 +398,16 @@ const ebayAccountDeletionDelta = [
     purpose: "application-runtime",
   },
 ];
+// Adds the staging-only receipt actor grant at the existing Secret-apply sink.
+const ebayReceiptLookupStagingActorDelta = [
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
+    secretName: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+    purpose: "application-runtime",
+  },
+];
 // #9912 delta: the daily credential health check's rotation App key and its step-local liveness secrets.
 const credentialHealthWorkflow = ".github/workflows/platform-credential-health.yml";
 const credentialHealthDelta = [
@@ -724,6 +734,43 @@ const productionMarkerRecoveryDelta = [
     purpose: "terraform-infra",
   })),
 ];
+// #9450 adds the existing scoped registry credentials to the new fail-closed
+// writer-gate invocations; these are deliberate authority additions, not a snapshot refresh.
+const registryGarbageCollectionGateCredentialDelta = [
+  [".github/workflows/platform-pr.yml", "preview-deploy-smoke", "name:Build and push platform image#9"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Build release image#5"],
+  [".github/workflows/platform-production.yml", "build-image", "name:Push release image#8"],
+  [".github/workflows/platform-production.yml", "deploy-production", "name:Mark production release#53"],
+  [
+    ".github/workflows/platform-production.yml",
+    "reconcile-production-marker",
+    "name:Reconcile retained production marker#8",
+  ],
+].map(([file, jobId, stepAnchor]) => ({
+  file,
+  jobId,
+  stepAnchor,
+  secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+  purpose: "terraform-infra",
+}));
+// #9450 also resolves the registry before cleanup; migrate the existing cleanup
+// grant and add the new provider-touching resolver grant to the expected corpus.
+const registryCleanupResolverDelta = [
+  {
+    file: ".github/workflows/platform-registry-cleanup.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Resolve registry identity#5",
+    secretName: "DIGITALOCEAN_REGISTRY_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+];
+function applyRegistryCleanupStepInsertion(record) {
+  return record.file === ".github/workflows/platform-registry-cleanup.yml" &&
+    record.jobId === "cleanup" &&
+    record.stepAnchor === "name:Cleanup registry tags#7"
+    ? { ...record, stepAnchor: "name:Cleanup registry tags#8" }
+    : record;
+}
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -915,7 +962,9 @@ describe("managed Postgres authority source generator", () => {
     const expected = {
       ...original,
       grants: [
-        ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...[...retainedOriginalGrants, ...reviewedCatalogDelta]
+          .map(applyReviewedStepInsertions)
+          .map(applyRegistryCleanupStepInsertion),
         ...doksVersionChangePreflightDelta,
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
@@ -927,6 +976,7 @@ describe("managed Postgres authority source generator", () => {
               ? "EBAY_APPLICATION_CLIENT_ID"
               : "EBAY_APPLICATION_CLIENT_SECRET",
         })),
+        ...ebayReceiptLookupStagingActorDelta,
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
@@ -952,7 +1002,9 @@ describe("managed Postgres authority source generator", () => {
               record.stepAnchor === productionMarkerRecoveryRetiredAnchor
             ),
         )
-        .concat(productionMarkerRecoveryDelta),
+        .concat(productionMarkerRecoveryDelta)
+        .concat(registryGarbageCollectionGateCredentialDelta)
+        .concat(registryCleanupResolverDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

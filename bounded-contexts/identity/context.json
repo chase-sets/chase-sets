@@ -406,7 +406,31 @@
         "ownerSlice": "invitations"
       },
       {
+        "name": "identity.create-and-send-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.get-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.list-invitations",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.resend-and-send-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
         "name": "identity.change-membership-role",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.get-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.list-memberships",
         "ownerSlice": "memberships"
       },
       {
@@ -1740,10 +1764,34 @@
     },
     "api-keys": { "pending": "#9238" },
     "api-keys-detail": { "pending": "#9238" },
-    "invitations": { "pending": "#9238" },
-    "invitations-detail": { "pending": "#9238" },
-    "memberships": { "pending": "#9238" },
-    "memberships-detail": { "pending": "#9238" },
+    "invitations": {
+      "tools": [
+        "identity.create-and-send-invitation",
+        "identity.list-invitations",
+        "identity.list-accounts"
+      ]
+    },
+    "invitations-detail": {
+      "tools": [
+        "identity.get-invitation",
+        "identity.resend-and-send-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "memberships": {
+      "tools": [
+        "identity.list-memberships"
+      ]
+    },
+    "memberships-detail": {
+      "tools": [
+        "identity.get-membership",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
     "users": { "tools": ["identity.list-users"] },
     "users-detail": {
       "tools": [

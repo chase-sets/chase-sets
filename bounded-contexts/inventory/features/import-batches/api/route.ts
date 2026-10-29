@@ -228,7 +228,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
           batchId: c.req.param("id"),
           accountId: actor.accountId as AccountId,
         },
-        c.get("context"),
+        withInventoryMutationAttempt(c.get("context"), c.req.header("Inventory-Mutation-Attempt") ?? ""),
       );
       return c.json(toInventoryImportBatchJobStatus(job), 202);
     } catch (error) {

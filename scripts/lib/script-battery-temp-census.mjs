@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const censusModulePath = fileURLToPath(import.meta.url);
 
 function temporaryEnvironmentKeys() {
-  return ["TEMP", "TMP", "TMPDIR", "NODE_COMPILE_CACHE"];
+  return ["TEMP", "TMP", "TMPDIR", "NODE_COMPILE_CACHE", "TSX_DISABLE_CACHE"];
 }
 
 export async function setupScriptBatteryTempCensus() {
@@ -16,6 +16,7 @@ export async function setupScriptBatteryTempCensus() {
   if (process.env.NODE_COMPILE_CACHE === undefined) {
     process.env.NODE_COMPILE_CACHE = path.join(originalTmpdir, "node-compile-cache");
   }
+  process.env.TSX_DISABLE_CACHE = "1";
   for (const key of ["TEMP", "TMP", "TMPDIR"]) process.env[key] = privateDirectory;
 
   return async function teardownScriptBatteryTempCensus() {

@@ -5,7 +5,14 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import {
+  bootstrapContextDatabase,
+  drainContextRuntime,
+  resetProjectionGroup,
+  syncContextProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
+import {
   closeMultiContextTestPools,
+  createMountedContextTestRuntime,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
@@ -17,9 +24,19 @@ import {
   type AccountId,
   type EnforcementActionId,
   type ListingEnforcementActionId,
+  type TenantId,
+  type UserId,
 } from "@chase-sets/primitives/typed-ids";
 import { module as platformOperationsModule } from "../../../index";
-import { APPEALABLE_ACTION_INDETERMINATE, readAppealableEnforcementAction } from "../read-model/projection";
+import {
+  ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES,
+  ACCOUNT_APPEAL_PROJECTION_NAME,
+  ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS,
+  ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS,
+  APPEALABLE_ACTION_INDETERMINATE,
+  buildAccountAppealProjectionHandlers,
+  readAppealableEnforcementAction,
+} from "../read-model/projection";
 import { accountAppealSchemaMigrations } from "../read-model/schema";
 import { createAccountAppealRuntime } from "../api/runtime";
 import { withAccountAppealOperatorAccess, withAccountAppealSellerAccess } from "../api/access";
@@ -34,6 +51,17 @@ const contextNames = ["platform-operations"] as const;
 const OCCURRED_AT = "2026-10-21T00:00:00.000Z";
 
 type Delivery = Readonly<{ type: string; streamId: string; streamVersion: number; data: Record<string, unknown> }>;
+
+type RuntimeAppealFixture = Readonly<{
+  actionId: EnforcementActionId;
+  appealId: string;
+  streamId: string;
+  eventStore: ReturnType<typeof createPostgresEventStore>;
+  tenantId: TenantId;
+  ownerAccountId: AccountId;
+  sellerUserId: UserId;
+  operatorUserId: UserId;
+}>;
 
 function identityEnforcement(
   type: "identity.account.suspended" | "identity.account.reactivated" | "identity.account.closed",
@@ -135,6 +163,151 @@ describeDb("account appeal aggregate DB proof", () => {
     return Object.assign({}, ...subscriptions.map((subscription) => subscription.handlers)) as ProjectorHandlerMap;
   }
 
+  function appealProjectionHandlers(): ProjectorHandlerMap {
+    return buildAccountAppealProjectionHandlers(pool);
+  }
+
+  async function bootProjectionRuntime() {
+    await bootstrapContextDatabase(platformOperationsModule, pool);
+    const accountAppealModule = {
+      ...platformOperationsModule,
+      eventSubscriptions: platformOperationsModule.eventSubscriptions!.filter(
+        ({ projectionName, sourceContextName }) =>
+          projectionName === ACCOUNT_APPEAL_PROJECTION_NAME && sourceContextName === "platform-operations",
+      ),
+      eventReactions: [],
+      projectionHandlerSets: (
+        services: Parameters<NonNullable<typeof platformOperationsModule.projectionHandlerSets>>[0],
+      ) =>
+        platformOperationsModule.projectionHandlerSets!(services).filter(
+          (set) => set.projectionName === ACCOUNT_APPEAL_PROJECTION_NAME,
+        ),
+      buildSubscriptions: (services: Parameters<NonNullable<typeof platformOperationsModule.buildSubscriptions>>[0]) =>
+        platformOperationsModule.buildSubscriptions!(services).filter(
+          ({ projectionName, sourceContextName }) =>
+            projectionName === ACCOUNT_APPEAL_PROJECTION_NAME && sourceContextName === "platform-operations",
+        ),
+      projectionGroups: platformOperationsModule.projectionGroups?.filter(
+        ({ projectionName }) => projectionName === ACCOUNT_APPEAL_PROJECTION_NAME,
+      ),
+    };
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "platform-operations", module: accountAppealModule, pool, ports: {} },
+    ]);
+    await syncContextProjectionGroups(runtime, "platform-operations", { requiredOnly: true });
+    return runtime;
+  }
+
+  async function appendRuntimeAppeal(
+    terminal: "withdrawn" | "upheld" | "reversed" | "modified",
+    source: "identity.account.reactivated" | "identity.account.closed" = "identity.account.closed",
+    reviewBeforeWithdraw = false,
+  ): Promise<RuntimeAppealFixture> {
+    const ownerAccountId = createId("acc");
+    const actionId = createId("enf");
+    const tenantId = createId("tnt");
+    const sellerUserId = createId("usr");
+    const operatorUserId = createId("usr");
+    await deliver(identityEnforcement(source, ownerAccountId, actionId));
+
+    const eventStore = createPostgresEventStore({ pool });
+    const appealRuntime = createAccountAppealRuntime(pool, eventStore);
+    const seller = {
+      tenantId,
+      accountId: ownerAccountId,
+      userId: sellerUserId,
+      permissions: ["account-appeals.file"],
+    } as const;
+    const operator = {
+      tenantId,
+      userId: operatorUserId,
+      roleKey: "trust-operator",
+      permissions: ["account-appeals.review"],
+    } as const;
+    const context = {
+      tenantId,
+      audit: { performedByUserId: sellerUserId, forAccountId: ownerAccountId },
+    } as const;
+    const resolved = await withAccountAppealSellerAccess(seller, "account-appeals.file", async (capability) =>
+      appealRuntime.resolve(capability, actionId as EnforcementActionId),
+    );
+    if (resolved.status !== "resolved") throw new Error("Synthetic appeal action must resolve.");
+    const action = resolved.action;
+    await withAccountAppealSellerAccess(seller, "account-appeals.file", async (capability) => {
+      await appealRuntime.file(capability, action, { statement: "The closure was mistaken" }, context);
+    });
+
+    if (terminal === "withdrawn") {
+      if (reviewBeforeWithdraw) {
+        await withAccountAppealOperatorAccess(operator, "account-appeals.review", async (capability) => {
+          const operatorContext = {
+            tenantId,
+            audit: { performedByUserId: operatorUserId, forAccountId: ownerAccountId },
+          } as const;
+          await appealRuntime.startReview(capability, actionId as EnforcementActionId, operatorContext);
+        });
+      }
+      await withAccountAppealSellerAccess(seller, "account-appeals.file", async (capability) => {
+        await appealRuntime.withdraw(capability, action, context);
+      });
+    } else {
+      await withAccountAppealOperatorAccess(operator, "account-appeals.review", async (capability) => {
+        const operatorContext = {
+          tenantId,
+          audit: { performedByUserId: operatorUserId, forAccountId: ownerAccountId },
+        } as const;
+        await appealRuntime.startReview(capability, actionId as EnforcementActionId, operatorContext);
+        await appealRuntime.recordOutcome(
+          capability,
+          actionId as EnforcementActionId,
+          { outcome: terminal, rationale: `${terminal} rationale`, note: `${terminal} note` },
+          operatorContext,
+        );
+      });
+    }
+
+    const stored = await pool.query<{ appeal_id: string }>(
+      `SELECT payload->>'appealId' AS appeal_id
+         FROM event_store_events
+        WHERE stream_id = $1 AND event_type = 'platform-operations.account-appeal.filed'`,
+      [`platform-operations.account-appeal-${actionId}`],
+    );
+    const appealId = stored.rows[0]?.appeal_id;
+    if (!appealId) throw new Error("Synthetic runtime appeal did not store a filing event.");
+    return {
+      actionId,
+      appealId,
+      streamId: `platform-operations.account-appeal-${actionId}`,
+      eventStore,
+      tenantId,
+      ownerAccountId,
+      sellerUserId,
+      operatorUserId,
+    };
+  }
+
+  async function storedAppealEvents(streamId: string) {
+    return pool.query<{
+      event_type: string;
+      payload: Record<string, unknown>;
+      stream_version: number;
+    }>(
+      `SELECT event_type, payload, stream_version
+         FROM event_store_events
+        WHERE stream_id = $1
+        ORDER BY stream_version`,
+      [streamId],
+    );
+  }
+
+  async function projectionRows(appealId: string) {
+    const [seller, operator] = await Promise.all([
+      pool.query("SELECT * FROM platform_operations_account_appeal_seller_history WHERE appeal_id = $1", [appealId]),
+      pool.query("SELECT * FROM platform_operations_account_appeal_operator_history WHERE appeal_id = $1", [appealId]),
+    ]);
+    return { seller: seller.rows, operator: operator.rows };
+  }
+
   /** One projection transaction per event, committed on success and rolled back on a thrown error. */
   async function deliver(delivery: Delivery, auditAccountId?: string): Promise<void> {
     const event = toEvent(delivery, auditAccountId);
@@ -151,6 +324,37 @@ describeDb("account appeal aggregate DB proof", () => {
     } finally {
       scoped.release();
     }
+  }
+
+  async function deliverAppeal(delivery: Delivery): Promise<void> {
+    const event = toEvent(delivery);
+    const handler = (appealProjectionHandlers() as Readonly<Record<string, ProjectorHandler | undefined>>)[event.type];
+    if (!handler) throw new Error(`No registered appeal handler for ${event.type}`);
+    const scoped = await pool.connect();
+    try {
+      await scoped.query("BEGIN");
+      await handler(event, { db: scoped });
+      await scoped.query("COMMIT");
+    } catch (error) {
+      await scoped.query("ROLLBACK");
+      throw error;
+    } finally {
+      scoped.release();
+    }
+  }
+
+  function appealDelivery(
+    appealId: string,
+    streamVersion: number,
+    type: (typeof ACCOUNT_APPEAL_PROJECTION_EVENT_TYPES)[number],
+    data: Record<string, unknown> = {},
+  ): Delivery {
+    return {
+      type,
+      streamId: `platform-operations.account-appeal-${appealId}`,
+      streamVersion,
+      data,
+    };
   }
 
   function read(appealableActionId: string, ownerAccountId: string) {
@@ -194,6 +398,350 @@ describeDb("account appeal aggregate DB proof", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  describe("event-only seller and operator projections (R3)", () => {
+    it("fresh boot applies the four private events and replay leaves both rows byte-identical", async () => {
+      const appealId = createId("apl");
+      const accountId = createId("acc");
+      const actionId = createId("enf");
+      const tenantId = createId("tnt");
+      const filedByUserId = createId("usr");
+      const operatorUserId = createId("usr");
+      const history = [
+        appealDelivery(appealId, 1, "platform-operations.account-appeal.filed", {
+          appealId,
+          tenantId,
+          accountId,
+          action: {
+            appealableActionId: actionId,
+            ownerAccountId: accountId,
+            source: "identity.account.closed",
+            sourceStreamId: `identity.account-${accountId}`,
+            sourceStreamVersion: 2,
+          },
+          statement: "The closure was mistaken",
+          filedByUserId,
+        }),
+        appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"),
+        appealDelivery(appealId, 3, "platform-operations.account-appeal.outcome-recorded", {
+          outcome: "reversed",
+          rationale: "Evidence changed",
+          note: "Internal review note",
+          operatorUserId,
+        }),
+      ];
+      for (const event of history) await deliverAppeal(event);
+
+      const before = await Promise.all([
+        pool.query(
+          `SELECT appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+                  appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+                  filed_by_user_id, status, outcome, rationale, stream_version
+             FROM platform_operations_account_appeal_seller_history WHERE appeal_id=$1`,
+          [appealId],
+        ),
+        pool.query(
+          `SELECT appeal_id, tenant_id, account_id, appealable_action_id, appealable_action_source,
+                  appealable_action_source_stream_id, appealable_action_source_stream_version, statement,
+                  filed_by_user_id, status, outcome, rationale, stream_version, note, operator_user_id
+             FROM platform_operations_account_appeal_operator_history WHERE appeal_id=$1`,
+          [appealId],
+        ),
+      ]);
+      expect(before[0]?.rows[0]).toMatchObject({ status: "reversed", outcome: "reversed", stream_version: 3 });
+      expect(before[0]?.rows[0]).not.toHaveProperty("note");
+      expect(before[0]?.rows[0]).not.toHaveProperty("operator_user_id");
+      expect(before[1]?.rows[0]).toMatchObject({
+        status: "reversed",
+        outcome: "reversed",
+        rationale: "Evidence changed",
+        note: "Internal review note",
+        operator_user_id: operatorUserId,
+        stream_version: 3,
+      });
+
+      for (const event of history) await deliverAppeal(event);
+      const after = await Promise.all([
+        pool.query("SELECT * FROM platform_operations_account_appeal_seller_history WHERE appeal_id=$1", [appealId]),
+        pool.query("SELECT * FROM platform_operations_account_appeal_operator_history WHERE appeal_id=$1", [appealId]),
+      ]);
+      expect(after.map((result) => result.rows)).toEqual(before.map((result) => result.rows));
+    });
+
+    it("enforces the seller allowlist and rejects missing or skipped stream versions", async () => {
+      const columns = await pool.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='platform_operations_account_appeal_seller_history'
+          ORDER BY ordinal_position`,
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([...ACCOUNT_APPEAL_SELLER_HISTORY_COLUMNS]);
+      const operatorColumns = await pool.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='platform_operations_account_appeal_operator_history'
+          ORDER BY ordinal_position`,
+      );
+      expect(operatorColumns.rows.map((row) => row.column_name)).toEqual([...ACCOUNT_APPEAL_OPERATOR_HISTORY_COLUMNS]);
+
+      const appealId = createId("apl");
+      await expect(
+        deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started")),
+      ).rejects.toThrow("version gap");
+      await deliverAppeal(
+        appealDelivery(appealId, 1, "platform-operations.account-appeal.filed", {
+          appealId,
+          tenantId: createId("tnt"),
+          accountId: createId("acc"),
+          action: {
+            appealableActionId: createId("enf"),
+            ownerAccountId: createId("acc"),
+            source: "identity.account.closed",
+            sourceStreamId: "identity.account-placeholder",
+            sourceStreamVersion: 1,
+          },
+          statement: "Statement",
+          filedByUserId: createId("usr"),
+        }),
+      );
+      await expect(
+        deliverAppeal(appealDelivery(appealId, 3, "platform-operations.account-appeal.review-started")),
+      ).rejects.toThrow("version gap");
+      await deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"));
+      await deliverAppeal(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"));
+      expect(
+        (await pool.query("SELECT stream_version,status FROM platform_operations_account_appeal_seller_history")).rows,
+      ).toEqual([{ stream_version: 2, status: "in-review" }]);
+    });
+
+    it("boots the real group, resets replay-only without truncating, and re-enables after a disabled interval", async () => {
+      const runtime = await bootProjectionRuntime();
+      const first = await appendRuntimeAppeal("reversed");
+      await drainContextRuntime(runtime);
+      const group = runtime.projectionGroups.find(
+        ({ projectionName }) => projectionName === "account-appeal-projection",
+      );
+      expect(group).toBeDefined();
+      expect(group?.ownedTables).toEqual([
+        "platform_operations_account_appeal_seller_history",
+        "platform_operations_account_appeal_operator_history",
+      ]);
+      expect(group?.resetStrategy).toBe("replay-only");
+      const beforeReset = await projectionRows(first.appealId);
+      expect(beforeReset.seller[0]).toMatchObject({ status: "reversed", stream_version: 3 });
+
+      const revisionSyncToken = await resetProjectionGroup(group!);
+      expect(await projectionRows(first.appealId)).toEqual(beforeReset);
+
+      const second = await appendRuntimeAppeal("upheld");
+      await drainContextRuntime({ subscriptionRunners: group!.subscriptionRunners });
+      await group!.markRevisionSynced(revisionSyncToken);
+      expect(await projectionRows(first.appealId)).toEqual(beforeReset);
+      expect((await projectionRows(second.appealId)).seller[0]).toMatchObject({ status: "upheld", stream_version: 3 });
+    });
+
+    it("skips an adjacent unknown private event and advances the projection checkpoint", async () => {
+      const runtime = await bootProjectionRuntime();
+      const fixture = await appendRuntimeAppeal("reversed");
+      await drainContextRuntime(runtime);
+      const group = runtime.projectionGroups.find(
+        ({ projectionName }) => projectionName === "account-appeal-projection",
+      )!;
+      const before = await projectionRows(fixture.appealId);
+      const subscriptions =
+        platformOperationsModule.buildSubscriptions?.(platformOperationsModule.createServices(pool, {})) ?? [];
+      const appealSubscription = subscriptions.find(
+        ({ projectionName, sourceContextName }) =>
+          projectionName === "account-appeal-projection" && sourceContextName === "platform-operations",
+      );
+      expect(appealSubscription?.eventTypes).toEqual([
+        "platform-operations.account-appeal.filed",
+        "platform-operations.account-appeal.review-started",
+        "platform-operations.account-appeal.outcome-recorded",
+        "platform-operations.account-appeal.withdrawn",
+      ]);
+      expect(Object.keys(appealSubscription?.handlers ?? {})).not.toContain(
+        "platform-operations.account-appeal.synthetic-unknown",
+      );
+      const unknown = await fixture.eventStore.appendToStream({
+        streamId: fixture.streamId,
+        expectedVersion: 3,
+        context: {
+          tenantId: fixture.tenantId,
+          audit: { performedByUserId: fixture.operatorUserId, forAccountId: fixture.ownerAccountId },
+        },
+        events: [{ eventType: "platform-operations.account-appeal.synthetic-unknown", payload: { synthetic: true } }],
+      });
+      expect(unknown[0]?.streamVersion).toBe(4);
+
+      expect(group.subscriptionRunners).toHaveLength(1);
+      const settled = await group.subscriptionRunners[0]!.runOnce({ settleIdleCheckpoints: true });
+      expect(settled).toMatchObject({ processed: 0, blockedStreams: 0, poisonEvents: 0 });
+      expect(await projectionRows(fixture.appealId)).toEqual(before);
+      const checkpoint = await pool.query<{ last_global_position: string }>(
+        `SELECT last_global_position::text
+           FROM event_subscription_checkpoints
+          WHERE checkpoint_key = $1`,
+        [group.subscriptionRunners[0]?.checkpointKey],
+      );
+      expect(checkpoint.rows[0]).toBeDefined();
+      expect(BigInt(checkpoint.rows[0]!.last_global_position)).toBeGreaterThanOrEqual(
+        BigInt(String(unknown[0]!.globalPosition)),
+      );
+    });
+
+    it("projects the history matrix and keeps restoration and closure record-only", async () => {
+      const cases = [
+        { terminal: "withdrawn" as const, expectedStatus: "withdrawn", expectedOutcome: null, version: 2 },
+        { terminal: "withdrawn" as const, expectedStatus: "withdrawn", expectedOutcome: null, version: 3 },
+        { terminal: "upheld" as const, expectedStatus: "upheld", expectedOutcome: "upheld", version: 3 },
+        { terminal: "modified" as const, expectedStatus: "modified", expectedOutcome: "modified", version: 3 },
+        { terminal: "reversed" as const, expectedStatus: "reversed", expectedOutcome: "reversed", version: 3 },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const fixture = await appendRuntimeAppeal(testCase.terminal, "identity.account.closed", index === 1);
+        const events = await storedAppealEvents(fixture.streamId);
+        const selected = events.rows;
+        for (const event of selected) {
+          await deliverAppeal({
+            type: event.event_type,
+            streamId: fixture.streamId,
+            streamVersion: Number(event.stream_version),
+            data: event.payload,
+          });
+        }
+        const before = await projectionRows(fixture.appealId);
+        expect(before.seller[0]).toMatchObject({
+          status: testCase.expectedStatus,
+          outcome: testCase.expectedOutcome,
+          stream_version: testCase.version,
+        });
+        expect(before.operator[0]).toMatchObject(
+          testCase.expectedOutcome === null
+            ? {
+                status: "withdrawn",
+                outcome: null,
+                note: null,
+                operator_user_id: null,
+                stream_version: testCase.version,
+              }
+            : {
+                status: testCase.expectedStatus,
+                outcome: testCase.expectedOutcome,
+                rationale: `${testCase.expectedOutcome} rationale`,
+                note: `${testCase.expectedOutcome} note`,
+                operator_user_id: fixture.operatorUserId,
+                stream_version: testCase.version,
+              },
+        );
+        for (const event of selected) {
+          await deliverAppeal({
+            type: event.event_type,
+            streamId: fixture.streamId,
+            streamVersion: Number(event.stream_version),
+            data: event.payload,
+          });
+        }
+        expect(await projectionRows(fixture.appealId)).toEqual(before);
+      }
+
+      for (const source of ["identity.account.reactivated", "identity.account.closed"] as const) {
+        const fixture = await appendRuntimeAppeal("reversed", source);
+        const sourceRows = (await registryRows()).filter((row) => row.appealable_action_id === fixture.actionId);
+        const events = await storedAppealEvents(fixture.streamId);
+        for (const event of events.rows) {
+          await deliverAppeal({
+            type: event.event_type,
+            streamId: fixture.streamId,
+            streamVersion: Number(event.stream_version),
+            data: event.payload,
+          });
+        }
+        expect((await projectionRows(fixture.appealId)).seller[0]).toMatchObject({
+          status: "reversed",
+          outcome: "reversed",
+        });
+        expect((await registryRows()).filter((row) => row.appealable_action_id === fixture.actionId)).toEqual(
+          sourceRows,
+        );
+        const projectionBefore = await projectionRows(fixture.appealId);
+        const appealRuntime = createAccountAppealRuntime(pool, fixture.eventStore);
+        await expect(
+          withAccountAppealSellerAccess(
+            {
+              tenantId: fixture.tenantId,
+              accountId: fixture.ownerAccountId as AccountId,
+              userId: fixture.sellerUserId,
+              permissions: ["account-appeals.file"],
+            },
+            "account-appeals.file",
+            async (capability) => {
+              const resolved = await appealRuntime.resolve(capability, fixture.actionId as EnforcementActionId);
+              if (resolved.status !== "resolved") throw new Error("Synthetic appeal action must resolve.");
+              return appealRuntime.file(
+                capability,
+                resolved.action,
+                { statement: "The closure was mistaken", appealId: fixture.appealId as never },
+                {
+                  tenantId: fixture.tenantId,
+                  audit: { performedByUserId: fixture.sellerUserId, forAccountId: fixture.ownerAccountId },
+                },
+              );
+            },
+          ),
+        ).rejects.toThrow("A terminal or withdrawn appeal cannot be filed.");
+        expect(await projectionRows(fixture.appealId)).toEqual(projectionBefore);
+      }
+    });
+
+    it("rolls back handler writes with the runner transaction context", async () => {
+      const appealId = createId("apl");
+      const actionId = createId("enf");
+      const accountId = createId("acc");
+      const filed = toEvent(
+        appealDelivery(appealId, 1, "platform-operations.account-appeal.filed", {
+          appealId,
+          tenantId: createId("tnt"),
+          accountId,
+          action: {
+            appealableActionId: actionId,
+            ownerAccountId: accountId,
+            source: "identity.account.closed",
+            sourceStreamId: `identity.account-${accountId}`,
+            sourceStreamVersion: 2,
+          },
+          statement: "Statement",
+          filedByUserId: createId("usr"),
+        }),
+      );
+      const handler = appealProjectionHandlers()[filed.type]!;
+      const scoped = await pool.connect();
+      try {
+        await scoped.query("BEGIN");
+        await handler(filed, { db: scoped });
+        await scoped.query("ROLLBACK");
+      } finally {
+        scoped.release();
+      }
+      expect(await projectionRows(appealId)).toEqual({ seller: [], operator: [] });
+
+      await deliverAppeal({
+        type: filed.type,
+        streamId: filed.streamId,
+        streamVersion: filed.streamVersion,
+        data: filed.data,
+      });
+      const review = toEvent(appealDelivery(appealId, 2, "platform-operations.account-appeal.review-started"));
+      const reviewHandler = appealProjectionHandlers()[review.type]!;
+      const updateScoped = await pool.connect();
+      try {
+        await updateScoped.query("BEGIN");
+        await reviewHandler(review, { db: updateScoped });
+        await updateScoped.query("ROLLBACK");
+      } finally {
+        updateScoped.release();
+      }
+      expect((await projectionRows(appealId)).seller[0]).toMatchObject({ status: "filed", stream_version: 1 });
+    });
   });
 
   describe("registry (R1)", () => {
@@ -497,6 +1045,38 @@ describeDb("account appeal aggregate DB proof", () => {
         operatorUserId: operator.userId,
       });
       expect(stored.rows[2]).toMatchObject({ performed_by_user_id: operator.userId, for_account_id: owner });
+
+      // The production runtime is the event producer; the projection consumes its stored events,
+      // proving this is event-only rather than a route-side read-model write.
+      const runtimeEvents = await pool.query<{
+        event_type: string;
+        payload: Record<string, unknown>;
+        stream_version: number;
+      }>(
+        `SELECT event_type, payload, stream_version
+           FROM event_store_events
+          WHERE stream_id = $1
+          ORDER BY stream_version`,
+        [`platform-operations.account-appeal-${enforcementActionId}`],
+      );
+      for (const row of runtimeEvents.rows) {
+        await deliverAppeal({
+          type: row.event_type,
+          streamId: `platform-operations.account-appeal-${enforcementActionId}`,
+          streamVersion: Number(row.stream_version),
+          data: row.payload,
+        });
+      }
+      expect(
+        (
+          await pool.query(
+            `SELECT status, outcome, rationale, stream_version
+             FROM platform_operations_account_appeal_seller_history
+            WHERE appeal_id = (SELECT payload->>'appealId' FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version LIMIT 1)`,
+            [`platform-operations.account-appeal-${enforcementActionId}`],
+          )
+        ).rows,
+      ).toMatchObject([{ status: "reversed", outcome: "reversed", rationale: "Evidence changed", stream_version: 3 }]);
     });
 
     it("concurrent distinct outcomes produce one terminal winner and one conflict", async () => {

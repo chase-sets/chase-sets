@@ -122,6 +122,8 @@ function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
       row.acquisition_occurred_at === null || row.acquisition_occurred_at === undefined
         ? null
         : new Date(row.acquisition_occurred_at).toISOString(),
+    committed_at:
+      row.committed_at === null || row.committed_at === undefined ? null : new Date(row.committed_at).toISOString(),
     raw_row:
       typeof row.raw_row === "object" && row.raw_row !== null && !Array.isArray(row.raw_row)
         ? (row.raw_row as Record<string, string>)
@@ -201,13 +203,16 @@ export async function getImportBatch(
        row_note,
        validation_errors,
        committed_inventory_item_id,
-       committed_listing_id,
+       CASE WHEN outbox.state = 'failed' THEN NULL
+            ELSE import_row.committed_listing_id END AS committed_listing_id,
        committed_at,
-       created_at,
-       updated_at
-     FROM inventory_import_batch_rows
-     WHERE batch_id = $1
-     ORDER BY row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
+       import_row.created_at,
+       import_row.updated_at
+     FROM inventory_import_batch_rows AS import_row
+     LEFT JOIN inventory_import_draft_listing_outbox AS outbox
+       ON outbox.message_id = import_row.row_id
+     WHERE import_row.batch_id = $1
+     ORDER BY import_row.row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
     page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
