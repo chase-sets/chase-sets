@@ -86,7 +86,7 @@ function assertReceiptUploadGated(document) {
     (step) =>
       String(step.uses ?? "").startsWith("actions/upload-artifact@") &&
       step.with?.path !== "artifacts/catalog-whole-game-rehearsal/receipt.json" &&
-      step.with?.path === scopeSyncBatchPreviewProbeArtifactPath,
+      step.with?.path !== "artifacts/catalog-admin-origin-generate/receipt.json",
   );
   expect(runIndex).toBeGreaterThanOrEqual(0);
   expect(validateIndex).toBeGreaterThan(runIndex);
@@ -335,6 +335,7 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       "|scope-sync-batch-preview-probe|admin-origin-generate-probe)",
       "|admin-origin-generate-probe)",
     );
+    expect(withoutArm).not.toBe(workflowSource);
     expect(resolveJourneyMatrix(withoutArm, scopeSyncBatchPreviewProbeJourneyScope)).toBeNull();
     expect(workflow().concurrency).toEqual({
       group: "platform-staging-mutating-operations",
@@ -392,6 +393,12 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     const directory = workflow();
     previewUpload(directory).with.path = "artifacts/catalog-scale-probe";
     expect(() => assertReceiptUploadGated(directory)).toThrow();
+    const extraUpload = workflow();
+    extraUpload.jobs["staging-provider-uat"].steps.push({
+      ...previewUpload(extraUpload),
+      with: { path: "artifacts/unexpected/receipt.json" },
+    });
+    expect(() => assertReceiptUploadGated(extraUpload)).toThrow();
     const ungated = workflow();
     previewUpload(ungated).if = "${{ always() }}";
     expect(() => assertReceiptUploadGated(ungated)).toThrow();
