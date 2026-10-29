@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
@@ -14,6 +14,19 @@ import {
 } from "./json-import-attributes.mjs";
 import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
 import { workspaceRoots } from "../lib/repo.mjs";
+
+const realCensusCalls = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("./json-import-attributes.mjs", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    validateJsonImportAttributes: (options = {}) => {
+      if (options.rootDir === undefined && options.paths === undefined) realCensusCalls.count += 1;
+      return actual.validateJsonImportAttributes(options);
+    },
+  };
+});
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -27,6 +40,14 @@ function withFixture(files, callback) {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 function contextFiles(indexSource, extraFiles = {}) {
@@ -699,11 +720,9 @@ describe("manifest host-registration predicate parity", () => {
 
 describe("real repository execution membership", () => {
   let realCensus;
-  let realCensusInvocations = 0;
 
   beforeAll(async () => {
-    realCensusInvocations += 1;
-    realCensus = await validateJsonImportAttributes();
+    realCensus = deepFreeze(await validateJsonImportAttributes());
   });
 
   it("census work stays source-bounded", () => {
@@ -717,7 +736,7 @@ describe("real repository execution membership", () => {
     console.info(
       JSON.stringify({
         censusWork: {
-          invocations: realCensusInvocations,
+          invocations: realCensusCalls.count,
           gitSubprocesses: work.gitSubprocesses,
           wholeTreeScans: work.wholeTreeScans,
           indexCandidates: work.indexCandidates.length,
@@ -744,7 +763,7 @@ describe("real repository execution membership", () => {
         },
       }),
     );
-    expect(realCensusInvocations).toBe(1);
+    expect(realCensusCalls.count).toBe(1);
     expect(
       work.fullParses.length,
       "full parses exceed source-derived manifest ancestor/config ceiling",
@@ -754,26 +773,21 @@ describe("real repository execution membership", () => {
     expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
     expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
     expect(work.gitSubprocesses).toBe(2);
-    const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
+    const indexedFiles = execFileSync("git", ["ls-files"], {
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
-      .sort();
+      .filter(Boolean);
+    const indexedSources = indexedFiles.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).sort();
+    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
+    const indexedWorkspaces = indexedFiles.filter((file) => workspacePackageJson.test(file)).sort();
     expect(work.indexCandidates).toEqual(indexedSources);
     expect(work.sourceIndex).toMatchObject({
       kind: "git-index-source/v1",
-      pathCount: new Set(
-        execFileSync("git", ["ls-files"], {
-          encoding: "utf8",
-          maxBuffer: GIT_LISTING_MAX_BUFFER,
-        })
-          .trim()
-          .split(/\r?\n/)
-          .filter(Boolean),
-      ).size,
+      pathCount: new Set(indexedFiles).size,
       sourceCount: indexedSources.length,
       candidateCount: work.manifestCandidates.length,
     });
@@ -783,16 +797,6 @@ describe("real repository execution membership", () => {
     expect(
       work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
     ).toBe(true);
-    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
-    const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: GIT_LISTING_MAX_BUFFER,
-    })
-      .trim()
-      .split(/\r?\n/)
-      .filter((file) => workspacePackageJson.test(file))
-      .sort();
     expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
   });
 
@@ -916,7 +920,7 @@ describe("real repository execution membership", () => {
   it("derives the exact real census and execution partition with deterministic work bounds", () => {
     const result = realCensus;
 
-    expect(realCensusInvocations).toBe(1);
+    expect(realCensusCalls.count).toBe(1);
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
     expect(result.inventory.declarations).toHaveLength(135);
