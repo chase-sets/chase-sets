@@ -160,7 +160,7 @@ describe("Terraform state database URL export", () => {
     ]);
   });
 
-  it("selects only transaction pools and rejects explicit unpooled contexts", () => {
+  it("pooled context selection selects only transaction pools and rejects explicit unpooled contexts", () => {
     const urls = databaseUrlsFromTerraformState(mixedPooledTerraformState(), {
       connectionMode: "pooled",
       selectionMode: "pooled-only",
@@ -295,7 +295,7 @@ describe("Terraform state database URL export", () => {
     ]);
   });
 
-  it("writes a bounded pooled inventory before invalid selection and CA retrieval", async () => {
+  it("pooled context selection writes a bounded inventory before invalid selection and CA retrieval", async () => {
     const writes = [];
     let fetched = 0;
     await expect(
@@ -331,6 +331,83 @@ describe("Terraform state database URL export", () => {
     );
     expect(writes[0].value).not.toContain("db.example.internal");
     expect(writes[0].value).not.toContain("pass word");
+  });
+
+  it("pooled invalid state no retry writes a bounded failure, inventory, and cleans up CA", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "managed-postgres-pooled-invalid-"));
+    tempDirectories.push(directory);
+    const statePath = join(directory, "state.json");
+    const githubEnvPath = join(directory, "github.env");
+    const caPathForTest = join(directory, "ca.pem");
+    const failurePath = join(directory, "failure.json");
+    const inventoryPath = join(directory, "inventory.json");
+    await writeFile(statePath, JSON.stringify(mixedPooledTerraformState()));
+    await writeFile(caPathForTest, "synthetic-ca");
+    const stderr = [];
+    const removals = [];
+    let fetched = 0;
+
+    await expect(
+      main(
+        [
+          "--state",
+          statePath,
+          "--github-env",
+          githubEnvPath,
+          "--ca-path",
+          caPathForTest,
+          "--contexts",
+          "reputation",
+          "--connection-mode",
+          "pooled",
+          "--selection-mode",
+          "pooled-only",
+          "--retry-attempts",
+          "3",
+          "--failure-output",
+          failurePath,
+          "--inventory-output",
+          inventoryPath,
+        ],
+        {
+          DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token",
+          DEPLOYMENT_ENVIRONMENT: "production",
+        },
+        {
+          fetch: async () => {
+            fetched += 1;
+            throw new Error("must not fetch");
+          },
+          rm: async (path, options) => {
+            removals.push({ path, options });
+            await rm(path, options);
+          },
+          errorLog: (line) => stderr.push(line),
+        },
+      ),
+    ).resolves.toBe(1);
+
+    expect(fetched).toBe(0);
+    expect(stderr).toEqual(['{"classification":"managed-postgres-state-invalid","context":"reputation"}']);
+    expect(JSON.parse(await readFile(failurePath, "utf8"))).toEqual({
+      result: "failure",
+      mode: "url-export",
+      environment: "production",
+      class: "managed-postgres-state-invalid",
+      attempts: 0,
+      context: "reputation",
+    });
+    expect(JSON.parse(await readFile(inventoryPath, "utf8"))).toEqual(
+      expect.objectContaining({
+        contexts: expect.arrayContaining([
+          { context: "reputation", database: true, user: true, pool: false, poolMode: null },
+          { context: "search", database: false, user: false, pool: true, poolMode: "session" },
+        ]),
+      }),
+    );
+    expect(removals).toEqual([{ path: caPathForTest, options: { force: true } }]);
+    await expect(stat(githubEnvPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(caPathForTest)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("retrieves only the authoritative CA and reports bounded provider failures", async () => {
@@ -508,7 +585,7 @@ describe("Terraform state database URL export", () => {
     }
   });
 
-  it("removes CA material when the environment export cannot complete", async () => {
+  it("pooled failure cleanup and safe fields remove CA material when export cannot complete", async () => {
     const removals = [];
 
     await expect(
@@ -758,6 +835,185 @@ describe("Terraform state database URL export", () => {
       0,
     );
     expect(invocationCount).toBe(19);
+    const expectedAuthorityCalls = [
+      [
+        "catalog-completion-report.yml",
+        "completion-report",
+        "Export catalog database URL and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "catalog-integration-staging-reset.yml",
+        "catalog-integration-reset",
+        "Export staging Catalog database URL and TLS trust",
+        "url-export",
+        "pooled",
+        undefined,
+      ],
+      [
+        "catalog-provider-refresh-watch.yml",
+        "provider-refresh-watch",
+        "Export catalog database URL and TLS trust",
+        "url-export",
+        "pooled",
+        undefined,
+      ],
+      [
+        "checkout-order-readiness-trace.yml",
+        "staging-order-readiness-trace",
+        "Export staging database URLs",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "collections-anonymous-owner-redaction.yml",
+        "cutover",
+        "Export Collections database authority",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "collections-cutover-authority-capture.yml",
+        "capture",
+        "Export Collections database authority",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "marketplace-provider-proof-status.yml",
+        "provider-proof-status",
+        "Export provider proof database URLs and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-postgres-growth-evidence.yml",
+        "growth-evidence",
+        "Export database URLs and TLS trust",
+        "url-export",
+        "pooled",
+        "pooled-only",
+      ],
+      [
+        "platform-postgres-slow-query-digest.yml",
+        "slow-query-digest",
+        "Export database URLs and TLS trust",
+        "url-export",
+        "pooled",
+        undefined,
+      ],
+      [
+        "platform-production.yml",
+        "reconcile-managed-postgres-ca-staging",
+        "Reconcile day-after managed Postgres CA trust",
+        "trust-only-kubernetes-secret",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-production.yml",
+        "reconcile-managed-postgres-ca-production",
+        "Reconcile day-after managed Postgres CA trust",
+        "trust-only-kubernetes-secret",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-production.yml",
+        "deploy-staging",
+        "Reconcile staging managed Postgres CA trust",
+        "trust-only-kubernetes-secret",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-production.yml",
+        "deploy-production",
+        "Reconcile production managed Postgres CA trust",
+        "trust-only-kubernetes-secret",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-production.yml",
+        "deploy-production",
+        "Export production readiness database URLs",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-staging-admin-qa-actor-fixtures.yml",
+        "provision-admin-qa-actor-fixtures",
+        "Export staging database URLs and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-staging-evidence-window-cleanup.yml",
+        "evidence-window-cleanup",
+        "Export staging control database authority and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-staging-evidence-window.yml",
+        "staging-evidence-window",
+        "Export staging control database authority and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-staging-representative-commerce-state.yml",
+        "refresh-representative-commerce-state",
+        "Export staging database URLs and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+      [
+        "platform-staging-wake-drills.yml",
+        "staging-wake-drill",
+        "Export staging database URLs and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
+    ];
+    const authorityCalls = consumers.flatMap(({ name, source }) => {
+      const workflow = parseYaml(source);
+      return Object.entries(workflow.jobs ?? {}).flatMap(([jobName, job]) =>
+        (job.steps ?? [])
+          .filter(({ uses }) => uses === "./.github/actions/export-managed-postgres-authority")
+          .map((step) => ({ name, jobName, step, key: [name, jobName, step.name ?? step.id].join("|") })),
+      );
+    });
+    expect(authorityCalls).toHaveLength(19);
+    expect(authorityCalls.map(({ key }) => key).sort()).toEqual(
+      expectedAuthorityCalls.map(([name, jobName, stepName]) => [name, jobName, stepName].join("|")).sort(),
+    );
+    for (const [
+      name,
+      jobName,
+      stepName,
+      expectedMode,
+      expectedConnectionMode,
+      expectedSelectionMode,
+    ] of expectedAuthorityCalls) {
+      const call = authorityCalls.find(({ key }) => key === [name, jobName, stepName].join("|"));
+      expect(call.step.with?.mode ?? "url-export").toBe(expectedMode);
+      expect(call.step.with?.["connection-mode"] ?? "direct").toBe(expectedConnectionMode);
+      expect(call.step.with?.["selection-mode"]).toBe(expectedSelectionMode);
+    }
     const growthSource = consumers.find(({ name }) => name === "platform-postgres-growth-evidence.yml").source;
     expect(growthSource).toContain('retry-attempts: "3"');
     expect(growthSource).toContain("connection-mode: pooled");
@@ -831,6 +1087,11 @@ describe("Terraform state database URL export", () => {
     expect(gate.run).toContain('"attempts":0');
     expect(growth.if).toBeUndefined();
     expect(summary.if).toBe("${{ always() }}");
+    expect(summary.run).toContain(
+      "if (record.status !== undefined) console.log(`- Provider status: ${record.status}`);",
+    );
+    expect(summary.run).toContain("if (record.code !== undefined) console.log(`- Provider code: ${record.code}`);");
+    expect(summary.run).toContain("if (record.context !== undefined) console.log(`- Context: ${record.context}`);");
     expect(uploads).toHaveLength(2);
     expect(uploads.every(({ if: condition }) => condition === "${{ always() }}")).toBe(true);
     expect(growthSource).toContain("if-no-files-found: ignore");

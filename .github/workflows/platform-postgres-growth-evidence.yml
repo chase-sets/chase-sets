@@ -150,6 +150,8 @@ jobs:
           console.log(`- Mode: ${record.mode}`);
           console.log(`- Class: ${record.class}`);
           console.log(`- Attempts: ${record.attempts}`);
+          if (record.status !== undefined) console.log(`- Provider status: ${record.status}`);
+          if (record.code !== undefined) console.log(`- Provider code: ${record.code}`);
           if (record.context !== undefined) console.log(`- Context: ${record.context}`);
           NODE
             exit 0
