@@ -1,8 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData, seedReferenceData } from "./seed";
 import { ygojsonYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygojson/executable-mapping-contract";
 import { ygoprodeckYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygoprodeck/executable-mapping-contract";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
+import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import type { ReferenceRecordId } from "../../../ids";
+import { seedContext } from "../../../support/seed-support/context";
+import { createCatalogAliasRuntime } from "../../alias-equivalence/api/runtime";
+import { createProviderScopeMappingRuntime } from "../../provider-scope-mapping/api/runtime";
+import { providerScopeMappingStreamId } from "../../provider-scope-mapping/domain/domain";
+import { buildProviderScopeMappingCandidate } from "../../provider-scope-mapping/domain/mapping";
+import {
+  evolveReferenceRecord,
+  initialReferenceRecordState,
+  type ReferenceRecordCommand,
+  type ReferenceRecordEvent,
+} from "../domain/domain";
+import { createReferenceDataRuntime } from "./runtime";
+import { seedReferenceData, seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
 
 const retryLocalProjectionBlockedStream = vi.hoisted(() =>
   vi.fn<typeof import("@chase-sets/bounded-context-runtime").retryLocalProjectionBlockedStream>(
@@ -416,7 +433,339 @@ describe("reference data seed", () => {
     expect(harness.steps.some((step) => step.startsWith(`command:${blockedStreamId}:`))).toBe(false);
     expect(harness.commands).toEqual([]);
   });
+
+  it.each(["accepted", "auto-accepted"] as const)(
+    "refuses duplicate retirement with a %s authoritative mapping even when its projection is absent",
+    async (status) => {
+      const h = await createReconciliationHarness();
+      await h.createDuplicate();
+      await h.mapping(status);
+      const before = await h.rowsFor(h.duplicateStream);
+      await expect(seedReferenceData(h.services)).rejects.toThrow("it still owns 1 accepted Provider Scope Mapping(s)");
+      expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+    },
+  );
+
+  it.each(["absent", "proposed", "revoked"] as const)(
+    "retires an unmapped duplicate with %s mapping history exactly once",
+    async (status) => {
+      const h = await createReconciliationHarness();
+      await h.createDuplicate();
+      if (status !== "absent") await h.mapping(status);
+      await seedReferenceData(h.services);
+      expect((await h.folded(h.duplicateId)).status).toBe("deprecated");
+      const before = await h.rowsFor(h.duplicateStream);
+      await seedReferenceData(h.services);
+      expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+    },
+  );
+
+  it.each(["unrelated attribute", "provider id"])(
+    "refuses a stale correction after an intervening %s edit",
+    async (edit) => {
+      const h = await createReconciliationHarness();
+      await h.revise(h.canonicalId, { "tcgdex-set-id": "sv8", "synthetic-operator-note": "before" });
+      let interleaved = false;
+      const handler = h.services.referenceData.referenceRecordCommandHandler;
+      const services: CatalogServices = {
+        ...h.services,
+        referenceData: {
+          ...h.services.referenceData,
+          referenceRecordCommandHandler: async (input) => {
+            if (
+              !interleaved &&
+              input.streamId === h.canonicalStream &&
+              input.command.type === "ReviseReferenceRecord"
+            ) {
+              interleaved = true;
+              await h.revise(h.canonicalId, {
+                "tcgdex-set-id": edit === "provider id" ? "synthetic-custom-id" : "sv8",
+                "synthetic-operator-note": "concurrent-update",
+              });
+            }
+            return handler(input);
+          },
+        },
+      };
+      const before = (await h.rowsFor(h.canonicalStream)).length;
+      await expect(seedReferenceData(services)).rejects.toThrow(/concurr|version/i);
+      expect((await h.rowsFor(h.canonicalStream)).length).toBe(before + 1);
+      expect((await h.folded(h.canonicalId)).attributes).toEqual({
+        "tcgdex-set-id": edit === "provider id" ? "synthetic-custom-id" : "sv8",
+        "synthetic-operator-note": "concurrent-update",
+      });
+      await seedReferenceData(h.services);
+      expect((await h.folded(h.canonicalId)).attributes["tcgdex-set-id"]).toBe(
+        edit === "provider id" ? "synthetic-custom-id" : "sv08",
+      );
+      expect((await h.folded(h.canonicalId)).attributes["synthetic-operator-note"]).toBe("concurrent-update");
+    },
+  );
+
+  it.each(["duplicate", "canonical"] as const)(
+    "refuses poisoned %s lifecycle history without appending",
+    async (target) => {
+      const h = await createReconciliationHarness();
+      await h.createDuplicate();
+      const id = target === "duplicate" ? h.duplicateId : h.canonicalId;
+      await h.command(id, { type: "DeprecateReferenceRecord" });
+      await h.command(id, { type: "ArchiveReferenceRecord" });
+      await expect(h.command(id, { type: "PublishReferenceRecord" })).rejects.toThrow("Only draft reference records");
+      // SYNTHETIC poison: the command API above forbids republishing an archived record.
+      const streamId = `catalog.reference-record-${id}`;
+      await h.eventStore.appendToStream({
+        streamId,
+        expectedVersion: (await h.rowsFor(streamId)).length,
+        context: seedContext,
+        events: [{ eventType: "catalog.reference-record.published", payload: {} }],
+      });
+      const before = await h.rowsFor(streamId);
+      await expect(seedReferenceData(h.services)).rejects.toThrow(/illegal retained Reference Record history/);
+      expect(await h.rowsFor(streamId)).toEqual(before);
+    },
+  );
+
+  it.each(["deprecated", "archived"] as const)("leaves a valid %s duplicate history unchanged", async (status) => {
+    const h = await createReconciliationHarness();
+    await h.createDuplicate();
+    await h.command(h.duplicateId, { type: "DeprecateReferenceRecord" });
+    if (status === "archived") await h.command(h.duplicateId, { type: "ArchiveReferenceRecord" });
+    const before = await h.rowsFor(h.duplicateStream);
+    await seedReferenceData(h.services);
+    expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+  });
+
+  it("refuses a duplicate stream carrying another record's identity", async () => {
+    const h = await createReconciliationHarness();
+    await h.eventStore.appendToStream({
+      streamId: h.duplicateStream,
+      expectedVersion: 0,
+      context: seedContext,
+      events: [
+        {
+          eventType: "catalog.reference-record.created",
+          payload: { referenceRecordId: "ref_synthetic_wrong_identity" },
+        },
+        { eventType: "catalog.reference-record.published", payload: {} },
+      ],
+    });
+    const before = await h.rowsFor(h.duplicateStream);
+    await expect(seedReferenceData(h.services)).rejects.toThrow("illegal retained Reference Record history");
+    expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+  });
+
+  it("validates a duplicate history before accepting its retired-state no-op", async () => {
+    const h = await createReconciliationHarness();
+    await h.createDuplicate();
+    await h.eventStore.appendToStream({
+      streamId: h.duplicateStream,
+      expectedVersion: 2,
+      context: seedContext,
+      events: [{ eventType: "catalog.reference-record.archived", payload: {} }],
+    });
+    const before = await h.rowsFor(h.duplicateStream);
+    await expect(seedReferenceData(h.services)).rejects.toThrow("illegal retained Reference Record history");
+    expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+  });
+
+  it.each(["draft", "mismatch"])("preserves the existing %s duplicate refusal", async (state) => {
+    const h = await createReconciliationHarness();
+    await h.createDuplicate(state !== "draft");
+    if (state === "mismatch") await h.revise(h.duplicateId, { "tcgdex-set-id": "synthetic-other-set" });
+    const before = await h.rowsFor(h.duplicateStream);
+    await expect(seedReferenceData(h.services)).rejects.toThrow("cannot retire duplicate Reference Record");
+    expect(await h.rowsFor(h.duplicateStream)).toEqual(before);
+  });
+
+  it("corrects and retires through domain events without the new success logs", async () => {
+    const h = await createReconciliationHarness();
+    await h.createDuplicate();
+    await h.revise(h.canonicalId, { "tcgdex-set-id": "sv8" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await seedReferenceData(h.services);
+      expect((await h.rowsFor(h.canonicalStream)).at(-1)?.event_type).toBe("catalog.reference-record.revised");
+      expect((await h.rowsFor(h.duplicateStream)).at(-1)?.event_type).toBe("catalog.reference-record.deprecated");
+      expect(log.mock.calls.flat().join("\n")).not.toMatch(/corrected tcgdex-set-id|deprecated as a duplicate/);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
+
+async function createReconciliationHarness() {
+  const { eventStore } = createInMemoryEventStore();
+  const known = new Set<string>();
+  const canonicalId = catalogSeedIds.referenceRecords.expansions.surgingSparks;
+  const duplicateId = "ref_tcgdex_expansion_sv08" as ReferenceRecordId;
+  const canonicalStream = `catalog.reference-record-${canonicalId}`;
+  const duplicateStream = `catalog.reference-record-${duplicateId}`;
+  const rowsFor = async (streamId: string) =>
+    (await eventStore.readStream({ streamId })).map((event) => ({
+      stream_id: event.streamId,
+      stream_version: event.streamVersion,
+      event_type: event.eventType,
+      payload: event.payload,
+    }));
+  const db: PgQueryable = {
+    query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("FROM catalog_provider_scope_mappings")) return { rows: [] as Row[], rowCount: 0 };
+      if (!sql.includes("FROM event_store_events")) throw new Error(`Unexpected seed query: ${sql}`);
+      let rows = await rowsFor(String(values[0]));
+      if (sql.includes("scopeRecordId")) {
+        rows = [];
+        for (const streamId of known) {
+          const history = await rowsFor(streamId);
+          if (
+            history.some(
+              (row) =>
+                row.event_type === "catalog.provider-scope-mapping.proposed" && row.payload.scopeRecordId === values[0],
+            )
+          )
+            rows.push(...history);
+        }
+      } else if (sql.includes("OR (")) {
+        for (const streamId of known) {
+          if (streamId !== values[0])
+            rows.push(
+              ...(await rowsFor(streamId)).filter(
+                (row) =>
+                  row.event_type === values[1] &&
+                  row.payload.key === values[2] &&
+                  (values.length < 4 || row.payload.typeKey === values[3]),
+              ),
+            );
+        }
+      }
+      return { rows: rows as Row[], rowCount: rows.length };
+    },
+  };
+  const deps: CatalogRuntimeDeps = {
+    eventStore,
+    db,
+    checkpointStore: {
+      loadCheckpoint: async () => {
+        throw new Error("Reconciliation harness does not run projections");
+      },
+      saveCheckpoint: async () => {
+        throw new Error("Reconciliation harness does not run projections");
+      },
+    },
+  };
+  const referenceData = createReferenceDataRuntime(deps);
+  const providerScopeMappings = createProviderScopeMappingRuntime(deps);
+  const command = async (id: string, command: ReferenceRecordCommand) => {
+    known.add(`catalog.reference-record-${id}`);
+    return referenceData.referenceRecordCommandHandler({
+      streamId: `catalog.reference-record-${id}`,
+      command,
+      context: seedContext,
+    });
+  };
+  const folded = async (id: string) =>
+    (await rowsFor(`catalog.reference-record-${id}`))
+      .map((row) => ({ type: row.event_type, data: row.payload }) as ReferenceRecordEvent)
+      .reduce(evolveReferenceRecord, initialReferenceRecordState);
+  const revise = async (id: string, attributes: Record<string, string>) => {
+    const state = await folded(id);
+    return command(id, {
+      type: "ReviseReferenceRecord",
+      typeKey: state.typeKey!,
+      key: state.key!,
+      name: state.name!,
+      description: state.description,
+      relationships: state.relationships,
+      attributes,
+    });
+  };
+  const pool: PgTransactionalPool = {
+    query: db.query,
+    connect: async () => {
+      throw new Error("Reconciliation harness does not open Postgres transactions");
+    },
+  };
+  const defaults = createCatalogServices(pool);
+  const services: CatalogServices = {
+    ...defaults,
+    referenceData: {
+      ...referenceData,
+      referenceTypeCommandHandler: async (input) => {
+        known.add(input.streamId);
+        return referenceData.referenceTypeCommandHandler(input);
+      },
+      referenceRecordCommandHandler: async (input) => {
+        known.add(input.streamId);
+        return referenceData.referenceRecordCommandHandler(input);
+      },
+    },
+    providerScopeMappings,
+    catalogAliases: createCatalogAliasRuntime(deps, {
+      catalogItemCommandHandler: defaults.items.commandHandler,
+      referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
+    }),
+  };
+  await seedReferenceData(services);
+  const createDuplicate = async (publish = true) => {
+    await command(duplicateId, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: duplicateId,
+      typeKey: "expansion",
+      key: "sv08",
+      name: { defaultLocale: "en", values: { en: "Synthetic Surging Sparks duplicate" } },
+      attributes: { "tcgdex-set-id": "sv08" },
+      relationships: [],
+    });
+    if (publish) await command(duplicateId, { type: "PublishReferenceRecord" });
+  };
+  const mapping = async (status: "accepted" | "auto-accepted" | "proposed" | "revoked") => {
+    const candidate = buildProviderScopeMappingCandidate({
+      scopeRecordId: duplicateId,
+      providerKey: "tcgdex",
+      unitKey: "synthetic-seed-regression",
+      coordinates: { setId: "sv08" },
+      confidence: "exact",
+      reviewStatus: status === "auto-accepted" ? status : "proposed",
+      provenance: { source: "synthetic-seed-regression" },
+    });
+    const streamId = providerScopeMappingStreamId(candidate);
+    known.add(streamId);
+    await providerScopeMappings.commandHandler({
+      streamId,
+      command: { type: "ProposeProviderScopeMapping", candidate, actor: "synthetic-seed-regression" },
+      context: seedContext,
+    });
+    if (status === "accepted" || status === "revoked")
+      await providerScopeMappings.commandHandler({
+        streamId,
+        command: { type: "AcceptProviderScopeMapping", actor: "synthetic-seed-regression" },
+        context: seedContext,
+      });
+    if (status === "revoked")
+      await providerScopeMappings.commandHandler({
+        streamId,
+        command: {
+          type: "RevokeProviderScopeMapping",
+          actor: "synthetic-seed-regression",
+          reason: "Synthetic revoked control",
+        },
+        context: seedContext,
+      });
+  };
+  return {
+    services,
+    eventStore,
+    rowsFor,
+    folded,
+    revise,
+    command,
+    createDuplicate,
+    mapping,
+    canonicalId,
+    duplicateId,
+    canonicalStream,
+    duplicateStream,
+  };
+}
 
 function projectionRetryResult(
   streamId: string,

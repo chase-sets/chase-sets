@@ -60,6 +60,7 @@ import {
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
+  type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
@@ -92,6 +93,7 @@ import {
 } from "../../listing-evidence-policy/domain/policy";
 import { evaluateEvidenceCoverage } from "../domain/evidence-coverage";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
+import { parseAcquisitionCostSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 import {
   decideSellerListingAvailability,
   evolveSellerListingAvailability,
@@ -121,7 +123,6 @@ import {
   getSellerListingStatusCounts,
   getSellerOrderCapacity,
   hasSellerSupplyLocationNamed,
-  listActiveListingsForInventoryItem,
   listDueSellerAvailabilityRestores,
   listDueSellerAwayWindowStarts,
   listItemListings,
@@ -143,7 +144,7 @@ const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 8;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 9;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -262,6 +263,7 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
@@ -285,6 +287,7 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
@@ -729,13 +732,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     evolve: evolveInventoryListingCapacity,
     decide: decideInventoryListingCapacity,
   });
-  const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
-    initialState: () => initialSellerListingAvailabilityState,
-    evolve: evolveSellerListingAvailability,
-    decide: decideSellerListingAvailability,
-  });
+  const { commandHandler: sellerAvailabilityCommandHandler, repository: sellerAvailabilityRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
+      initialState: () => initialSellerListingAvailabilityState,
+      evolve: evolveSellerListingAvailability,
+      decide: decideSellerListingAvailability,
+    });
   const { commandHandler: orderCapacityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SellerOrderCapacityEvent>(),
@@ -861,7 +865,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   async function commitCapacityBoundListingCommand(
     listingId: string,
     accountId: string,
-    command: MarketplaceListingCommand,
+    command:
+      | MarketplaceListingCommand
+      | Readonly<{
+          type: "ReconcileInventoryCapacity";
+          intent: "pause" | "recover";
+        }>,
     context: EventStoreContext,
   ): Promise<number> {
     const appendToStreams = deps.eventStore.appendToStreams;
@@ -882,27 +891,49 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const registeredListingIds = [
         ...new Set([...capacity.state.listingIds, ...discoveredListingIds, listingId]),
       ].sort();
-      const listingEvents = decideMarketplaceListing(listing.state, command);
-      if (listingEvents.length === 0) {
-        return listing.version;
-      }
-      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
-      const otherListings = await Promise.all(
-        registeredListingIds
-          .filter((registeredListingId) => registeredListingId !== listingId)
-          .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
+      const otherListings = await loadInventoryListings(
+        registeredListingIds.filter((registeredListingId) => registeredListingId !== listingId),
       );
       const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
       if (!supply) {
         throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
       }
-      assertActiveListingCapacity(
-        [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
-          status: state.status,
-          quantityCap: state.quantityCap,
-        })),
-        supply.available_quantity,
+      const activeTotal = [listing, ...otherListings].reduce(
+        (sum, aggregate) => sum + (aggregate.state.status === "active" ? aggregate.state.quantityCap : 0),
+        0,
       );
+      let listingEvents: readonly MarketplaceListingEvent[];
+      if (command.type === "ReconcileInventoryCapacity") {
+        if (command.intent === "pause") {
+          if (listing.state.status !== "active" || activeTotal <= supply.available_quantity) return listing.version;
+          listingEvents = decideMarketplaceListing(listing.state, {
+            type: "PauseListing",
+            reason: "inventory-capacity",
+          });
+        } else {
+          if (
+            listing.state.status !== "paused" ||
+            listing.state.pauseReason !== "inventory-capacity" ||
+            listing.state.publicationScope !== "native" ||
+            activeTotal + listing.state.quantityCap > supply.available_quantity
+          )
+            return listing.version;
+          listingEvents = await inventoryCapacityRecoveryEvents(listing.state);
+        }
+      } else {
+        listingEvents = decideMarketplaceListing(listing.state, command);
+      }
+      if (listingEvents.length === 0) return listing.version;
+      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
+      // A shortage pause may need several serialized commands before the total fits.
+      if (command.type !== "ReconcileInventoryCapacity" || nextListing.status === "active")
+        assertActiveListingCapacity(
+          [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
+            status: state.status,
+            quantityCap: state.quantityCap,
+          })),
+          supply.available_quantity,
+        );
       const registrationEvents = decideInventoryListingCapacity(capacity.state, {
         type: "RegisterInventoryListings",
         inventoryItemId,
@@ -959,20 +990,89 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       return;
     }
 
-    const activeListings = await listActiveListingsForInventoryItem(deps.db, inventoryItemId);
-    let activeTotal = activeListings.reduce((sum, listing) => sum + listing.quantity_cap, 0);
+    const capacity = await inventoryListingCapacityRepository.load(inventoryListingCapacityStreamId(inventoryItemId));
+    const listingIds =
+      capacity.state.listingIds.length > 0
+        ? capacity.state.listingIds
+        : await discoverInventoryListingIds(inventoryItemId);
+    // Enumerate the item registry, not a seller's first page or lagging Listing projection.
+    const listings = await loadInventoryListings([...listingIds].sort());
+    let activeTotal = listings.reduce(
+      (sum, listing) => sum + (listing.state.status === "active" ? listing.state.quantityCap : 0),
+      0,
+    );
+    for (const listing of [...listings].reverse()) {
+      if (activeTotal <= supply.available_quantity) break;
+      if (listing.state.status !== "active" || !listing.state.listingId || !listing.state.accountId) continue;
+      const version = await commitCapacityBoundListingCommand(
+        listing.state.listingId,
+        listing.state.accountId,
+        {
+          type: "ReconcileInventoryCapacity",
+          intent: "pause",
+        },
+        createMarketplaceSystemContext(listing.state.accountId),
+      );
+      if (version > listing.version) activeTotal -= listing.state.quantityCap;
+    }
+    for (const listing of listings) {
+      if (listing.state.pauseReason !== "inventory-capacity" || !listing.state.listingId || !listing.state.accountId)
+        continue;
+      await commitCapacityBoundListingCommand(
+        listing.state.listingId,
+        listing.state.accountId,
+        {
+          type: "ReconcileInventoryCapacity",
+          intent: "recover",
+        },
+        createMarketplaceSystemContext(listing.state.accountId),
+      );
+    }
+  }
 
-    for (const listing of activeListings) {
-      if (activeTotal <= supply.available_quantity) {
-        break;
-      }
+  async function loadInventoryListings(listingIds: readonly string[]) {
+    const listings: Awaited<ReturnType<typeof repository.load>>[] = [];
+    for (const batch of chunkItems(listingIds, 100)) {
+      listings.push(...(await Promise.all(batch.map((id) => repository.load(`marketplace.listing-${id}`)))));
+    }
+    return listings;
+  }
 
-      await commandHandler({
-        streamId: `marketplace.listing-${listing.listing_id}`,
-        command: { type: "PauseListing" },
-        context: createMarketplaceSystemContext(listing.account_id),
+  async function inventoryCapacityRecoveryEvents(
+    listing: MarketplaceListingState,
+  ): Promise<readonly MarketplaceListingEvent[]> {
+    const blocked = (block: InventoryCapacityRecoveryBlock) =>
+      decideMarketplaceListing(listing, {
+        type: "PauseListing",
+        reason: "inventory-capacity",
+        inventoryCapacityRecoveryBlock: block,
       });
-      activeTotal -= listing.quantity_cap;
+    if (listing.nativeVisibility !== "enabled" || listing.nativeFeeState !== "enrolled")
+      return blocked("native-visibility-disabled");
+    if (!listing.priceAmount || !listing.priceCurrencyCode) return blocked("price-incomplete");
+    if (!listing.productMeasureSnapshot) return blocked("shipping-measure-missing");
+    const availability = await sellerAvailabilityRepository.load(
+      `marketplace.seller-listing-availability-${listing.accountId}`,
+    );
+    if (availability.state.status === "unavailable") return blocked("seller-away");
+    try {
+      const now = new Date().toISOString();
+      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, now);
+      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, now);
+      if (!readiness.ready) return blocked("evidence-incomplete");
+      const refreshed = decideMarketplaceListing(listing, {
+        type: "RefreshListingEvidenceRequirements",
+        evidenceRequirements,
+      });
+      return [
+        ...refreshed,
+        ...decideMarketplaceListing(applyEvents(listing, evolveMarketplaceListing, refreshed), {
+          type: "PublishListing",
+          readiness,
+        }),
+      ];
+    } catch {
+      return blocked("publication-unavailable");
     }
   }
 
@@ -1346,8 +1446,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       shipFromAddress: AddressSnapshot;
       totalQuantity: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
     }>,
   ) {
+    const cost = parseAcquisitionCostSnapshot(params.acquisitionCostAmount, params.acquisitionCostCurrencyCode);
+    const address = parseShipFromAddressSnapshot(params.shipFromAddress);
+    assert(address, "Ship-from address is required.");
     await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
@@ -1370,7 +1474,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.accountId,
         params.storageLocationName,
         params.shipFromCode,
-        JSON.stringify(params.shipFromAddress),
+        JSON.stringify(address),
       ],
     );
     await deps.db.query(
@@ -1384,9 +1488,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id,
          total_quantity,
          acquisition_cost_amount,
+         acquisition_cost_currency_code,
          last_stream_version,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
          account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -1396,6 +1501,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id = EXCLUDED.storage_location_id,
          total_quantity = EXCLUDED.total_quantity,
          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+         acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
          updated_at = EXCLUDED.updated_at`,
       [
         params.inventoryItemId,
@@ -1406,7 +1512,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.gradedCard ? JSON.stringify(params.gradedCard) : null,
         params.storageLocationId,
         params.totalQuantity,
-        params.acquisitionCostAmount,
+        cost.acquisitionCostAmount,
+        cost.acquisitionCostCurrencyCode,
       ],
     );
   }

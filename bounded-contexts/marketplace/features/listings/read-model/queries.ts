@@ -7,6 +7,8 @@ import {
   type MarketplaceListingFeeLock,
   type MarketplaceListingPhoto,
   type MarketplaceListingPhotoDraft,
+  type ListingPauseReason,
+  type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
 import { toPublicListingGallery, type MarketplaceListingPublicGalleryImage } from "../domain/evidence-gallery";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
@@ -45,6 +47,8 @@ export type MarketplaceListingListRow = Readonly<{
   evidence_requirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: string;
+  pause_reason: ListingPauseReason | null;
+  inventory_capacity_recovery_block: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -156,6 +160,8 @@ type MarketplaceListingPageRow = Readonly<{
   evidence_requirements: unknown;
   evidence: unknown;
   status: string;
+  pause_reason: ListingPauseReason | null;
+  inventory_capacity_recovery_block: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -206,6 +212,8 @@ const listingPageColumnSelectSql = `
        listing.evidence_requirements,
        listing.evidence,
        listing.status,
+       listing.pause_reason,
+       listing.inventory_capacity_recovery_block,
        listing.created_at,
        listing.updated_at`;
 
@@ -232,11 +240,14 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   total_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }>;
 
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
   return {
     ...row,
+    pause_reason: row.pause_reason ?? null,
+    inventory_capacity_recovery_block: row.inventory_capacity_recovery_block ?? null,
     ship_from_address:
       typeof row.ship_from_address === "object" && row.ship_from_address !== null
         ? (row.ship_from_address as AddressSnapshot)
@@ -300,6 +311,7 @@ export async function getInventoryItemSupply(
     total_quantity: number;
     available_quantity: number;
     acquisition_cost_amount: string | null;
+    acquisition_cost_currency_code: string | null;
   }>(
     `SELECT
        item.item_id,
@@ -352,7 +364,8 @@ export async function getInventoryItemSupply(
        location.ship_from_address,
        item.total_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
-       item.acquisition_cost_amount
+       item.acquisition_cost_amount,
+       item.acquisition_cost_currency_code
      FROM marketplace_supply_items AS item
      INNER JOIN marketplace_supply_locations AS location
        ON location.storage_location_id = item.storage_location_id
@@ -464,7 +477,8 @@ export async function listSellerInventoryItemSupply(
       location.ship_from_address,
       item.total_quantity,
       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
-      item.acquisition_cost_amount
+      item.acquisition_cost_amount,
+      item.acquisition_cost_currency_code
     FROM marketplace_supply_items AS item
     INNER JOIN marketplace_supply_locations AS location
       ON location.storage_location_id = item.storage_location_id
@@ -504,6 +518,7 @@ export async function listSellerInventoryItemSupply(
       total_quantity: number;
       available_quantity: number;
       acquisition_cost_amount: string | null;
+      acquisition_cost_currency_code: string | null;
     }>(
       `${selectSql}
        ORDER BY catalog_item.title ASC, item.product_id ASC, item.item_id ASC
@@ -583,19 +598,6 @@ export async function getActiveQuantityCapForInventoryItem(
   );
 
   return Number(result.rows[0]?.quantity_cap ?? 0);
-}
-
-export async function listActiveListingsForInventoryItem(db: PgQueryable, inventoryItemId: string) {
-  const result = await db.query<MarketplaceListingPageRow>(
-    `SELECT *
-     FROM marketplace_listing_pages
-     WHERE inventory_item_id = $1
-       AND status = 'active'
-     ORDER BY updated_at DESC, listing_id DESC`,
-    [inventoryItemId],
-  );
-
-  return result.rows.map(mapListingRow);
 }
 
 const SELLER_LISTING_STATUSES = new Set(["draft", "active", "paused", "withdrawn"]);

@@ -1,0 +1,2153 @@
+{
+  "schema": "db-enrollment-workload/v1",
+  "capture": {
+    "fileName": "bootstrap-db-capture-40252660960.json",
+    "fixtureSha256": "5b25ed93307194d218319c093f5e42db227457481551d00583da0164bd020a9d",
+    "runId": "40252660960",
+    "checkoutSha": "383caf33e5c0c7159be81cc7744ad0044a0938e5",
+    "sourceBase": "b5512a20e16d918a6b9589d79df91806fe142321",
+    "captureParent": "b5512a20e16d918a6b9589d79df91806fe142321"
+  },
+  "source": {
+    "commit": "b5512a20e16d918a6b9589d79df91806fe142321",
+    "ref": "refs/heads/codex/10062-impl-g1",
+    "historicalBranch": "codex/10062-impl-g1",
+    "historicalHead": "383caf33e5c0c7159be81cc7744ad0044a0938e5"
+  },
+  "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
+  "bindingsSha256": "899d023c79568670dbfd01c856aefab4b0868c85582c22f8115858ee9acbe942",
+  "bindings": [
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts",
+      [
+        {
+          "name": "derives the exact active and source-only seed universe for every host profile",
+          "identity": "d81e26884f288aba"
+        },
+        {
+          "name": "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+          "identity": "9e25aef167dc384f"
+        },
+        {
+          "name": "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+          "identity": "b8a98c6398a79ad2"
+        },
+        {
+          "name": "does not re-author Settlement while its payout projection lags the stream",
+          "identity": "7be95cff42705d0f"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+      [
+        {
+          "name": "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+          "identity": "1b443164687508bd"
+        },
+        {
+          "name": "enumerates stream-sourced seed-state coverage from the runtime mount list",
+          "identity": "944a32d056bf4f61"
+        },
+        {
+          "name": "resumes every converted context after its UNLOGGED guard projections are truncated",
+          "identity": "97c0a8c137819d55"
+        },
+        {
+          "name": "accepts a seeded resolution after the real deadline sweep advances it to closed",
+          "identity": "0efa7d5e61dc8603"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts",
+      [
+        {
+          "name": "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
+          "identity": "3bd5ce2166de99ce"
+        },
+        {
+          "name": "recreates only a missing review-eligible payment after a sibling payment has completed",
+          "identity": "68188141fd171819"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+      [
+        {
+          "name": "recovers when bootstrap-touched table locks release within the retry budget",
+          "identity": "bf6e839e420caad8"
+        },
+        {
+          "name": "fails closed when bootstrap-touched table locks exhaust the retry budget",
+          "identity": "d18b9e8333f5c0e7"
+        },
+        {
+          "name": "isolates partition databases and bootstrap advisory locks",
+          "identity": "c31f3a59baae1188"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      [
+        {
+          "name": "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
+          "identity": "fcf65b142a0bbe05"
+        },
+        {
+          "name": "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
+          "identity": "f749da3c0ba3e000"
+        },
+        {
+          "name": "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
+          "identity": "1e91d11294f92825"
+        },
+        {
+          "name": "limits and reconciles every production-like seed context against current-code state",
+          "identity": "91ce1f9bea42efa9"
+        },
+        {
+          "name": "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
+          "identity": "5d22ae06208e8106"
+        },
+        {
+          "name": "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
+          "identity": "90b195ccf8bfe4d8"
+        },
+        {
+          "name": "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
+          "identity": "5faa4bae78495bc7"
+        },
+        {
+          "name": "rejects a conflicting retained representative Account profile with actionable detail",
+          "identity": "22153693f009807d"
+        },
+        {
+          "name": "rejects a conflicting retained representative User profile with actionable detail",
+          "identity": "d76b1ce3679034a0"
+        },
+        {
+          "name": "rejects a conflicting retained representative Shipping Address profile with actionable detail",
+          "identity": "de799f65824dcee1"
+        },
+        {
+          "name": "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
+          "identity": "534d5752dbc527b6"
+        },
+        {
+          "name": "resumes the real representative commerce command after offer acceptance without duplicate creation events",
+          "identity": "f9e31ed90041d384"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+      [
+        {
+          "name": "boots with context-owned pools and replays cross-context projections",
+          "identity": "d5d72806700dfd1c"
+        },
+        {
+          "name": "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
+          "identity": "d4f92c858dc82bee"
+        },
+        {
+          "name": "records context schema migrations once during concurrent bootstrap",
+          "identity": "9d02b6a444073ea6"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts",
+      [
+        {
+          "name": "boots every non-production profile on one shared max-one seed command pool",
+          "identity": "4d891cb822a0a334"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts",
+      [
+        {
+          "name": "reconciles all required aggregates for a clean scenario-seed-only module seed",
+          "identity": "c749fe673131aada"
+        },
+        {
+          "name": "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+          "identity": "119d53278b4453d7"
+        },
+        {
+          "name": "NC-1 resumes an undrained Dimension seed without duplicate creation",
+          "identity": "ddeee7bac7384389"
+        },
+        {
+          "name": "NC-2 resumes a Component committed at created version one across two ordinary boots",
+          "identity": "d6b487fe4780b81f"
+        },
+        {
+          "name": "NC-3 restores lagging projections without re-authoring active aggregates",
+          "identity": "5370dfdb151548b6"
+        },
+        {
+          "name": "rebuilds lost Catalog Item projections from retained streams without appending item events",
+          "identity": "f7c024ac13659525"
+        },
+        {
+          "name": "NC-4 ignores populated containers when required aggregates have zero events",
+          "identity": "31ea7ebe99c1ec04"
+        },
+        {
+          "name": "NC-5a repairs a draft partial aggregate rather than skipping it",
+          "identity": "da4c8d1fc71a5c6b"
+        },
+        {
+          "name": "NC-5b rejects conflicting retained identity metadata on both boots",
+          "identity": "220cd5f763d298b2"
+        },
+        {
+          "name": "NC-5c rejects a terminal retained aggregate on both boots",
+          "identity": "547ba56539985bfc"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts",
+      [
+        {
+          "name": "resumes after Dimensions under scenario-seed and production-like profiles",
+          "identity": "b006b495c2b4a662"
+        },
+        {
+          "name": "resumes after Fields under scenario-seed and production-like profiles",
+          "identity": "13b82872bb3ba0b8"
+        },
+        {
+          "name": "resumes after Reference Data under scenario-seed and production-like profiles",
+          "identity": "3cfe7d19f03127f2"
+        },
+        {
+          "name": "resumes after Components under scenario-seed and production-like profiles",
+          "identity": "7ef841ec166b46d3"
+        },
+        {
+          "name": "resumes after Blueprints under scenario-seed and production-like profiles",
+          "identity": "9a1c524b0483b012"
+        },
+        {
+          "name": "resumes after the final Category under scenario-seed and production-like profiles",
+          "identity": "cb5ecec3a418a82a"
+        },
+        {
+          "name": "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+          "identity": "ea939096e104ab7e"
+        },
+        {
+          "name": "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+          "identity": "2be8f4782fdbd9eb"
+        },
+        {
+          "name": "preserves duplicate CreateDimension rejection through the non-seed command handler",
+          "identity": "b21990765232df57"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts",
+      [
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at success",
+          "identity": "8e6da445d63de885"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at run-append",
+          "identity": "dc78ebf502f34d74"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at projection",
+          "identity": "ec452b4eda143648"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at receipt",
+          "identity": "2c16372bc3e4e36b"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at missing-origin",
+          "identity": "a78a2edc4b5ba59c"
+        },
+        {
+          "name": "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
+          "identity": "a323ff8a1803c065"
+        },
+        {
+          "name": "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
+          "identity": "1c52c83b94b7148c"
+        },
+        {
+          "name": "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
+          "identity": "c32e8f3114e13a9f"
+        },
+        {
+          "name": "audits every OAuth refusal and malformed transport once with unresolved identity",
+          "identity": "f4325e300b6b29b5"
+        },
+        {
+          "name": "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
+          "identity": "f239ff43a5fed707"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts",
+      [
+        {
+          "name": "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+          "identity": "0b053db039f00b7d"
+        },
+        {
+          "name": "appends events only on the first of three same-boot inventory and checkout seed invocations",
+          "identity": "9f9a50a07958feca"
+        },
+        {
+          "name": "resumes inventory after only its first storage-location create commits",
+          "identity": "0d059da8303ae139"
+        },
+        {
+          "name": "resumes an archived storage location committed before its archive step",
+          "identity": "2f1e5800d580e926"
+        },
+        {
+          "name": "resumes a checkout cart holding only one of its two seeded lines",
+          "identity": "6dd2f79404be0d62"
+        },
+        {
+          "name": "fails closed on conflicting retained inventory identity metadata",
+          "identity": "c54552620ac0570c"
+        },
+        {
+          "name": "fails closed on a terminal retained inventory aggregate",
+          "identity": "5883b8dd80d4e395"
+        },
+        {
+          "name": "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+          "identity": "35debe29ef133878"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+      [
+        {
+          "name": "mints a hash-only grant for an Identity-shaped actor",
+          "identity": "9a3ebed97918a57e"
+        },
+        {
+          "name": "refuses %s without minting",
+          "identity": "36f6d2edde893ee6"
+        },
+        {
+          "name": "rejects mutation origins before writes",
+          "identity": "325a736e86f517cf"
+        },
+        {
+          "name": "unpairs a minted grant and keeps the public route idempotently invalid",
+          "identity": "10e3adc3a130e1ac"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+      [
+        {
+          "name": "bearer authorizes only public unpair and does not expose removed custody routes",
+          "identity": "d8a6ee905783d826"
+        },
+        {
+          "name": "empty public unpair body and invalid bearer are rejected without durable changes",
+          "identity": "c4eb8104fd9dbdbd"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
+      [
+        {
+          "name": "mounts metadata, mint, and bearer unpair without a server-side provider session",
+          "identity": "f1b52e662bf81bb3"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/seed-command-catalog.db.test.ts",
+      [
+        {
+          "name": "seeds Catalog scenario items with the actual direct command pool options",
+          "identity": "58d2b3df409f276c"
+        }
+      ]
+    ],
+    [
+      "W1 case identities",
+      "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts",
+      [
+        {
+          "name": "completes representative commerce seeds, projections, fan-outs and post-state",
+          "identity": "0204be7639f55534"
+        },
+        {
+          "name": "completes admin-QA fixtures and retains their seeded identity post-state",
+          "identity": "9e7b99abfd2756ab"
+        }
+      ]
+    ],
+    [
+      "W1 census",
+      "bootstrapEntries",
+      [
+        "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts",
+        "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts",
+        "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts",
+        "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts",
+        "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts",
+        "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts"
+      ]
+    ],
+    [
+      "W1 census",
+      "dbEntries",
+      [
+        "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+        "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+        "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts",
+        "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts",
+        "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts",
+        "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts",
+        "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+        "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+        "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
+        "deployables/platform-api/__tests__/seed-command-catalog.db.test.ts",
+        "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts"
+      ]
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts",
+      "440433cd2f0030882e9f91cf638d5dc3bd8666332dc077415ecdf4e95f5e74c7"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+      "3f5f3bf358034dccbde4006c48f797a3510dac28793a55125df2113c13e63ad8"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-recovery.db.test.ts",
+      "43b284d738b7817e5e2eebf314bd42697058f120ed8118323cb1b8a13490baee"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+      "87f04964b1b26d1a3a5215d8cc257895047085efe7d2c0aa246797c26f05a36c"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "25f8e51a884fc3c2370c24708c35c893c87ddf90e6c887a4ffce76d1b735db28"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+      "6b7af8f66400d3bde0749bf2bdfd4d58b14221d6fefc710b2e6a8c48c1f78aca"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/bootstrap-shared-seed-command.db.test.ts",
+      "7e318b7be666a8a157ef907a12cd820490391aee53c90eb00e2430ad7f85be30"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts",
+      "8c09d4db83b39de12df7b5f8b2facccc5e064044a6e66413d2a8141fddd206ff"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts",
+      "9bcb4e559dfd6f0868e962c64d3c7feb19049aef1e79b91381a8ce04120450f4"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts",
+      "6b6fe6ed4568966bbe926509fd8aa405b84fd293fcf68aafdec29a454a5e87e9"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts",
+      "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+      "bce4f240babd850c6f4f642faad6105edbf4f5c6be9a40ce268dd8fdb92a64c4"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+      "44c71cac0f5319926b00e47d1aee49f7d7fa74d8fbf6971375b1cad316bba59c"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
+      "497ded24654522b68b484a9c8f5b4d715ec91adad8123abb7ad555046db2a2af"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/seed-command-catalog.db.test.ts",
+      "74bc17a6fbddf60537a2c9024ec991b53e86f16cf7b55eb8c7cc92860e9fbfdb"
+    ],
+    [
+      "W1 file",
+      "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts",
+      "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356"
+    ],
+    [
+      "W1 partition",
+      "test:db:1",
+      {
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-production-reconciliation.db.test.ts __tests__/authoritative-seed-resume-core.db.test.ts __tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "entries": [
+          "__tests__/bootstrap-production-reconciliation.db.test.ts",
+          "__tests__/authoritative-seed-resume-core.db.test.ts",
+          "__tests__/authoritative-seed-resume-reconciliation.db.test.ts"
+        ],
+        "maxWorkers": 3
+      }
+    ],
+    [
+      "W1 partition",
+      "test:db:2",
+      {
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-scenario.db.test.ts __tests__/catalog-seed-aggregate-state.db.test.ts __tests__/operator-session/operator-session-grant-mint.db.test.ts __tests__/operator-session/operator-session-grant-scope.db.test.ts __tests__/operator-session/operator-session-push.db.test.ts __tests__/seed-command-catalog.db.test.ts __tests__/bootstrap-shared-seed-command.db.test.ts __tests__/bootstrap-lock-contention.db.test.ts __tests__/connector-mount-gate-isolation.db.test.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "entries": [
+          "__tests__/bootstrap-scenario.db.test.ts",
+          "__tests__/catalog-seed-aggregate-state.db.test.ts",
+          "__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+          "__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/bootstrap-shared-seed-command.db.test.ts",
+          "__tests__/bootstrap-lock-contention.db.test.ts",
+          "__tests__/connector-mount-gate-isolation.db.test.ts",
+          "__tests__/seed-command-full-pools.db.test.ts"
+        ],
+        "maxWorkers": 3
+      }
+    ],
+    [
+      "W1 partition",
+      "test:db:3",
+      {
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/authoritative-seed-resume-recovery.db.test.ts __tests__/inventory-seed-resume.db.test.ts __tests__/catalog-seed-interruption-resume.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "entries": [
+          "__tests__/authoritative-seed-resume-recovery.db.test.ts",
+          "__tests__/inventory-seed-resume.db.test.ts",
+          "__tests__/catalog-seed-interruption-resume.db.test.ts"
+        ],
+        "maxWorkers": 3
+      }
+    ],
+    [
+      "W2 file",
+      "bounded-contexts/channels/features/connections/tests/browser-state-fixture.test-data.ts",
+      "299d0db57eb4431d4bf059d1b1ff53bdaee84bfe756b27e5724d0cedf19cf034"
+    ],
+    [
+      "W2 file",
+      "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts",
+      "643dbc9cd2ddb58a68c91fba9da7b76a16dd82b651898c65bbb291c6f54213ce"
+    ],
+    [
+      "W2 file",
+      "bounded-contexts/identity/features/account-management/tests/browser-test-support.ts",
+      "44ba3a1f5bcaf5a7598bfeba02dfbac74ca93181fbbc8569b9dc0e012fa07d79"
+    ],
+    [
+      "W2 file",
+      "contracts/event-core/test-support.ts",
+      "e96c9aad4aecd9ebc8b0e559c83c84bff7314db6df5abf2525391bf8836d4b3e"
+    ],
+    [
+      "W2 file",
+      "contracts/money-movement/test-support.ts",
+      "94676939c07c5a81faf5e796615eed1f87ce4a37cf2f6d5ac67a998de79d62f3"
+    ],
+    [
+      "W2 file",
+      "contracts/payment-processing/test-support.ts",
+      "f9b489e00ea8aa6f8011c959b8639a83dbb5917105fc9c991ab5d897a1e194e9"
+    ],
+    [
+      "W2 file",
+      "contracts/postage-labels/test-support.ts",
+      "171488301b199b6756e58d0273113592405a3db21dc5e76a96ba7596b5c4d1ec"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts",
+      "8c8a9f4ca8d6292a0722b90651388e8536997ce0e81a0df54b10275cdf02818f"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/__tests__/bootstrap-db-test-support.ts",
+      "3d140da11b9fbee8f50781a0737050ea9a8f8e7f10a44dc76971ca051490d511"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/__tests__/catalog-seed-test-support.ts",
+      "38f698fcffcbebef8c07ec6d247acb98cbe9880e60d002d1702d8cc530178690"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/__tests__/operator-session/db-fixture.ts",
+      "63d85fc96e31107008713ab43ea6e7385d672af6099cb6dfc4fdbfe0b5f37cb6"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/__tests__/operator-session/fixture.ts",
+      "4896dc6b89cf9e691d13375ef26ab35525f246a4d338d2791a94791e02226dd9"
+    ],
+    [
+      "W2 file",
+      "deployables/platform-api/src/test-support/provider-gateways.ts",
+      "5c770797d26a2ad3b59eabf61bc94d3cd86904f82965a63bddd721bdbd33769c"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/auth/support/runtime-support/seed.ts",
+      "13034b65726aa4138c33eef3e69b7b3345bea627373705f583850682f1eed54d"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/auth/support/seed-support/store.ts",
+      "ca2c900a398a2a53342548081a6de7f2d5b5d91e9f25e63da2696bea7a743b46"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/blueprints/api/seed.ts",
+      "cd3b749f5e83907ad9bae7f8681ad0a27e4d8580ecaf8f7e614c8b519230beaa"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/catalog-items/api/seed.ts",
+      "24982cb1581d7c083aa91a906ce92a03f95485204a44c6754db2c4827c3df511"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/categories/api/seed.ts",
+      "310662ebf1995bb8952c5076525e7d12b736a2a929e6cc730290db88f8157eca"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/components/api/seed.ts",
+      "dcc63de29ba2f1f8576181494354e319c950864ab0279b72fbcb283dbc52c1d6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/dimensions/api/seed.ts",
+      "0431aa1bb7ee6fa48dd350c4bfa1568139a34016f255d12386b1b8b15d6c064b"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/display-templates/api/seed.ts",
+      "b5609498d4b26ef4b1fadea09c2b190d840cef9bfb570c61a7dd5768dfa59ae3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/fields/api/seed.ts",
+      "aae651e125c02e09a7808251116d4439927a8a7e437b48e1e16ae06d2d96bf39"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/product-contents/api/seed.ts",
+      "5cb3e3e70a187508b90fd5fce55fb255a4d42080b501964b0fa4766ea7b1059a"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/product-measures/api/seed.ts",
+      "319456e71b6d4eedc9d2ce837be48d9862e4a44b13355ca6ad9e36b1aed66f91"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/reference-data/api/seed.ts",
+      "d08fa7e1c85b036b65e34a3c0d95fb50d7ff0e1132db74b3b4ed772fe4d8e7da"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/provider-integration-profile-store.ts",
+      "d2b0a1c22cb389c599a96ce45cf1c22c8cb636cc5f30e0e5ff795bf9fa0b20c8"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts",
+      "3b7cd3fb23c52543bf68fac3c646e1f3ba952177518b633ccb2922fb28c84fd1"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seed.ts",
+      "7d22f1b100da4cdbf6da424268b4f3da01c21b31a4fe609f5aae702210e217c7"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/asset-storage.ts",
+      "d64c579870d0fb3e655d82dc28e74edfe774eb28d2d7ff1b229a72539e830654"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.test.ts",
+      "4d11d52c6caf29fe22f7bde6d5fa7b0bfa49add4c6ce179c62322dbd162adbb0"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.ts",
+      "ac7b90a14696d894c504184b4a853dc9b94e2354c646ec0ff2b821f167b709b3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-capture.ts",
+      "c6f10e5f66144ce01851c30bffdb899c8bcf31473c626084a39d76bd1a93d203"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.test.ts",
+      "2658818759395e37a4e7450c9f06edf6018681991ac437b22abededde8e63af0"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.ts",
+      "d4b63b055f542a3598e17a5fbad86aa150b0733ecf97e1de41747dce193adcb9"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.test.ts",
+      "af04ec9aa23ada78783aad1ceda13f6b5ceecc206d5f207a07e6c1542a111267"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.ts",
+      "31c3686dfaaaf1547dde18971b8f21db12629843ce7267f58331921268317fb7"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.test.ts",
+      "609fe13daef2c960203b4aeb6728c2e4d16898ced995612e4998e69fc1fc3781"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts",
+      "70c6c0663fa97e25fbaf6fcd109d84acb11fd737d0c3d5f16bf6f32809143517"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/runtime-test-harness.ts",
+      "09123f420e56ed209113d351906eb12044d233910c8a6344acb3580b2c1279e6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed-migration.test.ts",
+      "e6ea2d651b4734840b89b965cbed5d94e8dc02cb8ba1ab0db21a7fc86c9fa3b6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts",
+      "626a78410e04fb928e28dc6dafff8c633a2c327275c9f82620c5b17b83193451"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed.test.ts",
+      "25ae0169638a2d14c81bc77faf01add78d84c1e794d10bd94f80be5a31eb2e23"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts",
+      "49e0975f1183dd5280bda95424d3c7f72a77b82db99181064b2d7b577eebf1fe"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/synthetic-display-identity-queryable.ts",
+      "a95dcd7ff9114b45733105cf6a6ea285726d4961eaf3402d1e7be8744969b84f"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/support/authoring-support/seed.ts",
+      "29ce88ade8b6f81bebf0d4c65eef4e7a735e1f56423e9078a3f2cebb26b591f2"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/support/seed-support/aggregate-state.ts",
+      "b744225fcaa6d8924be601a7491a45c38499b6bb744977b41391636d1fea417e"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/support/seed-support/catalog-integration-state.ts",
+      "093a1aa78fa3343f633b234935a316b5411c44d81b25ddc0ef5489cc2ac938fd"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/catalog/support/seed-support/context.ts",
+      "fb29dc502260136f6a6b6f5fb7ff025320ab4f519da8553059baf1fe76d9db5c"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/channels/features/manual-sync/api/seed.ts",
+      "35e7213b8e2d591c04d902604a7d593f19a09cc14c34e4aff31765760f3967a5"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/channels/support/seed-support/channel-connection-browser.ts",
+      "a5d57c264b7cbf425e00f7b56dc8b04b65f04f3d8337aff1e45c2b89a3995d9e"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
+      "5e603e4baf0f2ffeedd484b647cf661ca878bf95a95962e27ff8aea49fd81694"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/checkout/support/runtime-support/seed.ts",
+      "86e7a308da5f9e321030230eb593692f50ee18e02d8218342828e8f29d16b82a"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/checkout/support/seed-support/fixtures/sell-list-recovery-browser-fixture.ts",
+      "21cb0045a46f0693d9f4dfe53e6f62d34e2ec528d7b14a36f3bc27501a8fccba"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/checkout/support/seed-support/ids.ts",
+      "fb971d900e973c2c5aac8b4fd7541720eb9d008ae1e572ac385cc7f912dcf7b0"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/commercial-terms/support/runtime-support/seed.ts",
+      "cc63230ff9f014fb00aebf8c575970f0fce35d35a2b6a40365aeeae01e87c2f9"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/commercial-terms/support/seed-support/ids.ts",
+      "35f3238ca6ee19bed96ecc60e1423e449f405ad994fac21e234b6191db27f030"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/fulfillment/support/runtime-support/seed.ts",
+      "a78f4eb8dd6847c97ff21341b1ddc88310fa06046be0b488721adf27af4361f5"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/fulfillment/support/seed-support/ids.ts",
+      "3d9ac07c35b16ed61b999af4763504a952b4e641bf7af202b1ac75317d677f5d"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "ef37fb7f90d3d77f3527fca5a1579780cdf34aa4be9cde5d05eceef963895ab6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/runtime-support/bootstrap-context.ts",
+      "acba75de5e106ea88a9c78e8111bb8ca3c6c2653c9ebc8700158d7f37724353e"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "da15221df4a4d575e8162142882d9d00264a42d05408e5486d945cd3d571fdc4"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/seed-support/account-management-browser.ts",
+      "0b8b8983e4886e60ecf19e4626d9cbb8013798148ddc8df2bb6b2a7a0acf71f3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/seed-support/ids.test.ts",
+      "01ffef8a20878579bdf6670c9ff6f1f7bba20fab10d4dce6847490e8cd541e81"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/seed-support/ids.ts",
+      "ed11ff45bb0e9128f70458a093ba7a7a4a3258792d065d5b507be9a4ed02c3c8"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/seed-support/market-following-verification.test.ts",
+      "032f7e0d34735cc4f961a2c87fd774bcb438e6fdd51ba40f6c3d8962a524d7c3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/identity/support/seed-support/market-following-verification.ts",
+      "02dbde45369c370c0353dfd928ef7d2fb01bfb96a4e1d265ce3f4b92716a7c00"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/runtime-support/seed.ts",
+      "55587d41c0a271e67fef862289edc32c74d86a89162a312382099f09b7194418"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/seed-support/context.ts",
+      "2197239c5d7e8e13a4bd566a37617ea72335760a481425be2b7ad072771438d6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/seed-support/ids.ts",
+      "d49f5714d750ba40d57ab9faaf4b2e68d29e9fd2b9aaa4fd1f468dc0d472000a"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/seed-support/mutation-command.ts",
+      "172d1bedba302bd9191de0e026e6b8963e861605b9597cf6b8e80a395123b532"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/seed-support/representative-services.ts",
+      "32495cb9d70368849a82da822f3f17af8ed62cc8896a7eb503f79e6311574d74"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts",
+      "8ef2afaf297ccfd1f0b45920f679794d11c6ccc2002c67683d683239a2263df3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/marketplace/features/listing-evidence-policy/integrations/seed.ts",
+      "96f54534d5856931038ef7d3c058d958b1c774aa5c5c79ab633d462fa5743006"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/marketplace/support/runtime-support/seed.ts",
+      "a7103595142b6444caba9cc1e25bc80f6b203337c1e3c1445ae4b2dba5df19e3"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/marketplace/support/seed-support/ids.ts",
+      "b5d07e48ad96fdb71eb287c6829455a7db98215e033fe7fdccc9687877aa1b97"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/ordering/support/runtime-support/seed.ts",
+      "6921816e31da397566664384fcc25cc506de5f4751c8c278531fdd6b27678d10"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/ordering/support/seed-support/ids.ts",
+      "6e06e9de911fb4eeea854368b9dae16b6cfcd1efabe19649a4cb80e2dd9a19ae"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/payments/support/runtime-support/seed.ts",
+      "2c14fc88d7f5fa51117eacc4079f69e69ffb1c73a52f5e87d39a0338204b6b16"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/payments/support/seed-support/ids.ts",
+      "3e044e094dea9051a5981c1f24dcd2cc5cc6a4d4da43053f4347cdded1d1aa34"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/platform-operations/support/runtime-support/seed.ts",
+      "16c15947d53e4088d009ad46e3e5b87411f4af528288905fa2b3a01478a50f76"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/platform-operations/support/seed-support/ids.ts",
+      "f7528df8f8b12149a703daa25a638ea15cfb6e6f37331f6259cd752e6e8c7d83"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/pricing/support/runtime-support/seed.ts",
+      "0fe25d75dc896873879b1481979298645092f156f8f25055b4ed76017f5841ba"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/public-presence/features/promo-bar/api/seed.ts",
+      "ea42a41a71e0649967669c38ae603d35278e728c8e15439591639ecd1b808bf6"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/public-presence/features/waitlist/api/seed.ts",
+      "bb9763ee60df36586c4cbda7ff931fb63fbb3e0c4ad9775e609999169032839c"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/settlement/support/runtime-support/seed.ts",
+      "6ce9b91624bff8b86b9eb5ff8dfb364de32da7512e3bf0b1890f73e0f2b72e92"
+    ],
+    [
+      "W3 file",
+      "bounded-contexts/settlement/support/seed-support/ids.ts",
+      "b6bd097fa23cdd51539528440b573ba76c744737eb3ace82514d96bb98afc80c"
+    ],
+    [
+      "W3 file",
+      "contracts/catalog-seed/fallback-assets.ts",
+      "5edc8606d8d48e2ad0ba7e5b4abb0ed143e144ddde036f25f9a85c72effdbc00"
+    ],
+    ["W3 file", "contracts/catalog-seed/ids.ts", "eebdac1d7309d1c3420c200dc50236c7393f0f4e1a716f8c23e3d5fbcd30a651"],
+    ["W3 file", "contracts/catalog-seed/index.ts", "a8cb2f454868a9792b6e2c8d6d9175924ff20d2d3736bb4d164b5d96437e6ab1"],
+    [
+      "W3 file",
+      "contracts/catalog-seed/package.json",
+      "a5ff6a7dcf7fff0dfb9771d6b5309d1c006c642bf4e438658238bb0402d96173"
+    ],
+    [
+      "W3 file",
+      "contracts/catalog-seed/representative-commerce-state.ts",
+      "6f9aabb33b32f6c5288f683aecdc4cf76fc638f56cde015aa8bae9d5ce3929b2"
+    ],
+    [
+      "W3 file",
+      "contracts/catalog-seed/scenario.ts",
+      "9df01f1f8e825129c50ec34cf2407a99c6e18ceae92514f98ef94f74049d6db6"
+    ],
+    [
+      "W3 file",
+      "contracts/catalog-seed/tsconfig.json",
+      "f6a06127ec3c2c71b9921466c7e14d335fd79cb3a1a4198fe424b44618302523"
+    ],
+    [
+      "W3 file",
+      "contracts/catalog-seed/vitest.config.ts",
+      "c33ff38bb5f2aab04f4eb80c7c737c762d547673570a06f9d1f540f7769f280c"
+    ],
+    ["W3 file", "contracts/identity-seed/ids.ts", "68d6b68352c35cfb8dd1339364125bd4b13e8ab28c8f00fd8cd3b62496cde5d2"],
+    ["W3 file", "contracts/identity-seed/index.ts", "7ab3c90d60278791980f152e34df23573f7d123714f194d8c602b4f54d9aaf0d"],
+    [
+      "W3 file",
+      "contracts/identity-seed/package.json",
+      "fa59977e8b66fcc9f0101d474209440429b19ef3148e6a3f8a7bbdc4fcaf4ab7"
+    ],
+    [
+      "W3 file",
+      "contracts/identity-seed/tsconfig.json",
+      "f6a06127ec3c2c71b9921466c7e14d335fd79cb3a1a4198fe424b44618302523"
+    ],
+    [
+      "W3 file",
+      "contracts/identity-seed/vitest.config.ts",
+      "c33ff38bb5f2aab04f4eb80c7c737c762d547673570a06f9d1f540f7769f280c"
+    ],
+    [
+      "W3 file",
+      "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
+      "3e20c9209a4ed1386f5be79c39a1e293ceb3b180fd3e61f5c8937473d1d78ffa"
+    ],
+    [
+      "W3 file",
+      "deployables/platform-api/src/database-pools.ts",
+      "e641149616859b955d6758cb1d9e99c9a1d4cd1b05df093ebeefcb7331f439fb"
+    ],
+    [
+      "W3 file",
+      "deployables/platform-api/src/representative-commerce-state.ts",
+      "b69a4b1fc803d04b0f3a959c0df42cae5a7f614978ded670aaebda47f13477d8"
+    ],
+    [
+      "W3 file",
+      "infrastructure/bounded-context-runtime/seed-aggregate-state.ts",
+      "eace1e00980732ffb9ce4af255f7ff62d5ad8557be2fd79e0d958d8e3f963fca"
+    ],
+    [
+      "W3 file",
+      "infrastructure/bounded-context-runtime/seeding.ts",
+      "403218c5633a3327607d1ccfdafa58016770c05d9cecbe30e770ad7bb1e861b7"
+    ],
+    [
+      "W3 file",
+      "infrastructure/bounded-context-runtime/test-support.ts",
+      "872d124cbfae4702637746b080ef4e9dc361097caaf25e326e677f5d936f53cb"
+    ],
+    [
+      "W3 file",
+      "infrastructure/platform-runtime/api.ts",
+      "95cfa99af20ce167872c9e19631e40857701de04eeccfde4c81736d302372cb2"
+    ],
+    [
+      "W3 file",
+      "infrastructure/platform-runtime/context-pools.ts",
+      "df8503c270c01d6af9d0091209c956e813c7c6b5c327ab6f43870fc6ad84b2c4"
+    ],
+    [
+      "W3 file",
+      "infrastructure/platform-runtime/host-runtime-selection.ts",
+      "1f148a812739c99d02b36bb826bade03bb9952db0da0a78b866c795cbf0de90d"
+    ],
+    [
+      "W3 json",
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/base2-60-scenario.json",
+      "9c8ea6355ead7ae7177a2c5f7f922146211b00b26108528b355cda17e775d714"
+    ],
+    [
+      "W3 json",
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json",
+      "399553ed7902b07410c11e662d79799175c27fdab0a349658c35e2f0b7de7501"
+    ],
+    [
+      "W3 selection",
+      "000 auth",
+      {
+        "packageName": "@chase-sets/auth",
+        "manifest": "bounded-contexts/auth/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
+          "contextName": "auth",
+          "hostPorts": [
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."
+            },
+            {
+              "portName": "agentWebhookOrderResolvers",
+              "providedBy": "platform-worker",
+              "purpose": "Ordering-owned read-model resolvers used by Auth's agent webhook projection to map order and shipment events to the buyer account."
+            },
+            {
+              "portName": "socialLoginProviders",
+              "providedBy": "platform-api",
+              "purpose": "Configured Social Login Provider adapters used by Auth-owned sign-in and registration journeys."
+            },
+            {
+              "portName": "adminGoogleWorkspaceSso",
+              "providedBy": "platform-api",
+              "purpose": "Configured Google Workspace hosted-domain policy used by Auth-owned admin SSO journeys."
+            },
+            {
+              "portName": "registrationAdmission",
+              "providedBy": "platform-api",
+              "purpose": "Registration admission and disposable-email screening policy plus the Public Presence admitted-waitlist lookup used by Auth-owned registration journeys."
+            },
+            {
+              "portName": "securityLifetimes",
+              "providedBy": "platform-api",
+              "purpose": "Bounds-validated, env-configurable session/token lifetimes (issue #4292): session, account-selection, magic-link, challenge, social-login-state, guest-checkout, and UCP OAuth TTLs. Env-tier by design, never admin-policy-editable."
+            },
+            {
+              "portName": "operatorAuthority",
+              "providedBy": "platform-api",
+              "purpose": "Identity's Membership-aggregate operator authority, exposed on Auth's identity port; native MCP admits operator capabilities only when it grants, and an absent port denies."
+            }
+          ],
+          "seedRequirements": ["identity"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "001 authenticity",
+      {
+        "packageName": "@chase-sets/authenticity",
+        "manifest": "bounded-contexts/authenticity/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "authenticity",
+          "hostPorts": [
+            {
+              "portName": "authenticityFacilityDirectory",
+              "providedBy": "platform-api",
+              "purpose": "Platform-configured authenticity facility address and operating identity for the single platform-operated facility; the provider-port seam for later third-party authenticators."
+            }
+          ],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "002 catalog",
+      {
+        "packageName": "@chase-sets/catalog",
+        "manifest": "bounded-contexts/catalog/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
+          "contextName": "catalog",
+          "hostPorts": [
+            {
+              "portName": "catalogAssetStorage",
+              "providedBy": "platform-api",
+              "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
+            },
+            {
+              "portName": "sourceObservationTelemetry",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Emits bounded Catalog Integration Control Plane telemetry for provider option queries, integration jobs, and bulk review work units."
+            }
+          ],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "003 channels",
+      {
+        "packageName": "@chase-sets/channels",
+        "manifest": "bounded-contexts/channels/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "channels",
+          "hostPorts": [
+            {
+              "portName": "ebayAccountDeletionConfiguration",
+              "providedBy": "platform-api",
+              "purpose": "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET."
+            },
+            {
+              "portName": "webhookTelemetry",
+              "providedBy": "platform-api",
+              "purpose": "Record bounded provider webhook outcomes without request or configuration values."
+            },
+            {
+              "portName": "storageLocationAuthority",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume."
+            },
+            {
+              "portName": "connectorOAuth",
+              "providedBy": "platform-api",
+              "purpose": "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority."
+            },
+            {
+              "portName": "marketplaceChannelInboundClamp",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
+            },
+            {
+              "portName": "channelSaleRecorder",
+              "providedBy": "inventory",
+              "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
+            },
+            {
+              "portName": "channelCredentialKeyring",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable."
+            }
+          ],
+          "seedRequirements": ["inventory"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "004 checkout",
+      {
+        "packageName": "@chase-sets/checkout",
+        "manifest": "bounded-contexts/checkout/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "checkout",
+          "hostPorts": [
+            {
+              "portName": "checkoutObservabilityTelemetry",
+              "providedBy": "platform-api",
+              "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."
+            },
+            {
+              "portName": "addressVerificationProvider",
+              "providedBy": "platform-api",
+              "purpose": "Verifies buyer-entered shipping addresses through the configured postage provider before checkout commits address snapshots."
+            },
+            {
+              "portName": "paymentProcessorPublicConfiguration",
+              "providedBy": "platform-api",
+              "purpose": "Supplies public processor configuration for Checkout-owned inline payment confirmation views."
+            },
+            {
+              "portName": "rateLimitPolicyResolver",
+              "providedBy": "platform-operations",
+              "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous cart/sell-list capture without Checkout querying Platform Operations storage."
+            }
+          ],
+          "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
+          "sourceRuntimeDeployables": ["platform-api"],
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "005 collections",
+      {
+        "packageName": "@chase-sets/collections",
+        "manifest": "bounded-contexts/collections/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "collections",
+          "hostPorts": [
+            {
+              "portName": "savedListAnalyticsRecorder",
+              "providedBy": "platform-api",
+              "purpose": "Records closed, identifier-free Saved List interaction labels without affecting HTTP responses."
+            },
+            {
+              "portName": "savedListProductCatalog",
+              "providedBy": "platform-api",
+              "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."
+            },
+            {
+              "portName": "inventorySavedListImportBatchCreator",
+              "providedBy": "platform-api",
+              "purpose": "Creates an Inventory-owned review-first import batch from an authorized immutable Saved List source snapshot."
+            },
+            {
+              "portName": "savedListCapabilities",
+              "providedBy": "platform-api",
+              "purpose": "Issues and verifies high-entropy unlisted Saved List capabilities from deployment-managed key material."
+            },
+            {
+              "portName": "savedListSharingRateLimits",
+              "providedBy": "platform-api",
+              "purpose": "Applies horizontally scalable request limits to shared views, unlisted exchanges, and abuse reports."
+            },
+            {
+              "portName": "savedListSharingAudit",
+              "providedBy": "platform-api",
+              "purpose": "Records bounded Saved List access decisions without capability secrets."
+            },
+            {
+              "portName": "savedListAbuseReports",
+              "providedBy": "platform-api",
+              "purpose": "Adapts Saved List reports into the existing moderation workflow without creating a second reporting system."
+            },
+            {
+              "portName": "rateLimitPolicyResolver",
+              "providedBy": "platform-api",
+              "purpose": "Resolves the bounded anonymous Saved List intent capture limit through the platform policy seam."
+            }
+          ],
+          "seedRequirements": ["catalog"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "006 commercial-terms",
+      {
+        "packageName": "@chase-sets/commercial-terms",
+        "manifest": "bounded-contexts/commercial-terms/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "commercial-terms",
+          "hostPorts": [],
+          "seedRequirements": ["identity"],
+          "sourceRuntimeDeployables": ["platform-api"],
+          "sourceRuntimeProfiles": ["landing"]
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "007 customer-feedback",
+      {
+        "packageName": "@chase-sets/customer-feedback",
+        "manifest": "bounded-contexts/customer-feedback/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "customer-feedback",
+          "hostPorts": [],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "008 discovery",
+      {
+        "packageName": "@chase-sets/discovery",
+        "manifest": "bounded-contexts/discovery/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "discovery",
+          "hostPorts": [
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable notification outbox consumed by Product Alert match projectors and dispatched through channel adapters."
+            },
+            {
+              "portName": "searchEmbeddingConfig",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Config-gated Voyage credentials, bounded query-cache settings, retrieval flags, and retry settings for Search Index enrichment and semantic retrieval."
+            },
+            {
+              "portName": "searchTelemetry",
+              "providedBy": "platform-api",
+              "purpose": "Records the redaction-safe lexical, rescue, or hybrid mode used by each Discovery Search Query."
+            },
+            {
+              "portName": "rateLimitPolicyResolver",
+              "providedBy": "platform-operations",
+              "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous product-alert capture without Discovery querying Platform Operations storage."
+            }
+          ],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "009 fulfillment",
+      {
+        "packageName": "@chase-sets/fulfillment",
+        "manifest": "bounded-contexts/fulfillment/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "fulfillment",
+          "hostPorts": [
+            {
+              "portName": "postageLabelProvider",
+              "providedBy": "platform-api",
+              "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
+            },
+            {
+              "portName": "postageWebhookGateway",
+              "providedBy": "platform-api",
+              "purpose": "Verifies and normalizes postage provider webhook payloads before fulfillment records provider events and advances shipment state."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by shipment event projectors."
+            }
+          ],
+          "seedRequirements": ["identity", "payments", "ordering"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "010 identity",
+      {
+        "packageName": "@chase-sets/identity",
+        "manifest": "bounded-contexts/identity/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
+          "contextName": "identity",
+          "hostPorts": [
+            {
+              "portName": "capabilityAdministrationAuthority",
+              "providedBy": "platform-api",
+              "purpose": "Admits support.evidence.any-case grant and revoke from a release-scoped deployment allow-list; worker and bootstrap explicitly deny all."
+            },
+            {
+              "portName": "addressVerificationProvider",
+              "providedBy": "platform-api",
+              "purpose": "Verifies buyer-saved shipping addresses through the configured postage provider before Identity commits address snapshots."
+            }
+          ],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "011 inventory",
+      {
+        "packageName": "@chase-sets/inventory",
+        "manifest": "bounded-contexts/inventory/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "inventory",
+          "hostPorts": [
+            {
+              "portName": "checkoutReservationAuthority",
+              "providedBy": "platform-api",
+              "purpose": "Resolves stock account authority from the authenticated buyer's retained Checkout session, never from request seller IDs."
+            },
+            {
+              "portName": "draftListingCreator",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
+            }
+          ],
+          "seedRequirements": ["catalog", "identity"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "012 marketplace",
+      {
+        "packageName": "@chase-sets/marketplace",
+        "manifest": "bounded-contexts/marketplace/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "marketplace",
+          "hostPorts": [
+            {
+              "portName": "managedOfferPricing",
+              "providedBy": "pricing",
+              "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
+            },
+            {
+              "portName": "sellerAttentionSources",
+              "providedBy": "platform-api",
+              "purpose": "Compose Seller Desk attention sources published by Inventory, Fulfillment, and Settlement without querying their storage from Marketplace."
+            },
+            {
+              "portName": "commercialTermsResolver",
+              "providedBy": "commercial-terms",
+              "purpose": "Resolve account listing terms without making Marketplace own commercial terms policy."
+            },
+            {
+              "portName": "listingPhotoStorage",
+              "providedBy": "platform-api",
+              "purpose": "Store normalized Marketplace Listing Photo WebP assets and read retained sources for authenticated JPEG downloads without making Marketplace own object-storage infrastructure."
+            },
+            {
+              "portName": "rateLimitPolicyResolver",
+              "providedBy": "platform-operations",
+              "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture, public standard-terms preview, and authenticated Listing Photo JPEG downloads without Marketplace querying Platform Operations storage."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108) and dispatched through channel adapters."
+            }
+          ],
+          "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "013 notifications",
+      {
+        "packageName": "@chase-sets/notifications",
+        "manifest": "bounded-contexts/notifications/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "notifications",
+          "hostPorts": [
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable notification outbox owned by Notifications and dispatched through channel adapters."
+            },
+            {
+              "portName": "mobileMessageWebhookGateway",
+              "providedBy": "platform-api",
+              "purpose": "Provider-specific SMS/RCS webhook verifier and normalizer for mobile messaging interactions."
+            },
+            {
+              "portName": "emailWebhookGateway",
+              "providedBy": "platform-api",
+              "purpose": "Provider-specific email delivery webhook normalizer for bounce, complaint, and delivery events."
+            }
+          ],
+          "seedRequirements": [],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "014 ordering",
+      {
+        "packageName": "@chase-sets/ordering",
+        "manifest": "bounded-contexts/ordering/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "ordering",
+          "hostPorts": [
+            {
+              "portName": "taxQuoteResolver",
+              "providedBy": "platform-api",
+              "purpose": "Consume the provider-agnostic tax quote resolver owned by the Ordering tax-quotes slice when creating order tax snapshots."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by order event projectors."
+            },
+            {
+              "portName": "authenticityFeePolicyResolver",
+              "providedBy": "commercial-terms",
+              "purpose": "Resolves the authenticity-check fee policy (m109 #4275) so Ordering can offer and freeze the buyer opt-in fee at checkout preview and order-creation time."
+            },
+            {
+              "portName": "inventoryCleanupAuthority",
+              "providedBy": "platform-api, platform-worker",
+              "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
+            }
+          ],
+          "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "015 payments",
+      {
+        "packageName": "@chase-sets/payments",
+        "manifest": "bounded-contexts/payments/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "payments",
+          "hostPorts": [
+            {
+              "portName": "walletFundingEligibilityResolver",
+              "providedBy": "identity",
+              "purpose": "Resolve account standing and active Payments Terms acceptance before wallet funding."
+            },
+            {
+              "portName": "prepaidRefundAuthority",
+              "providedBy": "settlement",
+              "purpose": "Reserve, commit and release exact prepaid refunds; absent authority refuses all reservations."
+            },
+            {
+              "portName": "processorGateway",
+              "providedBy": "platform-api",
+              "purpose": "Create and observe external payment processor intents from the API host."
+            },
+            {
+              "portName": "webhookTelemetry",
+              "providedBy": "platform-api",
+              "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
+            },
+            {
+              "portName": "providerModeObservation",
+              "providedBy": "platform-api",
+              "purpose": "Report the locally configured payment provider mode observation loaded once by the API host."
+            },
+            {
+              "portName": "balanceCreditResolver",
+              "providedBy": "settlement",
+              "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
+            },
+            {
+              "portName": "checkoutProcessingFeePolicyResolver",
+              "providedBy": "commercial-terms",
+              "purpose": "Resolve the runtime-configurable checkout processing-fee policy at quote time without Payments querying Commercial Terms storage."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."
+            },
+            {
+              "portName": "evidenceWindowProviderWrite",
+              "providedBy": "platform-runtime",
+              "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+            },
+            {
+              "portName": "evidenceWindowCorrelation",
+              "providedBy": "platform-runtime",
+              "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
+            }
+          ],
+          "seedRequirements": ["identity", "marketplace", "ordering"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "016 platform-operations",
+      {
+        "packageName": "@chase-sets/platform-operations",
+        "manifest": "bounded-contexts/platform-operations/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
+          "contextName": "platform-operations",
+          "hostPorts": [
+            {
+              "portName": "providerConnectionsCrossContext",
+              "providedBy": "platform-api",
+              "purpose": "Catalog and Channels owner-authored read-only Provider Connection sources, composed without transferring credential custody."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by support request event projectors."
+            },
+            {
+              "portName": "supportEvidenceAttachmentStorage",
+              "providedBy": "platform-api",
+              "purpose": "Store and privately read case-scoped Support Evidence images through the shared object-storage infrastructure without exposing public asset URLs or provider metadata."
+            },
+            {
+              "portName": "supportEvidenceCleanup",
+              "providedBy": "platform-worker",
+              "purpose": "available|not-mounted Support Evidence Cleanup Binding capability: a valid, active, instance-scoped binding with delete-and-verify-only private storage mounts the support-evidence-operation-cleanup runner; every other host and an omitted port is not-mounted."
+            },
+            {
+              "portName": "policyConsoleCrossContext",
+              "providedBy": "platform-api",
+              "purpose": "Settlement's and Commercial Terms' declared policy-console entries (definitions, read pool, write port), assembled once in the platform-api composition root so the #4291 policy console can aggregate across contexts without this context importing their domain code."
+            },
+            {
+              "portName": "supportReferenceLookupCrossContext",
+              "providedBy": "platform-api",
+              "purpose": "Ordering's, Fulfillment's, Settlement's, and Checkout's own support-reference lookup functions (bound to each context's own read pool), assembled once in the platform-api composition root so the #3932 unified support-reference lookup can route ORD-/SHP-/PYO-/CSG-/CS-SL- references and raw ord_/shp_/pyo_ ids without this context importing their domain code."
+            },
+            {
+              "portName": "opsMarketAnalyticsCrossContext",
+              "providedBy": "platform-api",
+              "purpose": "Pricing's platform-wide GMV/liquidity/top-catalog-item read functions, bound to pricing's own database pool and assembled once in the platform-api composition root, so the ops dashboard aggregates pricing's published Trades Tape and rollup data without this context importing pricing's domain code or querying its tables directly."
+            },
+            {
+              "portName": "offerEconomicsCrossContext",
+              "providedBy": "platform-api",
+              "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, Commercial Terms' published standard fee schedule terms, and Settlement's protection-reserve summary, each bound to its owning context's database pool and assembled once in the platform-api composition root."
+            },
+            {
+              "portName": "operationsAttentionRuntimeReads",
+              "providedBy": "platform-api",
+              "purpose": "Host-runtime projection blocked-projection and wake-store reads for the Operations Attention API, assembled once from the same builders used by the projection operations routes."
+            }
+          ],
+          "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "017 pricing",
+      {
+        "packageName": "@chase-sets/pricing",
+        "manifest": "bounded-contexts/pricing/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "pricing",
+          "hostPorts": [
+            {
+              "portName": "commercialTermsResolver",
+              "providedBy": "commercial-terms",
+              "purpose": "Resolve the four Commercial Terms-owned Economics facts at the caller-supplied evaluation instant."
+            },
+            {
+              "portName": "channelConnectionIdentityReader",
+              "providedBy": "channels",
+              "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
+            }
+          ],
+          "seedRequirements": [
+            "catalog",
+            "identity",
+            "inventory",
+            "marketplace",
+            "ordering",
+            "fulfillment",
+            "payments",
+            "settlement",
+            "authenticity"
+          ],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "018 public-presence",
+      {
+        "packageName": "@chase-sets/public-presence",
+        "manifest": "bounded-contexts/public-presence/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
+          "contextName": "public-presence",
+          "hostPorts": [
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by event projectors."
+            },
+            {
+              "portName": "waitlistAnalyticsRecorder",
+              "providedBy": "platform-api",
+              "purpose": "Operational landing-page analytics recorder for bounded waitlist event labels."
+            },
+            {
+              "portName": "rateLimitPolicyResolver",
+              "providedBy": "platform-operations",
+              "purpose": "Resolve the runtime-configurable rate-limit policy for waitlist signup submission without Public Presence querying Platform Operations storage."
+            },
+            {
+              "portName": "publicPolicySources",
+              "providedBy": "platform-api",
+              "purpose": "Resolve only explicitly whitelisted policy values used by public articles from each owning bounded context."
+            }
+          ],
+          "seedRequirements": ["identity"],
+          "sourceRuntimeDeployables": null,
+          "sourceRuntimeProfiles": null
+        }
+      }
+    ],
+    [
+      "W3 selection",
+      "019 settlement",
+      {
+        "packageName": "@chase-sets/settlement",
+        "manifest": "bounded-contexts/settlement/context.json",
+        "selection": {
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
+          "contextName": "settlement",
+          "hostPorts": [
+            {
+              "portName": "deploymentEnvironment",
+              "providedBy": "platform-api",
+              "purpose": "Trusted deployment environment for the staging-only proof credit; missing binding refuses all proof writes."
+            },
+            {
+              "portName": "moneyMovementGateway",
+              "providedBy": "platform-api",
+              "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
+            },
+            {
+              "portName": "webhookTelemetry",
+              "providedBy": "platform-api",
+              "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
+            },
+            {
+              "portName": "notificationOutbox",
+              "providedBy": "platform-worker",
+              "purpose": "Durable outbound notification outbox consumed only by event projectors."
+            },
+            {
+              "portName": "marketplaceLabelPostageActivation",
+              "providedBy": "platform-worker",
+              "purpose": "Validated Settlement database activation provenance supplied before the marketplace label postage subscription runner is constructed."
+            },
+            {
+              "portName": "termsAcceptanceResolver",
+              "providedBy": "identity",
+              "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."
+            },
+            {
+              "portName": "evidenceWindowProviderWrite",
+              "providedBy": "platform-runtime",
+              "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+            },
+            {
+              "portName": "evidenceWindowCorrelation",
+              "providedBy": "platform-runtime",
+              "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
+            }
+          ],
+          "seedRequirements": ["identity", "payments"],
+          "sourceRuntimeDeployables": ["platform-api"],
+          "sourceRuntimeProfiles": ["landing"]
+        }
+      }
+    ],
+    ["W4 alias", "^@chase-sets\\/auth$", "bounded-contexts/auth/index.ts"],
+    ["W4 alias", "^@chase-sets\\/auth-context$", "contracts/auth-context/index.ts"],
+    ["W4 alias", "^@chase-sets\\/auth\\/server$", "bounded-contexts/auth/server.ts"],
+    ["W4 alias", "^@chase-sets\\/authenticity$", "bounded-contexts/authenticity/index.ts"],
+    ["W4 alias", "^@chase-sets\\/bounded-context-module$", "contracts/bounded-context-module/index.ts"],
+    ["W4 alias", "^@chase-sets\\/bounded-context-runtime$", "infrastructure/bounded-context-runtime/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/bounded-context-runtime\\/test-support$",
+      "infrastructure/bounded-context-runtime/test-support.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/catalog$", "bounded-contexts/catalog/index.ts"],
+    ["W4 alias", "^@chase-sets\\/catalog-seed$", "contracts/catalog-seed/index.ts"],
+    ["W4 alias", "^@chase-sets\\/catalog\\/context$", "bounded-contexts/catalog/context.json"],
+    ["W4 alias", "^@chase-sets\\/catalog\\/server$", "bounded-contexts/catalog/server.ts"],
+    ["W4 alias", "^@chase-sets\\/channels$", "bounded-contexts/channels/index.ts"],
+    ["W4 alias", "^@chase-sets\\/channels\\/server$", "bounded-contexts/channels/server.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/channels\\/test-support$",
+      "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/checkout$", "bounded-contexts/checkout/index.ts"],
+    ["W4 alias", "^@chase-sets\\/checkout\\/server$", "bounded-contexts/checkout/server.ts"],
+    ["W4 alias", "^@chase-sets\\/collections$", "bounded-contexts/collections/index.ts"],
+    ["W4 alias", "^@chase-sets\\/commercial-terms$", "bounded-contexts/commercial-terms/index.ts"],
+    ["W4 alias", "^@chase-sets\\/customer-feedback$", "bounded-contexts/customer-feedback/index.ts"],
+    ["W4 alias", "^@chase-sets\\/discovery$", "bounded-contexts/discovery/index.ts"],
+    ["W4 alias", "^@chase-sets\\/easypost-postage$", "infrastructure/easypost-postage/index.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core-postgres$", "infrastructure/event-core-postgres/index.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/complete-stream$", "contracts/event-core/complete-stream.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/consistency$", "contracts/event-core/consistency.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/storage$", "contracts/event-core/storage.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/test-support$", "contracts/event-core/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/transport$", "contracts/event-core/transport.ts"],
+    ["W4 alias", "^@chase-sets\\/fulfillment$", "bounded-contexts/fulfillment/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/fulfillment\\/seed-support\\/(.*)$",
+      "bounded-contexts/fulfillment/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/identity$", "bounded-contexts/identity/index.ts"],
+    ["W4 alias", "^@chase-sets\\/identity-seed$", "contracts/identity-seed/index.ts"],
+    ["W4 alias", "^@chase-sets\\/identity\\/server$", "bounded-contexts/identity/server.ts"],
+    ["W4 alias", "^@chase-sets\\/inventory$", "bounded-contexts/inventory/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/inventory\\/seed-support\\/(.*)$",
+      "bounded-contexts/inventory/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/inventory\\/server$", "bounded-contexts/inventory/server.ts"],
+    ["W4 alias", "^@chase-sets\\/localization$", "contracts/localization/index.ts"],
+    ["W4 alias", "^@chase-sets\\/marketplace$", "bounded-contexts/marketplace/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/marketplace\\/seed-support\\/(.*)$",
+      "bounded-contexts/marketplace/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/money-movement\\/test-support$", "contracts/money-movement/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/notifications$", "bounded-contexts/notifications/index.ts"],
+    ["W4 alias", "^@chase-sets\\/object-storage$", "infrastructure/object-storage/index.ts"],
+    ["W4 alias", "^@chase-sets\\/ordering$", "bounded-contexts/ordering/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/ordering\\/seed-support\\/(.*)$",
+      "bounded-contexts/ordering/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/payment-processing\\/test-support$", "contracts/payment-processing/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/payments$", "bounded-contexts/payments/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/payments\\/seed-support\\/(.*)$",
+      "bounded-contexts/payments/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/platform-operations$", "bounded-contexts/platform-operations/index.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-operations\\/server$", "bounded-contexts/platform-operations/server.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-policy\\/commands$", "infrastructure/platform-policy/commands.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-runtime\\/api$", "infrastructure/platform-runtime/api.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/platform-runtime\\/context-pools$",
+      "infrastructure/platform-runtime/context-pools.ts"
+    ],
+    [
+      "W4 alias",
+      "^@chase-sets\\/platform-runtime\\/control-plane$",
+      "infrastructure/platform-runtime/control-plane.ts"
+    ],
+    [
+      "W4 alias",
+      "^@chase-sets\\/platform-runtime\\/source-context-wake-registry$",
+      "infrastructure/platform-runtime/source-context-wake-registry.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/postage-labels\\/test-support$", "contracts/postage-labels/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/pricing$", "bounded-contexts/pricing/index.ts"],
+    ["W4 alias", "^@chase-sets\\/primitives\\/(.*)$", "contracts/primitives/$1.ts"],
+    ["W4 alias", "^@chase-sets\\/product-measures$", "contracts/product-measures/index.ts"],
+    ["W4 alias", "^@chase-sets\\/public-presence$", "bounded-contexts/public-presence/index.ts"],
+    ["W4 alias", "^@chase-sets\\/public-presence\\/server$", "bounded-contexts/public-presence/server.ts"],
+    ["W4 alias", "^@chase-sets\\/settlement$", "bounded-contexts/settlement/index.ts"],
+    [
+      "W4 alias",
+      "^@chase-sets\\/settlement\\/seed-support\\/(.*)$",
+      "bounded-contexts/settlement/support/seed-support/$1.ts"
+    ],
+    ["W4 alias", "^@chase-sets\\/settlement\\/server$", "bounded-contexts/settlement/server.ts"],
+    ["W4 alias", "^@chase-sets\\/stripe-connect$", "infrastructure/stripe-connect/index.ts"],
+    ["W4 alias", "^@chase-sets\\/stripe-payments$", "infrastructure/stripe-payments/index.ts"],
+    ["W4 postgres", "image", "pgvector/pgvector:pg16"],
+    ["W4 postgres", "maxConnections", "300"],
+    ["W4 postgres", "maxLocksPerTransaction", "512"],
+    ["W4 postgres", "workspaceConcurrency", "2"],
+    [
+      "W4 unit",
+      "test:db:1",
+      {
+        "allowOnly": false,
+        "clearMocks": false,
+        "dangerouslyIgnoreUnhandledErrors": false,
+        "environment": "node",
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+        "execArgv": [],
+        "fakeTimers": {
+          "loopLimit": 10000,
+          "shouldClearNativeTimers": true
+        },
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
+        "globals": true,
+        "hookTimeout": 120000,
+        "include": ["__tests__/**/*.test.ts"],
+        "isolate": true,
+        "maxConcurrency": 5,
+        "maxWorkers": 3,
+        "mockReset": false,
+        "pool": "forks",
+        "restoreMocks": false,
+        "sequence": {
+          "sequencer": {
+            "function": "BaseSequencer",
+            "sha256": "8ccd71598e3398a9d045abe634d11729a8ecc1bb66862f3b6808c8a4ac4f4a02"
+          },
+          "groupOrder": 0,
+          "hooks": "stack"
+        },
+        "setupFiles": [],
+        "teardownTimeout": 10000,
+        "testTimeout": 120000,
+        "unstubEnvs": false,
+        "unstubGlobals": false,
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+      }
+    ],
+    [
+      "W4 unit",
+      "test:db:2",
+      {
+        "allowOnly": false,
+        "clearMocks": false,
+        "dangerouslyIgnoreUnhandledErrors": false,
+        "environment": "node",
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+        "execArgv": [],
+        "fakeTimers": {
+          "loopLimit": 10000,
+          "shouldClearNativeTimers": true
+        },
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
+        "globals": true,
+        "hookTimeout": 120000,
+        "include": ["__tests__/**/*.test.ts"],
+        "isolate": true,
+        "maxConcurrency": 5,
+        "maxWorkers": 3,
+        "mockReset": false,
+        "pool": "forks",
+        "restoreMocks": false,
+        "sequence": {
+          "sequencer": {
+            "function": "BaseSequencer",
+            "sha256": "8ccd71598e3398a9d045abe634d11729a8ecc1bb66862f3b6808c8a4ac4f4a02"
+          },
+          "groupOrder": 0,
+          "hooks": "stack"
+        },
+        "setupFiles": [],
+        "teardownTimeout": 10000,
+        "testTimeout": 120000,
+        "unstubEnvs": false,
+        "unstubGlobals": false,
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+      }
+    ],
+    [
+      "W4 unit",
+      "test:db:3",
+      {
+        "allowOnly": false,
+        "clearMocks": false,
+        "dangerouslyIgnoreUnhandledErrors": false,
+        "environment": "node",
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+        "execArgv": [],
+        "fakeTimers": {
+          "loopLimit": 10000,
+          "shouldClearNativeTimers": true
+        },
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
+        "globals": true,
+        "hookTimeout": 120000,
+        "include": ["__tests__/**/*.test.ts"],
+        "isolate": true,
+        "maxConcurrency": 5,
+        "maxWorkers": 3,
+        "mockReset": false,
+        "pool": "forks",
+        "restoreMocks": false,
+        "sequence": {
+          "sequencer": {
+            "function": "BaseSequencer",
+            "sha256": "8ccd71598e3398a9d045abe634d11729a8ecc1bb66862f3b6808c8a4ac4f4a02"
+          },
+          "groupOrder": 0,
+          "hooks": "stack"
+        },
+        "setupFiles": [],
+        "teardownTimeout": 10000,
+        "testTimeout": 120000,
+        "unstubEnvs": false,
+        "unstubGlobals": false,
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+      }
+    ],
+    ["W5 version", "pg", "8.20.0"],
+    ["W5 version", "vitest", "4.1.12"]
+  ]
+}

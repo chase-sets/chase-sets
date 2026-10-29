@@ -701,7 +701,7 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
-  it("prepares signed-in payment and returns to checkout for inline confirmation", async () => {
+  it("only Pay commits a fresh checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
@@ -1805,7 +1805,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
-  it("resumes payment start instead of refreshing quote once checkout orders are committed", async () => {
+  it("committed continuation keeps identity", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),

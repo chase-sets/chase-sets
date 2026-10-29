@@ -10,6 +10,7 @@ import {
   fenceAgentGrantActor,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  type ReceiptLookupActorOptions,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
@@ -214,6 +215,7 @@ import {
 import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
+  createReceiptLookupActorMiddleware,
   type AnonymousRouteDeclaration,
   type PlatformActorResolver,
   type TenantContextEnv,
@@ -290,6 +292,7 @@ export type BuildPlatformApiOptions = Readonly<{
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
+  receiptLookupActor?: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
   realtimeRouteTuning?: RealtimeRouteTuning;
@@ -630,13 +633,7 @@ export function createPlatformApiHost(
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as
-      | {
-          listings?: {
-            createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-          };
-        }
-      | undefined;
+    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
     const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
     if (!createDraft) {
       throw new Error("Marketplace draft listing service is unavailable.");
@@ -1097,6 +1094,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  app.use("/api/channels/staff/*", createReceiptLookupActorMiddleware(options.receiptLookupActor));
   const connectorChannels = runtime.services.channels;
   if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
