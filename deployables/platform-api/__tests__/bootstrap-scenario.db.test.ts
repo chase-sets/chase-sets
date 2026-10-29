@@ -244,6 +244,7 @@ describe("platform api bootstrap scenario", () => {
       "20260710_event_store_write_hot_fillfactor",
       "20260710_projection_recovery_marker_backfill",
       "20261015_subscription_reaction_output_positions",
+      "20261022_configuration_epoch_closure",
       ...(catalogContext.module.schemaMigrations ?? []).map((migration) => migration.migrationId),
     ].sort();
 

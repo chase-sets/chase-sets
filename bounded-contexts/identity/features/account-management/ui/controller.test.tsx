@@ -5,9 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, render } from "@testing-library/react";
 import { Button, HiddenInput, TextInput } from "@chase-sets/design-system";
 import { AccountMutationBoundary, AccountMutationForm } from "./controller";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import * as routerApi from "react-router";
-import { renderAccountManagementPage } from "./test-support";
+import {
+  renderAccountManagementPage,
+  renderHeldAccountManagementRoute,
+  settleAccountManagementRoute,
+  stubHeldAccountManagementTransport,
+} from "./test-support";
 import { syntheticMutationResult } from "../api/test-support";
 
 afterEach(() => {
@@ -281,7 +286,7 @@ describe("issue-9909 controller hand-off", () => {
     );
     await ready("Update");
     fireEvent.change(screen.getByLabelText("Update city"), { target: { value: "User work" } });
-    fireEvent.submit(form("Update"));
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
     await screen.findByText("Saving your change");
     for (const name of ["Create", "Default", "Archive", "Other update", "Duplicate update"])
       expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false);
@@ -289,7 +294,8 @@ describe("issue-9909 controller hand-off", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     lose();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("button", { name: "Update" }).matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Update" }).matches(":disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Update" }).getAttribute("aria-busy")).toBe("true");
     for (const name of ["Create", "Default", "Archive", "Other update", "Duplicate update"])
       expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false);
     fireEvent.submit(form("Update"));
@@ -462,10 +468,11 @@ describe("issue-7168-ac9-transport-state", () => {
       expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "User work" } });
-    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     try {
       await screen.findByText("Saving your change");
-      expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(false);
+      expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
       expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("User work");
       fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -477,5 +484,186 @@ describe("issue-7168-ac9-transport-state", () => {
     } finally {
       loseResponse();
     }
+  });
+});
+describe("issue-7125 boundary lock", () => {
+  const actor = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test" };
+  const refusal = "Another account change is in progress. Wait for it to finish before trying again.";
+  const reauth = "Sign in again to check this action's result.";
+  function Rows({ phase = "initial" }: { phase?: string }) {
+    return (
+      <>
+        <span data-testid="route-phase">{phase}</span>
+        {["A", "B"].map((name) => (
+          <AccountMutationForm key={name} method="post">
+            <HiddenInput name="intent" value="default" />
+            <HiddenInput name="shippingAddressId" value={`adr_${name}`} />
+            <Button type="submit">{name}</Button>
+          </AccountMutationForm>
+        ))}
+      </>
+    );
+  }
+  const button = (name: string) => screen.getByRole("button", { name });
+  const controllerStatus = () => screen.getAllByRole("status").find((region) => region.tabIndex === -1)!;
+  it("sibling activation refusal is announced", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads } = renderHeldAccountManagementRoute("/account/shipping-addresses", null, () => <Rows />);
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    fireEvent.click(button("A"));
+    expect(screen.queryByText(refusal)).toBeNull();
+    button("B").focus();
+    fireEvent.click(button("B"));
+    const inFlight = await screen.findByText(refusal);
+    expect(controllerStatus().contains(inFlight)).toBe(true);
+    expect(transport.posts()).toHaveLength(1);
+    expect(button("B").matches(":disabled")).toBe(false);
+    expect(button("B").getAttribute("aria-busy")).toBeNull();
+    expect(button("A").getAttribute("aria-busy")).toBe("true");
+
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+    await waitFor(() => expect(loads).toHaveLength(1));
+    fireEvent.click(button("B"));
+    await waitFor(() => expect(screen.getByText(refusal)).not.toBe(inFlight));
+    expect(transport.posts()).toHaveLength(1);
+    expect(button("B").getAttribute("aria-busy")).toBeNull();
+    loads[0](null);
+    await waitFor(() => expect(screen.queryByText(refusal)).toBeNull());
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
+
+    fireEvent.click(button("B"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(2));
+    transport.posts()[1].respond(null, 401);
+    await waitFor(() => expect(button("B").matches(":disabled")).toBe(true));
+    button("A").focus();
+    fireEvent.click(button("A"));
+    expect(document.activeElement).toBe(controllerStatus());
+    expect(controllerStatus().textContent).toContain(reauth);
+    expect(screen.queryByText(refusal)).toBeNull();
+    expect(screen.queryByText("Saving your change")).toBeNull();
+    expect(transport.posts()).toHaveLength(2);
+    expect(button("A").matches(":disabled")).toBe(false);
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
+  });
+  it("releases the boundary lock only after the revalidated route commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads, router } = renderHeldAccountManagementRoute(
+      "/account/shipping-addresses",
+      { phase: "before" },
+      ({ phase }) => <Rows phase={phase} />,
+    );
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+    await waitFor(() => expect(loads).toHaveLength(1));
+    expect(button("A").getAttribute("aria-busy")).toBe("true");
+    expect(button("B").getAttribute("aria-busy")).toBeNull();
+
+    const states: { phase: string; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    const observer = new MutationObserver(() => {
+      const phase = screen.getByTestId("route-phase").textContent ?? "";
+      const state = { phase, busy: button("A").getAttribute("aria-busy") };
+      states.push(state);
+      if (phase === "before" && state.busy === null) staleUnlocked = true;
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    loads[0]({ phase: "after" });
+    await settleAccountManagementRoute(router, () => button("A").getAttribute("aria-busy") === null);
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
+    observer.disconnect();
+    expect(screen.getByTestId("route-phase").textContent).toBe("after");
+    expect(staleUnlocked).toBe(false);
+    expect(states.some(({ phase, busy }) => phase === "before" && busy === null)).toBe(false);
+  });
+  it("keeps the boundary lock through a batched revalidation commit", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    let loads = 0;
+    function BatchedRows() {
+      const { phase } = useLoaderData() as { phase: string };
+      return <Rows phase={phase} />;
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          id: "page",
+          path: "/account/shipping-addresses",
+          loader: () => {
+            loads += 1;
+            return { phase: "after" };
+          },
+          element: (
+            <AccountMutationBoundary actor={actor}>
+              <BatchedRows />
+            </AccountMutationBoundary>
+          ),
+        },
+      ],
+      {
+        initialEntries: ["/account/shipping-addresses"],
+        hydrationData: { loaderData: { page: { phase: "before" } } },
+      },
+    );
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+
+    const states: { phase: string; busy: string | null }[] = [];
+    let staleUnlocked = false;
+    const observer = new MutationObserver(() => {
+      const phase = screen.getByTestId("route-phase").textContent ?? "";
+      const state = { phase, busy: button("A").getAttribute("aria-busy") };
+      states.push(state);
+      if (phase === "before" && state.busy === null) staleUnlocked = true;
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    await waitFor(() => expect(loads).toBe(1));
+    await settleAccountManagementRoute(router, () => button("A").getAttribute("aria-busy") === null);
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
+    observer.disconnect();
+
+    expect(screen.getByTestId("route-phase").textContent).toBe("after");
+    expect(staleUnlocked).toBe(false);
+    expect(states.some(({ phase, busy }) => phase === "before" && busy === null)).toBe(false);
+    expect(transport.posts()).toHaveLength(1);
+  });
+  it("superseded flight releases the boundary lock", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    function Switcher() {
+      const [accountId, setAccountId] = useState(actor.accountId);
+      return (
+        <>
+          <Button type="button" onClick={() => setAccountId("acc_other")}>
+            Switch account
+          </Button>
+          <AccountMutationBoundary actor={{ ...actor, accountId }}>
+            <Rows />
+          </AccountMutationBoundary>
+        </>
+      );
+    }
+    const router = createMemoryRouter([{ path: "/account/shipping-addresses", element: <Switcher /> }], {
+      initialEntries: ["/account/shipping-addresses"],
+    });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(button("A").matches(":disabled")).toBe(false));
+    fireEvent.click(button("A"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    expect(button("A").getAttribute("aria-busy")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Switch account" }));
+    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    transport.posts()[0].respond(syntheticMutationResult("default", actor, { target: "adr_A" }));
+    fireEvent.click(button("B"));
+    await waitFor(() => expect(transport.posts()).toHaveLength(2));
+    expect(screen.queryByText(refusal)).toBeNull();
+    expect(button("B").getAttribute("aria-busy")).toBe("true");
   });
 });

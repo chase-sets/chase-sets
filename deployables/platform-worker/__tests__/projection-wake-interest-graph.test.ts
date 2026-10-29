@@ -38,8 +38,6 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
@@ -50,6 +48,7 @@ const ownerContracts = loadOwnerContracts(admittedContexts);
 const OPERATOR_REMOVAL = "marketplace.listing.operator-unlisted";
 const REMOVAL_CONSUMERS = [
   ["marketplace", "marketplace-listing-projection", 2],
+  ["platform-operations", "account-appeal-interest-projection", 1],
   ["platform-operations", "reported-content-queue-projection", 1],
   ["discovery", "discovery-market-projection", 3],
   ["discovery", "discovery-product-alert-notification-projection", 2],
@@ -116,6 +115,35 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("routes private account appeal lifecycle events to their same-context owner", () => {
+    const runtime = createPlatformWorkerHost();
+    const projectionName = "account-appeal-projection";
+    const eventTypes = [
+      "platform-operations.account-appeal.filed",
+      "platform-operations.account-appeal.review-started",
+      "platform-operations.account-appeal.outcome-recorded",
+      "platform-operations.account-appeal.withdrawn",
+    ];
+    const runner = runtime.subscriptionRunners.find(
+      (entry) => entry.sourceContextName === "platform-operations" && entry.projectionName === projectionName,
+    );
+    expect(runner).toMatchObject({
+      targetContextName: "platform-operations",
+      checkpointKey: `${projectionName}:platform-operations:v1`,
+      streamPrefixes: undefined,
+    });
+    expect([...(runner?.eventTypes ?? [])].sort()).toEqual([...eventTypes].sort());
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    for (const eventType of eventTypes) {
+      expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+      expect(
+        lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType }).map(
+          (entry) => `${entry.targetContextName}:${entry.projectionName}`,
+        ),
+      ).toContain(`platform-operations:${projectionName}`);
+    }
+  });
+
   it("composes forward-only listing directive delivery independently of review checkpoints and removal consumers", () => {
     const runtime = createPlatformWorkerHost();
     const eventType = "platform-operations.reported-content.listing-removal-directed";

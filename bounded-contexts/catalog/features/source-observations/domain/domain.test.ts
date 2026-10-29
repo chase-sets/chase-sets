@@ -1,12 +1,17 @@
 import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
+import type { JsonValue } from "@chase-sets/primitives/json";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
   type SourceObservationNormalized,
 } from "./domain";
+import { requireCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
+import { ygojsonYugiohSetReferenceSourceObservationMappingContract } from "../api/providers/ygojson/executable-mapping-contract";
 
 const normalized = normalizedObservation({
   parallelSet: true,
@@ -119,6 +124,47 @@ describe("source observation domain", () => {
     expect(replayed.sourcePayload).toEqual(sourcePayload);
     expect(replayed.pendingSourcePayloadChunks).toBeNull();
     expect(replayed.pendingSourcePayloadChunkCount).toBeNull();
+  });
+
+  it("splits oversized YGOJSON normalized evidence into bounded events and rehydrates complete evidence", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL("../api/__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+        ),
+        "utf8",
+      ),
+    ) as { kind: "set-reference"; set: Record<string, unknown>; sourceUrl: string };
+    const observation = requireCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      payload: fixture as unknown as JsonValue,
+      observedAt: "2026-10-22T00:00:00.000Z",
+    });
+
+    const events = decideSourceObservation(initialSourceObservationState, {
+      type: "RecordSourceObservation",
+      ...observation,
+    });
+    expect(events[0]).toMatchObject({
+      type: "catalog.source-observation.recorded",
+      data: {
+        normalizedEvidenceEncoding: "json-utf8-base64-v1",
+        sourcePayloadEncoding: "json-utf8-base64-v1",
+      },
+    });
+    expect(events.every((event) => Buffer.byteLength(JSON.stringify(event.data), "utf8") <= 48 * 1024)).toBe(true);
+
+    const replayed = events.reduce(evolveSourceObservation, initialSourceObservationState);
+    expect(replayed.normalized).toEqual(observation.normalized);
+    expect(replayed.sourcePayload).toEqual(observation.sourcePayload);
+    expect(replayed.normalized).toMatchObject({
+      kind: "yugioh-set-reference",
+      tcg: "yugioh",
+      localeEvidence: (observation.normalized as Record<string, unknown>).localeEvidence,
+      cardPrintEvidence: (observation.normalized as Record<string, unknown>).cardPrintEvidence,
+    });
+    expect(replayed.pendingNormalizedEvidenceChunks).toBeNull();
+    expect(replayed.pendingSourcePayloadChunks).toBeNull();
   });
 
   it("records Magic normalized observation kinds as first-class source evidence", () => {

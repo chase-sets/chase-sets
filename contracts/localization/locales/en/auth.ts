@@ -103,6 +103,8 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentConsentPage.redirect": "Redirect destination",
   "auth.features.agentGrants.ui.agentConsentPage.account": "Active account",
   "auth.features.agentGrants.ui.agentConsentPage.scopes": "Requested access",
+  "auth.features.agentGrants.ui.agentConsentPage.operatorExpiry":
+    "Platform operations access expires on {date} (seven days after approval).",
   "auth.features.agentGrants.ui.agentConsentPage.approve": "Approve",
   "auth.features.agentGrants.ui.agentConsentPage.deny": "Deny",
   "auth.features.agentGrants.ui.agentConsentPage.switch.account": "Use {account}",

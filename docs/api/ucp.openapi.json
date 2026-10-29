@@ -159,20 +159,21 @@
             "type": "object",
             "required": ["version", "status"],
             "properties": {
-              "version": { "type": "string" },
-              "status": { "type": "string", "enum": ["ok", "error", "requires_action"] }
+              "version": { "type": "string", "const": "2026-08-25" },
+              "status": { "type": "string", "enum": ["success", "error"] }
             }
           },
           "messages": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["severity", "code", "message"],
+              "required": ["type", "code", "content"],
               "properties": {
-                "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+                "type": { "type": "string", "enum": ["error", "warning", "info"] },
+                "severity": { "type": "string", "enum": ["recoverable", "requires_buyer_input", "requires_buyer_review", "unrecoverable"] },
                 "code": { "type": "string" },
-                "message": { "type": "string" },
-                "target": { "type": "string" }
+                "content": { "type": "string" },
+                "path": { "type": "string" }
               }
             }
           }

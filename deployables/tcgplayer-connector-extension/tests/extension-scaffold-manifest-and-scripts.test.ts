@@ -14,6 +14,7 @@ describe("extension-scaffold-manifest-and-scripts", () => {
       "test:watch": "vitest --config ./vitest.config.ts",
       "test:chromium":
         "vite build --mode connector-local --configLoader runner && playwright test --config ./playwright.config.ts",
+      "pairing-drill:staging": "node --import tsx ../../scripts/connector-pairing-drill-staging.mjs",
     });
   });
   it("retains workspace aliases and both restart and product selectors", () => {

@@ -36,6 +36,7 @@ import {
   type ListingEvidenceAltTextRecovery,
 } from "./listing-evidence-readiness";
 import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "../../reviews/ui/authored-text-guidance";
+import { inventoryCapacityRecoveryAction } from "./inventory-capacity-status";
 
 function formatOptionalMoney(amount: string | null, currencyCode: string | null) {
   return amount && currencyCode
@@ -43,7 +44,19 @@ function formatOptionalMoney(amount: string | null, currencyCode: string | null)
     : t("marketplace.features.listings.ui.listingDetailPage.price.incomplete");
 }
 
-function renderPreviewSummary(preview: MarketplaceListingTermsPreview, currencyCode: string | null) {
+function formatBreakdownMoney(amount: string | null, currencyCode: string | null) {
+  return amount === null
+    ? t("marketplace.features.listings.ui.listingDetailPage.not.set")
+    : formatOptionalMoney(amount, currencyCode);
+}
+
+function renderPreviewSummary(
+  preview: Pick<
+    MarketplaceListingTermsPreview,
+    "marketplace_sales_fee_unit_amount" | "seller_net_unit_amount" | "shipping_allowance_percentage_bps"
+  >,
+  currencyCode: string | null,
+) {
   const formatPreviewMoney = (amount: string) => formatOptionalMoney(amount, currencyCode);
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
@@ -144,7 +157,6 @@ export function MarketplaceListingDetailPage({
   /** A closed image-description rejection; replaces the generic error notice. */
   evidenceAltTextRecovery?: ListingEvidenceAltTextRecovery | null;
 }) {
-  const currentFeeLock = listing.fee_locks.at(-1);
   const publishDisabled =
     listing.status === "active" ||
     listing.status === "withdrawn" ||
@@ -189,6 +201,18 @@ export function MarketplaceListingDetailPage({
         />
       ) : null}
 
+      {listing.status === "paused" && listing.pause_reason === "inventory-capacity" ? (
+        <MarketplaceNotice
+          tone={listing.inventory_capacity_recovery_block ? "warning" : "info"}
+          title={t("marketplace.features.listings.capacityRecovery.title")}
+          description={
+            listing.inventory_capacity_recovery_block
+              ? inventoryCapacityRecoveryAction(listing.inventory_capacity_recovery_block)
+              : t("marketplace.features.listings.capacityRecovery.waiting")
+          }
+        />
+      ) : null}
+
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Stack gap={4}>
           <Card elevation="elevated">
@@ -230,24 +254,16 @@ export function MarketplaceListingDetailPage({
                   {formatOptionalMoney(listing.price_amount, listing.price_currency_code)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {renderPreviewSummary(
-                    {
-                      account_type: "personal",
-                      basis_amount: listing.price_amount,
-                      fee_quote_fingerprint: listing.fee_quote_fingerprint,
-                      marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
-                      seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
-                      marketplace_sales_fee_percentage_bps: currentFeeLock?.terms.marketplaceSalesFeePercentageBps ?? 0,
-                      marketplace_sales_fee_fixed_amount:
-                        currentFeeLock?.terms.marketplaceSalesFeeFixedAmount ?? "0.00",
-                      marketplace_sales_fee_cap_amount: currentFeeLock?.terms.marketplaceSalesFeeCapAmount ?? null,
-                      shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
-                      schedule_id: listing.terms_schedule_id,
-                      agreement_id: listing.terms_agreement_id,
-                      resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
-                    },
-                    listing.price_currency_code,
-                  )}
+                  {listing.marketplace_sales_fee_unit_amount === null || listing.seller_net_unit_amount === null
+                    ? t("marketplace.features.listings.ui.listingDetailPage.not.set")
+                    : renderPreviewSummary(
+                        {
+                          marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount,
+                          seller_net_unit_amount: listing.seller_net_unit_amount,
+                          shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
+                        },
+                        listing.price_currency_code,
+                      )}
                 </Text>
               </Stack>
               <KeyValueList
@@ -283,7 +299,7 @@ export function MarketplaceListingDetailPage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
-                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
+                value: formatBreakdownMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
@@ -294,7 +310,7 @@ export function MarketplaceListingDetailPage({
                 value: listing.quantity_cap,
               },
             ]}
-            total={formatOptionalMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
+            total={formatBreakdownMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
             totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
           />
 
@@ -466,7 +482,7 @@ export function MarketplaceListingDetailPage({
                 <HiddenInput
                   type="hidden"
                   name="feeQuoteFingerprint"
-                  value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint}
+                  value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint ?? undefined}
                 />
                 <Stack gap={2}>
                   <Button type="submit" name="intent" value="update-price" tone="secondary">
@@ -509,7 +525,11 @@ export function MarketplaceListingDetailPage({
             <Form spacing="none" method="post">
               <Stack gap={3}>
                 <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
-                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={listing.fee_quote_fingerprint ?? undefined}
+                />
                 <NumberField
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
@@ -571,7 +591,11 @@ export function MarketplaceListingDetailPage({
             <Stack gap={3}>
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="publish" />
-                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={listing.fee_quote_fingerprint ?? undefined}
+                />
                 <AuthoredTextGuidance />
                 <Button type="submit" disabled={publishDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}

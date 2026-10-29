@@ -40,6 +40,7 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
         },
       });
       const port = captured.ports?.inventoryDraftListingConsumer as InventoryDraftListingConsumer;
+      expect(captured.ports?.draftListingDelivery).toBe(port);
       const owner = runtime.services.marketplace as MarketplaceServices;
       const accept = vi.spyOn(owner.inventoryDraftListingConsumer, "accept");
       const context = {
@@ -77,13 +78,17 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
       tenantId: "tnt_c4",
       audit: { performedByUserId: "usr_c4", forAccountId: "acc_c4" },
     } as EventStoreContext;
-    await expect(port.accept({}, context)).rejects.toMatchObject({ code: "inventory-draft-unavailable" });
+    await expect(port.accept({}, context)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "consumer-unbound",
+    });
   });
 
   it("keeps the real composition root bound before any Inventory producer is enabled (unbound-consumer-port control)", () => {
     const source = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
     expect(source).toContain("createPlatformApiInventoryDraftListingConsumer(");
     expect(/hostPorts:\s*\{\s*inventoryDraftListingConsumer,/.test(source)).toBe(true);
+    expect(source).toContain("draftListingDelivery: inventoryDraftListingConsumer");
     expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
     expect(source).toContain("draftListingCreator,");
   });

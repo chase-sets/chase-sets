@@ -7,6 +7,8 @@ import { localizedTextMapFromEnglish } from "../../../support/runtime-support/co
 const dimId = "dim_test" as DimensionId;
 const optionA = "chc_a" as OptionId;
 const optionB = "chc_b" as OptionId;
+const optionC = "chc_c" as OptionId;
+const reorderError = "Reordered options must include exactly the current set of options.";
 const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
@@ -305,6 +307,42 @@ describe("Dimension aggregate", () => {
       const events = decide(decideDimension, state, { type: "ReorderOptions" as const, optionIds: [optionB, optionA] });
 
       expect(events[0].type).toBe("catalog.dimension.options-reordered");
+    });
+
+    it.each([
+      ["missing an option", [optionA]],
+      ["including an extra option", [optionA, optionB, optionC]],
+      ["duplicating an option", [optionA, optionA]],
+    ])("rejects reordering when the option set is %s", (_reason, optionIds) => {
+      const state = givenEvents(createdState(), evolveDimension, [
+        {
+          type: "catalog.dimension.option-added",
+          data: {
+            optionId: optionA,
+            code: "red",
+            label: l10n("Red"),
+            displayOrder: 0,
+            numericValue: null,
+            status: "active",
+          },
+        },
+        {
+          type: "catalog.dimension.option-added",
+          data: {
+            optionId: optionB,
+            code: "blue",
+            label: l10n("Blue"),
+            displayOrder: 1,
+            numericValue: null,
+            status: "active",
+          },
+        },
+      ] as DimensionEvent[]);
+
+      expectDomainError(
+        () => decide(decideDimension, state, { type: "ReorderOptions" as const, optionIds }),
+        reorderError,
+      );
     });
   });
 

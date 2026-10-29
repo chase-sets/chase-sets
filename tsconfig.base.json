@@ -426,6 +426,9 @@
       "@chase-sets/event-core/complete-stream": [
         "./contracts/event-core/complete-stream.ts"
       ],
+      "@chase-sets/event-core/configuration-epoch": [
+        "./contracts/event-core/configuration-epoch.ts"
+      ],
       "@chase-sets/event-core/consistency": [
         "./contracts/event-core/consistency.ts"
       ],
@@ -491,6 +494,18 @@
       ],
       "@chase-sets/fulfillment/server": [
         "./bounded-contexts/fulfillment/server.ts"
+      ],
+      "@chase-sets/google-merchant": [
+        "./infrastructure/google-merchant/index.ts"
+      ],
+      "@chase-sets/google-merchant/auth": [
+        "./infrastructure/google-merchant/auth.ts"
+      ],
+      "@chase-sets/google-merchant/config": [
+        "./infrastructure/google-merchant/config.ts"
+      ],
+      "@chase-sets/google-shopping-export": [
+        "./contracts/google-shopping-export/index.ts"
       ],
       "@chase-sets/http/*": [
         "./contracts/http/*.ts"
@@ -864,11 +879,20 @@
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],
+      "@chase-sets/platform-runtime/ucp-schema-test-support": [
+        "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
+      ],
+      "@chase-sets/platform-runtime/ucp-tool-schemas": [
+        "./infrastructure/platform-runtime/ucp-tool-schemas.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],
       "@chase-sets/platform-runtime/web-assets": [
         "./infrastructure/platform-runtime/web-assets.ts"
+      ],
+      "@chase-sets/platform-runtime/web-entry-server": [
+        "./infrastructure/platform-runtime/web-entry-server.ts"
       ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"

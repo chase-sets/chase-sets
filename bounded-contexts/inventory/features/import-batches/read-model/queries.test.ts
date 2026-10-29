@@ -10,7 +10,6 @@ const rejectedBatch: InventoryImportBatch = {
   adapter_version: 1,
   quantity_mode: "add",
   default_storage_location_id: "loc_1",
-  source_filename: "stock.csv",
   total_count: 1,
   accepted_count: 0,
   rejected_count: 1,
@@ -27,7 +26,6 @@ const mixedCommittedBatch: InventoryImportBatch = {
   adapter_version: 1,
   quantity_mode: "add",
   default_storage_location_id: "loc_1",
-  source_filename: "mixed.csv",
   total_count: 2,
   accepted_count: 1,
   rejected_count: 1,
@@ -44,6 +42,7 @@ function normalizedStatus(batch: InventoryImportBatch): InventoryImportBatch["st
 
 class ImportBatchReadModelDb implements PgQueryable {
   private readonly batches = [rejectedBatch, mixedCommittedBatch];
+  private draftListingState: "pending" | "failed" = "pending";
   private readonly rows = [
     {
       row_id: "imr_rejected",
@@ -102,7 +101,7 @@ class ImportBatchReadModelDb implements PgQueryable {
       row_note: null,
       validation_errors: [],
       committed_inventory_item_id: "inv_1",
-      committed_listing_id: null,
+      committed_listing_id: "lst_mixed_pending",
       committed_at: mixedCommittedBatch.updated_at,
       created_at: mixedCommittedBatch.created_at,
       updated_at: mixedCommittedBatch.updated_at,
@@ -140,6 +139,10 @@ class ImportBatchReadModelDb implements PgQueryable {
     },
   ] as const;
 
+  setDraftListingState(state: "pending" | "failed") {
+    this.draftListingState = state;
+  }
+
   public async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
@@ -150,7 +153,13 @@ class ImportBatchReadModelDb implements PgQueryable {
 
     if (sql.includes("FROM inventory_import_batch_rows")) {
       const rows = this.rows.filter((row) => row.batch_id === values[0]);
-      return { rows: rows as Row[], rowCount: rows.length };
+      const normalized = sql.includes("inventory_import_draft_listing_outbox")
+        ? rows.map((row) => ({
+            ...row,
+            committed_listing_id: this.draftListingState === "failed" ? null : row.committed_listing_id,
+          }))
+        : rows;
+      return { rows: normalized as Row[], rowCount: normalized.length };
     }
 
     if (sql.includes("FROM inventory_import_batches")) {
@@ -221,5 +230,17 @@ describe("inventory import batch read model queries", () => {
         }),
       ],
     });
+  });
+
+  it("keeps a pending draft handoff visible but hides a terminal failed handoff", async () => {
+    const db = new ImportBatchReadModelDb();
+    const pending = await getImportBatch(db, "imb_mixed", "acc_1");
+    expect(pending?.rows.find((row) => row.row_id === "imr_mixed_accepted")?.committed_listing_id).toBe(
+      "lst_mixed_pending",
+    );
+
+    db.setDraftListingState("failed");
+    const failed = await getImportBatch(db, "imb_mixed", "acc_1");
+    expect(failed?.rows.find((row) => row.row_id === "imr_mixed_accepted")?.committed_listing_id).toBeNull();
   });
 });

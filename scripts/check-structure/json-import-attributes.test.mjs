@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
   manifestHostRegistrationFields,
@@ -713,6 +714,13 @@ describe("real repository execution membership", () => {
           indexCandidates: work.indexCandidates.length,
           discoveredWorkspaces: work.discoveredWorkspaces.length,
           enrolledWorkspaces: work.enrolledWorkspaces.length,
+          sourceIndex: {
+            kind: work.sourceIndex.kind,
+            pathCount: work.sourceIndex.pathCount,
+            sourceCount: work.sourceIndex.sourceCount,
+            prefilterCount: work.sourceIndex.prefilterCount,
+            candidateCount: work.sourceIndex.candidateCount,
+          },
           distinctReads: new Set(work.fileReads).size,
           repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
           fullParses: work.fullParses.length,
@@ -739,11 +747,28 @@ describe("real repository execution membership", () => {
     const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
       .sort();
     expect(work.indexCandidates).toEqual(indexedSources);
+    expect(work.sourceIndex).toMatchObject({
+      kind: "git-index-source/v1",
+      pathCount: new Set(
+        execFileSync("git", ["ls-files"], {
+          encoding: "utf8",
+          maxBuffer: GIT_LISTING_MAX_BUFFER,
+        })
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean),
+      ).size,
+      sourceCount: indexedSources.length,
+      candidateCount: work.manifestCandidates.length,
+    });
+    expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
+    expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
     const indexedSourceSet = new Set(indexedSources);
     expect(
       work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
@@ -752,6 +777,7 @@ describe("real repository execution membership", () => {
     const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
@@ -882,11 +908,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(134);
+    expect(result.inventory.declarations).toHaveLength(135);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 57,
       "vite-excluded": 53,
-      "vitest-excluded": 24,
+      "vitest-excluded": 25,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -901,7 +927,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "272f9a49e7f6004cdf3d1143a57fd95f097184ec0205d986d0cb072e4b1df262",
+      "ffbc641c1fbbd64cc206f4520d3bb11c9b53082d772c71caa375eec32f5c3ee0",
     );
     expect(
       normalized.filter(

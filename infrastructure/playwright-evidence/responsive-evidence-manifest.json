@@ -4,6 +4,315 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "pricing-goal-comparison-360",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-comparison-390",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-comparison-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-360",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-390",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-360",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-390",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-what-if-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-populated-0",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
@@ -31,6 +340,96 @@
         }
       ],
       "artifact": "pricing-health-populated-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-360",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-390",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-tablet"
     },
     {
       "kind": "claim",
@@ -616,7 +1015,7 @@
       },
       "target": {
         "identity": "catalog-scope-card-list",
-        "selector": "main div[role='list']",
+        "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > [role='listitem']"
       },
       "measurements": [
@@ -642,7 +1041,7 @@
         {
           "identity": "scope-table-hidden-on-mobile",
           "scope": "page",
-          "selector": "main table",
+          "selector": "main table:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false
@@ -677,7 +1076,7 @@
       },
       "target": {
         "identity": "catalog-scope-table",
-        "selector": "main table",
+        "selector": "main table:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > tbody > tr"
       },
       "measurements": [
@@ -703,7 +1102,7 @@
         {
           "identity": "scope-cards-hidden-on-tablet",
           "scope": "page",
-          "selector": "main div[role='list']",
+          "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false
@@ -5933,6 +6332,135 @@
         }
       ],
       "artifact": "marketplace-shell-search-row-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-create-360",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "submitted-create-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-create-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-create-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-create-360"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-update-390",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "submitted-update-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-update-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-update-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-update-390"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-removed-row-1024",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "removed-row-controller-banner",
+        "selector": "[role='status'][tabindex='-1'] [role='alert']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "removed-row-controller-banner-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "removed-row-controller-banner-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-removed-row-1024"
     }
   ]
 }

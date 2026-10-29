@@ -151,6 +151,73 @@ const listingPhoto = {
   },
 } as const;
 
+describe("inventory capacity pause ownership", () => {
+  it("replays explicit capacity provenance and clears blocked recovery on seller pause, publication and withdrawal", () => {
+    const created = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand).reduce(
+      evolveMarketplaceListing,
+      initialMarketplaceListingState,
+    );
+    const active = decideMarketplaceListing(created, publishListingCommand).reduce(evolveMarketplaceListing, created);
+    const paused = decideMarketplaceListing(active, { type: "PauseListing", reason: "inventory-capacity" }).reduce(
+      evolveMarketplaceListing,
+      active,
+    );
+    expect(paused).toMatchObject({
+      status: "paused",
+      pauseReason: "inventory-capacity",
+      inventoryCapacityRecoveryBlock: null,
+    });
+    const blocked = decideMarketplaceListing(paused, {
+      type: "PauseListing",
+      reason: "inventory-capacity",
+      inventoryCapacityRecoveryBlock: "evidence-incomplete",
+    }).reduce(evolveMarketplaceListing, paused);
+    expect(blocked.inventoryCapacityRecoveryBlock).toBe("evidence-incomplete");
+    expect(
+      decideMarketplaceListing(blocked, {
+        type: "PauseListing",
+        reason: "inventory-capacity",
+        inventoryCapacityRecoveryBlock: "evidence-incomplete",
+      }),
+    ).toEqual([]);
+    for (const command of [{ type: "PauseListing" }, publishListingCommand, { type: "WithdrawListing" }] as const) {
+      const next = decideMarketplaceListing(blocked, command).reduce(evolveMarketplaceListing, blocked);
+      expect(next.inventoryCapacityRecoveryBlock).toBeNull();
+      expect(next.pauseReason).toBe(command.type === "PauseListing" ? "seller" : null);
+      expect(next.feeLocks).toEqual(active.feeLocks);
+    }
+  });
+
+  it.each(["seller", "channel-inbound-dark", "policy-input-missing"] as const)(
+    "never replaces a %s pause with capacity authority",
+    (reason) => {
+      const state = {
+        ...initialMarketplaceListingState,
+        listingId: "lst_test" as never,
+        status: "paused" as const,
+        pauseReason: reason,
+      };
+      expect(decideMarketplaceListing(state, { type: "PauseListing", reason: "inventory-capacity" })).toEqual([]);
+    },
+  );
+
+  it("keeps missing historical pause reasons seller-owned and does not grant provenance to drafts or withdrawn Listings", () => {
+    const old = evolveMarketplaceListing(initialMarketplaceListingState, {
+      type: "marketplace.listing.paused",
+      data: {} as never,
+    });
+    expect(old.pauseReason).toBe("seller");
+    for (const status of ["draft", "withdrawn"] as const) {
+      expect(() =>
+        decideMarketplaceListing(
+          { ...initialMarketplaceListingState, listingId: "lst_test" as never, status },
+          { type: "PauseListing", reason: "inventory-capacity" },
+        ),
+      ).toThrow("Only active listings can be paused.");
+    }
+  });
+});
+
 describe("marketplace listing no-op suppression", () => {
   it("canonicalizes listing prices before recording events", () => {
     const [event] = decideMarketplaceListing(initialMarketplaceListingState, {

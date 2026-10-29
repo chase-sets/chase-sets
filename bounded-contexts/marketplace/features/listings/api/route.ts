@@ -1,4 +1,5 @@
 import { MarketplaceListingRequestError } from "./listing-request-error";
+import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { authoredTextListingErrors, listingErrorResponse } from "./listing-errors";
 import { t } from "@chase-sets/localization";
 import {
@@ -15,7 +16,11 @@ import {
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
-import { parseGradedCardSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
+import {
+  parseAcquisitionCostSnapshot,
+  parseGradedCardSnapshot,
+  parseShipFromAddressSnapshot,
+} from "./listing-snapshot-parsers";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
@@ -202,16 +207,10 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
       "totalQuantity",
       "availableQuantity",
       "acquisitionCostAmount",
+      "acquisitionCostCurrencyCode",
     ],
     "Inventory snapshot",
   );
-  if (source.shipFromAddress && typeof source.shipFromAddress === "object" && !Array.isArray(source.shipFromAddress)) {
-    assertClosedObject(
-      source.shipFromAddress as Record<string, unknown>,
-      ["name", "company", "line1", "line2", "city", "state", "postalCode", "country", "phone", "email"],
-      "Ship-from address snapshot",
-    );
-  }
   if (source.gradedCard && typeof source.gradedCard === "object" && !Array.isArray(source.gradedCard)) {
     const gradedCard = source.gradedCard as Record<string, unknown>;
     assertClosedObject(
@@ -245,7 +244,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     shipFromAddress,
     totalQuantity: Number(source.totalQuantity ?? 0),
     availableQuantity: Number(source.availableQuantity ?? source.totalQuantity ?? 0),
-    acquisitionCostAmount: source.acquisitionCostAmount == null ? null : String(source.acquisitionCostAmount),
+    ...parseAcquisitionCostSnapshot(source.acquisitionCostAmount, source.acquisitionCostCurrencyCode),
   };
 }
 
@@ -1024,6 +1023,7 @@ export function createAccountListingRoutes(
           "listingIdOverride",
           "evidence",
           "listingPhotoAltText",
+          "publicationScope",
         ]);
         const unknownKey = [...formData.keys()].find((key) => !allowedFormKeys.has(key));
         if (unknownKey)
@@ -1043,6 +1043,7 @@ export function createAccountListingRoutes(
             maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
             inventorySnapshot: formValue(formData, "inventorySnapshot"),
             listingIdOverride: formValue(formData, "listingIdOverride"),
+            publicationScope: formValue(formData, "publicationScope") || undefined,
           }
         : await c.req.json();
       const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -1060,11 +1061,25 @@ export function createAccountListingRoutes(
           "purchaseLimits",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
         ],
         "Listing create",
       );
       assertClosedPurchaseLimits(body);
       assertPriceCurrencyInput(body.priceCurrencyCode);
+      if (
+        body.publicationScope !== undefined &&
+        body.publicationScope !== "native" &&
+        body.publicationScope !== "channel-only"
+      ) {
+        throw new MarketplaceListingRequestError("unknown-field", "Listing publication scope is invalid.");
+      }
+      if (body.publicationScope === "channel-only" && typeof body.priceAmount !== "string") {
+        throw new MarketplaceListingDomainError(
+          "command-rejected",
+          "Channel-only reference amount must be a string paired with currency.",
+        );
+      }
       const inventorySnapshot = parseInventorySnapshot(body);
       const result = inventorySnapshot
         ? await services.createListingFromInventorySnapshot(
@@ -1075,6 +1090,7 @@ export function createAccountListingRoutes(
               priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
@@ -1088,6 +1104,7 @@ export function createAccountListingRoutes(
               priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
@@ -1100,6 +1117,7 @@ export function createAccountListingRoutes(
           version: result.version,
           status: "draft",
           feeQuoteFingerprint: result.feeQuoteFingerprint,
+          state: result.state,
         },
         201,
       );

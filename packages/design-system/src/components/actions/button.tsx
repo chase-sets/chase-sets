@@ -1,5 +1,5 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import { forwardRef, useCallback, useMemo, useState } from "react";
+import { forwardRef, useCallback, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
@@ -62,7 +62,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const { pendingSubmitter } = useFormContext();
-  const [buttonElement, setButtonElement] = useState<HTMLButtonElement | null>(null);
+  const buttonElement = useRef<HTMLButtonElement | null>(null);
   const motionSettings = useChaseMotion();
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
@@ -71,10 +71,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
   const nativeProps = toMotionDomProps(rest);
   const isDisabled = disabled || loading;
-  const derivedLoading = pendingSubmitter !== null && pendingSubmitter === buttonElement;
+  const derivedLoading = pendingSubmitter !== null && pendingSubmitter === buttonElement.current;
   const setButtonRef = useCallback(
     (node: HTMLButtonElement | null) => {
-      setButtonElement(node);
+      buttonElement.current = node;
       if (typeof ref === "function") ref(node);
       else if (ref) ref.current = node;
     },

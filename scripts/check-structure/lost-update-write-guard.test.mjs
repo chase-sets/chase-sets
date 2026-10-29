@@ -8,6 +8,7 @@ import { discoverWrites, validateLostUpdateWriteGuard as candidateGuard } from "
 
 const roots = [];
 const repoRoot = process.cwd();
+const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 const allowlistPath = "scripts/check-structure/lost-update-write-guard-allowlist.json";
 const estimatesPath = "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts";
 const credentialsPath = "bounded-contexts/channels/features/credentials/api/runtime.ts";
@@ -50,7 +51,12 @@ const [legacyPredicate, candidatePredicate] = await Promise.all(
   [legacySource, candidateSource].map(async (source) => {
     const module = await import(
       `data:text/javascript;base64,${Buffer.from(
-        `${source.replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))}\nexport { isReadModelOrProjectionFile as __predicate };`,
+        `${source
+          .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))
+          .replace(
+            '"../lib/git-listing.mjs"',
+            JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href),
+          )}\nexport { isReadModelOrProjectionFile as __predicate };`,
       ).toString("base64")}`
     );
     return module.__predicate;
@@ -112,104 +118,108 @@ describe("owner-local lost-update exceptions", () => {
     await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(expect.objectContaining({ violations: [] }));
   });
 
-  it("exception migration preserves complete classifications", async () => {
-    const root = await fixture();
-    const archive = path.join(root, "base.tar");
-    const inventory = git("ls-tree", "-r", "--name-only", base, "--", "bounded-contexts")
-      .trim()
-      .split(/\r?\n/)
-      .filter(Boolean);
-    expect(inventory.every((file) => legacyPredicate(file) === candidatePredicate(file))).toBe(true);
-    const expectedScannerFiles = inventory.filter(candidatePredicate);
-    execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "--", ...scannerPathspecs], {
-      cwd: repoRoot,
-      timeout: 30000,
-    });
-    execFileSync("tar", ["-xf", archive, "-C", root], { timeout: 30000 });
-    if (removal) {
-      const sidecarArchive = path.join(root, "sidecars.tar");
-      execFileSync(
-        "git",
-        [
-          "archive",
-          "--format=tar",
-          `--output=${sidecarArchive}`,
-          removal,
-          "--",
-          ":(glob)bounded-contexts/**/*.lost-update-exceptions.json",
-        ],
-        { cwd: repoRoot, timeout: 30000 },
-      );
-      execFileSync("tar", ["-xf", sidecarArchive, "-C", root], { timeout: 30000 });
-    }
-    for (const file of expectedScannerFiles) await access(path.join(root, file));
-    const original = git("show", `${base}:${allowlistPath}`);
-    await put(root, allowlistPath, original);
-    const before = await legacy({ repoRoot: root });
-    const partition = partitionBaseline(original, JSON.stringify(before.rows));
-    expect(partition.every(({ matched }) => matched)).toBe(true);
-    const sidecars = [];
-    const files = [
-      ...new Set(before.rows.filter((row) => row.classification === "key-only but safe").map((row) => row.file)),
-    ];
-    for (const file of files) {
-      const sidecarPath = `${file}.lost-update-exceptions.json`;
-      const text = await readFile(path.join(removal ? root : repoRoot, sidecarPath), "utf8");
-      await put(root, `${file}.lost-update-exceptions.json`, text);
-      for (const entry of JSON.parse(text)) sidecars.push({ file, entry });
-    }
-    await put(root, allowlistPath, "[]");
-    const after = await validateLostUpdateWriteGuard({ repoRoot: root });
-    assertMigration(original, before, sidecars, after);
-    expect(await readFile(path.join(repoRoot, allowlistPath), "utf8").catch((error) => error.code)).toBe("ENOENT");
+  it(
+    "exception migration preserves complete classifications",
+    { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS },
+    async () => {
+      const root = await fixture();
+      const archive = path.join(root, "base.tar");
+      const inventory = git("ls-tree", "-r", "--name-only", base, "--", "bounded-contexts")
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean);
+      expect(inventory.every((file) => legacyPredicate(file) === candidatePredicate(file))).toBe(true);
+      const expectedScannerFiles = inventory.filter(candidatePredicate);
+      execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "--", ...scannerPathspecs], {
+        cwd: repoRoot,
+        timeout: 30000,
+      });
+      execFileSync("tar", ["-xf", archive, "-C", root], { timeout: 30000 });
+      if (removal) {
+        const sidecarArchive = path.join(root, "sidecars.tar");
+        execFileSync(
+          "git",
+          [
+            "archive",
+            "--format=tar",
+            `--output=${sidecarArchive}`,
+            removal,
+            "--",
+            ":(glob)bounded-contexts/**/*.lost-update-exceptions.json",
+          ],
+          { cwd: repoRoot, timeout: 30000 },
+        );
+        execFileSync("tar", ["-xf", sidecarArchive, "-C", root], { timeout: 30000 });
+      }
+      for (const file of expectedScannerFiles) await access(path.join(root, file));
+      const original = git("show", `${base}:${allowlistPath}`);
+      await put(root, allowlistPath, original);
+      const before = await legacy({ repoRoot: root });
+      const partition = partitionBaseline(original, JSON.stringify(before.rows));
+      expect(partition.every(({ matched }) => matched)).toBe(true);
+      const sidecars = [];
+      const files = [
+        ...new Set(before.rows.filter((row) => row.classification === "key-only but safe").map((row) => row.file)),
+      ];
+      for (const file of files) {
+        const sidecarPath = `${file}.lost-update-exceptions.json`;
+        const text = await readFile(path.join(removal ? root : repoRoot, sidecarPath), "utf8");
+        await put(root, `${file}.lost-update-exceptions.json`, text);
+        for (const entry of JSON.parse(text)) sidecars.push({ file, entry });
+      }
+      await put(root, allowlistPath, "[]");
+      const after = await validateLostUpdateWriteGuard({ repoRoot: root });
+      assertMigration(original, before, sidecars, after);
+      expect(await readFile(path.join(repoRoot, allowlistPath), "utf8").catch((error) => error.code)).toBe("ENOENT");
 
-    // Membership and identity controls, including same-size replacement. These
-    // compare independent base records, not a candidate-generated snapshot.
-    for (const mutant of [
-      sidecars.slice(1),
-      [...sidecars, sidecars[0]],
-      sidecars.map((item, i) => (i ? item : { ...item, entry: { ...item.entry, reason: `${item.entry.reason} ` } })),
-    ])
-      expect(() => assertMigration(original, before, mutant, after)).toThrow();
-    const mutated = structuredClone(after);
-    mutated.rows[0].classification =
-      mutated.rows[0].classification === "guarded" ? "key-only lost-update risk" : "guarded";
-    expect(() => assertMigration(original, before, sidecars, mutated)).toThrow("row parity");
-    expect(() => assertMigration(original, before, sidecars, { ...after, rows: after.rows.slice(1) })).toThrow(
-      "row parity",
-    );
-    const first = sidecars[0];
-    const target = `${first.file}.lost-update-exceptions.json`;
-    const controlRoot = await fixture(first.file, await readFile(path.join(root, first.file), "utf8"));
-    const records = JSON.parse(await readFile(path.join(root, target), "utf8"));
-    await put(controlRoot, target, JSON.stringify(records));
-    const intact = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
-    const strip = ({ id, file, line, kind, table, classification, binding }) => ({
-      id,
-      file,
-      line,
-      kind,
-      table,
-      classification,
-      binding,
-    });
-    expect(intact.rows.filter((row) => row.file === first.file).map(strip)).toEqual(
-      after.rows.filter((row) => row.file === first.file).map(strip),
-    );
-    await put(controlRoot, target, JSON.stringify(records.slice(1)));
-    const lost = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
-    const intactRows = intact.rows.filter((row) => row.file === first.file);
-    const lostRows = lost.rows.filter((row) => row.file === first.file);
-    const differences = lostRows.filter(
-      (row, index) => JSON.stringify(strip(row)) !== JSON.stringify(strip(intactRows[index])),
-    );
-    expect(differences).toHaveLength(1);
-    expect(differences[0].binding).toEqual(sidecars[0].entry.binding);
-    expect(differences[0].classification).toBe("key-only lost-update risk");
-    const replacements = new Map(lostRows.map((row) => [row.id, row]));
-    const spliced = { ...after, rows: after.rows.map((row) => replacements.get(row.id) ?? row) };
-    expect(() => assertMigration(original, before, sidecars.slice(1), spliced)).toThrow("row parity");
-  });
+      // Membership and identity controls, including same-size replacement. These
+      // compare independent base records, not a candidate-generated snapshot.
+      for (const mutant of [
+        sidecars.slice(1),
+        [...sidecars, sidecars[0]],
+        sidecars.map((item, i) => (i ? item : { ...item, entry: { ...item.entry, reason: `${item.entry.reason} ` } })),
+      ])
+        expect(() => assertMigration(original, before, mutant, after)).toThrow();
+      const mutated = structuredClone(after);
+      mutated.rows[0].classification =
+        mutated.rows[0].classification === "guarded" ? "key-only lost-update risk" : "guarded";
+      expect(() => assertMigration(original, before, sidecars, mutated)).toThrow("row parity");
+      expect(() => assertMigration(original, before, sidecars, { ...after, rows: after.rows.slice(1) })).toThrow(
+        "row parity",
+      );
+      const first = sidecars[0];
+      const target = `${first.file}.lost-update-exceptions.json`;
+      const controlRoot = await fixture(first.file, await readFile(path.join(root, first.file), "utf8"));
+      const records = JSON.parse(await readFile(path.join(root, target), "utf8"));
+      await put(controlRoot, target, JSON.stringify(records));
+      const intact = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+      const strip = ({ id, file, line, kind, table, classification, binding }) => ({
+        id,
+        file,
+        line,
+        kind,
+        table,
+        classification,
+        binding,
+      });
+      expect(intact.rows.filter((row) => row.file === first.file).map(strip)).toEqual(
+        after.rows.filter((row) => row.file === first.file).map(strip),
+      );
+      await put(controlRoot, target, JSON.stringify(records.slice(1)));
+      const lost = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+      const intactRows = intact.rows.filter((row) => row.file === first.file);
+      const lostRows = lost.rows.filter((row) => row.file === first.file);
+      const differences = lostRows.filter(
+        (row, index) => JSON.stringify(strip(row)) !== JSON.stringify(strip(intactRows[index])),
+      );
+      expect(differences).toHaveLength(1);
+      expect(differences[0].binding).toEqual(sidecars[0].entry.binding);
+      expect(differences[0].classification).toBe("key-only lost-update risk");
+      const replacements = new Map(lostRows.map((row) => [row.id, row]));
+      const spliced = { ...after, rows: after.rows.map((row) => replacements.get(row.id) ?? row) };
+      expect(() => assertMigration(original, before, sidecars.slice(1), spliced)).toThrow("row parity");
+    },
+  );
 
   it("unrelated lines preserve write binding but statement changes refuse", async () => {
     const source = await readFile(estimatesPath, "utf8");
@@ -437,7 +447,8 @@ describe("owner-local lost-update exceptions", () => {
       .replace(
         '"@chase-sets/typescript-compiler-api"',
         JSON.stringify(import.meta.resolve("@chase-sets/typescript-compiler-api")),
-      );
+      )
+      .replace('"../lib/git-listing.mjs"', JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href));
     const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
     const bypassed = await mutant.validateLostUpdateWriteGuard({ repoRoot: root });
     expect(() => assertRefusal(bypassed)).toThrow();

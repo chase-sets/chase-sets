@@ -22,6 +22,8 @@ Staging has a separate `runtime-xl` node pool for migrations that need more memo
 
 PR previews use the staging cluster's dedicated preview pool. Nodes carry the `chase-sets.com/preview-only=true:NoSchedule` taint, and preview workloads supply the matching toleration plus the `chase-sets.com/pool=preview` nodeSelector. The pool uses `min_nodes = 0`, so it scales to zero when no preview pods are pending. Staging runtime workloads must never tolerate the preview-only taint.
 
+The interim `values.preview.yaml` reserves memory only (no CPU requests or limits): public-web 1024Mi, marketplace 1152Mi, admin-web 832Mi, platform-api 640Mi, platform-worker 832Mi, preview-postgres 448Mi, and platform-bootstrap 1152Mi. Required same-release pod affinity and cross-namespace, other-release pod anti-affinity enforce one stack per node for PR, gate, and verify previews; `max_nodes = 3` gives a three-stack ceiling. The postgres Deployment hook (-40) stays running while the bootstrap Job hook (-20) executes: hook-phase requests total 1600Mi and steady-state requests total 4928Mi, both below 6002Mi usable per node. A fourth stack stays Pending: postgres does not block Helm, but the bootstrap Job fails on its `activeDeadlineSeconds: 890` inside the 15m Helm timeout, triggering atomic rollback (a Helm version that waits on postgres instead times out and rolls back). Required `IgnoredDuringExecution` terms do not evict running previews. The Pending postgres hook survives rollback and can take the next freed node until the next PR deploy resets its namespace or `platform-preview-cleanup.yml -f pr_number=<n>` destroys it. The advisory merge-gate preflight counts only scheduled pods' committed requests; two full steady-state stacks already leave less than its configured 10752Mi headroom, so it refuses, but it is not a required check. Older BestEffort previews remain first to be evicted until their next push. [#9963 Reserve each preview workload's measured memory so previews cannot evict each other](https://github.com/chase-sets/chase-sets/issues/9963) owns the measured-memory handover; limits remain deferred, and rollback for this interim is a revert.
+
 ### Idle Draft Retirement (#9964)
 
 Every live preview reserves pool memory until its namespace is deleted, so an idle draft preview holds a pool slot. `Platform Preview Cleanup` retires idle drafts; open non-draft previews are never retired because reviewers may use their URLs.
@@ -37,6 +39,23 @@ Re-check and retire one PR by hand (destroys only if it is still an idle draft):
 ```sh
 gh workflow run platform-preview-cleanup.yml --ref main -f pr_number=<n> -f idle_draft_recheck=true
 ```
+
+## Kubernetes Version Changes
+
+Routine patch auto-upgrades are off. DigitalOcean may still force an unsupported-version upgrade or schedule a security patch upgrade, with notice, in the configured maintenance window. Staging uses Sunday at 09:00 UTC and production uses Wednesday at 09:00 UTC so staging is first for risk reduction, not a provider guarantee.
+
+### Planned Upgrade Sequence
+
+1. Read the live version, `auto_upgrade`, surge setting, maintenance policy, and capture time from the Foundation run's `pre-apply-cluster.json`. Read the candidate target from the same run's `get-upgrades` capture; do not infer a target from a local Terraform default.
+2. Dispatch `Platform DOKS Foundation Apply` for staging with `version_change=upgrade` and the listed target slug, at least 2 days before production. The preflight refuses a target absent from `get-upgrades`.
+3. Wait for the staging control plane, CoreDNS, konnectivity, and every workload to report Ready. Run the existing staging smoke and deploy evidence; the host gives a go before production.
+4. Dispatch the production apply with `version_change=upgrade` only after staging evidence and the host go-ahead. Record both workflow URLs and their artifacts against the upgrade notice.
+
+There is no downgrade path. Recovery from a bad version is provider escalation plus the existing Helm rollback or redeploy procedure; do not lower `kubernetes_version` or recreate a protected cluster.
+
+### Steady State And Notice Review
+
+Every DigitalOcean upgrade or end-of-life notice follows the planned sequence before its provider date. An unplanned upgrade is an incident: preserve the pre/post cluster artifacts, record the provider notice, and do not claim that `auto_upgrade=false` prevents provider-forced changes. Monthly, and before an end-of-life date, the host compares the last recorded cluster version with DigitalOcean's public supported-version list and starts a planned upgrade at least 30 days before end of life.
 
 ## Deploy And Status
 
@@ -85,12 +104,15 @@ A refusal prints one `revocation_*` code and fails the run. It never aborts or r
 
 Each `prepare` and `activate` writes a post-command status record. The deploy job uploads the records as the `agent-grant-revocation-status-<environment>` artifact. When activation ran, the artifact also holds `activation.json` and `replay.json`. Each record contains:
 
+- a value-free diagnostic record with `evidenceId`, environment, release commit and image digest, `identity.state`, safe `code`, `sqlstateClass` (the two-character SQLSTATE class or `unknown`), and finite `failureCategory` (`pod_exec`, `rbac`, `database_connectivity`, `schema_permission`, `application`, or `unknown`); the step prints this record before it exits, including on refusal;
 - the refusal code, if any;
 - the floor's minimum commit, its image digests and its frozen flag;
 - Identity's state, the activation event's identity and version, and the nonterminal count and oldest age;
 - a summary of the last 5 minutes of API and worker logs, read with `kubectl logs --since=5m --tail=200` for each pod. The summary keeps line counts, truncation, error counts, and the first and last `auth.agent-grant-revocation-recovery` cycle. It never keeps raw log lines.
 
 Identity reads its status in a read-only transaction and never calls `pending()`. The oldest age runs from the admission of the lowest-position nonterminal operation. When recovery has not adopted that operation yet, it runs from activation instead. A lease rewrite of `next_attempt_at` never resets it. Any section that cannot be read is recorded as `state: unknown` with a code. An unknown section, a truncated log, or an unobserved recovery cycle is never a pass.
+
+Diagnostic records never contain messages, stacks, SQL, URLs, argv, secrets, or raw pod log lines. A missing, unknown, truncated, malformed, or secret-bearing diagnostic is a stop condition, not activation proof. The category is attributed only from typed or explicit evidence; `unknown` must be repaired before any staging activation dispatch.
 
 For the day-after check, read `prepare-status.json` from the first routine deploy at least 24 hours after activation. It passes only when all of these hold:
 
@@ -164,10 +186,32 @@ Do not combine the lanes unless evidence shows both compute and database failure
 Record an incident URL as `INCIDENT_REFERENCE`, record the current production marker with `git rev-parse origin/production`, and preserve the failing workflow URL and its `production-release-health` artifact. Generate and execute the repository-owned production lock command before making a recovery mutation:
 
 ```powershell
-pnpm run ops release-lock:commands --action lock --environment production --reason "DOKS catastrophe recovery" --reference $env:INCIDENT_REFERENCE
+$exitRoute = @{ kind = "host-revert"; reference = $env:LOCK_EXIT_ISSUE_URL } | ConvertTo-Json -Compress
+$deadline = [DateTimeOffset]::UtcNow.AddHours(2).ToString("o")
+pnpm run ops release-lock:commands --action lock --environment production --reason "DOKS catastrophe recovery" --reference $env:INCIDENT_REFERENCE --exit-route $exitRoute --deadline $deadline
 ```
 
-Capture the production Environment's pre-incident lock values first so they can be restored exactly. Leave the lock active until the recovered topology is reconciled and the incident owner authorizes normal promotion. An audited emergency Platform Deploy may bypass the lock only with `emergency_release=true` and this same incident reference.
+The host first captures all five production Environment fields and current protection/branch policy, confirms no active/queued production writer, and verifies that `LOCK_EXIT_ISSUE_URL` names an existing owned Chase Sets issue (not a PR or another repository). Creation writes reason/reference/exit-route/deadline, then TRUE LAST; the deadline is timezone RFC3339, future and at most seven days ahead. The generator prints only, and the lane never changes live state. Capture all five values again after the host executes the commands. Do not restore a historical true lock: new authority needs a new deadline. Leave the lock active until the recovered topology is reconciled and the incident owner authorizes normal promotion. An audited emergency Platform Deploy may bypass a valid lock only with `emergency_release=true` and its separate incident reference; the lifecycle changes grant no emergency authority.
+
+The release-independent `platform-production-lock-monitor.yml` observes production every five minutes. The first executed overdue observation, or first legacy/invalid true observation, creates/reopens one identity-deduplicated **Production release lock** incident for host/orchestrator triage; no retry comments or success alerts. Scheduled runs may be delayed/dropped, so a missing receipt is unknown. The host can manually run `gh workflow run platform-production-lock-monitor.yml --ref main`; inspect its executed monitor job/step, issue URL/id/tuple identity and artifact. Delivery failures stay red, retry on the next run and never unlock. Route only operator-only actions to Todd. See [Release Locks](release-process-evolution.md#release-locks) for the staging-only alternate exit and complete contract.
+
+After host authorization, generate the five-command clear and read back the Environment list:
+
+```powershell
+pnpm run ops release-lock:commands --action unlock --environment production
+```
+
+The generator prints this exact order:
+
+```text
+gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "false"
+gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"
+```
+
+This sets `PRODUCTION_RELEASE_LOCKED=false` **first**, then prints bare `gh variable delete` commands for reason, reference, exit route and deadline in that order. Stop if the false write fails. Never use `gh variable set ... --body ""` or write a literal `""`. A missing delete is tolerated only when the subsequent `gh variable list --env "production"` succeeds and its readback succeeds with false plus none of the four metadata names; any list/auth/environment/parse failure, non-false lock, remaining metadata (including empty values), or extra `PRODUCTION_RELEASE_LOCK_*` name is incomplete and must be reported. False stale fields are ignored everywhere (evaluator, monitor and health record); the readback decides only whether the clear is complete. Historical artifacts remain evidence, not authority.
 
 Configure the production cluster context in an approved operator shell. The default Terraform name is `chase-sets-production-doks`; if the live cluster has an override, use the `cluster_name` output from `doks/production.tfstate` instead.
 
@@ -440,6 +484,7 @@ Cluster-scoped ingress-nginx, cert-manager, issuers, Argo Rollouts, and preview 
 
 ```bash
 node scripts/doks-cluster-addons.mjs --environment staging --dry-run
+gh workflow run platform-staging-cluster-addons.yml --ref main -f confirm="apply staging cluster addons" -f release_ref=<main-sha> -f preflight_only=true  # false runs the full staging plan
 kubectl --namespace ingress-nginx get service ingress-nginx-controller
 kubectl --namespace chase-sets-platform get ingress
 ```

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileFunction } from "node:vm";
@@ -17,6 +18,8 @@ import {
 
 const registry = loadIdentityCreationPathRegistry();
 const schema = loadIdentityCreationPathRegistrySchema();
+// Parsed once so every landing control shares one source set and selector cache.
+const registeredSources = parseRegisteredSources(registry);
 
 function readSite(site) {
   const absolute = path.join(repoRoot, site.file);
@@ -181,10 +184,11 @@ describe("identity creation path registry", () => {
       "createGuestAccount",
       "createUser",
     ]);
-    for (const member of guestCheckout.members) {
-      const lines = readSite(member);
-      expect(lines, `${member.file} must exist`).toBeTruthy();
-      expect(lines[member.line - 1], `${member.file}:${member.line}`).toContain(member.constructor);
+    const landings = discoverLandingTargets(registry, registeredSources);
+    for (const landing of landings.filter(({ entry }) => entry === guestCheckout)) {
+      expect(readSite(landing.site), `${landing.site.file} must exist`).toBeTruthy();
+      expect(landing.error, landing.label).toBeUndefined();
+      expect(landing.operation, `${landing.site.file}:${landing.line}`).toContain(landing.site.constructor);
     }
   });
 
@@ -197,21 +201,19 @@ describe("identity creation path registry", () => {
   });
 
   it("classifies every Auth caller of the personal-identity constructor", () => {
-    const registered = new Set(
-      registry.paths.flatMap((entry) => entry.sites.map((site) => `${site.file}:${site.line}`)),
-    );
-
-    const discovered = [];
-    for (const entry of registry.paths.filter((path) => path.kind === "public-first-use")) {
-      for (const site of entry.sites) {
-        discovered.push(`${site.file}:${site.line}`);
-      }
-    }
+    // Registered positions are the sites' computed landings; the registry carries no line.
+    const landings = discoverLandingTargets(registry, registeredSources);
+    expect(landings.filter((landing) => landing.error)).toEqual([]);
+    const registered = new Set(landings.map((landing) => `${landing.site.file}:${landing.line}`));
+    const discovered = landings
+      .filter((landing) => landing.entry.kind === "public-first-use")
+      .map((landing) => `${landing.site.file}:${landing.line}`);
 
     const callSites = [];
     const files = execFileSync("git", ["ls-files", "--", "bounded-contexts/auth"], {
       cwd: repoRoot,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
@@ -411,7 +413,8 @@ const commandsFor = (workflow, prefix, fixture) =>
     command(`${prefix}.${receiver}.commandHandler`, workflow, type, { [id]: fixture ? `${fixture}.${id}` : id }),
   );
 
-// Slot meaning comes from the introduction history, never from the current numeric pin.
+// Slot meaning comes from the introduction history. Each registry site names its
+// landing by workflow symbol and content; its line is computed, never pinned.
 const landingSelectors = {
   "password-direct-registration": [personalIdentity("registerRegistrationRoutes", "post", "/register")],
   "invitation-registration": [
@@ -520,52 +523,159 @@ function selectTargets(source, selector) {
   return cached.get(selector);
 }
 
+const identityKeys = ["symbol", "content"];
+const aggregateIds = { CreateAccount: "accountId", CreateUser: "userId", GrantMembership: "membershipId" };
+
+function lineOf(source, node) {
+  return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+}
+
+// The enclosing workflows, outermost first, named as inWorkflow matches them.
+function workflowSymbol(node) {
+  const names = [];
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if ((ts.isFunctionDeclaration(parent) || ts.isMethodDeclaration(parent)) && parent.name)
+      names.unshift(parent.name.getText());
+    if (ts.isCallExpression(parent) && parent.expression.getText() === "it" && literal(parent.arguments[0]))
+      names.unshift(literal(parent.arguments[0]));
+  }
+  return names.join(" > ");
+}
+
+function landingContent(target) {
+  if (!ts.isPropertyAssignment(target)) return target.expression.getText();
+  const type = literal(target.initializer);
+  const id = expressionText(value(target.parent, aggregateIds[type]));
+  return id ? `${type} ${id}` : type;
+}
+
+function siteText(site) {
+  return identityKeys.some((key) => Object.hasOwn(site, key))
+    ? `${site.file} [${site.symbol}] ${site.content}`
+    : site.file;
+}
+
+function malformedSite({ entry, site }, wholeFile) {
+  const allowed = ["file", ...identityKeys, ...(entry.members ? ["constructor"] : [])];
+  const unknown = Object.keys(site).filter((key) => !allowed.includes(key));
+  if (unknown.length) return `malformed site: unknown member ${unknown.join(", ")}`;
+  if (wholeFile)
+    return identityKeys.some((key) => Object.hasOwn(site, key))
+      ? "malformed site: a whole-file anchor names no symbol or content"
+      : undefined;
+  return identityKeys.every((key) => typeof site[key] === "string" && site[key].trim())
+    ? undefined
+    : "malformed site: expected a symbol and content";
+}
+
 function discoverLandingTargets(candidate, sources) {
   return registrySlots(candidate).map((slot) => {
     const source = sources.get(slot.site.file);
     if (!source || source.parseDiagnostics.length) return { ...slot, error: "missing or unparseable source" };
-    if (wholeFileAnchors.has(`${slot.entry.id}:${slot.site.file}`)) return { ...slot, line: 1, wholeFile: true };
-    const selector = Object.hasOwn(landingSelectors, slot.entry.id) && landingSelectors[slot.entry.id][slot.index];
-    if (!selector) return { ...slot, error: "unclassified slot" };
+    const wholeFile = wholeFileAnchors.has(`${slot.entry.id}:${slot.site.file}`);
+    const selector =
+      !wholeFile && Object.hasOwn(landingSelectors, slot.entry.id) && landingSelectors[slot.entry.id][slot.index];
+    if (!wholeFile && !selector) return { ...slot, error: "unclassified slot" };
+    const malformed = malformedSite(slot, wholeFile);
+    if (malformed) return { ...slot, error: malformed };
+    if (wholeFile) return { ...slot, line: 1, wholeFile: true };
     const targets = selectTargets(source, selector);
-    if (targets.length !== 1) return { ...slot, error: `expected one executable target, found ${targets.length}` };
+    if (targets.length !== 1) {
+      const lines = targets.map((target) => lineOf(source, target)).join(", ");
+      return { ...slot, error: `expected one executable target, found ${targets.length}${lines && ` at ${lines}`}` };
+    }
     const target = targets[0];
     return {
       ...slot,
-      line: source.getLineAndCharacterOfPosition(target.getStart(source)).line + 1,
+      target,
+      line: lineOf(source, target),
+      symbol: workflowSymbol(target),
+      content: landingContent(target),
       operation: ts.isPropertyAssignment(target) ? literal(target.initializer) : target.expression.getText(),
     };
   });
 }
 
-function collectPinLandingViolations(candidate, sources) {
-  return discoverLandingTargets(candidate, sources).flatMap((landing) => {
-    const { label, site } = landing;
-    if (landing.error) return [`${label} ${site.file}:${site.line}: ${landing.error}`];
-    if (site.line !== landing.line)
-      return [`${label} ${site.file}:${site.line}: expected creation landing at ${landing.line}`];
-    return [];
-  });
+function collectDuplicateLandings(landings) {
+  return [
+    ...[...Map.groupBy(landings, (landing) => siteText(landing.site))].map(([identity, group]) => [
+      group,
+      `duplicate site identity ${identity}`,
+    ]),
+    ...[
+      ...Map.groupBy(
+        landings.filter((landing) => landing.target),
+        (landing) => landing.target,
+      ).values(),
+    ].map((group) => [group, `duplicate creation landing at line ${group[0].line}`]),
+  ]
+    .filter(([group]) => group.length > 1)
+    .map(([group, error]) => `${group.map(({ label }) => label).join(", ")}: ${error}`);
 }
 
-function movePin(candidate, slot, line) {
-  const moved = structuredClone(candidate);
-  registrySlots(moved).find(({ label }) => label === slot.label).site.line = line;
-  return moved;
+function collectUnclaimedSlots(candidate) {
+  const labels = new Set(registrySlots(candidate).map(({ label }) => label));
+  const anchors = new Set(registrySlots(candidate).map(({ entry, site }) => `${entry.id}:${site.file}`));
+  return [
+    ...Object.entries(landingSelectors)
+      .flatMap(([id, selectors]) => selectors.map((_, index) => `${id}[${index}]`))
+      .filter((label) => !labels.has(label))
+      .map((label) => `${label}: selector has no registry site`),
+    ...[...wholeFileAnchors]
+      .filter((anchor) => !anchors.has(anchor))
+      .map((anchor) => `${anchor}: whole-file anchor has no registry site`),
+  ];
+}
+
+function collectPinLandingViolations(candidate, sources) {
+  const landings = discoverLandingTargets(candidate, sources);
+  return [
+    ...landings.flatMap((landing) => {
+      const { label, site } = landing;
+      if (landing.error) return [`${label} ${siteText(site)}: ${landing.error}`];
+      if (site.symbol !== landing.symbol || site.content !== landing.content)
+        return [
+          `${label} ${siteText(site)}: expected creation landing [${landing.symbol}] ${landing.content} at line ${landing.line}`,
+        ];
+      return [];
+    }),
+    ...collectDuplicateLandings(landings),
+    ...collectUnclaimedSlots(candidate),
+  ];
+}
+
+function withSite(candidate, slot, changes) {
+  const changed = structuredClone(candidate);
+  Object.assign(registrySlots(changed).find(({ label }) => label === slot.label).site, changes);
+  return changed;
+}
+
+function schemaPointer(candidate, slot) {
+  const pathIndex = candidate.paths.indexOf(slot.entry);
+  return pathIndex >= 0
+    ? `<root>/paths[${pathIndex}]/sites[${slot.index}]`
+    : `<root>/compositions[${candidate.compositions.indexOf(slot.entry)}]/members[${slot.index}]`;
 }
 
 describe("identity creation pin landing", () => {
   it("every registry pin lands on its creation call", () => {
-    const sources = parseRegisteredSources(registry);
+    const sources = registeredSources;
     const landings = discoverLandingTargets(registry, sources);
     expect(landings).toHaveLength(49);
     expect(landings.filter((landing) => landing.wholeFile)).toHaveLength(6);
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
     for (const slot of landings) {
-      for (const line of slot.wholeFile ? [2] : [slot.line + 1, 1]) {
-        const errors = collectPinLandingViolations(movePin(registry, slot, line), sources);
-        expect(errors, `${slot.label} must reject line ${line}`).toEqual([
-          `${slot.label} ${slot.site.file}:${line}: expected creation landing at ${slot.line}`,
+      if (slot.wholeFile) {
+        const named = { symbol: "domain", content: "CreateAccount" };
+        expect(collectPinLandingViolations(withSite(registry, slot, named), sources), slot.label).toEqual([
+          `${slot.label} ${siteText({ ...slot.site, ...named })}: malformed site: a whole-file anchor names no symbol or content`,
+        ]);
+        continue;
+      }
+      for (const stale of [{ symbol: `${slot.symbol} (stale)` }, { content: `${slot.content} (stale)` }]) {
+        const errors = collectPinLandingViolations(withSite(registry, slot, stale), sources);
+        expect(errors, `${slot.label} must reject ${JSON.stringify(stale)}`).toEqual([
+          `${slot.label} ${siteText({ ...slot.site, ...stale })}: expected creation landing [${slot.symbol}] ${slot.content} at line ${slot.line}`,
         ]);
       }
       const otherFixture = landings.find(
@@ -575,52 +685,61 @@ describe("identity creation pin landing", () => {
           other.operation === slot.operation &&
           !other.wholeFile,
       );
-      if (otherFixture)
-        expect(
-          collectPinLandingViolations(movePin(registry, slot, otherFixture.line), sources),
-          slot.label,
-        ).toHaveLength(1);
+      if (otherFixture) {
+        const borrowed = { symbol: otherFixture.symbol, content: otherFixture.content };
+        const pair = [slot, otherFixture].sort((left, right) => landings.indexOf(left) - landings.indexOf(right));
+        expect(collectPinLandingViolations(withSite(registry, slot, borrowed), sources), slot.label).toEqual([
+          `${slot.label} ${siteText({ ...slot.site, ...borrowed })}: expected creation landing [${slot.symbol}] ${slot.content} at line ${slot.line}`,
+          `${pair.map(({ label }) => label).join(", ")}: duplicate site identity ${siteText(otherFixture.site)}`,
+        ]);
+      }
     }
   });
 
-  it("landing-check-bypass control rejects historical drift with unchanged source", () => {
-    const sources = parseRegisteredSources(registry);
-    const oldLines = {
-      "marketplace-e2e-auth-helper": [92],
-      "guest-buy-now-freshness-probe": [1323],
-      "platform-api-bootstrap-reconciliation-db-test": [182, 903],
-      "admin-qa-actor-fixtures": [188, 203, 233],
-      "development-scenario-seed": [
-        272, 283, 294, 305, 322, 385, 455, 484, 524, 542, 572, 584, 596, 627, 640, 844, 895, 944,
-      ],
-    };
+  it("rejects any numeric line authority, even one naming the current landing", () => {
+    const sources = registeredSources;
+    for (const slot of discoverLandingTargets(registry, sources)) {
+      const pinned = withSite(registry, slot, { line: slot.line });
+      expect(validateAgainstSchema(pinned, schema), slot.label).toEqual([
+        `${schemaPointer(registry, slot)}: unknown member "line"`,
+      ]);
+      expect(collectPinLandingViolations(pinned, sources), slot.label).toEqual([
+        `${slot.label} ${siteText(slot.site)}: malformed site: unknown member line`,
+      ]);
+    }
+  });
+
+  it("landing-check-bypass control rejects stale identities with unchanged source", () => {
+    const sources = registeredSources;
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
-    function assertHistoricalDriftRejected(validate) {
-      for (const slot of registrySlots(registry).filter(({ entry }) => Object.hasOwn(oldLines, entry.id))) {
-        const errors = validate(movePin(registry, slot, oldLines[slot.entry.id][slot.index]), sources);
-        expect(errors, `${slot.label} historical main drift must fail`).toHaveLength(1);
-        expect(errors[0]).toContain(`${slot.label} ${slot.site.file}:`);
+    function assertStaleIdentityRejected(validate) {
+      for (const slot of discoverLandingTargets(registry, sources).filter((landing) => !landing.wholeFile)) {
+        const errors = validate(withSite(registry, slot, { symbol: `${slot.symbol} (stale)` }), sources);
+        expect(errors, `${slot.label} stale identity must fail`).toHaveLength(1);
+        expect(errors[0]).toContain(`${slot.label} ${slot.site.file} `);
       }
     }
-    assertHistoricalDriftRejected(collectPinLandingViolations);
+    assertStaleIdentityRejected(collectPinLandingViolations);
 
     const validatorSource = collectPinLandingViolations.toString();
-    const comparison = /site\.line\s*!==\s*landing\.line/g;
+    const comparison = /site\.symbol\s*!==\s*landing\.symbol\s*\|\|\s*site\.content\s*!==\s*landing\.content/g;
     expect(validatorSource.match(comparison)).toHaveLength(1);
+    const helpers = { discoverLandingTargets, siteText, collectDuplicateLandings, collectUnclaimedSlots };
     const mutant = compileFunction(`return (${validatorSource.replace(comparison, "false")})(candidate, sources);`, [
       "candidate",
       "sources",
-      "discoverLandingTargets",
+      ...Object.keys(helpers),
     ]);
-    const bypassedValidator = (candidate, fixedSources) => mutant(candidate, fixedSources, discoverLandingTargets);
+    const bypassedValidator = (candidate, fixedSources) => mutant(candidate, fixedSources, ...Object.values(helpers));
     expect(bypassedValidator(registry, sources)).toEqual([]);
-    expect(() => assertHistoricalDriftRejected(bypassedValidator)).toThrow(
-      "marketplace-e2e-auth-helper[0] historical main drift must fail",
+    expect(() => assertStaleIdentityRejected(bypassedValidator)).toThrow(
+      "password-direct-registration[0] stale identity must fail",
     );
   });
 
   it("rejects executable lookalikes, comments and strings without changing the other pins", () => {
-    const sources = parseRegisteredSources(registry);
+    const sources = registeredSources;
+    const landings = discoverLandingTargets(registry, sources);
     // Synthetic source stays out of the separate tracked command-position census.
     const accountType = ["type", ': "CreateAccount"'].join("");
     const controls = [
@@ -670,74 +789,119 @@ describe("identity creation pin landing", () => {
       ],
     ];
     for (const [id, decoys] of controls) {
-      const slot = registrySlots(registry).find(({ entry }) => entry.id === id);
+      const slot = landings.find(({ entry }) => entry.id === id);
       const source = sources.get(slot.site.file);
-      const text = `${source.text}\n${decoys.join("\n")}\n`;
-      const fixedSources = new Map(sources);
-      fixedSources.set(slot.site.file, ts.createSourceFile(slot.site.file, text, ts.ScriptTarget.Latest, true));
-      expect(collectPinLandingViolations(registry, fixedSources), `${id} control baseline`).toEqual([]);
-      const firstDecoyLine = source.text.split("\n").length + 1;
-      decoys.forEach((_, index) => {
-        expect(
-          collectPinLandingViolations(movePin(registry, slot, firstDecoyLine + index), fixedSources),
-          `${id} decoy ${index}`,
-        ).toHaveLength(1);
-      });
-    }
-  });
-
-  it("rejects the pre-#8945 pins and a restored Consent-only slot", () => {
-    const sources = parseRegisteredSources(registry);
-    const preRemovalLines = {
-      "admin-qa-actor-fixtures": [189, 204, 234],
-      "development-scenario-seed": [
-        442, 452, 462, 472, 491, 548, 579, 591, 613, 625, 639, 649, 659, 672, 683, 863, 914, 963,
-      ],
-    };
-    for (const slot of registrySlots(registry).filter(({ entry }) => Object.hasOwn(preRemovalLines, entry.id))) {
-      const errors = collectPinLandingViolations(
-        movePin(registry, slot, preRemovalLines[slot.entry.id][slot.index]),
-        sources,
+      const withDecoys = (text) =>
+        new Map(sources).set(
+          slot.site.file,
+          ts.createSourceFile(slot.site.file, `${text}\n${decoys.join("\n")}\n`, ts.ScriptTarget.Latest, true),
+        );
+      const decoyed = withDecoys(source.text);
+      expect(collectPinLandingViolations(registry, decoyed), `${id} control baseline`).toEqual([]);
+      expect(
+        discoverLandingTargets(registry, decoyed).map(({ line }) => line),
+        `${id} decoys move no landing`,
+      ).toEqual(landings.map(({ line }) => line));
+      // With the real creation removed, the decoys alone must not satisfy the slot.
+      const neutral = ts.isPropertyAssignment(slot.target) ? "unrelated: 0" : "(void 0)";
+      const removed = withDecoys(
+        `${source.text.slice(0, slot.target.getStart(source))}${neutral}${source.text.slice(slot.target.end)}`,
       );
-      expect(errors, `${slot.label} pre-#8945 pin must fail`).toHaveLength(1);
-    }
-    for (const [id, line] of [
-      ["admin-qa-actor-fixtures", 250],
-      ["development-scenario-seed", 696],
-      ["development-scenario-seed", 1002],
-    ]) {
-      const restored = structuredClone(registry);
-      const entry = restored.paths.find((candidate) => candidate.id === id);
-      entry.sites.push({ ...entry.sites[0], line });
-      expect(collectPinLandingViolations(restored, sources), `${id} restored Consent slot`).toEqual([
-        `${id}[${entry.sites.length - 1}] ${entry.sites[0].file}:${line}: unclassified slot`,
+      expect(collectPinLandingViolations(registry, removed), `${id} decoys alone`).toEqual([
+        `${slot.label} ${siteText(slot.site)}: expected one executable target, found 0`,
       ]);
     }
   });
 
-  it("fails closed on unknown slots and altered whole-file exceptions", () => {
-    const sources = parseRegisteredSources(registry);
+  it("rejects a restored Consent-only slot", () => {
+    const sources = registeredSources;
+    for (const [id, symbol] of [
+      ["admin-qa-actor-fixtures", "provisionAdminQaActorFixture"],
+      ["development-scenario-seed", "buildScenarioIdentityReconcilers"],
+      ["development-scenario-seed", "reconcileRepresentativeConsent"],
+    ]) {
+      const restored = structuredClone(registry);
+      const entry = restored.paths.find((candidate) => candidate.id === id);
+      const site = { file: entry.sites[0].file, symbol, content: "services.consents.commandHandler" };
+      entry.sites.push(site);
+      expect(collectPinLandingViolations(restored, sources), `${id} restored Consent slot`).toEqual([
+        `${id}[${entry.sites.length - 1}] ${siteText(site)}: unclassified slot`,
+      ]);
+    }
+  });
+
+  it("fails closed on unknown, duplicate, incomplete and malformed slots and altered whole-file exceptions", () => {
+    const sources = registeredSources;
     const unknown = structuredClone(registry);
     unknown.paths[0].id = "unclassified-creation-path";
     expect(collectPinLandingViolations(unknown, sources)[0]).toContain("unclassified slot");
     const extra = structuredClone(registry);
     extra.paths[0].sites.push({ ...extra.paths[0].sites[0] });
-    expect(collectPinLandingViolations(extra, sources)[0]).toContain("password-direct-registration[1]");
+    expect(collectPinLandingViolations(extra, sources)).toEqual([
+      `password-direct-registration[1] ${siteText(registry.paths[0].sites[0])}: unclassified slot`,
+      `password-direct-registration[0], password-direct-registration[1]: duplicate site identity ${siteText(registry.paths[0].sites[0])}`,
+    ]);
     const changed = structuredClone(registry);
     changed.paths.find((entry) => entry.id === "identity-domain-deciders").sites[0].file = `${identityRuntime}seed.ts`;
     expect(collectPinLandingViolations(changed, sources)[0]).toContain("unclassified slot");
+
+    const deciders = (candidate) => candidate.paths.find((entry) => entry.id === "identity-domain-deciders");
+    const duplicatedAnchor = structuredClone(registry);
+    deciders(duplicatedAnchor).sites.push({ ...deciders(registry).sites[0] });
+    expect(collectPinLandingViolations(duplicatedAnchor, sources)).toEqual([
+      `identity-domain-deciders[0], identity-domain-deciders[3]: duplicate site identity ${deciders(registry).sites[0].file}`,
+    ]);
+    const missingAnchor = structuredClone(registry);
+    const [removedAnchor] = deciders(missingAnchor).sites.splice(2, 1);
+    expect(collectPinLandingViolations(missingAnchor, sources)).toEqual([
+      `identity-domain-deciders:${removedAnchor.file}: whole-file anchor has no registry site`,
+    ]);
+
+    const incomplete = structuredClone(registry);
+    incomplete.paths.find((entry) => entry.id === "development-scenario-seed").sites.pop();
+    expect(collectPinLandingViolations(incomplete, sources)).toEqual([
+      "development-scenario-seed[17]: selector has no registry site",
+    ]);
+
+    const [first] = registrySlots(registry);
+    for (const [changes, error] of [
+      [{ content: undefined }, "expected a symbol and content"],
+      [{ symbol: "  " }, "expected a symbol and content"],
+      [{ content: 53 }, "expected a symbol and content"],
+    ]) {
+      const malformed = withSite(registry, first, changes);
+      const site = registrySlots(malformed)[0].site;
+      expect(collectPinLandingViolations(malformed, sources), JSON.stringify(changes)).toEqual([
+        `${first.label} ${siteText(site)}: malformed site: ${error}`,
+      ]);
+    }
+
+    const landings = discoverLandingTargets(registry, sources);
+    const [target] = landings;
+    const alias = { ...target, label: "alias[0]", site: { ...target.site, symbol: "alias" } };
+    expect(collectDuplicateLandings([...landings, alias])).toEqual([
+      `${target.label}, alias[0]: duplicate creation landing at line ${target.line}`,
+    ]);
   });
 
-  it("derives shifted targets from source and rejects detached seed dispatch wiring", () => {
-    const sources = parseRegisteredSources(registry);
+  it("derives moved targets from source and rejects detached seed dispatch wiring", () => {
+    const sources = registeredSources;
+    const landings = discoverLandingTargets(registry, sources);
+    for (const [file, source] of sources) {
+      // Insert below a shebang, which must stay the first line.
+      const at = source.text.startsWith("#!") ? source.text.indexOf("\n") + 1 : 0;
+      const moved = `${source.text.slice(0, at)}// unrelated moved line\n${source.text.slice(at)}`;
+      const shifted = new Map(sources).set(file, ts.createSourceFile(file, moved, ts.ScriptTarget.Latest, true));
+      expect(collectPinLandingViolations(registry, shifted), file).toEqual([]);
+      expect(
+        discoverLandingTargets(registry, shifted).map(({ line, site, wholeFile }) =>
+          site.file === file && !wholeFile ? line - 1 : line,
+        ),
+        file,
+      ).toEqual(landings.map(({ line }) => line));
+    }
     const file = `${identityRuntime}seed.ts`;
     const source = sources.get(file);
-    const shifted = new Map(sources);
-    shifted.set(file, ts.createSourceFile(file, `\n${source.text}`, ts.ScriptTarget.Latest, true));
-    const moved = structuredClone(registry);
-    for (const { site } of registrySlots(moved).filter(({ site }) => site.file === file)) site.line += 1;
-    expect(collectPinLandingViolations(moved, shifted)).toEqual([]);
-    expect(collectPinLandingViolations(registry, shifted)).toHaveLength(18);
     expect(source.text).not.toContain("services.consents.commandHandler");
     for (const receiver of ["accounts", "users", "memberships"]) {
       const detached = new Map(sources);

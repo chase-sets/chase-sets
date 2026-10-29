@@ -1,4 +1,10 @@
-import { createHash, createPrivateKey, createPublicKey, verify as verifySignatureBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  verify as verifySignatureBytes,
+  type JsonWebKey as NodeJsonWebKey,
+} from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -36,6 +42,7 @@ import {
   type UcpMcpToolDescriptor,
   type UcpSigningJsonWebKey,
 } from "./ucp-contracts";
+import { ucpToolInputSchema, ucpToolOutputSchema } from "./ucp-tool-schemas";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
@@ -77,6 +84,7 @@ export {
   type UcpMcpSecurityScheme,
   type UcpMcpToolDescriptor,
   type UcpMessage,
+  type UcpMessageInput,
   type UcpMessageSeverity,
   type UcpResponseStatus,
   type UcpServiceDeclaration,
@@ -196,6 +204,8 @@ export type UcpRuntimeToolLimitEvent = Readonly<{
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
+  /** Explicitly overrides the middleware context for focused route fixtures. */
+  contextOverride?: EventStoreContext | null;
   idempotencyStore?: UcpIdempotencyStore;
   mcpOriginPolicy?: McpHttpOriginPolicyOptions;
   mcpToolCallLimiter?: McpToolCallLimiter;
@@ -418,12 +428,11 @@ const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
 
     function render(result) {
       const payload = result?.structuredContent ?? result ?? {};
-      const action = payload.action ?? {};
-      const message = payload.messages?.[0]?.message || action.reason || "Use trusted Chase Sets checkout before any order or payment is finalized.";
-      const url = typeof action.url === "string" ? action.url : "";
-      const checkoutId = payload.checkout?.id || payload.id || "";
+      const message = payload.messages?.[0]?.content || "Use trusted Chase Sets checkout before any order or payment is finalized.";
+      const url = typeof payload.continue_url === "string" ? payload.continue_url : "";
+      const checkoutId = payload.id || "";
 
-      if (!url && !checkoutId && payload.ucp?.status !== "requires_action") {
+      if (!url) {
         app.innerHTML = '<section class="empty">Checkout handoff details will appear here when trusted UI is required.</section>';
         return;
       }
@@ -638,8 +647,8 @@ function toMcpToolListItem(tool: UcpMcpToolDescriptor) {
     name: tool.name,
     title: tool.title,
     description: tool.description,
-    inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema,
+    inputSchema: ucpToolInputSchema(tool.name as (typeof UCP_MCP_TOOLS)[number]["name"]),
+    outputSchema: ucpToolOutputSchema(tool.name as (typeof UCP_MCP_TOOLS)[number]["name"]),
     securitySchemes: tool.securitySchemes,
     annotations: {
       capability: tool.capability,
@@ -674,7 +683,7 @@ function toMcpResourceListItem(resource: UcpMcpResourceDescriptor) {
 
 function summarizeUcpMcpResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
   if (result.ucp.status === "error") {
-    return result.messages?.[0]?.message ?? `${tool.title} returned an error.`;
+    return result.messages?.[0]?.content ?? `${tool.title} returned an error.`;
   }
 
   const products = readArray((result as Readonly<Record<string, unknown>>).products);
@@ -683,7 +692,8 @@ function summarizeUcpMcpResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) 
       .slice(0, 3)
       .map((entry) => readObject(entry)?.title)
       .filter((title): title is string => typeof title === "string" && title.trim().length > 0);
-    const count = Number((result as Readonly<Record<string, unknown>>).total ?? products.length);
+    const pagination = readObject((result as Readonly<Record<string, unknown>>).pagination);
+    const count = Number(pagination?.total_count ?? products.length);
     return names.length > 0
       ? `Found ${count} marketplace result${count === 1 ? "" : "s"}: ${names.join(", ")}.`
       : `Found ${count} marketplace result${count === 1 ? "" : "s"}.`;
@@ -852,7 +862,7 @@ async function negotiateUcpRequest(
   const failure = (code: string, status: UcpNegotiationFailure["status"]): UcpNegotiationFailure => ({
     code,
     status,
-    envelope: createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]),
+    envelope: createUcpEnvelope("error", {}, [{ code, content: code }]),
   });
   if (meta.profile.kind === "malformed") return failure("invalid_profile_url", 400);
   if (meta.profile.kind === "supplied") {
@@ -983,12 +993,22 @@ function validateSignatureInputCoverage(
   return null;
 }
 
+// node:crypto reads a JWK only through ordinary property gets, and only the members its key
+// family needs. Forwarding each get to the caller's key when Node performs it keeps inherited and
+// non-enumerable members, never reads a member Node skips, and lets accessor errors surface from
+// Node unchanged, exactly as if Node had been handed the original object.
+function nodeJsonWebKey(jwk: JsonWebKey): NodeJsonWebKey {
+  return new Proxy<NodeJsonWebKey>({}, { get: (_target, member): unknown => Reflect.get(jwk, member) });
+}
+
 function publicKeyAlgorithm(jwk: JsonWebKey) {
   return jwk.alg === "EdDSA" || jwk.crv === "Ed25519" ? null : "sha256";
 }
 
 function publicJwkForPrivateKey(key: UcpBusinessSigningKey): UcpSigningJsonWebKey {
-  const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" })).export({ format: "jwk" });
+  const publicJwk = createPublicKey(createPrivateKey({ key: nodeJsonWebKey(key.privateJwk), format: "jwk" })).export({
+    format: "jwk",
+  });
   return {
     ...publicJwk,
     kid: key.kid,
@@ -1047,7 +1067,7 @@ async function verifyHttpMessageSignature(
   }
 
   try {
-    const key = createPublicKey({ key: jwk, format: "jwk" });
+    const key = createPublicKey({ key: nodeJsonWebKey(jwk), format: "jwk" });
     const base = signatureBase(request, input.components, input.params);
     const verified = verifySignatureBytes(publicKeyAlgorithm(jwk), Buffer.from(base), key, signature);
     return verified ? null : "HTTP Message Signature verification failed.";
@@ -1073,9 +1093,8 @@ async function signedWriteOrJsonError(request: Request) {
   return reason
     ? createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "signed_request_required",
-          message: reason,
+          content: reason,
         },
       ])
     : null;
@@ -1084,9 +1103,8 @@ async function signedWriteOrJsonError(request: Request) {
 function idempotencyRequiredEnvelope(operation: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "idempotency_key_required",
-      message: `Idempotency-Key is required for ${operation}.`,
+      content: `Idempotency-Key is required for ${operation}.`,
     },
   ]);
 }
@@ -1094,9 +1112,8 @@ function idempotencyRequiredEnvelope(operation: string) {
 function idempotencyConflictEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "idempotency_key_conflict",
-      message: "Idempotency-Key was already used with different request parameters.",
+      content: "Idempotency-Key was already used with different request parameters.",
     },
   ]);
 }
@@ -1104,15 +1121,14 @@ function idempotencyConflictEnvelope() {
 function idempotencyInProgressEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "warning",
       code: "idempotency_key_in_progress",
-      message: "A matching request is already in progress. Retry later.",
+      content: "A matching request is already in progress. Retry later.",
     },
   ]);
 }
 
 function shouldStoreIdempotencyResponse(response: UcpEnvelope): boolean {
-  return response.ucp.status === "ok" || response.ucp.status === "requires_action";
+  return response.ucp.status === "success";
 }
 
 function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
@@ -1343,11 +1359,7 @@ export function createUcpProfileKeyResolver(resolveProfile: UcpProfileResolver):
 }
 
 function findProfileSigningKey(profile: Readonly<Record<string, unknown>>, keyId: string) {
-  const keys = [
-    ...readArray(profile.keys),
-    ...readArray(profile.signing_keys),
-    ...readArray(readObject(profile.ucp)?.signing_keys),
-  ];
+  const keys = readArray(profile.keys);
   for (const entry of keys) {
     const key = readObject(entry);
     if (!key || key.kid !== keyId) {
@@ -1387,12 +1399,12 @@ async function invokeRestWrite(
       !hasSignedWriteHeaders(c.req.raw) &&
       (operation === "complete_checkout" || operation === "cancel_checkout")
     ) {
-      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params, options)));
     }
     emitObserver(options.observer?.signedWriteRejected, {
       transport: "rest",
       operation,
-      reason: failure.messages?.[0]?.message ?? "Signed write rejected.",
+      reason: failure.messages?.[0]?.content ?? "Signed write rejected.",
       agentProfileUrl: requestProfileUrl(c.get("ucpRequestMeta")),
     });
     return c.json(failure, 400);
@@ -1409,9 +1421,8 @@ async function invokeRestWrite(
     return c.json(
       createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "signed_request_required",
-          message: signatureFailure,
+          content: signatureFailure,
         },
       ]),
       400,
@@ -1427,7 +1438,7 @@ async function invokeRestWrite(
     return c.json(rateLimit, 429);
   }
 
-  const input = { ...handlerInput(c, params), requestMeta: meta };
+  const input = { ...handlerInput(c, params, options), requestMeta: meta };
   const preflight = options.preflight?.[operation];
   if (preflight) {
     const failure = await preflight(input);
@@ -1507,7 +1518,7 @@ async function invokeMcpTool(
 
   const input: UcpOperationHandlerInput = {
     actor: c.get("actor") ?? null,
-    context: c.get("context") ?? null,
+    context: resolveUcpContext(c, options),
     arguments: args,
     request: c.req.raw,
     params: {},
@@ -1689,9 +1700,8 @@ function enforceAgentGrantRateLimit(
   emitObserver(options.observer?.agentGuardrailTriggered, violation);
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "agent_grant_rate_limited",
-      message: decision.reason,
+      content: decision.reason,
     },
   ]);
 }
@@ -1699,9 +1709,8 @@ function enforceAgentGrantRateLimit(
 function ucpMcpToolLimitEnvelope(reason: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "tool_call_limited",
-      message: reason,
+      content: reason,
     },
   ]);
 }
@@ -1709,7 +1718,11 @@ function ucpMcpToolLimitEnvelope(reason: string) {
 export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "businessSigningKeys"> = {}) {
   const app = new Hono();
 
-  app.get("/ucp", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/ucp", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys), 200, {
+      "Cache-Control": "public, max-age=300",
+    }),
+  );
 
   return app;
 }
@@ -1737,10 +1750,14 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
     }
     return write
       ? invokeRestWrite(c, options, operation, params, idempotencyStore, meta)
-      : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+      : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params, options)));
   };
 
-  app.get("/", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys), 200, {
+      "Cache-Control": "public, max-age=300",
+    }),
+  );
 
   app.post("/catalog/search", (c) => invoke(c, "search_catalog"));
   app.post("/catalog/lookup", (c) => invoke(c, "lookup_catalog"));
@@ -1918,15 +1935,13 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_conflict")
       ) {
-        return c.json(
-          jsonRpcError(request.id, -32000, "Idempotency-Key was already used with different request parameters."),
-        );
+        return respondResult(toolResult(tool, result));
       }
       if (
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_in_progress")
       ) {
-        return c.json(jsonRpcError(request.id, -32029, "A matching request is already in progress. Retry later."));
+        return respondResult(toolResult(tool, result));
       }
 
       return respondResult(toolResult(tool, result));
@@ -1967,7 +1982,7 @@ async function invokeNonIdempotentMcpTool(
   try {
     return await (options.mcpToolHandlers?.[tool.name]?.({
       actor: c.get("actor") ?? null,
-      context: c.get("context") ?? null,
+      context: resolveUcpContext(c, options),
       arguments: args,
       request: c.req.raw,
       params: {},
@@ -1978,10 +1993,18 @@ async function invokeNonIdempotentMcpTool(
   }
 }
 
-function handlerInput(c: Context<UcpRuntimeEnv>, params: Readonly<Record<string, string>>): UcpOperationHandlerInput {
+function resolveUcpContext(c: Context<UcpRuntimeEnv>, options: CreateUcpRoutesOptions): EventStoreContext | null {
+  return options.contextOverride === undefined ? (c.get("context") ?? null) : options.contextOverride;
+}
+
+function handlerInput(
+  c: Context<UcpRuntimeEnv>,
+  params: Readonly<Record<string, string>>,
+  options: CreateUcpRoutesOptions,
+): UcpOperationHandlerInput {
   return {
     actor: c.get("actor") ?? null,
-    context: c.get("context") ?? null,
+    context: resolveUcpContext(c, options),
     arguments: {},
     request: c.req.raw,
     params,
@@ -1995,5 +2018,5 @@ function hasSignedWriteHeaders(request: Request) {
 function unsignedCheckoutAccessFailure(actor: ResolvedActor | null) {
   if (actor?.agentGrant?.scopes.includes("dev.ucp.shopping.checkout:manage")) return null;
   const code = actor ? "authorization_forbidden" : "authentication_required";
-  return createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]);
+  return createUcpEnvelope("error", {}, [{ code, content: code }]);
 }

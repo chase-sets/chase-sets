@@ -7,6 +7,7 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
 export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
 export const chartProductionValuesRelativePath = "infrastructure/helm/platform/values.production.yaml";
+export const chartPreviewValuesRelativePath = "infrastructure/helm/platform/values.preview.yaml";
 export const runtimeValuesRelativePath = "infrastructure/helm/platform/runtime-values.json";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
 const platformHelmChartName = "chase-sets-platform";
@@ -24,6 +25,15 @@ const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
 const previewEnvironmentZone = "preview.chasesets.com";
 const previewPostgresPort = 5432;
 const previewPostgresSecretName = "chase-sets-preview-postgres";
+const previewComponentMemoryRequests = {
+  "public-web": "1024Mi",
+  marketplace: "1152Mi",
+  "admin-web": "832Mi",
+  "platform-api": "640Mi",
+  "platform-worker": "832Mi",
+  "platform-bootstrap": "1152Mi",
+};
+const previewPostgresMemoryRequest = "448Mi";
 // Every preview namespace references this SAME shared *.preview.chasesets.com
 // wildcard certificate secret (copied in before the Helm deploy runs) instead
 // of requesting a per-PR certificate, so the name is a stable constant rather
@@ -337,7 +347,12 @@ export function buildPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
-  const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
+  const {
+    schemaVersion: _schemaVersion,
+    productionEnvOverrides: _productionEnvOverrides,
+    stagingApiEnv,
+    ...values
+  } = runtimeValues;
   const components = Object.fromEntries(
     Object.entries(values.components ?? {}).map(([name, component]) => [
       name,
@@ -348,6 +363,12 @@ export function buildPlatformHelmValues(options = {}) {
       },
     ]),
   );
+  if (options.deploymentEnvironment === "staging") {
+    components["platform-api"] = {
+      ...components["platform-api"],
+      env: [...(components["platform-api"].env ?? []), ...stagingApiEnv],
+    };
+  }
   const digest = options.managedPostgresCaSha256 ?? "";
   if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
     throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
@@ -413,6 +434,10 @@ export function renderPlatformHelmValues(options = {}) {
 }
 
 export function buildPlatformHelmStagingValues(options = {}) {
+  const stagingApiValues = buildPlatformHelmValues({
+    repoRoot: options.repoRoot,
+    deploymentEnvironment: "staging",
+  });
   return {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
@@ -421,9 +446,32 @@ export function buildPlatformHelmStagingValues(options = {}) {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
       marketplace: {
-        rollout: rolloutValues(true, true, "/health/ready"),
+        replicas: 1,
+        strategy: {
+          type: "RollingUpdate",
+          rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+        },
+        resources: {
+          // Retained staging eviction evidence observed 1091900Ki usage with
+          // a zero request. Keep the request above that peak and the limit
+          // below the node's pressure cliff while live recurrence metrics are
+          // unavailable on this seat.
+          requests: { cpu: "200m", memory: "1280Mi" },
+          limits: { cpu: "1", memory: "1536Mi" },
+        },
+        rollout: {
+          ...rolloutValues(true, true, "/health/ready"),
+          canary: {
+            ...rolloutValues(true, true, "/health/ready").canary,
+            maxSurge: 1,
+            maxUnavailable: 0,
+          },
+        },
       },
-      "platform-api": doksStagingApiOverrides,
+      "platform-api": {
+        ...doksStagingApiOverrides,
+        env: stagingApiValues.components["platform-api"].env,
+      },
       "platform-worker": {
         autoscaling: {
           ...doksStagingWorkerAutoscaling,
@@ -499,6 +547,27 @@ export function renderPlatformHelmProductionValues(options = {}) {
   return `${renderYaml(buildPlatformHelmProductionValues(options))}\n`;
 }
 
+export function buildPlatformHelmPreviewValues() {
+  return {
+    global: {
+      previewStackIsolation: true,
+    },
+    components: Object.fromEntries(
+      Object.entries(previewComponentMemoryRequests).map(([name, memory]) => [
+        name,
+        { resources: { requests: { memory } } },
+      ]),
+    ),
+    previewPostgres: {
+      resources: { requests: { memory: previewPostgresMemoryRequest } },
+    },
+  };
+}
+
+export function renderPlatformHelmPreviewValues() {
+  return `${renderYaml(buildPlatformHelmPreviewValues())}\n`;
+}
+
 export function renderPlatformHelmStagingValues() {
   return `${renderYaml(buildPlatformHelmStagingValues())}\n`.replace(
     "  platform-worker:\n",
@@ -556,7 +625,9 @@ export function buildPreviewDoksIngressValues(options = {}) {
   const previewIdentifier = String(options.previewIdentifier ?? options.env?.PREVIEW_IDENTIFIER ?? "").trim();
   // Two disposable identifier shapes share the preview ingress path and the
   // one *.preview.chasesets.com wildcard: PR previews (pr-<number>) and
-  // merge-gate verification runs (gate-<run-id>-<run-attempt>). Both stay
+  // merge-gate verification runs and ephemeral verification runs
+  // (gate-<run-id>-<run-attempt>). Ephemeral verification keeps its
+  // chase-sets-verify-* namespace while using the gate-* host label. All stay
   // single-label hostnames (see buildPreviewDoksIngressHosts), so the shared
   // wildcard certificate covers every host of both kinds.
   if (!/^(?:pr-[0-9]+|gate-[0-9]+-[0-9]+)$/.test(previewIdentifier)) {
@@ -679,6 +750,10 @@ export function syncPlatformHelmValues(options = {}) {
     {
       relativePath: chartProductionValuesRelativePath,
       content: renderPlatformHelmProductionValues({ repoRoot: rootDir }),
+    },
+    {
+      relativePath: chartPreviewValuesRelativePath,
+      content: renderPlatformHelmPreviewValues(),
     },
   ];
 

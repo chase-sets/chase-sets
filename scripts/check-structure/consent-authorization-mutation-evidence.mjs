@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const provenanceFixtureRoot = "scripts/check-structure/fixtures/guard-candidate-provenance";
 let exportedMutationEvidenceCases = [];
@@ -24,8 +25,8 @@ export const consentAuthorizationEvidenceFailureCodes = Object.freeze({
 
 export const consentAuthorizationEvidenceWorkUnitCeilings = Object.freeze({
   reconciliationGitLsFilesSpawns: 3,
-  compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 111,
+  compilerSurfaceSourceParses: 8,
+  trackedFilesDigested: 112,
 });
 
 export function collectConsentAuthorizationEvidenceWorkUnitViolations(
@@ -168,6 +169,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       cwd: rootDir,
       encoding: "buffer",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     }),
   controls = {},
 } = {}) {
@@ -450,7 +452,12 @@ export function deriveConsentAuthorizationEvidenceInventory({
   /* -------------------------------------------------------------------------- */
 
   function runGit(cwd, args) {
-    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    });
   }
 
   function scratchExecGit(scratch) {
@@ -1294,6 +1301,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       {
         cwd: repoRoot,
         encoding: "utf8",
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
       },
     );
     return listed.split("\0").filter(Boolean).sort();
@@ -1581,10 +1589,10 @@ export function deriveConsentAuthorizationEvidenceInventory({
     mutationCase(
       "MUT-ARTIFACT-COMPARE-ENVIRONMENTAL",
       "AC3",
-      `${ownerContextFixtureRoot}/lockfile-b.yaml`,
+      `${ownerContextFixtureRoot}/lockfile-c.yaml`,
       "compareTypeScriptOwnerContexts / comparedKeys",
       "derivation.semantic-keys-only",
-      "derivation-artifact-resolution-lockfileSha256-mismatch",
+      "derivation-artifact-resolution-lockfileKeys-mismatch",
       null,
       "lockfile-only change",
     ),
@@ -2180,8 +2188,8 @@ process.exitCode = acceptancePassed ? 0 : 1;
 
   /**
    * settled authority's two lockfile fixtures written in turn to one path, so the derived
-   * pair differs in lockfile bytes and in nothing else -- not even the recorded
-   * lockfile path.
+   * pair differs only in the lockfile-bound resolution.lockfileKeys provenance -- not
+   * even the recorded lockfile path.
    */
   function deriveLockfileOnlyArtifactPair() {
     const scratch = mkdtempSync(path.join(tmpdir(), "consent-lockfile-"));
@@ -2191,7 +2199,7 @@ process.exitCode = acceptancePassed ? 0 : 1;
         writeFileSync(lockfilePath, repoFile(`${ownerContextFixtureRoot}/${fixture}`));
         return deriveTypeScriptOwnerContexts({ resolutionRoot: repoRoot, lockfilePath });
       };
-      return { a: derive("lockfile-a.yaml"), b: derive("lockfile-b.yaml") };
+      return { a: derive("lockfile-a.yaml"), b: derive("lockfile-c.yaml") };
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

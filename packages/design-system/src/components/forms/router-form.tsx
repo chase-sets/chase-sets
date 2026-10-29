@@ -30,6 +30,12 @@ export interface RouterFormProps extends Omit<
   errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
+  /**
+   * With caller-owned `submitting`, keep controls enabled instead of disabling them: the
+   * submitter activated when submitting began is published as `pendingSubmitter`, so it stays
+   * focusable and `aria-busy`, and repeat activations are refused while `submitting` is true.
+   */
+  keepControlsEnabled?: boolean;
   pendingAnnouncement?: string;
   status?: FormStatus;
   validationSummaryId?: string;
@@ -103,6 +109,7 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
     errorAnnouncement,
     disabled = false,
     submitting,
+    keepControlsEnabled = false,
     pendingAnnouncement,
     status,
     validationSummaryId,
@@ -164,8 +171,10 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
       ? startedTokenRef.current !== ownedSubmissionToken
       : continuingNavigation || !navigationHasIdentity);
   const effectiveSubmitting = submitting ?? derivedPending;
+  const ownsSubmitter = keepControlsEnabled && submitting !== undefined;
+  const publishedSubmitter = ownsSubmitter && !submitting ? null : pendingSubmitter;
   const effectiveStatus = status ?? (effectiveSubmitting ? "submitting" : "idle");
-  const controlsDisabled = disabled || submitting === true;
+  const controlsDisabled = disabled || (submitting === true && !keepControlsEnabled);
   const describedBy = [ariaDescribedBy, validationSummaryId].filter(Boolean).join(" ") || undefined;
   const setFormRef = useCallback(
     (node: HTMLFormElement | null) => {
@@ -218,15 +227,19 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
   ]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (derivedPending) {
+    if (derivedPending || (ownsSubmitter && submitting)) {
       event.preventDefault();
       return;
     }
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (ownsSubmitter)
+      setPendingSubmitter(
+        submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement ? submitter : null,
+      );
     onSubmit?.(event);
     if (event.defaultPrevented || submitting !== undefined || navigate === false || fetcherKey) return;
     const acceptedMethod = (method ?? "get").toLowerCase();
     if (acceptedMethod === "get") return;
-    const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const token = claimSubmission(ownerId, acceptedMethod, formAction ?? event.currentTarget.action);
     setOwnedSubmissionToken(token);
     if (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) {
@@ -254,7 +267,7 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
       errorAnnouncement={errorAnnouncement}
       disabled={disabled}
       submitting={effectiveSubmitting}
-      pendingSubmitter={pendingSubmitter}
+      pendingSubmitter={publishedSubmitter}
       status={effectiveStatus}
       formId={id}
       validationSummaryId={validationSummaryId}
@@ -290,7 +303,7 @@ export function useAdminResourceListPageChange(
       const searchParams = new URLSearchParams(location.search);
       searchParams.set("limit", String(pagination.limit));
       searchParams.set("offset", String((page - 1) * pagination.limit));
-      navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+      void navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
     },
     [navigate, location, pagination],
   );

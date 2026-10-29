@@ -16,8 +16,9 @@ import {
 import { copyFile, link } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
@@ -48,8 +49,7 @@ function withoutRealBws(searchPath) {
 
 // Symbolic links keep their own target text, so the hosted runtime's dangling
 // libcrypto/libssl links stay dangling. Regular files are hardlinked, or copied
-// where the runner refuses links to root-owned files; the copies run
-// concurrently so a cold runtime fits the default hook timeout.
+// where the runner refuses links to root-owned files.
 async function linkPrivatePowerShellHome(source, target) {
   const files = [];
   for (const entry of readdirSync(source, { withFileTypes: true })) {
@@ -141,7 +141,7 @@ function createSeat({
 }
 
 // encoding "buffer" keeps the helper's raw stream bytes for byte-exact checks.
-function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
+function runPwshRaw(args, { cwd, env, input = "", encoding = "utf8" }) {
   const result = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", ...args], {
     cwd,
     env,
@@ -153,6 +153,22 @@ function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
   });
   if (result.error) throw result.error;
   return result;
+}
+
+let pwshVersionChecked = false;
+function runPwsh(args, options) {
+  if (!pwshVersionChecked) {
+    const probe = runPwshRaw(["-Command", "$PSVersionTable.PSVersion.Major"], {
+      cwd: os.tmpdir(),
+      env: process.env,
+    });
+    if (probe.error) throw probe.error;
+    if (probe.status !== 0 || Number(probe.stdout.trim()) < 7) {
+      throw new Error("PowerShell 7 or newer is required");
+    }
+    pwshVersionChecked = true;
+  }
+  return runPwshRaw(args, options);
 }
 
 function runSeat(seat, script, args, env = {}, { encoding } = {}) {
@@ -188,6 +204,57 @@ function removeRuntimeProfile(profile) {
   );
   expect(result.status).toBe(0);
 }
+
+const initializationPhaseTimings = [];
+const initializationEvidencePath = path.join(os.tmpdir(), `agent-secrets-init-${process.pid}.json`);
+
+async function initializePowerShellHomes() {
+  try {
+    let started = performance.now();
+    const probe = runPwsh(["-Command", "$PSHOME"], { cwd: os.tmpdir(), env: process.env });
+    initializationPhaseTimings.push({ name: "probe", durationMs: performance.now() - started });
+    expect(probe.status).toBe(0);
+    sharedPwshHome = probe.stdout.trim();
+    expect(sharedPwshHome).not.toBe("");
+    const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
+    expect(existsSync(sharedProfile)).toBe(false);
+
+    privatePwshHome = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-private-pwsh-"));
+    started = performance.now();
+    await linkPrivatePowerShellHome(sharedPwshHome, privatePwshHome);
+    initializationPhaseTimings.push({ name: "link", durationMs: performance.now() - started });
+    expect(existsSync(path.join(privatePwshHome, "profile.ps1"))).toBe(false);
+
+    started = performance.now();
+    const version = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], {
+      cwd: os.tmpdir(),
+      env: helperEnvironment(),
+    });
+    initializationPhaseTimings.push({ name: "version", durationMs: performance.now() - started });
+    expect(version.status).toBe(0);
+    expect(Number(version.stdout.trim())).toBeGreaterThanOrEqual(7);
+  } catch (error) {
+    if (privatePwshHome) {
+      rmSync(privatePwshHome, { recursive: true, force: true });
+      privatePwshHome = undefined;
+    }
+    throw error;
+  }
+}
+
+await initializePowerShellHomes();
+writeFileSync(
+  initializationEvidencePath,
+  JSON.stringify({ hookTimeoutMs: 10_000, phases: initializationPhaseTimings }),
+);
+console.info(
+  "[agent-secrets-init]",
+  JSON.stringify({
+    hookTimeoutMs: 10_000,
+    phases: initializationPhaseTimings,
+    evidencePath: initializationEvidencePath,
+  }),
+);
 
 // A `bws secret list` document whose values are the given strings.
 function secretList(values) {
@@ -274,35 +341,23 @@ function expectTokenOnlyInBwsEnvironment(seat, result) {
   expect(filesContaining(seat.root, seat.token, ["stub-credential.json"])).toEqual([]);
 }
 
-beforeAll(async () => {
-  const probe = runPwsh(["-Command", "$PSHOME"], { cwd: os.tmpdir(), env: process.env });
-  expect(probe.status).toBe(0);
-  sharedPwshHome = probe.stdout.trim();
-  expect(sharedPwshHome).not.toBe("");
-  const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
-  expect(existsSync(sharedProfile)).toBe(false);
-  privatePwshHome = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-private-pwsh-"));
-  await linkPrivatePowerShellHome(sharedPwshHome, privatePwshHome);
-  expect(existsSync(path.join(privatePwshHome, "profile.ps1"))).toBe(false);
-  const version = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], {
-    cwd: os.tmpdir(),
-    env: helperEnvironment(),
-  });
-  expect(version.status).toBe(0);
-  expect(Number(version.stdout.trim())).toBeGreaterThanOrEqual(7);
-});
-
-// A failed beforeAll may leave either home unset; its own error is the cause.
 afterAll(() => {
   if (sharedPwshHome) expect(existsSync(path.join(sharedPwshHome, "profile.ps1"))).toBe(false);
   if (privatePwshHome) rmSync(privatePwshHome, { recursive: true, force: true });
+  rmSync(initializationEvidencePath, { force: true });
 });
-
 afterEach(() => {
   for (const root of seats.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => {
+  it("keeps PowerShell initialization outside Vitest hook timers", () => {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    expect(source).not.toMatch(/\bbeforeAll\s*\(/);
+    expect(initializationPhaseTimings.map(({ name }) => name)).toEqual(["probe", "link", "version"]);
+    expect(initializationPhaseTimings.every(({ durationMs }) => Number.isFinite(durationMs))).toBe(true);
+  });
+
   // One helper launch per case keeps each test to a single launch's cost.
   it.each([
     ["inherited", [], []],

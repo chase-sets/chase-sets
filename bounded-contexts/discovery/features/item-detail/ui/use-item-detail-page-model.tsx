@@ -1,4 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { useState } from "react";
 import { Badge, Banner, Inline, Stack } from "@chase-sets/design-system";
 import type {
@@ -20,18 +21,14 @@ import {
   buildProductOptionSummaries,
   formatUpdatedAt,
   getBestAccountOfferMatch,
-  getBestOffer,
   getListingAvailableQuantity,
-  getLowestPrice,
+  getCommonPriceCurrencyCode,
   itemDetailRailAnalyticsSelection,
   itemDetailRailAnalyticsWorkflow,
   type MarketBookTab,
   type MarketIntent,
   type MarketSelectionSource,
   matchesSelectedOptions,
-  sortAccountOfferMatchesForReview,
-  sortListingsByBuyerPrice,
-  sortOffersBySellerPrice,
 } from "../domain/item-detail-market";
 import { buildReferenceDetailRows } from "./reference-detail-rows";
 import { ReferenceValueCue } from "./item-detail-references";
@@ -132,10 +129,8 @@ export function useItemDetailPageModel({
   const categories = [...new Map(data.categories.map((category) => [category.categoryId, category] as const)).values()];
   const tags = uniqueDisplayValues(data.tags);
   const buyableMarketListings = itemMarketListings.filter((listing) => getListingAvailableQuantity(listing) > 0);
-  const visibleListings = sortListingsByBuyerPrice(
-    buyableMarketListings.filter((listing) =>
-      data.product_schema ? matchesSelectedOptions(listing, selections) : true,
-    ),
+  const visibleListings = buyableMarketListings.filter((listing) =>
+    data.product_schema ? matchesSelectedOptions(listing, selections) : true,
   );
   const explicitSelectedListing = selectedListingId
     ? (visibleListings.find((listing) => listing.listing_id === selectedListingId) ?? null)
@@ -156,27 +151,22 @@ export function useItemDetailPageModel({
         selection: explicitSelectedProductOptions,
       }).productId
     : null;
-  const matchingOffers = sortOffersBySellerPrice(
-    itemOfferDemandMatches.filter((offer) =>
+  const matchingOffers = itemOfferDemandMatches.filter((offer) =>
+    explicitSelectedProductId
+      ? offer.product_id === explicitSelectedProductId
+      : data.product_schema
+        ? matchesSelectedOptions(offer, selections)
+        : true,
+  );
+  const matchingAccountOfferMatches = accountOfferMatches
+    .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
+    .filter((offer) =>
       explicitSelectedProductId
         ? offer.product_id === explicitSelectedProductId
         : data.product_schema
           ? matchesSelectedOptions(offer, selections)
           : true,
-    ),
-  );
-  const matchingAccountOfferMatches = sortAccountOfferMatchesForReview(
-    accountOfferMatches
-      .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
-      .filter((offer) =>
-        explicitSelectedProductId
-          ? offer.product_id === explicitSelectedProductId
-          : data.product_schema
-            ? matchesSelectedOptions(offer, selections)
-            : true,
-      ),
-  );
-  const bestOffer = getBestOffer(matchingOffers);
+    );
   const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
   const defaultSellerOffer =
     marketIntent === "sell" && bestAccountOfferMatch
@@ -185,7 +175,8 @@ export function useItemDetailPageModel({
   const explicitSelectedOffer = selectedOfferId
     ? (matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ?? null)
     : null;
-  const selectedOffer = explicitSelectedOffer ?? defaultSellerOffer ?? bestOffer ?? null;
+  const selectedOffer = explicitSelectedOffer ?? defaultSellerOffer ?? matchingOffers[0] ?? null;
+  const bestOffer = matchingOffers[0] ?? null;
   const selectedOfferSource: MarketSelectionSource = explicitSelectedOffer ? "explicit" : "implicit";
   const staleSelectedOfferId = selectedOfferId && !explicitSelectedOffer ? selectedOfferId : null;
   const selectedAccountOfferMatch = selectedOffer
@@ -224,15 +215,12 @@ export function useItemDetailPageModel({
     : null;
   const sellerCount = new Set(visibleListings.map((listing) => listing.account_id)).size;
   const buyerCount = new Set(matchingOffers.map((offer) => offer.buyer_account_id)).size;
+  const commonListingCurrency = getCommonPriceCurrencyCode(visibleListings);
+  const firstListing = visibleListings[0] ?? null;
+  const hasParsableFirstListingPrice = firstListing ? tryMoneyToCents(firstListing.price_amount) !== null : false;
   const selectedMarketSummary = {
-    lowest_price_amount:
-      new Set(visibleListings.map((listing) => listing.price_currency_code)).size === 1
-        ? getLowestPrice(visibleListings)
-        : null,
-    lowest_price_currency_code:
-      new Set(visibleListings.map((listing) => listing.price_currency_code)).size === 1
-        ? (visibleListings[0]?.price_currency_code ?? null)
-        : null,
+    lowest_price_amount: commonListingCurrency && hasParsableFirstListingPrice ? firstListing!.price_amount : null,
+    lowest_price_currency_code: commonListingCurrency && hasParsableFirstListingPrice ? commonListingCurrency : null,
     active_listing_count: visibleListings.length,
     total_visible_quantity: visibleListings.reduce((sum, listing) => sum + getListingAvailableQuantity(listing), 0),
   };

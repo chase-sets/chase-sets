@@ -95,6 +95,38 @@ describe("offerMatchesToAttentionRows", () => {
 });
 
 describe("sellerListingsToAttentionRows", () => {
+  it("preserves blocked-capacity actions in the web adapter and clears them on superseding seller pause or recovery", () => {
+    const rows = sellerListingsToAttentionRows([
+      listing({
+        listing_id: "blocked",
+        status: "paused",
+        pause_reason: "inventory-capacity",
+        inventory_capacity_recovery_block: "evidence-incomplete",
+      }),
+      listing({
+        listing_id: "seller",
+        status: "paused",
+        pause_reason: "seller",
+        inventory_capacity_recovery_block: null,
+      }),
+      listing({
+        listing_id: "recovered",
+        status: "active",
+        pause_reason: null,
+        inventory_capacity_recovery_block: null,
+      }),
+      listing({
+        listing_id: "routine-shortage",
+        status: "paused",
+        pause_reason: "inventory-capacity",
+        inventory_capacity_recovery_block: null,
+      }),
+    ]);
+    expect(rows.map((row) => [row.listingId, row.action])).toEqual([
+      ["blocked", "inventory-capacity:evidence-incomplete"],
+      ["seller", "paused"],
+    ]);
+  });
   it("keeps only actionable listing statuses and names the action", () => {
     const rows = sellerListingsToAttentionRows([
       listing({ listing_id: "a", status: "draft" }),
