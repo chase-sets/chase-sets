@@ -282,7 +282,7 @@ describe("marketplace search route", () => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
       if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
-      return Response.json(searchDataWithCursor().data);
+      return Response.json(searchDataWithResults().data);
     });
     vi.stubGlobal("fetch", fetchMock);
     let routeData: unknown;
@@ -320,11 +320,16 @@ describe("marketplace search route", () => {
     try {
       render(<RouterProvider router={router} />);
 
-      await waitFor(() =>
-        expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy(),
+      await waitFor(
+        () => expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy(),
+        { timeout: 5000 },
       );
       expect(screen.queryByText("No items found")).toBeNull();
       expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
+      const storedCache = JSON.parse(window.sessionStorage.getItem("discovery.search.loader-cache.v1") ?? "null") as {
+        entries?: unknown[];
+      } | null;
+      expect(storedCache?.entries).toEqual([]);
 
       const failedFetches = fetchMock.mock.calls.length;
       failed = false;

@@ -360,7 +360,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedListClaim,
   };
   // React Router's `data` helper preserves the loader payload while attaching the HTTP status,
-  // but its generic wrapper type is not exposed by this installed router version.
+  // this installed router version does not expose its generic wrapper type.
   return data === null ? (routeData(result, { status: 502 }) as unknown as typeof result) : result;
 }
 
@@ -733,6 +733,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   );
   const accumulatedSnapshotKey = JSON.stringify([
     resultSetKey,
+    data.searchFailed,
     restartedFirstPage !== null,
     activeFirstPage?.nextCursor,
     activeExtraPages.length,

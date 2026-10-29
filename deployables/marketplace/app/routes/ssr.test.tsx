@@ -134,6 +134,8 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     const payload = "type" in result ? result.data : result;
+    const responseInit = "type" in result ? (result as unknown as { init?: ResponseInit }).init : undefined;
+    expect(responseInit?.status).toBe(502);
     expect(payload).toMatchObject({ search: "charizard", searchFailed: true, data: null });
   });
 
