@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "fulfillment.seller-checkout-readiness-authority-matrix.v1",
+  "authority": {
+    "context": "fulfillment",
+    "contract": "bounded-contexts/fulfillment/features/seller-checkout-readiness/domain/contract.ts",
+    "read": "bounded-contexts/fulfillment/features/seller-checkout-readiness/read-model/queries.ts",
+    "contractSymbols": [
+      "SellerCheckoutReadinessOwner",
+      "SellerCheckoutReadinessKey",
+      "SellerCheckoutReadinessResult",
+      "SellerCheckoutReadinessReader"
+    ],
+    "readSymbols": ["readSellerCheckoutReadiness", "SellerCheckoutReadinessFactSource", "SellerCheckoutReadinessFacts"]
+  },
+  "key": {
+    "symbol": "SellerCheckoutReadinessKey",
+    "owners": [
+      { "kind": "account", "idField": "accountId", "idPrefix": "acc_" },
+      {
+        "kind": "anonymous",
+        "idField": "anonymousSellListId",
+        "idPrefix": "anon_",
+        "trustedBoundary": "x-checkout-anonymous-sell-list-id"
+      }
+    ],
+    "scope": ["shipFromLocationId", "labelPreference"],
+    "labelPreferences": ["prepaid-label", "seller-label-later"],
+    "merge": "A guest-to-account merge re-keys the facts to the Account or leaves the anonymous facts invalidated by mergedIntoAccountId; the Account key never reads anonymous facts."
+  },
+  "lifecycle": {
+    "phase": "pre-checkout",
+    "moments": ["readiness", "before-confirm"],
+    "sameKeyAtEveryMoment": true,
+    "drift": "The before-confirm read rejects a sourceRevision that differs from the readiness read before any side effect."
+  },
+  "revision": { "field": "sourceRevision", "type": "non-negative safe integer", "monotonic": true },
+  "timestamp": { "field": "sourceTimestamp", "type": "IsoUtcTimestamp (ISO-8601 UTC instant)" },
+  "dimensions": [
+    {
+      "dimension": "label",
+      "resultField": "label",
+      "factField": "labelPreferences",
+      "readyWhen": "Exactly one fact for the requested labelPreference at the key's owner and shipFromLocationId, evaluated at the record revision, reports it available.",
+      "blockedReason": "label-not-ready"
+    },
+    {
+      "dimension": "provider",
+      "resultField": "provider",
+      "factField": "providerRoutes",
+      "readyWhen": "Exactly one provider route fact for the requested labelPreference at the key's owner and shipFromLocationId, evaluated at the record revision, reports it available.",
+      "blockedReason": "provider-not-ready"
+    }
+  ],
+  "blockingFacts": {
+    "missing": "No facts for the key's owner and Ship-From Location, no fact for the requested labelPreference, or a key that cannot name an owner fact.",
+    "stale": "The fact was evaluated at an older revision than its record, or a guest-to-account merge invalidated the anonymous owner's facts.",
+    "conflicting": "The record names another owner or Ship-From Location, holds more than one fact for the requested labelPreference, or holds a fact ahead of its record revision.",
+    "unavailable": "The fact reports the preference or provider route unavailable, or the facts could not be read."
+  },
+  "unownedDimensions": ["ship-from", "payout", "listing-evidence", "risk", "freshness"],
+  "checkoutAdapterBoundary": {
+    "reader": "SellerCheckoutReadinessReader",
+    "consumer": "bounded-contexts/checkout/features/sell-list/domain/readiness.ts",
+    "consumerDimensionType": "SellListSellerReadinessDimension",
+    "consumerReasonType": "SellListSellerReadinessReason",
+    "callers": [
+      {
+        "file": "bounded-contexts/checkout/features/sell-list/api/route.ts",
+        "handler": "app.post(\"/sell-list/readiness\"",
+        "owner": "account",
+        "moment": "readiness"
+      },
+      {
+        "file": "bounded-contexts/checkout/features/sell-list/api/route.ts",
+        "handler": "app.post(\"/sell-list/confirm\"",
+        "owner": "account",
+        "moment": "before-confirm"
+      },
+      {
+        "file": "bounded-contexts/checkout/features/sell-list/api/route.ts",
+        "handler": "app.post(\"/sell-list/readiness\"",
+        "owner": "anonymous",
+        "moment": "readiness"
+      }
+    ],
+    "productionCutover": "chase-sets/chase-sets#10765"
+  }
+}
