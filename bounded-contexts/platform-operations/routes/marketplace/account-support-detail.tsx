@@ -209,7 +209,7 @@ export default function AccountSupportDetailRoute() {
         request={data.request}
         flow={data.flow}
         viewerRole={data.viewerRole as SupportParticipantRole}
-        canCancel={data.canCancel}
+        participantPolicy={data.participantPolicy}
         now={data.now}
         actionError={actionData && "error" in actionData ? actionData.error : searchParams.get("actionError")}
         actionResult={searchParams.get("action")}
