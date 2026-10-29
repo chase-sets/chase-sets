@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { appendFile, open, readFile, rm } from "node:fs/promises";
+import { appendFile, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,10 @@ import { applyManagedPostgresCaSecret } from "./platform-kubernetes-secret.mjs";
 
 const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
 const DIGITALOCEAN_CA_RESPONSE_MAX_BYTES = 65_536;
+const DEFAULT_CA_RETRY_ATTEMPTS = 1;
+const DEFAULT_CA_RETRY_BACKOFF_MS = 0;
+const MAX_CA_RETRY_ATTEMPTS = 5;
+const MAX_CA_RETRY_BACKOFF_MS = 30_000;
 
 export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
   const contextsOption = readOption(argv, "--contexts");
@@ -34,6 +38,32 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
     namespace: readOption(argv, "--namespace") ?? readEnv("CHASE_SETS_KUBERNETES_NAMESPACE", env),
     kubectlPath: readOption(argv, "--kubectl") ?? readEnv("KUBECTL_PATH", env) ?? "kubectl",
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
+    retryAttempts: parseBoundedInteger(
+      readOption(argv, "--retry-attempts") ?? readEnv("MANAGED_POSTGRES_CA_RETRY_ATTEMPTS", env),
+      DEFAULT_CA_RETRY_ATTEMPTS,
+      1,
+      MAX_CA_RETRY_ATTEMPTS,
+    ),
+    retryBackoffMs: parseBoundedInteger(
+      readOption(argv, "--retry-backoff-ms") ?? readEnv("MANAGED_POSTGRES_CA_RETRY_BACKOFF_MS", env),
+      DEFAULT_CA_RETRY_BACKOFF_MS,
+      0,
+      MAX_CA_RETRY_BACKOFF_MS,
+    ),
+    failureOutputPath: readOption(argv, "--failure-output") ?? readEnv("MANAGED_POSTGRES_CA_FAILURE_OUTPUT", env),
+  };
+}
+
+export function buildManagedPostgresAuthorityFailure(options, error) {
+  const fields = safeFailureFields(error?.classification ?? "managed-postgres-trust-export-failed", error);
+  return {
+    result: "failure",
+    mode: options?.mode ?? "url-export",
+    environment: options?.environmentName ?? "unknown",
+    class: fields.classification,
+    attempts: Number.isInteger(error?.attempts) ? error.attempts : (options?.retryAttempts ?? 1),
+    ...(fields.status === undefined ? {} : { status: fields.status }),
+    ...(fields.code === undefined ? {} : { code: fields.code }),
   };
 }
 
@@ -91,38 +121,39 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
   const log = dependencies.log ?? console.log;
   const errors = validateExportOptions(options);
   if (errors.length > 0) {
-    throw new Error(errors.join("\n"));
+    throw trustError("managed-postgres-export-input-invalid", errors.join("\n"));
   }
 
-  const state = parseTerraformState(await read(options.statePath, "utf8"));
-  const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
-  const certificate = await fetchDigitalOceanManagedPostgresCa(
-    {
-      clusterId,
-      digitalOceanToken: options.digitalOceanToken,
-    },
-    dependencies,
-  );
-  const urls = databaseUrlsFromTerraformState(state, {
-    contexts: options.contexts,
-    environmentName: options.environmentName,
-    connectionMode: options.connectionMode,
-    caPath: options.caPath,
-  });
-  const lines = githubEnvLinesForDatabaseUrls(urls, options.caPath);
-
-  for (const { url } of urls) {
-    log(`::add-mask::${url}`);
-  }
   try {
+    const state = parseTerraformState(await read(options.statePath, "utf8"));
+    const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
+    const certificate = await fetchDigitalOceanManagedPostgresCa(
+      {
+        clusterId,
+        digitalOceanToken: options.digitalOceanToken,
+        retryAttempts: options.retryAttempts,
+        retryBackoffMs: options.retryBackoffMs,
+      },
+      dependencies,
+    );
+    const urls = databaseUrlsFromTerraformState(state, {
+      contexts: options.contexts,
+      environmentName: options.environmentName,
+      connectionMode: options.connectionMode,
+      caPath: options.caPath,
+    });
+    const lines = githubEnvLinesForDatabaseUrls(urls, options.caPath);
+
+    for (const { url } of urls) {
+      log(`::add-mask::${url}`);
+    }
     await writeCa(options.caPath, certificate);
     await append(options.githubEnvPath, `${lines.join("\n")}\n`);
+    return urls;
   } catch (error) {
     await remove(options.caPath, { force: true }).catch(() => undefined);
     throw error;
   }
-
-  return urls;
 }
 
 export function databaseUrlsFromTerraformState(state, options = {}) {
@@ -146,10 +177,14 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
   const connectionMode = options.connectionMode ?? "direct";
   const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
   if (!["direct", "pooled"].includes(connectionMode)) {
-    throw new Error(`Unsupported Terraform state database connection mode '${connectionMode}'.`);
+    throw trustError(
+      "managed-postgres-state-invalid",
+      `Unsupported Terraform state database connection mode '${connectionMode}'.`,
+    );
   }
   if (connectionMode === "direct" && (!clusterAttrs.host || !clusterAttrs.port)) {
-    throw new Error(
+    throw trustError(
+      "managed-postgres-state-invalid",
       `${environmentLabel(environmentName)} Terraform state does not contain a usable DigitalOcean database cluster.`,
     );
   }
@@ -168,10 +203,16 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
     const password = connectionMode === "pooled" ? pool?.password || user?.password : user?.password;
     const databaseName = connectionMode === "pooled" ? pool?.name : database?.name;
     if (!contextName || !databaseName || !connection?.host || !connection?.port || !username || !password) {
-      throw new Error(`Terraform state is missing database/user data for '${contextName ?? "unknown"}'.`);
+      throw trustError(
+        "managed-postgres-state-invalid",
+        `Terraform state is missing database/user data for '${contextName ?? "unknown"}'.`,
+      );
     }
     if (connectionMode === "pooled" && pool.mode && pool.mode !== "transaction") {
-      throw new Error(`Terraform state database pool for '${contextName}' is not a transaction pool.`);
+      throw trustError(
+        "managed-postgres-state-invalid",
+        `Terraform state database pool for '${contextName}' is not a transaction pool.`,
+      );
     }
 
     const url =
@@ -221,19 +262,49 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
   }
   const request = dependencies.fetch ?? fetch;
   const apiBaseUrl = dependencies.apiBaseUrl ?? DIGITALOCEAN_API_BASE_URL;
+  const retryAttempts = parseBoundedInteger(options.retryAttempts, DEFAULT_CA_RETRY_ATTEMPTS, 1, MAX_CA_RETRY_ATTEMPTS);
+  const retryBackoffMs = parseBoundedInteger(
+    options.retryBackoffMs,
+    DEFAULT_CA_RETRY_BACKOFF_MS,
+    0,
+    MAX_CA_RETRY_BACKOFF_MS,
+  );
+  const sleep = dependencies.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
   let response;
-  try {
-    response = await request(`${apiBaseUrl}/databases/${encodeURIComponent(options.clusterId)}/ca`, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${options.digitalOceanToken}`,
-      },
-    });
-  } catch {
-    throw trustError("digitalocean-ca-request-failed", "DigitalOcean database CA request failed.");
-  }
-  if (!response.ok) {
+  let attemptsMade = 0;
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    attemptsMade = attempt;
+    try {
+      response = await request(`${apiBaseUrl}/databases/${encodeURIComponent(options.clusterId)}/ca`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${options.digitalOceanToken}`,
+        },
+      });
+    } catch (error) {
+      if (attempt === retryAttempts) {
+        throw trustError("digitalocean-ca-request-transient", "DigitalOcean database CA request failed.", {
+          attempts: attempt,
+          code: error?.code,
+        });
+      }
+      await sleep(retryBackoffMs * attempt);
+      continue;
+    }
+    if (response.ok) break;
+    if (isTransientProviderStatus(response.status)) {
+      if (attempt === retryAttempts) {
+        throw trustError(
+          "digitalocean-ca-request-transient",
+          "DigitalOcean database CA provider request exhausted retries.",
+          { attempts: attempt, status: response.status },
+        );
+      }
+      await sleep(retryBackoffMs * attempt);
+      continue;
+    }
     throw trustError("digitalocean-ca-request-rejected", "DigitalOcean database CA request was rejected.", {
+      attempts: attempt,
       status: response.status,
     });
   }
@@ -244,6 +315,7 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
       "DigitalOcean database CA response content type was invalid.",
       {
         status: response.status,
+        attempts: attemptsMade,
       },
     );
   }
@@ -252,6 +324,7 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
   if (Number.isFinite(contentLength) && contentLength > DIGITALOCEAN_CA_RESPONSE_MAX_BYTES) {
     throw trustError("digitalocean-ca-response-too-large", "DigitalOcean database CA response exceeded the limit.", {
       status: response.status,
+      attempts: attemptsMade,
     });
   }
   let payload;
@@ -260,6 +333,7 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
     if (Buffer.byteLength(responseBody, "utf8") > DIGITALOCEAN_CA_RESPONSE_MAX_BYTES) {
       throw trustError("digitalocean-ca-response-too-large", "DigitalOcean database CA response exceeded the limit.", {
         status: response.status,
+        attempts: attemptsMade,
       });
     }
     payload = JSON.parse(responseBody);
@@ -269,12 +343,14 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
     }
     throw trustError("digitalocean-ca-response-invalid", "DigitalOcean database CA response was invalid.", {
       status: response.status,
+      attempts: attemptsMade,
     });
   }
   const encodedCertificate = payload?.ca?.certificate;
   if (typeof encodedCertificate !== "string") {
     throw trustError("digitalocean-ca-response-invalid", "DigitalOcean database CA response omitted the certificate.", {
       status: response.status,
+      attempts: attemptsMade,
     });
   }
   const certificate = Buffer.from(encodedCertificate, "base64").toString("utf8");
@@ -284,10 +360,15 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
       "DigitalOcean database CA response was not a PEM certificate.",
       {
         status: response.status,
+        attempts: attemptsMade,
       },
     );
   }
   return certificate;
+}
+
+function isTransientProviderStatus(status) {
+  return status === 429 || (Number.isInteger(status) && status >= 500 && status <= 599);
 }
 
 export async function writeManagedPostgresCa(caPath, certificate) {
@@ -308,7 +389,8 @@ function contextNamesForSelection(contexts, databaseByContext, userByContext, en
 
   const contextNames = [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
   if (contextNames.length === 0) {
-    throw new Error(
+    throw trustError(
+      "managed-postgres-state-invalid",
       `${environmentLabel(environmentName)} Terraform state does not contain context database users and databases.`,
     );
   }
@@ -383,9 +465,16 @@ function environmentLabel(environmentName) {
   return String(environmentName || "Terraform").replace(/^./, (char) => char.toUpperCase());
 }
 
+function parseBoundedInteger(value, fallback, minimum, maximum) {
+  if (value == null || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
+}
+
 async function main(argv, env = process.env) {
+  let options;
   try {
-    const options = parseTerraformStateDatabaseUrlArgs(argv, env);
+    options = parseTerraformStateDatabaseUrlArgs(argv, env);
     if (options.mode === "trust-only-kubernetes-secret") {
       await reconcileManagedPostgresCaSecret(options);
     } else if (options.mode === "url-export") {
@@ -395,9 +484,15 @@ async function main(argv, env = process.env) {
     }
     return 0;
   } catch (error) {
-    console.error(
-      JSON.stringify(safeFailureFields(error?.classification ?? "managed-postgres-trust-export-failed", error)),
-    );
+    const fields = safeFailureFields(error?.classification ?? "managed-postgres-trust-export-failed", error);
+    const failure = buildManagedPostgresAuthorityFailure(options, error);
+    if (options?.failureOutputPath) {
+      await writeFile(options.failureOutputPath, `${JSON.stringify(failure)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      }).catch(() => undefined);
+    }
+    console.error(JSON.stringify(fields));
     return 1;
   }
 }

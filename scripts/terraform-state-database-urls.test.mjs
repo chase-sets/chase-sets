@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildManagedPostgresAuthorityFailure,
   databaseUrlsFromTerraformState,
   exportTerraformStateDatabaseUrls,
   fetchDigitalOceanManagedPostgresCa,
@@ -245,6 +246,110 @@ describe("Terraform state database URL export", () => {
     ).rejects.toMatchObject({ classification: "digitalocean-ca-response-invalid", status: 200 });
   });
 
+  it("fetch retry backoff retries transient CA failures with a fixed bound", async () => {
+    const responses = [
+      { ok: false, status: 429, text: async () => "{}" },
+      { ok: false, status: 503, text: async () => "{}" },
+      {
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: async () => JSON.stringify({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
+      },
+    ];
+    const delays = [];
+    const result = await fetchDigitalOceanManagedPostgresCa(
+      { clusterId: "cluster-123", digitalOceanToken: "token-value", retryAttempts: 3, retryBackoffMs: 250 },
+      {
+        fetch: async () => responses.shift(),
+        sleep: async (delay) => delays.push(delay),
+      },
+    );
+
+    expect(result).toBe(certificate);
+    expect(delays).toEqual([250, 500]);
+    expect(responses).toHaveLength(0);
+  });
+
+  it("provider failure classes retry only transient requests and never expose response data", async () => {
+    const attempts = [];
+    await expect(
+      fetchDigitalOceanManagedPostgresCa(
+        { clusterId: "cluster-123", digitalOceanToken: "token-value", retryAttempts: 2, retryBackoffMs: 1 },
+        {
+          fetch: async () => {
+            attempts.push("network");
+            const error = new Error("secret body");
+            error.code = "ECONNRESET";
+            throw error;
+          },
+          sleep: async () => undefined,
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "digitalocean-ca-request-transient", attempts: 2, code: "ECONNRESET" });
+    expect(attempts).toHaveLength(2);
+
+    let invalidAttempts = 0;
+    await expect(
+      fetchDigitalOceanManagedPostgresCa(
+        { clusterId: "cluster-123", digitalOceanToken: "token-value", retryAttempts: 3 },
+        {
+          fetch: async () => {
+            invalidAttempts += 1;
+            return {
+              ok: true,
+              status: 200,
+              headers: { get: () => "application/json" },
+              text: async () => JSON.stringify({ secret: "token-and-certificate-must-not-surface" }),
+            };
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "digitalocean-ca-response-invalid", attempts: 1 });
+    expect(invalidAttempts).toBe(1);
+
+    let rejectedAttempts = 0;
+    await expect(
+      fetchDigitalOceanManagedPostgresCa(
+        { clusterId: "cluster-123", digitalOceanToken: "token-value", retryAttempts: 3 },
+        {
+          fetch: async () => {
+            rejectedAttempts += 1;
+            return { ok: false, status: 403, text: async () => "secret body" };
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "digitalocean-ca-request-rejected", status: 403, attempts: 1 });
+    expect(rejectedAttempts).toBe(1);
+  });
+
+  it("failure artifact schema is support-safe and non-counting", () => {
+    const error = Object.assign(new Error("url token body certificate"), {
+      classification: "digitalocean-ca-request-transient",
+      attempts: 3,
+      status: 503,
+      code: "EHOSTUNREACH",
+      url: "https://secret.example",
+    });
+    const artifact = buildManagedPostgresAuthorityFailure(
+      { mode: "url-export", environmentName: "production", retryAttempts: 3 },
+      error,
+    );
+
+    expect(artifact).toEqual({
+      result: "failure",
+      mode: "url-export",
+      environment: "production",
+      class: "digitalocean-ca-request-transient",
+      attempts: 3,
+      status: 503,
+      code: "EHOSTUNREACH",
+    });
+    expect(Object.keys(artifact)).not.toEqual(
+      expect.arrayContaining(["count", "success", "url", "token", "body", "pem", "certificate"]),
+    );
+  });
+
   it("writes CA material with restrictive permissions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "managed-postgres-ca-"));
     tempDirectories.push(directory);
@@ -292,6 +397,35 @@ describe("Terraform state database URL export", () => {
     expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
   });
 
+  it("cleans up and skips URL writes when CA export is exhausted", async () => {
+    const removals = [];
+    const writes = [];
+    await expect(
+      exportTerraformStateDatabaseUrls(
+        {
+          statePath: "state.json",
+          githubEnvPath: "github.env",
+          caPath,
+          digitalOceanToken: "token-value",
+          contexts: ["checkout"],
+          environmentName: "staging",
+          retryAttempts: 2,
+          retryBackoffMs: 1,
+        },
+        {
+          readFile: async () => JSON.stringify(terraformState()),
+          writeCa: async () => writes.push("ca"),
+          appendFile: async () => writes.push("env"),
+          rm: async (path, options) => removals.push({ path, options }),
+          fetch: async () => ({ ok: false, status: 503, text: async () => "provider body" }),
+          sleep: async () => undefined,
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "digitalocean-ca-request-transient", attempts: 2, status: 503 });
+    expect(writes).toEqual([]);
+    expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
+  });
+
   it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
       "catalog-completion-report.yml",
@@ -324,6 +458,21 @@ describe("Terraform state database URL export", () => {
       .sort((left, right) => left.name.localeCompare(right.name));
 
     expect(consumers.map(({ name }) => name)).toEqual(expectedConsumers);
+    const invocationCount = consumers.reduce(
+      (count, { source }) =>
+        count + (source.match(/uses: \.\/\.github\/actions\/export-managed-postgres-authority/g) ?? []).length,
+      0,
+    );
+    expect(invocationCount).toBe(19);
+    const growthSource = consumers.find(({ name }) => name === "platform-postgres-growth-evidence.yml").source;
+    expect(growthSource).toContain('retry-attempts: "3"');
+    expect(growthSource).toContain("connection-mode: pooled");
+    for (const { name, source } of consumers) {
+      if (name !== "platform-postgres-growth-evidence.yml") {
+        expect(source).not.toContain("retry-attempts:");
+        expect(source).not.toContain("retry-backoff-ms:");
+      }
+    }
     for (const { source } of consumers) {
       expect(source).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
       expect(source).toContain("Remove managed Postgres CA");
@@ -336,6 +485,31 @@ describe("Terraform state database URL export", () => {
     expect(actionSource).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
     expect(actionSource).toContain('--github-env "$GITHUB_ENV"');
     expect(actionSource).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
+    expect(actionSource).toContain('--retry-attempts "$AUTHORITY_RETRY_ATTEMPTS"');
+    expect(actionSource).toContain('--retry-backoff-ms "$AUTHORITY_RETRY_BACKOFF_MS"');
+  });
+
+  it("pre-query failure artifact flow opts only growth evidence into CA retry and retention", async () => {
+    const growthSource = await readFile(
+      new URL("../.github/workflows/platform-postgres-growth-evidence.yml", import.meta.url),
+      "utf8",
+    );
+    const actionSource = await readFile(
+      new URL("../.github/actions/export-managed-postgres-authority/action.yml", import.meta.url),
+      "utf8",
+    );
+    expect(actionSource).toContain("retry-attempts:");
+    expect(actionSource).toContain("retry-backoff-ms:");
+    expect(actionSource).toContain("failure-output-path:");
+    expect(growthSource).toContain("id: export-authority");
+    expect(growthSource).toContain("continue-on-error: true");
+    expect(growthSource).toContain('retry-attempts: "3"');
+    expect(growthSource).toContain('retry-backoff-ms: "250"');
+    expect(growthSource).toContain("postgres-growth-authority-export-failure.json");
+    expect(growthSource).toContain("Gate Postgres growth on authority export");
+    expect(growthSource).toContain("if: ${{ always() }}");
+    expect(growthSource).toContain("exit 1");
+    expect(growthSource).toContain("if-no-files-found: ignore");
   });
 
   it("reconciles exact CA bytes once and removes the process-owned temporary file", async () => {
