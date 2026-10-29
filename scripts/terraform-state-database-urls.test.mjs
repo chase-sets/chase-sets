@@ -105,7 +105,10 @@ function mixedPooledTerraformState() {
   const users = state.resources.find((resource) => resource.type === "digitalocean_database_user");
   const pools = state.resources.find((resource) => resource.type === "digitalocean_database_connection_pool");
   databases.instances.push({ index_key: "reputation", attributes: { name: "reputation-db" } });
-  users.instances.push({ index_key: "reputation", attributes: { name: "reputation-user", password: "reputation-pass" } });
+  users.instances.push({
+    index_key: "reputation",
+    attributes: { name: "reputation-user", password: "reputation-pass" },
+  });
   pools.instances.push({
     index_key: "search",
     attributes: {
@@ -165,12 +168,14 @@ describe("Terraform state database URL export", () => {
       caPath,
     });
     expect(urls.map(({ contextName }) => contextName)).toEqual(["checkout", "control", "fulfillment"]);
-    expect(() => databaseUrlsFromTerraformState(mixedPooledTerraformState(), {
-      contexts: ["reputation"],
-      connectionMode: "pooled",
-      selectionMode: "pooled-only",
-      caPath,
-    })).toThrow("transaction pool");
+    expect(() =>
+      databaseUrlsFromTerraformState(mixedPooledTerraformState(), {
+        contexts: ["reputation"],
+        connectionMode: "pooled",
+        selectionMode: "pooled-only",
+        caPath,
+      }),
+    ).toThrow("transaction pool");
   });
 
   it("preserves mode-less pools for all selection and rejects them for pooled-only", () => {
@@ -178,11 +183,13 @@ describe("Terraform state database URL export", () => {
     const pool = state.resources.find((resource) => resource.type === "digitalocean_database_connection_pool");
     delete pool.instances[0].attributes.mode;
     expect(databaseUrlsFromTerraformState(state, { connectionMode: "pooled", caPath })).toHaveLength(3);
-    expect(databaseUrlsFromTerraformState(state, {
-      connectionMode: "pooled",
-      selectionMode: "pooled-only",
-      caPath,
-    }).map(({ contextName }) => contextName)).toEqual(["control", "fulfillment"]);
+    expect(
+      databaseUrlsFromTerraformState(state, {
+        connectionMode: "pooled",
+        selectionMode: "pooled-only",
+        caPath,
+      }).map(({ contextName }) => contextName),
+    ).toEqual(["control", "fulfillment"]);
   });
 
   it("fails closed when required state is missing", () => {
@@ -316,10 +323,12 @@ describe("Terraform state database URL export", () => {
     ).rejects.toMatchObject({ classification: "managed-postgres-state-invalid", context: "reputation" });
     expect(fetched).toBe(0);
     const inventory = JSON.parse(writes[0].value);
-    expect(inventory.contexts).toEqual(expect.arrayContaining([
-      { context: "reputation", database: true, user: true, pool: false, poolMode: null },
-      { context: "search", database: false, user: false, pool: true, poolMode: "session" },
-    ]));
+    expect(inventory.contexts).toEqual(
+      expect.arrayContaining([
+        { context: "reputation", database: true, user: true, pool: false, poolMode: null },
+        { context: "search", database: false, user: false, pool: true, poolMode: "session" },
+      ]),
+    );
     expect(writes[0].value).not.toContain("db.example.internal");
     expect(writes[0].value).not.toContain("pass word");
   });
@@ -777,7 +786,7 @@ describe("Terraform state database URL export", () => {
     expect(action.inputs["failure-output-path"].default).toBe("");
     expect(action.inputs["inventory-output-path"].default).toBe("");
     expect(actionSource).toContain("AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode || 'all' }}");
-    expect(actionSource).toContain("[ -n \"$AUTHORITY_SELECTION_MODE\" ]");
+    expect(actionSource).toContain('[ -n "$AUTHORITY_SELECTION_MODE" ]');
     expect(actionSource).toContain('--inventory-output "$AUTHORITY_INVENTORY_OUTPUT"');
     const growth = parseYaml(growthSource).jobs["growth-evidence"].steps.find(({ id }) => id === "export-authority");
     expect(growth.with["selection-mode"]).toBe("pooled-only");

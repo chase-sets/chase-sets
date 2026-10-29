@@ -237,10 +237,16 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
   const poolByContext = indexedResourceMap(pools);
   const selectionMode = options.selectionMode ?? "all";
   if (!["all", "pooled-only"].includes(selectionMode)) {
-    throw trustError("managed-postgres-state-invalid", `Unsupported Terraform state database selection mode '${selectionMode}'.`);
+    throw trustError(
+      "managed-postgres-state-invalid",
+      `Unsupported Terraform state database selection mode '${selectionMode}'.`,
+    );
   }
   if (selectionMode === "pooled-only" && connectionMode !== "pooled") {
-    throw trustError("managed-postgres-state-invalid", "Pooled-only Terraform state selection requires pooled connections.");
+    throw trustError(
+      "managed-postgres-state-invalid",
+      "Pooled-only Terraform state selection requires pooled connections.",
+    );
   }
   const contextNames = contextNamesForSelection(
     options.contexts,
@@ -268,7 +274,10 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
         selectionMode === "pooled-only" ? { context: contextName ?? "unknown" } : undefined,
       );
     }
-    if (connectionMode === "pooled" && (selectionMode === "pooled-only" ? pool.mode !== "transaction" : pool.mode && pool.mode !== "transaction")) {
+    if (
+      connectionMode === "pooled" &&
+      (selectionMode === "pooled-only" ? pool.mode !== "transaction" : pool.mode && pool.mode !== "transaction")
+    ) {
       throw trustError(
         "managed-postgres-state-invalid",
         `Terraform state database pool for '${contextName}' is not a transaction pool.`,
@@ -445,7 +454,14 @@ export async function writeManagedPostgresCa(caPath, certificate) {
   }
 }
 
-function contextNamesForSelection(contexts, databaseByContext, userByContext, poolByContext, environmentName, selectionMode) {
+function contextNamesForSelection(
+  contexts,
+  databaseByContext,
+  userByContext,
+  poolByContext,
+  environmentName,
+  selectionMode,
+) {
   if (Array.isArray(contexts) && contexts.length > 0) {
     if (selectionMode === "pooled-only") {
       const invalidContext = contexts.find((contextName) => poolByContext.get(contextName)?.mode !== "transaction");
@@ -469,9 +485,13 @@ function contextNamesForSelection(contexts, databaseByContext, userByContext, po
       : [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
   if (contextNames.length === 0) {
     if (selectionMode === "pooled-only") {
-      throw trustError("managed-postgres-state-invalid", "Terraform state does not contain transaction-pooled contexts.", {
-        context: "unknown",
-      });
+      throw trustError(
+        "managed-postgres-state-invalid",
+        "Terraform state does not contain transaction-pooled contexts.",
+        {
+          context: "unknown",
+        },
+      );
     }
     throw trustError(
       "managed-postgres-state-invalid",
