@@ -22,12 +22,15 @@ function hasRuntimeBindings(node: ts.ImportDeclaration | ts.ExportDeclaration): 
     if (!clause) return true;
     if (clause.isTypeOnly) return false;
     if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
-    return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
+    return (
+      clause.namedBindings.elements.length === 0 || clause.namedBindings.elements.some((element) => !element.isTypeOnly)
+    );
   }
   if (node.isTypeOnly) return false;
   return (
     !node.exportClause ||
     ts.isNamespaceExport(node.exportClause) ||
+    node.exportClause.elements.length === 0 ||
     node.exportClause.elements.some((element) => !element.isTypeOnly)
   );
 }
@@ -98,6 +101,20 @@ describe("Listing browser boundary", () => {
 
     it(`rejects a planted transitive unsafe value import through ${entry}`, () => {
       const planted = `${readFileSync(path.join(root, evidence), "utf8")}\nimport "./domain";`;
+      expect(nodeImportChains(entry, planted).some((chain) => chain.endsWith("node:async_hooks"))).toBe(true);
+    });
+
+    it(`rejects a planted empty-binding import edge through ${entry}`, () => {
+      const planted = `${readFileSync(path.join(root, evidence), "utf8")}
+        import {} from "./domain";
+      `;
+      expect(nodeImportChains(entry, planted).some((chain) => chain.endsWith("node:async_hooks"))).toBe(true);
+    });
+
+    it(`rejects a planted empty-binding export edge through ${entry}`, () => {
+      const planted = `${readFileSync(path.join(root, evidence), "utf8")}
+        export {} from "./domain";
+      `;
       expect(nodeImportChains(entry, planted).some((chain) => chain.endsWith("node:async_hooks"))).toBe(true);
     });
 
