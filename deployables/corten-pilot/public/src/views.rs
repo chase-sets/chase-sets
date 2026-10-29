@@ -73,13 +73,13 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
                     as="font"
                     type="font/woff2"
                     crossorigin
-                    href={req.asset("fonts/space-grotesk-latin-600-normal.woff2")}
+                    href={req.asset(crate::app::Static::FONTS_SPACE_GROTESK_LATIN_600_NORMAL_WOFF2)}
                 >
-                <link rel="stylesheet" href={req.asset("style.css")}>
+                <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
-                <script type="module" src={req.asset("app.js")}></script>
+                <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
             <body>
                 <main>{children}</main>
@@ -118,13 +118,13 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                     as="font"
                     type="font/woff2"
                     crossorigin
-                    href={req.asset("fonts/space-grotesk-latin-600-normal.woff2")}
+                    href={req.asset(crate::app::Static::FONTS_SPACE_GROTESK_LATIN_600_NORMAL_WOFF2)}
                 >
-                <link rel="stylesheet" href={req.asset("style.css")}>
+                <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
-                <script type="module" src={req.asset("app.js")}></script>
+                <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
             <body>
                 <a class={Skip} href={MainContentId.fragment()}>{p.shell_skip()}</a>

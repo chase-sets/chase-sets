@@ -10,11 +10,8 @@
 use std::{sync::LazyLock, time::Duration};
 
 use corten::{
-    answer::{Answer, AnyInputs, ForEveryone, Format, Shareable},
-    axum::{
-        http::{HeaderName, HeaderValue, StatusCode, header},
-        response::{IntoResponse, Response},
-    },
+    answer::XRobotsTag,
+    axum::http::{HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };
 use serde::Deserialize;
@@ -102,43 +99,10 @@ fn public(page: Page) -> Public<HtmlResult> {
     Public::new(FRESH, page).stale_while_revalidate(STALE).shared(SHARED)
 }
 
-/// A file the portal serves (the manifest, `llms.txt`): its type and `X-Robots-Tag`.
-///
-/// Corten's text and JSON answers for everyone take no header of the app's, and a `Relay` is
-/// never compressed (the manifest is about 0.4 MB), so the pilot names its own answer, as
-/// `corten::seo::File` does. The workaround for todd-skelton/corten#287.
-pub struct File(Response);
-
-impl IntoResponse for File {
-    fn into_response(self) -> Response {
-        self.0
-    }
-}
-
-impl Answer for File {
-    const FORMAT: Format = Format::Html;
-    type Inputs = AnyInputs;
-}
-
-/// It sets no cookie, so it is the same for everyone.
-impl Shareable for File {
-    type ForAll = Self;
-}
-
-impl ForEveryone for File {
-    type Named = Self;
-
-    fn for_all(self) -> Self {
-        self
-    }
-}
-
-fn file(content_type: &'static str, body: String) -> Public<File> {
-    let mut res = body.into_response();
-    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    let (name, value) = robots();
-    res.headers_mut().insert(name, value);
-    Public::new(FRESH, File(res)).stale_while_revalidate(STALE).shared(SHARED)
+/// A file the portal serves (the manifest, `llms.txt`), out of search (`X-Robots-Tag`, a header
+/// of the app's on a `Public` answer since todd-skelton/corten#287).
+fn file<A: corten::answer::Shareable>(answer: Public<A>) -> Public<A> {
+    answer.stale_while_revalidate(STALE).shared(SHARED).header::<XRobotsTag>(HeaderValue::from_static(ROBOTS))
 }
 
 fn closed() -> Public<HtmlResult> {
@@ -249,16 +213,16 @@ pub fn llms(origin: &str) -> String {
     lines.join("\n")
 }
 
-pub(crate) async fn manifest_file(State(config): State<Shared>) -> Result<Public<File>, corten::Error> {
+pub(crate) async fn manifest_file(State(config): State<Shared>) -> Result<Public<Json<Value>>, corten::Error> {
     if !config.developers {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
     }
-    Ok(file("application/json", manifest(&config.origin).to_string()))
+    Ok(file(Public::new(FRESH, Json(manifest(&config.origin)))))
 }
 
-pub(crate) async fn llms_file(State(config): State<Shared>) -> Result<Public<File>, corten::Error> {
+pub(crate) async fn llms_file(State(config): State<Shared>) -> Result<Public<String>, corten::Error> {
     if !config.developers {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
     }
-    Ok(file("text/plain; charset=utf-8", llms(&config.origin)))
+    Ok(file(Public::new(FRESH, llms(&config.origin))))
 }

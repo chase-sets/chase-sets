@@ -1028,8 +1028,8 @@ async fn the_developer_manifest_and_llms_txt_describe_the_portal_for_agents() {
     assert!(text.contains("Supported protocol versions: 2025-06-18, 2025-11-25, 2026-07-28"), "{text}");
 }
 
-/// The manifest is about 160 KB, so it is the pilot's own answer (`developers::File`), which
-/// Corten compresses, not a `Relay`, which it never does (todd-skelton/corten#287).
+/// The manifest is about 160 KB: a `Public<Json<..>>` with its robots header, which Corten
+/// compresses (todd-skelton/corten#287; before it, the pilot's own answer type).
 #[tokio::test]
 async fn the_developer_manifest_is_compressed_with_its_robots_header() {
     let site = Site::with(true, "https://chasesets.com", true).await;

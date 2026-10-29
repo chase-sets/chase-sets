@@ -312,13 +312,13 @@ pub fn Layout<'a, H: Render, C: Render>(
                     as="font"
                     type="font/woff2"
                     crossorigin
-                    href={req.asset("fonts/ibm-plex-sans-latin-400-normal.woff2")}
+                    href={req.asset(crate::app::Static::FONTS_IBM_PLEX_SANS_LATIN_400_NORMAL_WOFF2)}
                 >
-                <link rel="stylesheet" href={req.asset("style.css")}>
+                <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
-                <script type="module" src={req.asset("app.js")}></script>
+                <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
             <body>
                 if let Some(viewer) = viewer {

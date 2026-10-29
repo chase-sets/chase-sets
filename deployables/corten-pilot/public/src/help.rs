@@ -613,7 +613,7 @@ fn head<'a>(
 ) -> impl Render + 'a {
     let home: HomeMsg = req.t();
     let page_url = absolute(config, path);
-    let image = absolute(config, &req.asset("home/chase-sets-og-default.png").to_string());
+    let image = absolute(config, &req.asset(crate::app::Static::HOME_CHASE_SETS_OG_DEFAULT_PNG).to_string());
     html! {
         <meta name="description" content={description}>
         if social {

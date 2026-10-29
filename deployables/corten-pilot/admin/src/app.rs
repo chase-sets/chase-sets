@@ -115,12 +115,17 @@ pub mod url {
     }
 }
 
+// The app's `static/` directory, compiled into the program, so the binary is the whole deploy
+// (todd-skelton/corten#268).
+corten::assets::embed!(pub struct Static = "static");
+
 /// The pilot: every screen is an area whose routes module says which staff may use it
 /// (`caller = Staff<..>`), so every route there, and any added later, takes that caller. Nothing
 /// is served outside an area but Corten's own (health, the runtime, assets).
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(Routes::new())
+        .assets(Static)
         .messages::<Msg>()
         .components(views::COMPONENTS)
         .area(|area| url::area(area, shared.clone()).components(views::POSTAGE))

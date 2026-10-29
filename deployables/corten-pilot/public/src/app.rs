@@ -263,9 +263,14 @@ pub mod url {
     }
 }
 
+// The app's `static/` directory, compiled into the program, so the binary is the whole deploy
+// (todd-skelton/corten#268).
+corten::assets::embed!(pub struct Static = "static");
+
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::files::router(shared.clone()))
+        .assets(Static)
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
         .area(|area| url::help::area(area, shared.clone()).components(views::HELP))

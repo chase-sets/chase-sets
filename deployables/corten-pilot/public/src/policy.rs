@@ -195,7 +195,7 @@ fn render(
     let social = (doc == Doc::Founders).then(|| {
         (
             format!("{}{}", config.origin, url::Founders.href()),
-            format!("{}{}", config.origin, req.asset("home/chase-sets-og-founders.png")),
+            format!("{}{}", config.origin, req.asset(crate::app::Static::HOME_CHASE_SETS_OG_FOUNDERS_PNG)),
         )
     });
     let head = html! {

@@ -1257,11 +1257,16 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
+// The app's `static/` directory, compiled into the program, so the binary is the whole deploy
+// (todd-skelton/corten#268).
+corten::assets::embed!(pub struct Static = "static");
+
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
+        .assets(Static)
         // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
         // which are plain http locally (the default policy takes any https image), and Check out
         // redirects to marketplace's checkout.

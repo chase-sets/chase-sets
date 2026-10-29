@@ -121,13 +121,14 @@ impl Game {
     }
 
     /// The social card (`resolveGameOpenGraphImage`), in `static/home/`.
-    pub fn card(self) -> &'static str {
+    pub fn card(self) -> corten::assets::Asset {
+        use crate::app::Static;
         match self {
-            Game::Pokemon => "home/chase-sets-og-pokemon.png",
-            Game::Magic => "home/chase-sets-og-magic-the-gathering.png",
-            Game::YuGiOh => "home/chase-sets-og-yu-gi-oh.png",
-            Game::Lorcana => "home/chase-sets-og-disney-lorcana.png",
-            Game::OnePiece => "home/chase-sets-og-one-piece-card-game.png",
+            Game::Pokemon => Static::HOME_CHASE_SETS_OG_POKEMON_PNG,
+            Game::Magic => Static::HOME_CHASE_SETS_OG_MAGIC_THE_GATHERING_PNG,
+            Game::YuGiOh => Static::HOME_CHASE_SETS_OG_YU_GI_OH_PNG,
+            Game::Lorcana => Static::HOME_CHASE_SETS_OG_DISNEY_LORCANA_PNG,
+            Game::OnePiece => Static::HOME_CHASE_SETS_OG_ONE_PIECE_CARD_GAME_PNG,
         }
     }
 }
@@ -751,7 +752,11 @@ fn render<For>(
         Some(game) => format!("{}/?game={}", config.origin, game.slug()),
         None => home.clone(),
     };
-    let image = format!("{}{}", config.origin, req.asset(landing.game.map_or("home/chase-sets-og-default.png", Game::card)));
+    let image = format!(
+        "{}{}",
+        config.origin,
+        req.asset(landing.game.map_or(crate::app::Static::HOME_CHASE_SETS_OG_DEFAULT_PNG, Game::card))
+    );
     let ld = structured_data(t, &home, &preview);
     let screen = Screen {
         landing,
@@ -764,9 +769,9 @@ fn render<For>(
         sent,
         web: public_web().to_owned(),
         hero: [
-            req.asset("home/chase-sets-prelaunch-hero.webp").to_string(),
-            req.asset("home/chase-sets-prelaunch-hero-800w.webp").to_string(),
-            req.asset("home/chase-sets-prelaunch-hero-1200w.webp").to_string(),
+            req.asset(crate::app::Static::HOME_CHASE_SETS_PRELAUNCH_HERO_WEBP).to_string(),
+            req.asset(crate::app::Static::HOME_CHASE_SETS_PRELAUNCH_HERO_800W_WEBP).to_string(),
+            req.asset(crate::app::Static::HOME_CHASE_SETS_PRELAUNCH_HERO_1200W_WEBP).to_string(),
         ],
     };
     let (og_title, description, page_url, image, brand) =
