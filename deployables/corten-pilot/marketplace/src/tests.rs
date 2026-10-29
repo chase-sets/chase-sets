@@ -5940,10 +5940,10 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
     // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
     assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy(&quot;line-reference-spl_2&quot;"), "{html}");
-    assert!(html.contains("ui.copy_button.copy(&quot;product-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains("ui.copy_button.copy($t,&quot;line-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains("ui.copy_button.copy($t,&quot;product-reference-spl_2&quot;"), "{html}");
     assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy(&quot;ship-to&quot;"), "{html}");
+    assert!(html.contains("ui.copy_button.copy($t,&quot;ship-to&quot;"), "{html}");
     // The pilot's own address, which redirects to marketplace's command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
@@ -6569,7 +6569,7 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
         html.contains(r#"<button data-scope="ui-copy-button" type="button" hidden"#)
-            && html.contains("ui.copy_button.copy(&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+            && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
@@ -9967,6 +9967,11 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
+    // Only the payment pages allow Stripe (todd-skelton/corten#275).
+    let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");

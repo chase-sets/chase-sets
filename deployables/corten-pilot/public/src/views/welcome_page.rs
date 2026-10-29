@@ -3,9 +3,11 @@
 //! Copy, the progress to the goal, and the share links).
 //!
 //! Everything reads and works without a script: the games are checkboxes, the form has Save, the
-//! progress is a `<progress>`, and the share links are links. The shell's script (`home.js`) adds
-//! the field-by-field saves, Copy, the Discord share's copied message and the analytics events.
+//! progress is a `<progress>`, and the share links are links. Copy is corten-ui's `CopyButton`,
+//! counted when it reports a copy; the shell's script (`home.js`) adds the field-by-field saves,
+//! the Discord share's copied message and the analytics events.
 use corten::prelude::*;
+use corten_ui::{Copied, CopyButton};
 
 use super::home_page::handlers;
 use crate::{
@@ -18,6 +20,10 @@ use crate::{
 /// The wave-placement form's status line, which a save draws again in place.
 #[derive(Id)]
 pub struct WaveStatusId;
+
+/// The referral link's field, which Copy copies.
+#[derive(Id)]
+pub struct WelcomeReferralLinkId;
 
 fn size_label(t: HomeMsg, size: &str) -> &'static str {
     match size {
@@ -82,26 +88,23 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                             }
                             None => { <p class={Note}>{t.welcome_referral_position_pending()}</p> }
                         }
-                        <label class={Label} for="welcome-referral-link">{t.welcome_referral_link_label()}</label>
-                        <div class={LinkRow}>
+                        <label class={Label} for={WelcomeReferralLinkId}>{t.welcome_referral_link_label()}</label>
+                        <div class={LinkRow} on:Copied={handlers::counted(event)}>
                             <input
                                 class={Input}
-                                id="welcome-referral-link"
+                                id={WelcomeReferralLinkId}
                                 type="url"
                                 readonly
                                 value={&screen.link}
                                 on:focus={handlers::selected(target)}
                             >
-                            <button
-                                class={(Button, Secondary)}
-                                type="button"
-                                hidden
-                                data-value={&screen.link}
-                                on:connect={handlers::reveal(target)}
-                                on:click={handlers::copy(target, t.welcome_referral_copied_action())}
-                            >
-                                {t.welcome_referral_copy_action()}
-                            </button>
+                            <span class={CopyLink}>
+                                <CopyButton
+                                    text={WelcomeReferralLinkId}
+                                    label={t.welcome_referral_copy_action()}
+                                    copied={t.welcome_referral_copied_action()}
+                                />
+                            </span>
                         </div>
                         <div class={Progress}>
                             <div class={ProgressHead}>

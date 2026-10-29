@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewOpportunity},
     app::{Shared, read_failed, sign_in, url},
-    auth::{OrderBuyer, OrderSeller, Viewer},
+    auth::{Reviewer, Viewer},
     review::ReviewPlace,
     support_list::Ask,
     text::{Pilot, ReviewsMsg},
@@ -151,7 +151,7 @@ impl For {
 
 pub(crate) async fn purchase(
     req: Req,
-    Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
+    Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -162,7 +162,7 @@ pub(crate) async fn purchase(
 
 pub(crate) async fn sale(
     req: Req,
-    Caller(OrderSeller(viewer)): Caller<OrderSeller>,
+    Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -173,7 +173,7 @@ pub(crate) async fn sale(
 
 pub(crate) async fn submit_purchase(
     req: Req,
-    Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
+    Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -185,7 +185,7 @@ pub(crate) async fn submit_purchase(
 
 pub(crate) async fn submit_sale(
     req: Req,
-    Caller(OrderSeller(viewer)): Caller<OrderSeller>,
+    Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,

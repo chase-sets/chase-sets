@@ -39,6 +39,25 @@
 .label { font-weight: 600; }
 .link-row { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .link-row .input { flex: 1 1 14rem; }
+/* corten-ui's CopyButton, styled through its wrapper as a secondary button. */
+.copy-link { display: contents; }
+.copy-link > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+  font: 600 0.875rem/1.25 var(--font-body);
+  cursor: pointer;
+}
+.copy-link > button[hidden] { display: none; }
+.copy-link > button:hover { border-color: var(--color-border-strong); }
+.copy-link > button:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 .input {
   min-width: 0;
   min-height: 2.75rem;

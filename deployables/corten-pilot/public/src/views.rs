@@ -29,8 +29,16 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
 /// stylesheet is small (README decision 79). The welcome page is where Join lands, so most of
 /// the home page's visitors who act open it next.
-pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, NotFound, HomeLayout, HomePage, home_page::handlers::COMPONENT, PolicyPage, WelcomePage];
+pub const COMPONENTS: &[Component] = &[
+    theme::TOKENS,
+    NotFound,
+    HomeLayout,
+    HomePage,
+    home_page::handlers::COMPONENT,
+    PolicyPage,
+    WelcomePage,
+    corten_ui::CopyButton,
+];
 
 /// The help center's components (`/help`, `/sales-fees` and `/press`), in a stylesheet those
 /// pages share.

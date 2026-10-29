@@ -161,11 +161,13 @@ pub mod url {
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
     pub use payout::DeskPayout;
-    pub use purchases::{Purchase, PurchaseCancel, PurchaseReview, Purchases};
+    pub use purchase_reviews::PurchaseReview;
+    pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
+    pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingStart, SaleShipment, SaleShipments};
-    pub use sales::{Sale, SaleCancel, SaleReview, Sales};
+    pub use sales::{Sale, SaleCancel, Sales};
     pub use search::Search;
     pub use security::Security;
     pub use sell_checkout::{SellCheckout, SellConfirmation};
@@ -1017,9 +1019,14 @@ pub mod url {
         pub struct PurchaseCancel<'a> {
             pub id: &'a str,
         }
+    }
 
-        /// Review the seller (Reputation's `account-purchase-review`, see `order_review`); the
-        /// form posts to it. It needs `reputation.manage`, not the purchases' permissions.
+    /// Review the seller (Reputation's `account-purchase-review`, see `order_review`), in the
+    /// purchases' area: it needs `reputation.manage`, not the purchases' permissions, so its caller
+    /// is its own (todd-skelton/corten#273).
+    #[corten::routes(state = crate::app::Shared, area = super::purchases::Purchases, caller = crate::auth::Reviewer)]
+    pub mod purchase_reviews {
+        /// The review form; it posts to itself.
         #[route("/account/purchases/{id}/review", get = crate::order_review::purchase, post = crate::order_review::submit_purchase)]
         pub struct PurchaseReview<'a> {
             pub id: &'a str,
@@ -1054,9 +1061,13 @@ pub mod url {
         pub struct SaleCancel<'a> {
             pub id: &'a str,
         }
+    }
 
-        /// Review the buyer (Reputation's `account-sale-review`, see `order_review`); the form
-        /// posts to it. It needs `reputation.manage`, not the sales' permissions.
+    /// Review the buyer (Reputation's `account-sale-review`, see `order_review`), in the sales'
+    /// area with a caller of its own, as the purchase's review is.
+    #[corten::routes(state = crate::app::Shared, area = super::sales::Sales, caller = crate::auth::Reviewer)]
+    pub mod sale_reviews {
+        /// The review form; it posts to itself.
         #[route("/account/sales/{id}/review", get = crate::order_review::sale, post = crate::order_review::submit_sale)]
         pub struct SaleReview<'a> {
             pub id: &'a str,
@@ -1258,15 +1269,7 @@ pub fn app(config: Config) -> App {
             corten::security::Policy::new()
                 .img_src(marketplace_origin())
                 .img_src(shared.platform.origin())
-                .form_action(marketplace_origin())
-                // Stripe.js and its fields, on the payment page only, but a policy is the whole
-                // app's (todd-skelton/corten#275): move these to the payments area once an
-                // area can add to it.
-                .script_src(STRIPE_JS)
-                .frame_src(STRIPE_JS)
-                .frame_src("https://hooks.stripe.com")
-                .connect_src("https://api.stripe.com")
-                .connect_src("https://merchant-ui-api.stripe.com"),
+                .form_action(marketplace_origin()),
         )
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
@@ -1288,8 +1291,10 @@ pub fn app(config: Config) -> App {
         .area(|area| url::sets::area(area, shared.clone()).components(views::SET))
         .area(|area| url::listings::area(area, shared.clone()).components(views::LISTING))
         .area(|area| url::accounts::area(area, shared.clone()).components(views::ACCOUNT))
-        .area(|area| url::purchases::area(area, shared.clone()).components(views::ORDERS))
-        .area(|area| url::sales::area(area, shared.clone()).components(views::ORDERS))
+        .area(|area| {
+            url::purchase_reviews::area(url::purchases::area(area, shared.clone()), shared.clone()).components(views::ORDERS)
+        })
+        .area(|area| url::sale_reviews::area(url::sales::area(area, shared.clone()), shared.clone()).components(views::ORDERS))
         .area(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
         .area(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
@@ -1315,7 +1320,16 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
-        .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT))
+        // Stripe.js and its fields are allowed on the payment pages only (todd-skelton/corten#275).
+        .area(|area| {
+            url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(|p| {
+                p.script_src(STRIPE_JS)
+                    .frame_src(STRIPE_JS)
+                    .frame_src("https://hooks.stripe.com")
+                    .connect_src("https://api.stripe.com")
+                    .connect_src("https://merchant-ui-api.stripe.com")
+            })
+        })
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::offer_matches::area(area, shared.clone()).components(views::OFFER_MATCHES))

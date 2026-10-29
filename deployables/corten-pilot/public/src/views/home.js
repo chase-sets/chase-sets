@@ -353,24 +353,12 @@ export function selected(input) {
 }
 
 /**
- * Copy: the button's `data-value`, said on the button for a moment. Not corten-ui's CopyButton,
- * which tells the page nothing once it has copied, so the copy could not be counted
- * (todd-skelton/corten#294).
- * @param {HTMLButtonElement} button
- * @param {string} copied
+ * The referral link was copied: corten-ui's CopyButton reports each write the browser made
+ * (`Copied`, todd-skelton/corten#294), and the copy is counted.
+ * @param {Event} _event
  */
-export async function copy(button, copied) {
-  try {
-    await navigator.clipboard.writeText(button.dataset.value ?? "");
-  } catch {
-    return;
-  }
+export function counted(_event) {
   track("referral_link_copied", { section: "welcome" });
-  const before = button.textContent;
-  button.textContent = copied;
-  setTimeout(() => {
-    button.textContent = before;
-  }, 2000);
 }
 
 /** A share link: its event, and for Discord the message copied to paste there. @param {HTMLAnchorElement} link */

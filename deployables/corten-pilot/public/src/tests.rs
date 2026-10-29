@@ -639,7 +639,11 @@ async fn the_welcome_page_says_where_the_signup_stands_and_asks_a_seller_the_wav
         page.contains(r#"value="https://chasesets.com/?ref=wls_01&amp;utm_source=referral&amp;utm_medium=waitlist_share""#),
         "{page}"
     );
-    assert!(page.contains(r#"type="button" hidden data-value="https://chasesets.com/?ref=wls_01"#), "{page}");
+    // Copy is corten-ui's CopyButton on the link's field, counted when it reports a copy.
+    assert!(page.contains(r#"<input class="#) && page.contains(r#"id="welcome-referral-link" type="url" readonly"#), "{page}");
+    assert!(page.contains(r#"data-scope="ui-copy-button" type="button" hidden"#), "{page}");
+    assert!(page.contains("&quot;welcome-referral-link&quot;"), "Copy names the field: {page}");
+    assert!(page.contains("ui-copied:"), "the copy is counted: {page}");
     assert!(page.contains(r#"href="https://twitter.com/intent/tweet?text=Chase%20Sets%20founders"#), "{page}");
     // A seller is asked: the signup's games checked (an unknown one left out), Save without a script.
     assert!(page.contains(r#"<input type="checkbox" name="games" value="pokemon" checked>"#), "{page}");
