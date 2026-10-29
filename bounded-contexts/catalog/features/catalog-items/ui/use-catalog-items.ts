@@ -116,8 +116,8 @@ export function removeCategory(id: string, categoryId: string) {
   return api.removeCategory<CommandResponse>(id, categoryId);
 }
 
-export function publishCatalogItem(id: string, blueprintIsActive: boolean, requiredFieldIds: string[]) {
-  return api.publishCatalogItem<CommandResponse>(id, blueprintIsActive, requiredFieldIds);
+export function publishCatalogItem(id: string) {
+  return api.publishCatalogItem<CommandResponse>(id);
 }
 
 export function previewBulkPublishCatalogItems(selection: unknown) {

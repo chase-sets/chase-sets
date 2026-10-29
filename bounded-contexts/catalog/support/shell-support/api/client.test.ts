@@ -126,7 +126,7 @@ describe("catalog API durable job client", () => {
     );
     const client = createCatalogApiClient({ baseUrl: "http://catalog.test/api/catalog", fetch });
 
-    const error = await client.publishCatalogItem("cat_1", true, []).catch((caught) => caught);
+    const error = await client.publishCatalogItem("cat_1").catch((caught) => caught);
 
     expect(error).toBeInstanceOf(CatalogItemPublicationApiError);
     expect(error).toMatchObject({

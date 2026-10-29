@@ -76,7 +76,7 @@ describe("CatalogItemDetailPage", () => {
         retryable: true,
       },
     };
-    stubCatalogFetches({
+    const fetch = stubCatalogFetches({
       publicationResponses: [
         new Response(
           JSON.stringify({
@@ -104,12 +104,14 @@ describe("CatalogItemDetailPage", () => {
     render(<CatalogItemDetailPage id="cat_1" initialData={outdatedItem} />);
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     const dialog = screen.getByRole("dialog", { name: "Publish Catalog Item" });
-    const requiredFields = within(dialog).getByLabelText("Required Field IDs (comma-separated)");
-    fireEvent.change(requiredFields, { target: { value: "fld_name" } });
+    expect(within(dialog).queryByLabelText("Required Field IDs (comma-separated)")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
 
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Display identity is outdated");
-    expect((requiredFields as HTMLInputElement).value).toBe("fld_name");
+    const publishRequest = vi
+      .mocked(fetch)
+      .mock.calls.find(([request]) => String(request).includes("/items/cat_1/publish"));
+    expect(JSON.parse(String(publishRequest?.[1]?.body))).toEqual({});
     fireEvent.click(within(dialog).getByRole("button", { name: "Recheck display identity" }));
     await waitFor(() => expect(within(dialog).getByText("current-resolved")).toBeTruthy());
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));

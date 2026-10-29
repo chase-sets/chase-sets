@@ -39,7 +39,7 @@ describe("Catalog Item publication runtime", () => {
 
     const result = await harness.services.commandHandler({
       streamId: "catalog.item-cat_1",
-      command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
+      command: { type: "PublishCatalogItem" },
       context,
       expectedVersion: "any",
     });
@@ -50,13 +50,52 @@ describe("Catalog Item publication runtime", () => {
     expect(harness.appends[0]?.events.map((event) => event.eventType)).toEqual(["catalog.catalog-item.published"]);
   });
 
+  it("refuses a non-active blueprint from Catalog records despite conflicting legacy command values", async () => {
+    const harness = await createHarness("current", false, rawItem, { blueprintStatus: "deprecated" });
+
+    await expect(
+      harness.services.commandHandler({
+        streamId: "catalog.item-cat_1",
+        command: { type: "PublishCatalogItem" },
+        context,
+      }),
+    ).rejects.toMatchObject({
+      code: "publication-precondition",
+      message: "Catalog Item blueprint must be active before publish.",
+      missingFieldIds: [],
+    });
+    expect(harness.appends).toHaveLength(0);
+  });
+
+  it("refuses every missing required field from Catalog records before append", async () => {
+    const harness = await createHarness("current", false, rawItem, {
+      blueprintFieldRules: [
+        { fieldId: "fld_name", required: true },
+        { fieldId: "fld_set", required: true },
+      ],
+    });
+
+    await expect(
+      harness.services.commandHandler({
+        streamId: "catalog.item-cat_1",
+        command: { type: "PublishCatalogItem" },
+        context,
+      }),
+    ).rejects.toMatchObject({
+      code: "publication-precondition",
+      message: "Missing required field values: fld_name, fld_set.",
+      missingFieldIds: ["fld_name", "fld_set"],
+    });
+    expect(harness.appends).toHaveLength(0);
+  });
+
   it("preserves a caller's conflicting numeric and no_stream versions", async () => {
     for (const expectedVersion of [1, "no_stream"] as const) {
       const harness = await createHarness("current", true);
       await expect(
         harness.services.commandHandler({
           streamId: "catalog.item-cat_1",
-          command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
+          command: { type: "PublishCatalogItem" },
           context,
           expectedVersion,
         }),
@@ -70,7 +109,7 @@ describe("Catalog Item publication runtime", () => {
 
     const result = await harness.services.commandHandler({
       streamId: "catalog.item-cat_1",
-      command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
+      command: { type: "PublishCatalogItem" },
       context,
     });
 
@@ -87,7 +126,7 @@ describe("Catalog Item publication runtime", () => {
     await expect(
       missing.services.commandHandler({
         streamId: "catalog.item-cat_1",
-        command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
+        command: { type: "PublishCatalogItem" },
         context,
       }),
     ).rejects.toMatchObject({ code: "display-identity-unavailable" });
@@ -97,7 +136,7 @@ describe("Catalog Item publication runtime", () => {
     await expect(
       lagged.services.commandHandler({
         streamId: "catalog.item-cat_1",
-        command: { type: "PublishCatalogItem", blueprintIsActive: true, requiredFieldIds: [] },
+        command: { type: "PublishCatalogItem" },
         context,
       }),
     ).rejects.toMatchObject({ code: "display-identity-outdated" });
@@ -128,7 +167,16 @@ async function createHarness(
   factState: "current" | "outdated" | "missing",
   rejectConflictingAppend = false,
   item = rawItem,
+  publication: {
+    blueprintStatus?: string;
+    blueprintFieldRules?: unknown;
+  } = {},
 ) {
+  const publicationOptions = {
+    blueprintStatus: "active",
+    blueprintFieldRules: [],
+    ...publication,
+  };
   const appends: AppendToStreamInput[] = [];
   const stored = aggregateHistory();
   const eventStore: EventStore = {
@@ -187,8 +235,8 @@ async function createHarness(
             {
               ...item,
               blueprint_name: "Pokemon Card",
-              blueprint_status: "active",
-              blueprint_field_rules: [],
+              blueprint_status: publicationOptions.blueprintStatus,
+              blueprint_field_rules: publicationOptions.blueprintFieldRules,
               status: "draft",
               source_providers: [],
               updated_at: "2026-09-05T00:00:00.000Z",
