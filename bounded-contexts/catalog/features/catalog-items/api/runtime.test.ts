@@ -351,17 +351,19 @@ describe("Catalog Item publication precondition seam", () => {
     },
   ];
 
-  it.each(seamCases)("$name", async (seamCase) => {
-    const harness = await createHarness("current", false, rawItem, seamCase.publication);
+  for (const seamCase of seamCases) {
+    it(seamCase.name, async () => {
+      const harness = await createHarness("current", false, rawItem, seamCase.publication);
 
-    const response = await publishOverHttp(harness.services, seamCase.body ?? {});
+      const response = await publishOverHttp(harness.services, seamCase.body ?? {});
 
-    expect(response.status).toBe(seamCase.status);
-    await expect(response.json()).resolves.toEqual(
-      seamCase.error ? { error: seamCase.error } : expect.objectContaining({ id: "cat_1", status: "active" }),
-    );
-    expect(harness.appends).toHaveLength(seamCase.appends);
-  });
+      expect(response.status).toBe(seamCase.status);
+      await expect(response.json()).resolves.toEqual(
+        seamCase.error ? { error: seamCase.error } : expect.objectContaining({ id: "cat_1", status: "active" }),
+      );
+      expect(harness.appends).toHaveLength(seamCase.appends);
+    });
+  }
 });
 
 type PublishSeamCase = Readonly<{
