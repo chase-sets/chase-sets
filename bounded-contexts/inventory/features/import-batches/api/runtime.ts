@@ -1060,6 +1060,12 @@ export function createInventoryImportRowValidator(deps: Pick<InventoryImportBatc
   };
 }
 
+export function indexInventoryImportCommitRows(
+  rows: readonly InventoryImportCommitInputRow[],
+): ReadonlyMap<string, InventoryImportCommitInputRow> {
+  return new Map(rows.map((row) => [row.row_id, row]));
+}
+
 export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
   const validateRow = createInventoryImportRowValidator(deps);
   const jobStore = createPostgresDurableJobStore<
@@ -2674,6 +2680,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     throwIfLeaseLost?: () => void;
     jobId?: string;
     commitInput?: InventoryImportCommitInput;
+    commitRowsById?: ReadonlyMap<string, InventoryImportCommitInputRow>;
   }): Promise<number> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
@@ -2712,7 +2719,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       const commitInput =
         input.commitInput ??
         (await loadCommitInput(claim.job.payload.commit?.inputId ?? "", { batchId, accountId }, context));
-      const row = commitInput.rows.find((candidate) => candidate.row_id === claim.unit.unitId);
+      const commitRowsById = input.commitRowsById ?? indexInventoryImportCommitRows(commitInput.rows);
+      const row = commitRowsById.get(claim.unit.unitId);
       if (!row) throw new InventoryDomainError("Import commit row is unavailable; reconciliation is required.");
       await commitSingleRow({ batchId, accountId }, row, context, {
         unitId: claim.unit.unitId,
@@ -2765,7 +2773,15 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       });
       if (!isDurableJobWorkUnitTerminalAccepted(outcome))
         throw new InventoryDomainError("Import row terminal fence was lost.");
-      return 1 + (await processNextCommitBatchWorkUnit({ ...input, jobId: claim.job.jobId, commitInput }));
+      return (
+        1 +
+        (await processNextCommitBatchWorkUnit({
+          ...input,
+          jobId: claim.job.jobId,
+          commitInput,
+          commitRowsById,
+        }))
+      );
     } catch (error) {
       if (input.signal?.aborted) {
         await workUnitStore.releaseClaim(fence);
