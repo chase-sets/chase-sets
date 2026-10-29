@@ -141,17 +141,17 @@ jobs:
           failure_record="artifacts/release-health/postgres-growth-authority-export-failure.json"
           if [ -f "$failure_record" ]; then
             node - "$failure_record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
-            const fs = require("node:fs");
-            const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            console.log("## Postgres Growth Evidence");
-            console.log("");
-            console.log(`- Result: ${record.result}`);
-            console.log(`- Environment: ${record.environment}`);
-            console.log(`- Mode: ${record.mode}`);
-            console.log(`- Class: ${record.class}`);
-            console.log(`- Attempts: ${record.attempts}`);
-            if (record.context !== undefined) console.log(`- Context: ${record.context}`);
-            NODE
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Postgres Growth Evidence");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Class: ${record.class}`);
+          console.log(`- Attempts: ${record.attempts}`);
+          if (record.context !== undefined) console.log(`- Context: ${record.context}`);
+          NODE
             exit 0
           fi
           if [ ! -f "$record" ]; then
@@ -181,10 +181,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-postgres-growth-evidence-${{ env.TARGET_ENVIRONMENT }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/release-health/postgres-growth-evidence.json
-            artifacts/release-health/postgres-growth-authority-export-failure.json
-            artifacts/release-health/postgres-growth-context-pool-inventory.json
+          path: artifacts/release-health/postgres-growth-evidence.json
           if-no-files-found: ignore
           retention-days: 30
 
