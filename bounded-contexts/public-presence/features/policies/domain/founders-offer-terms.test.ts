@@ -380,13 +380,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:1890-1907`,
+        `${listingRuntime}:1891-1912`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:1908-2017`,
+        `${listingRuntime}:1918-2017`,
         /applyBulkListingPriceUpdates: async/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -641,7 +641,7 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1401-1428",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1399-1428",
         /"\/listings\/prices\/bulk"/,
         /services.applyBulkListingPriceUpdates/,
         /updates: parseBulkListingPriceUpdates\(body\)/,

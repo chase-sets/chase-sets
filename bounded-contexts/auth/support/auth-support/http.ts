@@ -1,5 +1,6 @@
 import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "@chase-sets/auth-context";
 import { serializeCookie } from "@chase-sets/http/cookies";
+import { getSafeSameSitePath } from "./same-site-path";
 import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
 const DOCUMENT_REDIRECT_HEADER = "X-Remix-Reload-Document";
@@ -99,7 +100,7 @@ export function clearGuestCheckoutCookie(headers: Headers, request?: Request) {
 }
 
 function isSafeReturnTo(value: string | null): value is string {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
+  return value !== null && getSafeSameSitePath(value) === value;
 }
 
 export function getSafeReturnTo(request: Request, fallback: string) {

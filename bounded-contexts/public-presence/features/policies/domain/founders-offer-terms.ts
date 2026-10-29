@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:869-881",
-          `${listingRuntime}:1890-2046`,
+          `${listingRuntime}:1891-2046`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1890-1907; ${listingRuntime}:1908-2017; ${feeQuotes}:154-176; ${listingDomain}:838-869; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1891-1912; ${listingRuntime}:1918-2017; ${feeQuotes}:154-176; ${listingDomain}:838-869; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
