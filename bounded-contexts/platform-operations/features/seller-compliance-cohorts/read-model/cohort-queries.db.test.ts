@@ -181,4 +181,97 @@ describeDatabase("seller compliance cohort persistence", () => {
     );
     expect(row.rows[0].after_seller_account_id).toBe("seller-10");
   });
+
+  it("AC6 runs repeated production sweeps, exits without a new sale, and converges after an emptied-table replay", async () => {
+    const activePolicy = {
+      ...SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "1",
+      disclosureGrossCents: "1",
+      windowMonths: 1,
+      lookbackMonths: 2,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order" as const,
+      qualifyingGrossBasis: "item-gross" as const,
+      refundTreatment: "exclude-refunded" as const,
+      postCaptureCancellationTreatment: "exclude-cancelled" as const,
+      mixedLineTreatment: "exclude-mixed" as const,
+      unclassifiableTreatment: "exclude-unclassifiable" as const,
+      classificationRules: [{ source: "productId" as const, value: "card" }],
+    };
+    await pool.query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+       (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,order_total_cents,
+        seller_item_net_cents,seller_payout_cents,classification_inputs,revision,change_sequence,recorded_at,changed_at)
+       VALUES ('ac6-payment','ac6-order','ac6-seller','captured','2025-01-01T00:00:00Z','USD',1,1,1,1,
+               '[{"productId":"card"}]'::jsonb,1,nextval('platform_operations_seller_compliance_sales_change_seq'),
+               '2025-01-01T00:00:00Z','2025-01-01T00:00:00Z')`,
+    );
+    const runtime = createSellerComplianceCohortRuntime({
+      db: pool,
+      pool,
+      policies: {
+        resolvePolicy: async () => ({ value: activePolicy, documentId: "ac6", effectiveFrom: "2025-01-01T00:00:00Z" }),
+      } as never,
+    });
+    expect(await runtime.sweep({ now: "2025-01-15T00:00:00Z", limit: 10 })).toBe(1);
+    expect(await runtime.sweep({ now: "2025-02-02T00:00:00Z", limit: 10 })).toBe(1);
+    const exited = await pool.query(
+      `SELECT state,exit_effective_at FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='ac6-seller'`,
+    );
+    expect(exited.rows[0]?.state).toBe("outside");
+    await pool.query(
+      "TRUNCATE platform_operations_seller_compliance_cohorts, platform_operations_seller_compliance_cohort_transitions",
+    );
+    expect(await runtime.sweep({ now: "2025-02-02T00:00:00Z", limit: 10 })).toBe(1);
+  });
+
+  it("AC11 and AC12 resume ordered pages and admit a sale on the next production tick", async () => {
+    const activePolicy = {
+      ...SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "1",
+      disclosureGrossCents: "1",
+      windowMonths: 1,
+      lookbackMonths: 2,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order" as const,
+      qualifyingGrossBasis: "item-gross" as const,
+      refundTreatment: "exclude-refunded" as const,
+      postCaptureCancellationTreatment: "exclude-cancelled" as const,
+      mixedLineTreatment: "exclude-mixed" as const,
+      unclassifiableTreatment: "exclude-unclassifiable" as const,
+      classificationRules: [{ source: "productId" as const, value: "card" }],
+    };
+    for (const seller of ["ac11-a", "ac11-b"]) {
+      await pool.query(
+        `INSERT INTO platform_operations_seller_compliance_sales
+         (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,order_total_cents,
+          seller_item_net_cents,seller_payout_cents,classification_inputs,revision,change_sequence,recorded_at,changed_at)
+         VALUES ($1,$2,$3,'captured','2025-01-01T00:00:00Z','USD',1,1,1,1,'[{"productId":"card"}]'::jsonb,1,
+                 nextval('platform_operations_seller_compliance_sales_change_seq'),'2025-01-01T00:00:00Z','2025-01-01T00:00:00Z')`,
+        [`${seller}-payment`, `${seller}-order`, seller],
+      );
+    }
+    const runtime = createSellerComplianceCohortRuntime({
+      db: pool,
+      pool,
+      policies: {
+        resolvePolicy: async () => ({ value: activePolicy, documentId: "ac11", effectiveFrom: "2025-01-01T00:00:00Z" }),
+      } as never,
+    });
+    await runtime.sweep({ now: "2025-01-02T00:00:00Z", limit: 1 });
+    await runtime.sweep({ now: "2025-01-02T01:00:00Z", limit: 1 });
+    const admitted = await pool.query(
+      `SELECT seller_account_id,state FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id LIKE 'ac11-%' ORDER BY seller_account_id`,
+    );
+    expect(admitted.rows).toEqual([
+      { seller_account_id: "ac11-a", state: "member" },
+      { seller_account_id: "ac11-b", state: "member" },
+    ]);
+  });
 });

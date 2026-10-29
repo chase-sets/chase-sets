@@ -64,32 +64,34 @@ describe("seller compliance cohort window", () => {
   });
 
   it("enters only at the exact transaction and gross edges", () => {
-    const make = (count: number, amount: string) =>
-      Array.from({ length: count }, (_, index) =>
+    const make = (amounts: readonly string[]) =>
+      amounts.map((amount, index) =>
         sale(String(index), `2025-01-${String((index % 20) + 1).padStart(2, "0")}T00:00:00.000Z`, amount),
       );
+    const exactAmounts = Array.from({ length: 200 }, () => "2500");
+    const belowCountAmounts = [...Array.from({ length: 198 }, () => "2500"), "5000"];
     const exact = evaluateSellerComplianceCohort({
-      sales: make(200, "2500"),
+      sales: make(exactAmounts),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
     const belowCount = evaluateSellerComplianceCohort({
-      sales: make(199, "2500"),
+      sales: make(belowCountAmounts),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
     const belowGross = evaluateSellerComplianceCohort({
-      sales: make(200, "2499"),
+      sales: make(Array.from({ length: 200 }, () => "2499")),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
     const disclosureBelow = evaluateSellerComplianceCohort({
-      sales: make(200, "9999"),
+      sales: make(Array.from({ length: 200 }, () => "9999")),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
     const disclosureExact = evaluateSellerComplianceCohort({
-      sales: make(200, "10000"),
+      sales: make(Array.from({ length: 200 }, () => "10000")),
       policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "500000" },
       evaluationAt: "2025-01-31T00:00:00.000Z",
     });
@@ -99,7 +101,7 @@ describe("seller compliance cohort window", () => {
     expect(exact.qualifyingGrossCents).toBe("500000");
     expect(
       evaluateSellerComplianceCohort({
-        sales: make(200, "2500"),
+        sales: make(exactAmounts),
         policy: { ...policy, qualifyingTransactionCount: 200, qualifyingGrossCents: "499999" },
         evaluationAt: "2025-01-31T00:00:00.000Z",
       }).state,
@@ -131,7 +133,7 @@ describe("seller compliance cohort window", () => {
     expect(addUtcMonths("2025-03-31T00:00:00.000Z", -1)).toBe("2025-02-28T00:00:00.000Z");
     const edge = evaluateSellerComplianceCohort({
       sales: [sale("edge", "2025-01-20T00:00:00.000Z", "500000")],
-      policy,
+      policy: { ...policy, lookbackMonths: 1 },
       evaluationAt: "2025-01-20T00:00:00.000Z",
     });
     const floor = evaluateSellerComplianceCohort({
@@ -197,13 +199,20 @@ describe("seller compliance cohort window", () => {
   });
 
   it("sale-anchored windows agree with an exhaustive sliding scan under shuffled input", () => {
-    const sales = Array.from({ length: 200 }, (_, index) =>
-      sale(String(index), `2024-${String((index % 12) + 1).padStart(2, "0")}-01T00:00:00.000Z`, "500000"),
-    );
+    const sales = Array.from({ length: 200 }, (_, index) => {
+      const month = index % 24;
+      return sale(
+        String(index),
+        `${String(2024 + Math.floor(month / 12))}-${String((month % 12) + 1).padStart(2, "0")}-01T00:00:00.000Z`,
+        "500000",
+      );
+    });
+    const scanPolicy = { ...policy, qualifyingTransactionCount: 2, lookbackMonths: 24 };
+    const evaluationAt = "2025-12-31T00:00:00.000Z";
     const expected = evaluateSellerComplianceCohort({
       sales,
-      policy: { ...policy, qualifyingTransactionCount: 2 },
-      evaluationAt: "2025-01-01T00:00:00.000Z",
+      policy: scanPolicy,
+      evaluationAt,
     });
     const brute = (at: string) => {
       const atMs = Date.parse(at);
@@ -215,7 +224,7 @@ describe("seller compliance cohort window", () => {
           }),
         ),
       ]
-        .filter((point) => point < atMs && point >= Date.parse(addUtcMonths(at, -2)))
+        .filter((point) => point < atMs && point >= Date.parse(addUtcMonths(at, -24)))
         .sort((a, b) => a - b);
       for (const start of starts) {
         const end = Date.parse(addUtcMonths(new Date(start).toISOString(), 1));
@@ -231,9 +240,11 @@ describe("seller compliance cohort window", () => {
       }
       return { state: "outside" as const, entryEffectiveAt: null };
     };
-    const bruteWinner = brute("2025-01-01T00:00:00.000Z");
+    const bruteWinner = brute(evaluationAt);
     expect(bruteWinner?.state).toBe(expected.state);
     expect(bruteWinner?.entryEffectiveAt).toBe(expected.entryEffectiveAt);
+    expect(expected.exitEffectiveAt).toBeNull();
+    expect(expected.band).toBe("disclosure");
     for (let i = 0; i < 10; i++) {
       const shuffled = [...sales].sort(
         (a, b) => ((i * 17 + Number(a.paymentId.slice(4))) % 31) - ((i * 17 + Number(b.paymentId.slice(4))) % 31),
@@ -241,8 +252,8 @@ describe("seller compliance cohort window", () => {
       expect(
         evaluateSellerComplianceCohort({
           sales: shuffled,
-          policy: { ...policy, qualifyingTransactionCount: 2 },
-          evaluationAt: "2025-01-01T00:00:00.000Z",
+          policy: scanPolicy,
+          evaluationAt,
         }),
       ).toEqual(expected);
     }
@@ -427,6 +438,47 @@ describe("seller compliance cohort window", () => {
     });
     expect(result.exitEffectiveAt).toBe("2025-03-01T00:00:00.001Z");
     expect(result.nextReevaluationAt).toBeNull();
+  });
+
+  it("uses the clamped anchor expiry and the next reevaluation instant plus one millisecond", () => {
+    const previous = {
+      state: "member" as const,
+      band: "none" as const,
+      entryEffectiveAt: "2025-04-01T00:00:00.000Z",
+    };
+    const clamped = evaluateSellerComplianceCohort({
+      sales: [
+        sale("clamped-a", "2025-03-31T00:00:00.000Z", "250000"),
+        sale("clamped-b", "2025-03-31T01:00:00.000Z", "250000"),
+      ],
+      policy: { ...policy, lookbackMonths: 1 },
+      evaluationAt: "2025-05-01T00:00:00.000Z",
+      previous,
+    });
+    expect(clamped.exitEffectiveAt).toBe("2025-04-30T00:00:00.001Z");
+
+    const due = evaluateSellerComplianceCohort({
+      sales: [sale("due", "2025-02-01T00:00:00.000Z", "500000")],
+      policy: { ...policy, qualifyingTransactionCount: 1 },
+      evaluationAt: "2025-02-15T00:00:00.000Z",
+    });
+    expect(due.nextReevaluationAt).toBe("2025-03-01T00:00:00.000Z");
+    const corrected = evaluateSellerComplianceCohort({
+      sales: [
+        sale("corrected", "2025-01-01T00:00:00.000Z", "500000", {
+          refundedOrderTotalCents: "500000",
+          orderRefundCapCents: "500000",
+        }),
+      ],
+      policy: { ...policy, qualifyingTransactionCount: 1 },
+      evaluationAt: "2025-02-01T00:00:00.000Z",
+      previous: {
+        state: "member",
+        band: "none",
+        entryEffectiveAt: "2025-01-01T00:00:00.000Z",
+      },
+    });
+    expect(corrected.exitEffectiveAt).toBe("2025-01-01T00:00:00.001Z");
   });
 
   it("stamps a revision-only exit at the revision instant", () => {

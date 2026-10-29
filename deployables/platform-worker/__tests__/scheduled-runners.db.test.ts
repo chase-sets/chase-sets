@@ -651,22 +651,165 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     }
   });
 
-  it("exits a seller on the sweep with no new sale", async () => {
-    expect(
-      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
-    ).toBe(true);
+  const cohortPolicyKey = "platform-operations.seller-compliance-cohort";
+  const cohortPolicy = (qualifyingGrossCents = "1") => ({
+    activated: true,
+    currencyCode: "USD",
+    qualifyingTransactionCount: 1,
+    qualifyingGrossCents,
+    disclosureGrossCents: qualifyingGrossCents,
+    windowMonths: 1,
+    lookbackMonths: 2,
+    comparisonIsInclusive: true,
+    saleUnit: "captured-order",
+    qualifyingGrossBasis: "item-gross",
+    refundTreatment: "exclude-refunded",
+    postCaptureCancellationTreatment: "exclude-cancelled",
+    mixedLineTreatment: "exclude-mixed",
+    unclassifiableTreatment: "exclude-unclassifiable",
+    classificationRules: [{ source: "productId", value: "card" }],
+  });
+  const cohortRunner = () => {
+    const runner = registeredRunners.find(
+      (candidate) => candidate.name === "platform-operations.seller-compliance-cohort-sweep",
+    );
+    expect(runner).toBeDefined();
+    return runner!;
+  };
+  async function clearCohortRows() {
+    await pools["platform-operations"].query(
+      `TRUNCATE platform_operations_seller_compliance_cohorts,
+                platform_operations_seller_compliance_cohort_transitions,
+                platform_operations_seller_compliance_evaluation_failures,
+                platform_operations_seller_compliance_sweep_checkpoints,
+                platform_operations_seller_compliance_sales RESTART IDENTITY CASCADE`,
+    );
+  }
+  async function installCohortPolicy(value: Readonly<Record<string, unknown>>, effectiveFrom: string) {
+    const db = pools["platform-operations"];
+    await db.query("DELETE FROM platform_policy_documents WHERE policy_key = $1", [cohortPolicyKey]);
+    await db.query(
+      `INSERT INTO platform_policy_documents
+       (document_id,policy_key,context_name,schema_summary,status,value,effective_from,created_at,updated_at)
+       VALUES ($1,$2,'platform-operations','scheduled runner DB test','active',$3::jsonb,$4,$4,$4)`,
+      ["cohort-current", cohortPolicyKey, JSON.stringify(value), effectiveFrom],
+    );
+    (runtime.services["platform-operations"] as PlatformOperationsServices).policies.invalidateCache(cohortPolicyKey);
+  }
+  async function seedCohortSale(sellerAccountId: string, occurredAt: string, changedAt = occurredAt, gross = "1") {
+    await pools["platform-operations"].query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+       (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,
+        order_total_cents,seller_item_net_cents,seller_payout_cents,classification_inputs,revision,
+        change_sequence,recorded_at,changed_at)
+       VALUES ($1,$2,$3,'captured',$4,'USD',$5,$5,$5,$5,'[{"productId":"card"}]'::jsonb,1,
+               nextval('platform_operations_seller_compliance_sales_change_seq'),$6,$6)`,
+      [`payment-${sellerAccountId}`, `order-${sellerAccountId}`, sellerAccountId, occurredAt, gross, changedAt],
+    );
+  }
+  async function seedMemberCohort(sellerAccountId: string, policyVersion: string, entryEffectiveAt: string) {
+    const now = new Date().toISOString();
+    await pools["platform-operations"].query(
+      `INSERT INTO platform_operations_seller_compliance_cohorts
+       (seller_account_id,state,disclosure_band,entry_effective_at,window_start,window_end,
+        qualifying_count,qualifying_gross_cents,unclassifiable_count,policy_version,version,next_reevaluation_at,updated_at)
+       VALUES ($1,'member','none',$2,$2,$3,1,1,0,$4,1,$5,$6)`,
+      [
+        sellerAccountId,
+        entryEffectiveAt,
+        new Date(Date.parse(entryEffectiveAt) + 2_592_000_000).toISOString(),
+        policyVersion,
+        now,
+        now,
+      ],
+    );
+  }
+
+  it("exits a seller on the registered sweep with no new sale", async () => {
+    await clearCohortRows();
+    const now = Date.now();
+    const effectiveFrom = new Date(now - 86_400_000).toISOString();
+    await installCohortPolicy(cohortPolicy(), effectiveFrom);
+    const entry = new Date(now - 172_800_000).toISOString();
+    await seedMemberCohort("cohort-exit", "cohort-current@" + effectiveFrom, entry);
+    await runRegisteredRunnerSetOnce([cohortRunner()]);
+    const row = await pools["platform-operations"].query(
+      `SELECT state,exit_effective_at FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-exit'`,
+    );
+    expect(row.rows[0]?.state).toBe("outside");
+    expect(row.rows[0]?.exit_effective_at).not.toBeNull();
   });
 
-  it("reevaluates historical sellers on a policy revision without a new sale", async () => {
-    expect(
-      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
-    ).toBe(true);
+  it("reevaluates historical sellers on a registered policy revision without a new sale", async () => {
+    await clearCohortRows();
+    const now = Date.now();
+    const effectiveFrom = new Date(now - 86_400_000).toISOString();
+    await installCohortPolicy(cohortPolicy(), effectiveFrom);
+    const saleAt = new Date(now - 172_800_000).toISOString();
+    await seedCohortSale("cohort-revision", saleAt, saleAt);
+    await seedMemberCohort("cohort-revision", "old-policy@2025-01-01T00:00:00.000Z", saleAt);
+    await runRegisteredRunnerSetOnce([cohortRunner()]);
+    const row = await pools["platform-operations"].query(
+      `SELECT policy_version,state FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-revision'`,
+    );
+    expect(row.rows[0]).toMatchObject({ policy_version: `cohort-current@${effectiveFrom}`, state: "member" });
+    const checkpoint = await pools["platform-operations"].query(
+      `SELECT policy_version,after_seller_account_id FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name='t3-revision'`,
+    );
+    expect(checkpoint.rows[0]).toMatchObject({
+      policy_version: `cohort-current@${effectiveFrom}`,
+      after_seller_account_id: null,
+    });
   });
 
-  it("admits a new sale on the next sweep tick", async () => {
-    expect(
-      registeredRunners.some((runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep"),
-    ).toBe(true);
+  it("exits on the registered sweep at a threshold-raising revision effective instant", async () => {
+    await clearCohortRows();
+    const now = Date.now();
+    const effectiveFrom = new Date(now - 86_400_000).toISOString();
+    await installCohortPolicy(cohortPolicy("999999"), effectiveFrom);
+    const saleAt = new Date(now - 172_800_000).toISOString();
+    await seedCohortSale("cohort-raise", saleAt, saleAt, "1");
+    await seedMemberCohort("cohort-raise", "old-policy@2025-01-01T00:00:00.000Z", saleAt);
+    await runRegisteredRunnerSetOnce([cohortRunner()]);
+    const row = await pools["platform-operations"].query(
+      `SELECT state,exit_effective_at FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-raise'`,
+    );
+    expect(row.rows[0]?.state).toBe("outside");
+    expect(new Date(String(row.rows[0]!.exit_effective_at)).toISOString()).toBe(effectiveFrom);
+  });
+
+  it("resumes the registered runner after a bounded page and reaches a sale inserted between ticks", async () => {
+    await clearCohortRows();
+    const effectiveFrom = new Date(Date.now() - 86_400_000).toISOString();
+    await installCohortPolicy(cohortPolicy(), effectiveFrom);
+    const saleAt = new Date(Date.now() - 60_000).toISOString();
+    for (let index = 0; index < 101; index += 1) {
+      await seedCohortSale(`cohort-page-${String(index).padStart(3, "0")}`, saleAt, saleAt);
+    }
+    const runner = cohortRunner();
+    await runRegisteredRunnerSetOnce([runner]);
+    await seedCohortSale("cohort-page-between", saleAt, saleAt);
+    await runRegisteredRunnerSetOnce([runner]);
+    const rows = await pools["platform-operations"].query(
+      `SELECT seller_account_id FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id LIKE 'cohort-page-%' ORDER BY seller_account_id`,
+    );
+    expect(rows.rows).toHaveLength(102);
+    expect(rows.rows.at(-1)?.seller_account_id).toBe("cohort-page-between");
+  });
+
+  it("admits a new sale on the next registered sweep tick", async () => {
+    await clearCohortRows();
+    const now = Date.now();
+    const effectiveFrom = new Date(now - 86_400_000).toISOString();
+    await installCohortPolicy(cohortPolicy(), effectiveFrom);
+    const runner = cohortRunner();
+    await runRegisteredRunnerSetOnce([runner]);
+    await seedCohortSale("cohort-next-tick", new Date(Date.now() - 60_000).toISOString());
+    await runRegisteredRunnerSetOnce([runner]);
+    const row = await pools["platform-operations"].query(
+      `SELECT state FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-next-tick'`,
+    );
+    expect(row.rows[0]?.state).toBe("member");
   });
 });
 

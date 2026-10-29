@@ -137,7 +137,18 @@ function fakeRuntime(options: {
         .slice(0, limit);
       return { rows: ids.map((seller_account_id) => ({ seller_account_id })), rowCount: ids.length };
     }
-    if (text.includes("ANY($1::text[])")) return { rows: [], rowCount: 0 };
+    if (text.includes("ANY($1::text[])")) {
+      const ids = values[0] as readonly string[];
+      return {
+        rows: ids
+          .filter((seller) => rows[seller])
+          .map((seller_account_id) => ({
+            seller_account_id,
+            policy_version: rows[seller_account_id]!.policyVersion,
+          })),
+        rowCount: ids.length,
+      };
+    }
     if (text.includes("ORDER BY occurred_at ASC")) {
       const seller = String(values[0]);
       evaluated.push(seller);
@@ -221,6 +232,28 @@ describe("seller compliance cohort runtime", () => {
     await world.runtime.sweep({ now: "2025-05-20T01:00:00.000Z", limit: 2 });
     await world.runtime.sweep({ now: "2025-05-20T02:00:00.000Z", limit: 2 });
     expect(new Set(world.evaluated)).toEqual(new Set(["s01", "s02", "s03", "s04", "s05"]));
+  });
+
+  it("continues T3 under its saved snapshot when an unrelated sale changes the world", async () => {
+    const world = fakeRuntime({
+      sellers: ["s01", "s02", "s03"],
+      versions: { s01: "old", s02: "old", s03: "old" },
+    });
+    await world.runtime.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 1 });
+    world.bump();
+    await world.runtime.sweep({ now: "2025-05-20T01:00:00.000Z", limit: 1 });
+    await world.runtime.sweep({ now: "2025-05-20T02:00:00.000Z", limit: 1 });
+    expect(new Set(world.evaluated)).toEqual(new Set(["s01", "s02", "s03"]));
+  });
+
+  it("advances T3 occurrence by the raw page even when early sellers are already current", async () => {
+    const world = fakeRuntime({
+      sellers: ["s01", "s02", "s03"],
+      versions: { s01: "doc-1@2025-05-15T00:00:00.000Z", s02: "doc-1@2025-05-15T00:00:00.000Z", s03: "old" },
+    });
+    await world.runtime.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 2 });
+    await world.runtime.sweep({ now: "2025-05-20T01:00:00.000Z", limit: 2 });
+    expect(world.evaluated).toContain("s03");
   });
 
   it("pages fail-closed candidates beyond the first limit", async () => {

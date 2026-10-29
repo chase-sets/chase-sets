@@ -248,6 +248,7 @@ export function evaluateSellerComplianceCohort(
           return firstInadmissible;
         })(),
       ])
+      .concat(entry ? [new Date(Date.parse(entry) + 1).toISOString()] : [])
       .filter((instant): instant is string => instant !== null)
       .filter((instant) => Date.parse(instant) > Date.parse(entry) && Date.parse(instant) <= Date.parse(evaluationAt))
       .sort();
