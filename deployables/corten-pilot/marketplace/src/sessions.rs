@@ -44,7 +44,6 @@ pub const STATUSES: [&str; 3] = ["active", "revoked", "expired"];
 /// What the list's address asks for: a status (`all` or none for every one), and the page.
 #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
 #[route(query)]
-#[serde(default)]
 pub struct Filters {
     pub status: Option<String>,
     pub limit: Option<String>,

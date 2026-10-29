@@ -37,7 +37,6 @@ const MAX_LIMIT: u32 = 250;
 /// when it is missing, zero or not a number; `offset` from 0.
 #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
 #[route(query)]
-#[serde(default)]
 pub struct Paging {
     pub limit: Option<String>,
     pub offset: Option<String>,

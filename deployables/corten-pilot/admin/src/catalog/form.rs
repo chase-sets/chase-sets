@@ -462,18 +462,15 @@ fn required(errors: &mut Errors, field: FieldName, text: &str, p: Pilot) {
     }
 }
 
-/// The publish dialog: the required field ids an operator types, as admin-web's dialog asks for
-/// them (chase-sets/chase-sets#10535 asks the API to decide them).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
-#[serde(default)]
-pub struct PublishInput {
-    pub required_field_ids: String,
-}
+/// The publish dialog. It takes nothing: the Catalog API decides a Catalog Item's publish
+/// preconditions from the item and its blueprint (chase-sets/chase-sets#10535).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PublishInput {}
 
 impl PublishInput {
-    /// `publishCatalogItem`'s body: the blueprint is said to be active, as admin-web says it.
+    /// `publishCatalogItem`'s body, empty as admin-web's.
     pub fn body(&self) -> Value {
-        json!({ "blueprintIsActive": true, "requiredFieldIds": parts(&self.required_field_ids, ',') })
+        json!({})
     }
 }
 
@@ -768,10 +765,7 @@ mod tests {
             ]
         );
         assert_eq!(parts(" a,, b ,", ','), ["a", "b"]);
-        assert_eq!(
-            PublishInput { required_field_ids: "fld_1, ,fld_2".into() }.body(),
-            json!({ "blueprintIsActive": true, "requiredFieldIds": ["fld_1", "fld_2"] })
-        );
+        assert_eq!(PublishInput {}.body(), json!({}), "the API decides the preconditions");
 
         let bad = FallbackInput { url: "u".into(), alt: "a".into(), usage: "other".into(), variants: "[1]".into() };
         assert!(bad.body(p).is_err_and(|e| e.has(FallbackInput::FIELDS.variants)));

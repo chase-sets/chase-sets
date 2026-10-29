@@ -134,6 +134,12 @@ pub fn CreateItemForm<'a>(
                 }
                 <div class={Column}>
                     <Picker t={t} p={p} draft={&create.draft} catalog={&create.catalog} />
+                    if create.graded().is_some() {
+                        <label class={Field}>
+                            <span class={Label}>{t.list_certification_number()}</span>
+                            <input type="text" name={f.certification_number} value={&create.certification_number}>
+                        </label>
+                    }
                     {e.message(f.q)}
                 </div>
                 <div class={Column}>

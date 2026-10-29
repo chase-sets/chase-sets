@@ -120,14 +120,15 @@ fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: 
         return Some((StatusCode::CREATED, Json(json!({ "inventoryItemId": "inv_stock", "snapshot": first }))).into_response());
     }
     if path == CREATE_LISTING {
-        // The create's closed snapshot refuses what the ensure now writes (chase-sets/chase-sets#10599).
+        // The create takes the snapshot the ensure wrote, its null keys included
+        // (chase-sets/chase-sets#10599 made the create accept them).
         let snapshot = &sent["inventorySnapshot"];
-        if snapshot.get("acquisitionCostCurrencyCode").is_some() || snapshot["shipFromAddress"].get("verification").is_some() {
-            return Some(refusal(
-                StatusCode::BAD_REQUEST,
-                "listing_request_unknown_field",
-                "Remove unrecognized fields and try again.",
-            ));
+        if snapshot.get("inventoryItemId").is_some_and(|id| id == "inv_stock") {
+            assert!(
+                snapshot.get("acquisitionCostCurrencyCode").is_some()
+                    && snapshot["shipFromAddress"].get("verification").is_some(),
+                "the snapshot is sent as the ensure wrote it: {snapshot}"
+            );
         }
         if sent["priceAmount"] == "1.00" {
             return Some(refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum."));
@@ -4211,7 +4212,10 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         calls[1].1,
         json!({
             "inventoryItemId": "", "priceAmount": "400.00", "priceCurrencyCode": "USD", "quantityCap": 2,
-            "inventorySnapshot": { "inventoryItemId": "inv_stock", "quantity": 2, "attempt": ATTEMPT, "shipFromAddress": { "line1": "1 Test Way" } },
+            "inventorySnapshot": {
+                "inventoryItemId": "inv_stock", "quantity": 2, "attempt": ATTEMPT, "acquisitionCostCurrencyCode": null,
+                "shipFromAddress": { "line1": "1 Test Way", "verification": null },
+            },
             "listingIdOverride": LISTED,
         })
     );
@@ -7316,8 +7320,8 @@ fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Opti
 /// stock. A fee preview at 1.00 is refused. `inv_etb`'s evidence is complete, the others' is not.
 /// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
 /// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
-/// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`
-/// (chase-sets/chase-sets#10650), answers 500 for a photo named `broken.png`
+/// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`, as the multipart
+/// create does, answers 500 for a photo named `broken.png`
 /// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
 fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
@@ -7780,7 +7784,7 @@ fn attention_queue() -> Value {
             item("pricing-repricing:pol_1", "pricing-repricing", "warning", "repricing-floor-binding",
                 json!({ "count": 2341 }), "/account/desk/repricing"),
             item("listing-action:lst_draft", "listing-action", "info", "listing-needs-action",
-                json!({ "reference": "Charizard", "action": "draft" }), "/account/desk/listings/lst_draft"),
+                json!({ "reference": "Charizard", "action": "draft" }), "/account/listings/lst_draft"),
         ],
         "rollup": { "total": 4, "bySeverity": { "critical": 1, "warning": 2, "info": 1 }, "bySource": {} },
         "sources": [
@@ -9149,6 +9153,28 @@ async fn the_inventory_list_needs_inventory_view_and_record_sale_inventory_manag
     let (status, headers, _) = pilot.send(get(INVENTORY_SCREEN, None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().contains("/sign-in?returnTo=%2Faccount%2Finventory"));
+}
+
+#[tokio::test]
+async fn a_graded_inventory_item_needs_its_grading_company_and_grade_and_sends_them() {
+    let pilot = Pilot::new().await;
+    // Graded: the certification number is offered.
+    let (_, _, html) =
+        pilot.send(get("/account/inventory?catalogItemId=cat_card&option.dim_form=chc_graded&redraw=1", Some("seller"))).await;
+    assert!(html.contains(r#"name="certificationNumber""#), "{html}");
+    let (_, _, raw) =
+        pilot.send(get("/account/inventory?catalogItemId=cat_card&option.dim_form=chc_raw&redraw=1", Some("seller"))).await;
+    assert!(!raw.contains(r#"name="certificationNumber""#), "a raw card has none");
+    // This card names no grading company, so the form refuses it and sends nothing.
+    let body = format!(
+        "inventoryMutationAttemptId={}&catalogItemId=cat_card&option.dim_form=chc_graded&option.dim_grade=chc_grade_10\
+         &storageLocationId=loc_main&totalQuantity=1&certificationNumber=12345",
+        new_attempt()
+    );
+    let (status, _, html) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Choose a grading company and grade before creating a Graded inventory item."), "{html}");
+    assert!(pilot.writes().is_empty(), "nothing is sent");
 }
 
 #[tokio::test]

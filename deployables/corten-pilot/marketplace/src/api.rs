@@ -221,6 +221,21 @@ pub struct ItemCommand {
     pub total_quantity: u64,
     pub acquisition_cost_amount: Option<String>,
     pub acquisition_cost_currency_code: Option<String>,
+    /// A graded card's details, only for a graded product (`InventoryGradedCardDetails`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graded_card: Option<GradedCard>,
+}
+
+/// `InventoryGradedCardDetails` as marketplace's Create inventory item sends it: no population
+/// and no condition descriptors.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradedCard {
+    pub grading_company: String,
+    pub grade: String,
+    pub certification_number: Option<String>,
+    pub population: Option<()>,
+    pub condition_descriptors: [(); 0],
 }
 
 #[derive(Deserialize)]

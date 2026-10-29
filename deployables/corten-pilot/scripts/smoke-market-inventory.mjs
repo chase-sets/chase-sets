@@ -137,8 +137,8 @@ let catalogTitle;
   await settled(page);
   await page.locator(`input[name="catalogItemId"][value="${catalogId}"]`).waitFor({ state: "attached" });
   check(true, "choosing a match shows the chosen item");
-  // A raw card: the form cannot send a graded card's details (chase-sets/chase-sets#10671), and an
-  // item's schema can start on Graded. Then each option still open, one at a time, since a choice
+  // A raw card, so the run needs no grading company or grade (a graded one's are worked out from
+  // its options, chase-sets/chase-sets#10789), and an item's schema can start on Graded. Then each option still open, one at a time, since a choice
   // can change what the next offers.
   const formOption = form.locator('select[name^="option."]').filter({ has: page.locator("option", { hasText: /^\s*Raw\s*$/ }) });
   if ((await formOption.count()) > 0) {

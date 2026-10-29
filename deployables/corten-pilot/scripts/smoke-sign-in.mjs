@@ -4,7 +4,8 @@
 // password starts the session (HttpOnly, SameSite=Lax) and the browser lands back on the pilot's
 // purchases; then signing out clears the cookie and the purchases ask to sign in again. Nothing is wider
 // than the screen and every control is at least 44 px tall. Never sends a wrong password: the API
-// counts failures by the web host's address (chase-sets/chase-sets#10686).
+// counts failures by the browser's address (chase-sets/chase-sets#10686), which on a local run is
+// every run's.
 // Usage: node scripts/smoke-sign-in.mjs [pilot-url]
 import { chromium } from "@playwright/test";
 

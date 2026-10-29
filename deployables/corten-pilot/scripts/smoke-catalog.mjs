@@ -126,11 +126,8 @@ let dimensionUrl = "";
   const codes = async () => page.locator("table[aria-label^='Options of'] tbody tr td:first-child").allTextContents();
   check(JSON.stringify(await codes()) === '["nm","lp"]', `both options are listed (${await codes()})`);
 
-  // Reorder. The Catalog API registers PUT /:id/options/:optionId before PUT /:id/options/order
-  // (bounded-contexts/catalog/features/dimensions/api/route.ts), so it reads "order" as an option
-  // id and refuses every reorder ("optionId must start with chc_."), for admin-web too. The pilot
-  // shows the refusal in the dialog; the reorder itself is reported blocked, not passed.
-  // Tracked by chase-sets/chase-sets#10520.
+  // Reorder. A refusal is the dialog form's message; the Catalog API takes a reorder since
+  // chase-sets/chase-sets#10520, so a refusal here fails the run.
   await page.getByRole("button", { name: "Reorder" }).click();
   const reorder = page.locator("#catalog-reorder-dialog");
   const ids = (await reorder.getByLabel("Option IDs").inputValue()).split(", ");
@@ -143,8 +140,7 @@ let dimensionUrl = "";
     check(JSON.stringify(await codes()) === '["lp","nm"]', "Reorder changes the order");
   } else {
     const message = await reorder.locator(".form-error").textContent();
-    check(Boolean(message) && (await reorder.evaluate((d) => d.matches(":modal"))), "a refused reorder is the dialog form's message");
-    blocked.push(`reorder: the API refused it (${message})`);
+    check(false, `Reorder changes the order (the API refused it: ${message})`);
     await page.keyboard.press("Escape");
   }
 

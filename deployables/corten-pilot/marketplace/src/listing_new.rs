@@ -18,8 +18,8 @@
 //! The create is one attempt (the form's `SubmitKey`): the Listing stock's ensure applies once
 //! per attempt and the listing's id is made from it (`listingIdOverride`), so the same form sent
 //! again is the same listing, where marketplace's creates another. The form posts its photos as
-//! `multipart/form-data`, read with Corten's `Upload` (`uploads::read`). marketplace's own create with photos is refused (chase-sets/chase-sets#10650); the
-//! pilot sends the purchase limits as their own fields.
+//! `multipart/form-data`, read with Corten's `Upload` (`uploads::read`), with the purchase limits as
+//! their own fields, as marketplace's form sends them since chase-sets/chase-sets#10650.
 use std::time::Duration;
 
 use corten::{
@@ -37,7 +37,7 @@ use crate::{
     app::{LISTINGS_VIEW, Shared, read_failed, sign_in},
     auth::{ListingSeller, Viewer},
     items::{self, Picks, Raw},
-    listing::{ANONYMOUS_LISTING_DRAFT_COOKIE, accepted_snapshot, listing_id},
+    listing::{ANONYMOUS_LISTING_DRAFT_COOKIE, listing_id},
     recovery::valid_attempt,
     text::{ListingNewMsg, Pilot},
     uploads::{self, Limits, Over},
@@ -589,8 +589,7 @@ fn typed_money(p: Pilot, text: &str) -> String {
 }
 
 /// The create's fields as the API's multipart create takes them: the purchase limits as their
-/// own fields, only those given (marketplace's `purchaseLimits` is refused there,
-/// chase-sets/chase-sets#10650).
+/// own fields, only those given, as marketplace's form sends them (chase-sets/chase-sets#10650).
 fn create_fields(draft: &Draft, snapshot: Option<&serde_json::Value>, id: &str) -> Vec<(&'static str, String)> {
     let mut fields = vec![
         // Empty for a catalog product: the create takes its Listing stock's snapshot instead.
@@ -699,7 +698,7 @@ pub(crate) async fn create(
                 stock["shipFromAddress"] = address;
             }
             match caller.ensure_listing_stock(&attempt, &stock).await {
-                Ok(stock) => Some(accepted_snapshot(stock.snapshot)),
+                Ok(stock) => Some(stock.snapshot),
                 Err(error) => {
                     return match failed(error) {
                         Failed::SignIn => sign_in(&req),

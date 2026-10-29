@@ -1099,12 +1099,10 @@ fn Select<'a, I: Id>(
     }
 }
 
-/// The publish form: the display identity's readiness, the required field ids, and Recheck (a
+/// The publish form: the display identity's readiness and Recheck (a
 /// \`GET\` of the same address, which draws the form again with the readiness now).
 #[component(css = ItemPage)]
 pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readiness: &'a Readiness) -> impl Patch {
-    let f = PublishInput::FIELDS;
-    let (i, e) = (&form.input, form.errors.within(ids::PUBLISH));
     let action = at::Publish::of(id).href();
     let status = [(t.item_display_identity_readiness(), readiness.status.clone())];
     let missing = readiness.missing_tokens.join(", ");
@@ -1116,12 +1114,6 @@ pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readi
             if !readiness.missing_tokens.is_empty() {
                 <p class={Alert}>{t.item_display_identity_missing_tokens(&missing)}</p>
             }
-            <Input
-                label={t.item_required_field_ids_comma_separated()}
-                name={f.required_field_ids}
-                value={&i.required_field_ids}
-                errors={&e}
-            />
             <div class={Footer}>
                 if readiness.retryable || !form.errors.is_empty() {
                     <button type="submit" class={Secondary} formmethod="get" formnovalidate>

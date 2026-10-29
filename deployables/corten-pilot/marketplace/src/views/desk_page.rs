@@ -159,22 +159,13 @@ pub fn source(t: DeskMsg, id: &str) -> &str {
     }
 }
 
-/// Where an item's link goes. The queue links a listing, a shipment and a sale to
-/// `/account/desk/...` addresses no web host serves (chase-sets/chase-sets#10676): the pilot sends
-/// them to the pages that exist, its own. The Desk itself is the pilot's; anything else is
+/// Where an item's link goes. The queue links a listing, a shipment and a sale to their own pages
+/// (chase-sets/chase-sets#10676), which the pilot serves, as it serves the Desk; anything else is
 /// marketplace's.
 pub fn link(href: &str) -> String {
     let id = |prefix: &str| href.strip_prefix(prefix).filter(|id| !id.is_empty() && !id.contains(['/', '?', '#']));
-    if let Some(id) = id("/account/desk/listings/") {
-        return format!("/account/listings/{id}");
-    }
-    if let Some(id) = id("/account/desk/shipments/") {
-        return format!("/account/sales/shipments/{id}");
-    }
-    if let Some(id) = id("/account/desk/sales/") {
-        return format!("/account/sales/{id}");
-    }
-    if href == "/account/desk" || href.starts_with("/account/desk?") {
+    let ours = ["/account/listings/", "/account/sales/shipments/", "/account/sales/"].into_iter().any(|p| id(p).is_some());
+    if ours || href == "/account/desk" || href.starts_with("/account/desk?") {
         return href.to_owned();
     }
     super::on_marketplace(href)
@@ -280,16 +271,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_queue_links_its_missing_desk_pages_to_the_pages_that_exist() {
-        assert_eq!(link("/account/desk/listings/lst_1"), "/account/listings/lst_1");
-        assert_eq!(link("/account/desk/shipments/shp%201"), "/account/sales/shipments/shp%201");
-        assert_eq!(link("/account/desk/sales/ord_1"), "/account/sales/ord_1");
+    fn the_queue_links_the_pilots_pages_here_and_the_rest_to_marketplace() {
+        assert_eq!(link("/account/listings/lst_1"), "/account/listings/lst_1");
+        assert_eq!(link("/account/sales/shipments/shp%201"), "/account/sales/shipments/shp%201");
+        assert_eq!(link("/account/sales/ord_1"), "/account/sales/ord_1");
         assert_eq!(
             link("/account/desk?drawer=resolution-drawer&entity=imp_1"),
             "/account/desk?drawer=resolution-drawer&entity=imp_1"
         );
         assert!(link("/account/channels/conn_1").ends_with("/account/channels/conn_1"));
         assert!(link("/account/channels/conn_1").starts_with("http"), "marketplace's");
-        assert!(link("/account/desk/listings/").starts_with("http"), "no id: as the API gave it");
+        assert!(link("/account/listings/").starts_with("http"), "no id: marketplace's");
     }
 }

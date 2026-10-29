@@ -23,8 +23,9 @@
 //! Secure on https, Max-Age to the session's expiry); the browser then goes back to `returnTo`, on
 //! the pilot when it serves the path and on marketplace otherwise.
 //!
-//! Every call forwards the browser's address (`X-Forwarded-For`): the API limits failed sign-ins by
-//! address, and without it every browser shares the web host's
+//! Every call forwards the browser's address (`X-Forwarded-For`), as marketplace's forwarded Auth
+//! transport does: the API limits failed sign-ins by that address, and without it every browser
+//! would share the web host's
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
 use std::time::{Duration, SystemTime};
 
@@ -168,10 +169,10 @@ impl Kind {
     }
 }
 
-/// marketplace's `getSafeReturnTo`: a path on this site (`Local`), else `fallback`. Stricter
-/// than marketplace's: `/\host`, which a browser reads as `//host`, another site
-/// ([chase-sets/chase-sets#10687](https://github.com/chase-sets/chase-sets/issues/10687)), a
-/// control character, and a `.` or `..` segment are refused.
+/// Auth's `getSafeReturnTo`: a path on this site (`Local`), else `fallback`. `/\host`, which a
+/// browser reads as `//host`, another site, is refused, as Auth refuses it since
+/// [chase-sets/chase-sets#10687](https://github.com/chase-sets/chase-sets/issues/10687); so are a
+/// control character and a `.` or `..` segment.
 pub fn safe_return_to(value: Option<&str>, fallback: &str) -> String {
     value.and_then(Local::parse).map_or_else(|| fallback.to_owned(), |path| path.to_string())
 }

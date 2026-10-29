@@ -114,24 +114,6 @@ pub fn listing_features(session: Option<&Session>) -> bool {
     }
 }
 
-/// The Listing stock snapshot as the listing create takes it. The create refuses two keys the
-/// Inventory API now writes into it, `acquisitionCostCurrencyCode` and the ship-from address's
-/// `verification`, so marketplace's own Create listing fails for every product
-/// (chase-sets/chase-sets#10599). Workaround: each is left out when it is null, so nothing is
-/// lost; one with a value is sent as it is, and refused. Remove it when that issue lands.
-pub fn accepted_snapshot(mut snapshot: serde_json::Value) -> serde_json::Value {
-    fn drop_null(fields: Option<&mut serde_json::Map<String, serde_json::Value>>, key: &str) {
-        if let Some(fields) = fields
-            && fields.get(key).is_some_and(serde_json::Value::is_null)
-        {
-            fields.remove(key);
-        }
-    }
-    drop_null(snapshot.as_object_mut(), "acquisitionCostCurrencyCode");
-    drop_null(snapshot.get_mut("shipFromAddress").and_then(serde_json::Value::as_object_mut), "verification");
-    snapshot
-}
-
 /// The listing a form's attempt creates: `lst_` and the attempt's UUID (the API takes any `lst_`
 /// id, as checkout's reviewed listings use), so the same form sent again names the same listing.
 pub fn listing_id(attempt: &str) -> Option<String> {
@@ -310,7 +292,7 @@ pub(crate) async fn list(
             "priceAmount": amount,
             "priceCurrencyCode": input.currency,
             "quantityCap": quantity,
-            "inventorySnapshot": accepted_snapshot(stock.snapshot),
+            "inventorySnapshot": stock.snapshot,
             "listingIdOverride": id,
         });
         let (created, created_receipt) =
@@ -431,20 +413,5 @@ mod tests {
         assert_eq!(listing_id(attempt), listing_id(attempt));
         assert_eq!(listing_id("not a uuid"), None);
         assert_eq!(listing_id(""), None);
-    }
-
-    #[test]
-    fn a_snapshot_loses_only_the_refused_keys_and_only_when_null() {
-        let sent = json!({
-            "acquisitionCostAmount": null, "acquisitionCostCurrencyCode": null,
-            "shipFromAddress": { "line1": "1 Test Way", "verification": null },
-        });
-        let expected = json!({ "acquisitionCostAmount": null, "shipFromAddress": { "line1": "1 Test Way" } });
-        assert_eq!(accepted_snapshot(sent), expected);
-        let kept = json!({
-            "acquisitionCostAmount": "12.00", "acquisitionCostCurrencyCode": "USD",
-            "shipFromAddress": { "verification": { "status": "verified" } },
-        });
-        assert_eq!(accepted_snapshot(kept.clone()), kept);
     }
 }
