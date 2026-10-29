@@ -43,7 +43,38 @@ function differenceList(section: ArbitrationSection): readonly string[] {
 }
 
 function quotedDraft(entry: string, document: "Terms of Service" | "Seller Agreement"): string {
-  return entry.match(new RegExp(`${document}: \\"([^\\"]+)\\"`))?.[1] ?? "";
+  const marker = `${document}:`;
+  const markerStart = entry.indexOf(marker);
+  if (markerStart < 0) {
+    return "";
+  }
+
+  const quotedPart = entry.slice(markerStart + marker.length).trimStart();
+  const opening = quotedPart[0];
+  const closing = opening === "“" ? "”" : opening === '"' ? '"' : undefined;
+  if (!closing) {
+    return "";
+  }
+
+  let closingIndex = -1;
+  for (let index = 1; index < quotedPart.length; index += 1) {
+    if (quotedPart[index] !== closing) {
+      continue;
+    }
+    const remainder = quotedPart.slice(index + 1);
+    if (
+      (document === "Terms of Service" && /^\s*\.?\s+Seller Agreement:\s*[“"]/.test(remainder)) ||
+      (document === "Seller Agreement" &&
+        (remainder.trim() === "" || remainder.startsWith(" The Seller Agreement has no separate")))
+    ) {
+      closingIndex = index;
+      break;
+    }
+  }
+  if (closingIndex <= 0) {
+    return "";
+  }
+  return quotedPart.slice(1, closingIndex);
 }
 
 function arbitrationDifferenceErrors(terms: ArbitrationSection, seller: ArbitrationSection): readonly string[] {
@@ -57,9 +88,13 @@ function arbitrationDifferenceErrors(terms: ArbitrationSection, seller: Arbitrat
     errors.push("both manifests must carry one identical difference list");
   }
   for (const entry of termsDifferences) {
+    const termsQuote = quotedDraft(entry, "Terms of Service");
+    const sellerQuote = quotedDraft(entry, "Seller Agreement");
     if (
-      !terms.draftText.includes(quotedDraft(entry, "Terms of Service")) ||
-      !seller.draftText.includes(quotedDraft(entry, "Seller Agreement"))
+      !termsQuote ||
+      !sellerQuote ||
+      !terms.draftText.includes(termsQuote) ||
+      !seller.draftText.includes(sellerQuote)
     ) {
       errors.push("every difference must quote both current drafts");
     }
@@ -248,6 +283,24 @@ describe("Seller Agreement policy artifact", () => {
     expect(arbitrationDifferenceErrors(sections.terms, mutatedSeller)).toContain(
       "every difference must quote both current drafts",
     );
+
+    const firstDifference = differenceList(sections.seller)[0]!;
+    const unquotedSellerDifference = firstDifference.replace('Seller Agreement: "', "Seller Agreement: ").slice(0, -1);
+    const unquotedDifferenceManifest = (section: ArbitrationSection) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.map((question) =>
+          question === firstDifference ? unquotedSellerDifference : question,
+        ),
+      },
+    });
+    expect(
+      arbitrationDifferenceErrors(
+        unquotedDifferenceManifest(sections.terms),
+        unquotedDifferenceManifest(sections.seller),
+      ),
+    ).toContain("every difference must quote both current drafts");
 
     const forbiddenScope = {
       ...sections.seller,
