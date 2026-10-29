@@ -588,6 +588,7 @@ describe("platform operations mutation consistency route actions", () => {
           orderId: "ord_1",
           flowType: "product-not-received",
           affectedLineIds: ["line_1"],
+          intakePhotoReferences: [],
         }),
       }),
     );
@@ -595,8 +596,10 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toBe("/account/support/sup_1");
   });
 
-  it("rejects missing required photos before opening a support case", async () => {
-    const fetchMock = vi.fn();
+  it("lets the API reject missing required photos instead of trusting the posted boolean", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: { message: "Add the required evidence photos before opening this case." } }, 400),
+    );
     vi.stubGlobal("fetch", fetchMock);
     mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.manage"] });
     const form = new URLSearchParams({
@@ -615,7 +618,7 @@ describe("platform operations mutation consistency route actions", () => {
       error: "Add the required evidence photos before opening this case.",
       recoverySupportRequestId: null,
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("retries recovered references under the original upload operation (mutant: omit or replace recovery id)", async () => {
@@ -623,8 +626,8 @@ describe("platform operations mutation consistency route actions", () => {
       "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/support-requests/sup_1/evidence")) {
-        return jsonResponse({ id: "sup_1", version: 2, status: "evidence-submitted" });
+      if (url.endsWith("/support-requests")) {
+        return jsonResponse({ id: "sup_1", version: 2, status: "opened" });
       }
       throw new Error(`Unexpected fetch ${url}`);
     });
@@ -647,14 +650,14 @@ describe("platform operations mutation consistency route actions", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost/api/marketplace/support-requests/sup_1/evidence",
+      "http://localhost/api/marketplace/support-requests",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          submittedByRole: "buyer",
-          evidenceType: "photo",
-          summary: "Photos submitted when the support case was opened.",
-          attachments: [reference],
+          orderId: "ord_1",
+          flowType: "product-damaged",
+          affectedLineIds: [],
+          intakePhotoReferences: [reference],
           attachmentOperationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         }),
       }),

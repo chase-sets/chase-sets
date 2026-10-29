@@ -26,7 +26,8 @@ import {
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
+import type { SupportFlowSummary, SupportOrderLookup } from "./contracts";
+import type { CustomerSupportRequestListRow as SupportRequestListItem } from "../read-model/queries";
 import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
 import { ReturnShippingStatus } from "./return-shipping-status";
 import { SupportEvidenceAttachmentInput } from "./support-evidence-attachments";
@@ -62,10 +63,6 @@ function formatRequestDateTime(value: string | null) {
   return value
     ? formatDateTime(value, { preset: "short" })
     : t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
-}
-
-function nextDeadline(request: SupportRequestListItem) {
-  return request.seller_response_due_at ?? request.support_review_due_at ?? request.seller_condition_attestation_due_at;
 }
 
 function checklistSummary(request: SupportRequestListItem) {
@@ -134,7 +131,7 @@ function SupportRequestTable({
       key: "nextDeadline",
       header: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
-      cell: (request) => formatRequestDateTime(nextDeadline(request)),
+      cell: (request) => formatRequestDateTime(request.nextDeadline),
     },
     {
       key: "checklist",
@@ -147,7 +144,7 @@ function SupportRequestTable({
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
       cell: (request) => (
         <Stack gap={2}>
-          <CustomerRemedyStatus request={request} role={role} />
+          <CustomerRemedyStatus request={request} />
           <ReturnShippingStatus request={request} role={role} />
         </Stack>
       ),
@@ -308,7 +305,6 @@ function SupportRequestOpenPanel({
         <HiddenInput name="uploadUncertain" value={String(uncertain)} readOnly />
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
-        <HiddenInput type="hidden" name="photoRequired" value={String(photoRequired)} readOnly />
         {recoverySupportRequestId ? (
           <HiddenInput type="hidden" name="supportRequestId" value={recoverySupportRequestId} readOnly />
         ) : null}
