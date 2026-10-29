@@ -9,7 +9,8 @@ import AccountChannelsConnectionRoute, {
   action as detailAction,
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
-import { allowedChannelConnectionActions } from "../ui/connection-pages";
+import { ChannelConnectionDetailPage } from "../ui/connection-pages";
+import { allowedChannelConnectionActions } from "../domain/domain";
 import { channelConnectionStatuses, type ChannelConnectionPage } from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
 import { channelConnectionStateFixture as fixtureFor } from "./browser-state-fixture.test-data";
@@ -27,7 +28,8 @@ describe("channel-connections-page-state-matrix", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: { accountId: routeAccountId, permissions: ["channels.view"] } }))
-      .mockResolvedValueOnce(Response.json(page));
+      .mockResolvedValueOnce(Response.json(page))
+      .mockResolvedValueOnce(Response.json({ items: [] }));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost:6403/account/channels");
     const data = await listLoader({
@@ -50,7 +52,7 @@ describe("channel-connections-page-state-matrix", () => {
     expect(await screen.findByRole("link", { name: "View connection" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect a channel" })).toBeNull();
     expect(screen.queryByText("Connections could not be loaded")).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections");
     router.dispose();
   });
@@ -64,7 +66,8 @@ describe("channel-connections-page-state-matrix", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: { accountId: routeAccountId, permissions: ["channels.view"] } }))
-      .mockResolvedValueOnce(new Response(body, { status: 200 }));
+      .mockResolvedValueOnce(new Response(body, { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ items: [] }));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost:6403/account/channels");
     const data = await listLoader({
@@ -86,7 +89,7 @@ describe("channel-connections-page-state-matrix", () => {
     );
     expect(await screen.findByText("Connections could not be loaded")).toBeTruthy();
     expect(await screen.findByText("Channels API error 200")).toBeTruthy();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections");
     router.dispose();
   });
@@ -218,5 +221,32 @@ describe("channel-connections-page-state-matrix", () => {
     if (expectedActions.length === 0) {
       expect(await screen.findByText("No actions are available for this connection.")).toBeTruthy();
     }
+  });
+
+  it.each([
+    ["missing", {}],
+    ["non-array", { allowedActions: "pause" }],
+    ["unknown-member", { allowedActions: ["archive"] }],
+  ] as const)("fails closed for %s allowedActions", async (_name, override) => {
+    const connection = { ...fixtureFor("active"), ...override } as Record<string, unknown>;
+    if (_name === "missing") delete connection.allowedActions;
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/channels/:connectionId",
+          Component: () => <ChannelConnectionDetailPage state={{ kind: "ready", connection: connection as never }} />,
+        },
+      ],
+      { initialEntries: [`/account/channels/${fixtureFor("active").connectionId}`] },
+    );
+    render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    expect(await screen.findByText("No actions are available for this connection.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+    router.dispose();
   });
 });

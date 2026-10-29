@@ -11,6 +11,14 @@ export function channelConnectionStateFixture(status: ChannelConnectionStatus) {
     environment: "sandbox" as const,
     status,
     createdAt: "2026-09-01T00:00:00.000Z",
+    allowedActions:
+      status === "pending-setup"
+        ? ["disconnect"]
+        : status === "active"
+          ? ["pause", "disconnect"]
+          : status === "paused"
+            ? ["resume", "disconnect"]
+            : [],
   };
 }
 

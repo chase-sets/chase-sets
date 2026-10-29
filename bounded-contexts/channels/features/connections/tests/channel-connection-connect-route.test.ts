@@ -106,8 +106,12 @@ describe("channel-connection-connect-route", () => {
     expect(first).toMatchObject({ providerKey: "tcgplayer", environment: "production", status: "pending-setup" });
     expect(first.connectionId).not.toBe(second.connectionId);
     expect(test.memory.streams.size).toBe(2);
-    expect(await listConnectableChannelProviders("production")).toEqual(["tcgplayer"]);
-    expect(await listConnectableChannelProviders("test")).toEqual(["tcgplayer"]);
+    expect(await listConnectableChannelProviders("production")).toEqual([
+      { providerKey: "tcgplayer", environment: "production" },
+    ]);
+    expect(await listConnectableChannelProviders("test")).toEqual([
+      { providerKey: "tcgplayer", environment: "sandbox" },
+    ]);
   });
 
   it.each([
