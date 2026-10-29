@@ -36,6 +36,9 @@
 // - marketplace/locales/sell_list.en.json: the Sell List page's English catalog
 //   (checkout.features.sellList.ui.sellListPage.* as page.*, checkout.routes.accountSellList.* as route.*,
 //   marketplace.features.listings.evidenceCoverage.* as coverage.*).
+// - marketplace/locales/sell_checkout.en.json: seller checkout's English catalog
+//   (checkout.features.sellList.ui.signedInSellCheckoutPage.* as signed.*, .guestSellCheckoutPage.* as guest.*,
+//   checkout.routes.sellCheckoutSession.* as route.*, and checkout.shared.policyLinks.* as policy.*).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, and checkout.shared.policyLinks.* as policy.*).
@@ -583,6 +586,17 @@ const outputs = [
       // A listing's unmet evidence codes (`evidenceCoverageCodeLocaleKey`).
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.listings.evidenceCoverage.", "coverage"],
+      ])),
+    }),
+  ],
+  [
+    "marketplace/locales/sell_checkout.en.json",
+    json({
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.sellList.ui.signedInSellCheckoutPage.", "signed"],
+        ["checkout.features.sellList.ui.guestSellCheckoutPage.", "guest"],
+        ["checkout.routes.sellCheckoutSession.", "route"],
+        ["checkout.shared.policyLinks.", "policy"],
       ])),
     }),
   ],

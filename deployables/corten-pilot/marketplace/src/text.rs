@@ -27,6 +27,7 @@ pub use restock::Restock;
 pub use reviews::ReviewsMsg;
 pub use search::SearchMsg;
 pub use security::SecurityMsg;
+pub use sell_checkout::SellCheckoutMsg;
 pub use sell_list::SellListMsg;
 pub use seller_listing::SellerListingMsg;
 pub use seller_listings::SellerListingsMsg;
@@ -154,6 +155,12 @@ mod inventory {
 mod restock {
     corten::i18n::messages! {
         pub struct Restock { "en" => "locales/restock.en.json" }
+    }
+}
+
+mod sell_checkout {
+    corten::i18n::messages! {
+        pub struct SellCheckoutMsg { "en" => "locales/sell_checkout.en.json" }
     }
 }
 

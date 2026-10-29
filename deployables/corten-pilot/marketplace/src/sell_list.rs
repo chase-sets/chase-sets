@@ -6,8 +6,8 @@
 //! The page's writes are marketplace's intents: Remove (a line), Decline selected (the checked
 //! offers, declined on Marketplace, then their lines removed), Classify and Add photo (a listing's
 //! evidence, on Marketplace) and Continue to seller checkout, which posts the seller's choices,
-//! asks Checkout for the sell list's readiness with them, and starts marketplace's seller checkout
-//! with the snapshot (`/checkout/sell/session/{id}`, not ported). A guest's Continue checks the guest
+//! asks Checkout for the sell list's readiness with them, and starts the pilot's seller checkout
+//! with the snapshot (`/checkout/sell/session/{id}`, in [`crate::sell_checkout`]). A guest's Continue checks the guest
 //! sell list's readiness and goes to marketplace's registration.
 //!
 //! Two of the page's rules are marketplace's web layer's, copied here until the API has them: each
@@ -759,7 +759,7 @@ fn query(pairs: &[(&str, String)]) -> String {
 }
 
 /// The guest sell list the browser presents.
-fn guest_id(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn guest_id(headers: &HeaderMap) -> Option<String> {
     cookie::get(headers, ANONYMOUS_SELL_LIST_COOKIE).filter(|id| id.starts_with("anon_")).map(str::to_owned)
 }
 
@@ -1116,17 +1116,11 @@ async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, a
     if snapshot.status != "ready" || !snapshot.unresolved_line_ids.is_empty() {
         return Done::Refused(t.route_sell_list_readiness_must_be_resolved().to_owned());
     }
-    Done::To(views::on_marketplace(&checkout_path(
-        &snapshot.snapshot_id,
-        &snapshot.source_revision,
-        &decisions,
-        &plan,
-        receipt.as_ref(),
-    )))
+    Done::To(checkout_path(&snapshot.snapshot_id, &snapshot.source_revision, &decisions, &plan, receipt.as_ref()))
 }
 
-/// Marketplace's seller checkout for a readiness snapshot (`sellCheckoutRedirectUrl`): a new session id,
-/// with the write's receipt.
+/// Seller checkout for a readiness snapshot (marketplace's `sellCheckoutRedirectUrl`): a new session
+/// id, with the write's receipt.
 pub fn checkout_path(
     snapshot: &str,
     revision: &str,
@@ -1134,16 +1128,15 @@ pub fn checkout_path(
     plan: &Plan,
     receipt: Option<&Receipt>,
 ) -> String {
-    let mut pairs = vec![
-        ("readinessSnapshotId", snapshot.to_owned()),
-        ("readinessSourceRevision", revision.to_owned()),
-        ("readinessDecisions", serde_json::to_string(decisions).unwrap_or_default()),
-        ("sellListReviewPlan", serde_json::to_string(plan).unwrap_or_default()),
-    ];
-    if let Some(receipt) = receipt {
-        pairs.push(("afterWrite", receipt.param()));
-    }
-    format!("/checkout/sell/session/chk_{}?{}", ulid::Ulid::new(), query(&pairs))
+    let id = format!("chk_{}", ulid::Ulid::new());
+    let place = crate::sell_checkout::Place {
+        readiness_snapshot_id: Some(snapshot.to_owned()),
+        readiness_source_revision: Some(revision.to_owned()),
+        readiness_decisions: Some(serde_json::to_string(decisions).unwrap_or_default()),
+        sell_list_review_plan: Some(serde_json::to_string(plan).unwrap_or_default()),
+        after_write: receipt.map(Receipt::param),
+    };
+    url::SellCheckout { id: &id, place }.href()
 }
 
 /// Add photo (`add-listing-evidence`): `multipart/form-data`, the photo added to the listing on

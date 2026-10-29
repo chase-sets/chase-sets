@@ -683,6 +683,17 @@ pub trait SellList {
         decisions: &ReadinessDecisions,
         guest: Option<&str>,
     ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
+    /// The account's readiness with the seller's `decisions` and the seller confirmation evidence
+    /// seller checkout sends before its handoff.
+    async fn seller_readiness(
+        &self,
+        decisions: &ReadinessDecisions,
+        evidence: &SellerEvidence,
+    ) -> Result<SellListSnapshot, ApiError>;
+    /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
+    async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
+    /// Confirms seller checkout (`POST /sell-list/confirm`): the write's receipt.
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
     async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// Moves the guest sell list's lines into the account's: how many moved, and the receipt.
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError>;
@@ -745,6 +756,35 @@ impl SellList for Caller<'_> {
         let req = sell_list_request(self, Method::POST, guest, "/readiness").json(decisions);
         let (body, receipt): (Body, _) = self.write(req).await?;
         Ok((body.readiness, receipt))
+    }
+
+    async fn seller_readiness(
+        &self,
+        decisions: &ReadinessDecisions,
+        evidence: &SellerEvidence,
+    ) -> Result<SellListSnapshot, ApiError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Sent<'a> {
+            #[serde(flatten)]
+            decisions: &'a ReadinessDecisions,
+            seller_evidence: &'a SellerEvidence,
+        }
+        #[derive(Deserialize)]
+        struct Body {
+            readiness: SellListSnapshot,
+        }
+        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent { decisions, seller_evidence: evidence });
+        Ok(self.write::<Body>(req).await?.0.readiness)
+    }
+
+    async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError> {
+        self.read(&sell_list_path(None, &format!("/confirmations/{}", segment(id))), CHECKOUT).await
+    }
+
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
+        let req = sell_list_request(self, Method::POST, None, "/confirm").json(body);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
     async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
@@ -824,6 +864,7 @@ pub struct SellListConfirmation {
 pub struct HandoffSummary {
     pub accepted_offer_count: u64,
     pub published_listing_count: u64,
+    pub skipped_line_count: u64,
     pub line_outcomes: Vec<ConfirmedLine>,
     /// `sale`, `accountHistory`, `label`, `payout`, `settlement`, `notification`: each one's status.
     pub side_effects: std::collections::HashMap<String, String>,
@@ -1019,7 +1060,7 @@ pub struct LineKept {
 }
 
 /// The readiness snapshot seller checkout starts from (`SellListReadinessSnapshot`), the fields
-/// the page reads.
+/// the pages read.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SellListSnapshot {
@@ -1028,6 +1069,87 @@ pub struct SellListSnapshot {
     /// `ready`, `needs-resolution` or `blocked`.
     pub status: String,
     pub unresolved_line_ids: Vec<String>,
+    /// The lines seller checkout takes.
+    pub included_line_ids: Vec<String>,
+    pub line_outcomes: Vec<SnapshotLine>,
+    pub seller_readiness: SnapshotSeller,
+}
+
+impl SellListSnapshot {
+    /// Ready, nothing unresolved, and at least one line to check out.
+    pub fn ready(&self) -> bool {
+        self.status == "ready" && self.unresolved_line_ids.is_empty() && !self.included_line_ids.is_empty()
+    }
+
+    /// The sale action readiness decided for an included line.
+    pub fn action(&self, line: &str) -> Option<&str> {
+        if !self.included_line_ids.iter().any(|id| id == line) {
+            return None;
+        }
+        self.line_outcomes.iter().filter(|o| o.line_id == line).find_map(|o| o.action.as_deref())
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SnapshotLine {
+    pub line_id: String,
+    /// `checkout`, `keep-in-list` or `removed`.
+    pub outcome: String,
+    /// `selected-offer`, `smart-match` or `fallback-listing`.
+    pub action: Option<String>,
+}
+
+/// The seller's readiness in a snapshot; the page reads only whether it is ready.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SnapshotSeller {
+    pub status: String,
+}
+
+/// The seller confirmation evidence seller checkout sends (`SellListSellerConfirmationEvidence`), as
+/// marketplace's route builds it (`buildSellerEvidence`): every dimension said to be ready, the
+/// ship-from's place and the payout readiness read
+/// ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753)).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SellerEvidence {
+    pub ship_from: EvidenceShipFrom,
+    pub payout: EvidencePayout,
+    pub label: EvidenceLabel,
+    pub risk: EvidenceStatus,
+    pub provider: EvidenceStatus,
+    pub freshness: EvidenceStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceShipFrom {
+    pub status: &'static str,
+    pub address_id: Option<String>,
+    pub country: String,
+    pub region: String,
+    pub postal_code: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidencePayout {
+    pub status: &'static str,
+    pub method: &'static str,
+    pub readiness_status: String,
+    pub last_checked_at: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EvidenceLabel {
+    pub status: &'static str,
+    pub preference: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EvidenceStatus {
+    pub status: &'static str,
 }
 
 /// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
@@ -5284,6 +5406,9 @@ pub trait OfferMatchCalls {
     /// The offer as Checkout's sell list reads it (`getSellListOfferMatch`), for its line.
     async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
     async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError>;
+    /// Accepts the offer at its exact listing (`listingId`, `feeQuoteFingerprint`,
+    /// `sourceActionKey` and a Smart Match's batch): the write's receipt.
+    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
 }
 
 impl OfferMatchCalls for Caller<'_> {
@@ -5315,6 +5440,11 @@ impl OfferMatchCalls for Caller<'_> {
     async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError> {
         let path = format!("{ACCOUNT}/offers/matches/{}/decline", segment(id));
         answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({}))).await
+    }
+
+    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
+        let path = format!("{ACCOUNT}/offers/matches/{}/accept", segment(id));
+        Ok(self.write::<serde::de::IgnoredAny>(self.request(Method::POST, &path, MARKETPLACE).json(body)).await?.1)
     }
 }
 

@@ -41,6 +41,7 @@ mod reviews;
 mod saving;
 mod search;
 mod security;
+mod sell_checkout;
 mod sell_list;
 mod seller_listing;
 mod seller_listings;

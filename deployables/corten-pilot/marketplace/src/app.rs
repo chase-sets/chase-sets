@@ -168,6 +168,7 @@ pub mod url {
     pub use sales::{Sale, SaleCancel, SaleReview, Sales};
     pub use search::Search;
     pub use security::Security;
+    pub use sell_checkout::{SellCheckout, SellConfirmation};
     pub use sell_list::{SellList, SellListEvidence};
     pub use seller_listings::{SellerListing, SellerListingPhotos, SellerListings, SellerListingsLive};
     pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
@@ -776,6 +777,32 @@ pub mod url {
         pub struct Desk;
     }
 
+    /// Seller checkout (Checkout's `sell-checkout-session` and `sell-checkout-confirmation`): anyone,
+    /// a guest's being a review of the guest sell list. Its handlers take who is asking, if anyone
+    /// (see `sell_checkout`).
+    #[corten::routes(state = crate::app::Shared, area = SellCheckoutArea)]
+    pub mod sell_checkout {
+        /// The area's prefix: only the start of its paths, with no page of its own.
+        #[route("/checkout/sell/session")]
+        pub struct SellCheckoutArea;
+
+        /// The review, from the snapshot its address names; its one form posts to it.
+        #[route("/checkout/sell/session/{id}", get = crate::sell_checkout::page, post = crate::sell_checkout::write)]
+        pub struct SellCheckout<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::sell_checkout::Place,
+        }
+
+        /// The saved seller confirmation, read after the confirm's receipt.
+        #[route("/checkout/sell/session/{id}/confirmation", get = crate::sell_checkout::confirmation)]
+        pub struct SellConfirmation<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::sell_checkout::ConfirmationPlace,
+        }
+    }
+
     /// Checkout's Sell List (`account-sell-list`): anyone, a guest's being the browser's guest sell
     /// list. Its handlers take who is asking, if anyone (see `sell_list`). The Seller Desk's Offers &
     /// sell list is the same page for anyone signed in, at its own address (`DeskOffers`).
@@ -1281,6 +1308,7 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::desk_offers::area(area, shared.clone()).components(views::SELL_LIST))
+        .area(|area| url::sell_checkout::area(area, shared.clone()).components(views::SELL_CHECKOUT))
         // A photo is up to 10 MB, as Create listing's are.
         .area(|area| {
             url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)

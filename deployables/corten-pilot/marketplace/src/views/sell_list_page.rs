@@ -130,7 +130,7 @@ fn detail(t: SellListMsg, readiness: &LineReadiness) -> String {
 }
 
 /// A seller confirmation's status (`formatStatus`); an unknown one with its words capitalized.
-fn status(t: SellListMsg, status: &str) -> String {
+pub(crate) fn status(t: SellListMsg, status: &str) -> String {
     let status = if status.trim().is_empty() { "not-attempted" } else { status.trim() };
     let known = match status {
         "accepted-offer" => t.page_latest_confirmation_status_accepted_offer(),
