@@ -270,8 +270,6 @@ describe("Admin page projections", () => {
     await drainCatalogProjectionSubscriptions();
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [fieldId],
     });
 
     await sendCommand(services.items.commandHandler, `catalog.item-${japaneseItemId}`, {
@@ -861,8 +859,6 @@ describe("Admin page projections", () => {
 
     const published = await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [],
     });
     expect(published).toMatchObject({
       state: { status: "active" },
