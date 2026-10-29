@@ -13,8 +13,8 @@ import {
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SettlementPayoutRow } from "./queries";
 import { listPayoutSummaryRows } from "./queries";
-import { selectBlockedPayoutSummaryRows } from "./payout-summary";
-import { payoutUnavailableReasonLabel, payoutUnavailableReasonLabels } from "../domain/reason-codes";
+import { selectBlockedPayoutSummaryRows, type PayoutSummaryBlockedPayout } from "./payout-summary";
+import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 
 export type BlockedPayoutKind = "failed" | "missing-provider-reference" | "stale-requested";
 export type BlockedPayoutNextAction = "retry" | "run-reconciliation";
@@ -38,14 +38,32 @@ export function selectBlockedPayoutAttentionRows(
   payouts: readonly SettlementPayoutRow[],
   context: SellerAttentionContext,
 ): readonly BlockedPayoutAttentionRow[] {
+  const payoutsById = new Map(payouts.map((payout) => [payout.payout_id, payout]));
   return selectBlockedPayoutSummaryRows(payouts, context.now).map((row) => ({
     payoutId: row.payout_id,
     reference: row.reference,
-    blockReason: row.block_reason,
+    blockReason: sellerBlockReason(row, payoutsById.get(row.payout_id)),
     kind: row.kind,
     nextAction: row.next_action,
     observedAt: row.observed_at,
   }));
+}
+
+// The shared block_reason is the machine code the API, dashboard and MCP publish.
+// Sellers instead see the labelled failure_reason, else the provider's message as
+// written, else a generic fallback; reconciliation kinds read as their label.
+function sellerBlockReason(row: PayoutSummaryBlockedPayout, payout: SettlementPayoutRow | undefined) {
+  if (row.kind !== "failed") return payoutUnavailableReasonLabel(row.block_reason);
+  const failureReason = payout?.failure_reason ?? null;
+  if (failureReason !== null) return codedReasonLabel(failureReason);
+  return payout?.provider_failure_message ?? "Payout failed";
+}
+
+// Coded reasons read as their Settlement label; human failure text passes through.
+function codedReasonLabel(reason: string) {
+  return /^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(reason)
+    ? payoutUnavailableReasonLabel(reason.replaceAll("_", "-"))
+    : reason;
 }
 
 // Pure mapping: blocked payout rows → attention items.
@@ -57,21 +75,10 @@ export function toBlockedPayoutAttentionItems(
       source: "settlement-blocked-payout",
       entityId: row.payoutId,
       severity: "critical",
-      summary: {
-        code: "payout-blocked",
-        params: { reference: row.reference, reason: sellerBlockReason(row.blockReason) },
-      },
+      summary: { code: "payout-blocked", params: { reference: row.reference, reason: row.blockReason } },
       observedAt: row.observedAt,
     }),
   );
-}
-
-function sellerBlockReason(reason: string) {
-  if (reason in payoutUnavailableReasonLabels) return payoutUnavailableReasonLabel(reason);
-  if (/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(reason)) {
-    return payoutUnavailableReasonLabel(reason.replaceAll("_", "-"));
-  }
-  return reason;
 }
 
 export type BlockedPayoutAttentionSourceDependencies = Readonly<{

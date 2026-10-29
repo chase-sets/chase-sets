@@ -88,7 +88,7 @@ export function selectNextPayoutSummary(payouts: readonly SettlementPayoutRow[])
 }
 
 function failedReason(row: SettlementPayoutRow) {
-  return row.failure_reason ?? row.provider_failure_message ?? row.provider_failure_code ?? "recent-payout-failure";
+  return row.failure_reason ?? row.provider_failure_code ?? "recent-payout-failure";
 }
 
 export function selectBlockedPayoutSummaryRows(

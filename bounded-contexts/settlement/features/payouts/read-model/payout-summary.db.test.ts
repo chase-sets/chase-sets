@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as settlementModule } from "../../../index";
+import { buildPayoutSummary } from "./payout-summary";
 import { listPayoutSummaryRows } from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -53,7 +54,30 @@ describeDb("settlement payout summary SQL", () => {
     expect(result.total).toBe(1);
   });
 
-  it("finds actionable payouts beyond the default page and bounds the actionable set", async () => {
+  it("includes the failed payout at actionable position 60", async () => {
+    await insertPayout("failed-tail", "acct-1", "failed", "2026-10-29T11:00:00.000Z");
+    // Newer requested rows stay fresh at evaluatedAt, so the failed tail is the only blocked row.
+    for (let index = 0; index < 59; index += 1) {
+      const second = String(index).padStart(2, "0");
+      await insertPayout(`requested-${second}`, "acct-1", "requested", `2026-10-29T11:50:${second}.000Z`);
+    }
+
+    const result = await listPayoutSummaryRows(pool, "acct-1");
+    const summary = buildPayoutSummary({
+      ...result,
+      availability: { can_request: true, unavailable_reasons: [], unavailable_reason_details: [] },
+      evaluatedAt: "2026-10-29T12:00:00.000Z",
+    });
+
+    expect(result.completeness).toEqual({ kind: "complete", total: 60 });
+    expect(result.items.map((row) => row.payout_id)).toEqual([
+      ...Array.from({ length: 59 }, (_, index) => `requested-${String(58 - index).padStart(2, "0")}`),
+      "failed-tail",
+    ]);
+    expect(summary.blocked_payouts.map((row) => row.payout_id)).toEqual(["failed-tail"]);
+  });
+
+  it("excludes completed history from the actionable set and bounds it at the cap", async () => {
     for (let index = 0; index < 59; index += 1) {
       await insertPayout(
         `paid-${index}`,
@@ -62,10 +86,10 @@ describeDb("settlement payout summary SQL", () => {
         `2026-10-29T${String(index % 24).padStart(2, "0")}:00:00.000Z`,
       );
     }
-    await insertPayout("failed-beyond-page", "acct-1", "failed", "2026-10-30T00:00:00.000Z");
+    await insertPayout("failed-after-history", "acct-1", "failed", "2026-10-30T00:00:00.000Z");
     const result = await listPayoutSummaryRows(pool, "acct-1");
     expect(result.completeness).toEqual({ kind: "complete", total: 1 });
-    expect(result.items.map((row) => row.payout_id)).toEqual(["failed-beyond-page"]);
+    expect(result.items.map((row) => row.payout_id)).toEqual(["failed-after-history"]);
 
     for (let index = 0; index < 250; index += 1) {
       await insertPayout(

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
 import {
   createBlockedPayoutAttentionSource,
@@ -10,6 +10,14 @@ import {
 import type { SettlementPayoutRow } from "./queries";
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T12:00:00.000Z" };
+const CLOSED_MESSAGE = "The bank account has been closed.";
+
+// Answers the summary count and items queries the way the Settlement read model does.
+function summaryReadModel(rows: readonly SettlementPayoutRow[], count = rows.length) {
+  return {
+    query: vi.fn(async (sql: string) => (sql.includes("COUNT(*)") ? { rows: [{ count: String(count) }] } : { rows })),
+  };
+}
 
 function row(overrides: Partial<BlockedPayoutAttentionRow> = {}): BlockedPayoutAttentionRow {
   return {
@@ -28,7 +36,7 @@ describe("toBlockedPayoutAttentionItems", () => {
     expect(item.dueAt).toBeNull();
     expect(item.summary).toEqual({
       code: "payout-blocked",
-      params: { reference: "PO-1", reason: "reconciliation hold" },
+      params: { reference: "PO-1", reason: "reconciliation-hold" },
     });
     expect(item.deepLink).toEqual({ surface: "payout", href: "/account/desk/payouts/pay-1" });
     expect(isSellerAttentionItem(item, "settlement-blocked-payout")).toBe(true);
@@ -36,7 +44,12 @@ describe("toBlockedPayoutAttentionItems", () => {
 });
 
 describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("loads all blocked kinds from the complete Settlement summary", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const query = vi.fn(async (sql: string) =>
       sql.includes("COUNT(*)")
         ? { rows: [{ count: "1" }] }
@@ -82,6 +95,52 @@ describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
       reference: "PO-1",
       reason: "identity verification required",
     });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns and returns no attention items when payout summary is incomplete", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const readModel = summaryReadModel(
+      Array.from({ length: 251 }, (_, index) => payout({ payout_id: `failed-${index}`, status: "failed" })),
+    );
+
+    const items = await createBlockedPayoutAttentionSourceFromReadModel(readModel as never).load(CONTEXT);
+
+    expect(items).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("Settlement payout summary is incomplete; Seller Desk attention is bounded.", {
+      accountId: "acct-1",
+      total: 251,
+      cap: 250,
+      reason: "payout-summary-cap-exceeded",
+    });
+  });
+
+  it("loads seller-facing reasons for failed payouts without a failure_reason", async () => {
+    const readModel = summaryReadModel([
+      payout({
+        payout_id: "code-and-message",
+        display_reference: "PYO-CM",
+        status: "failed",
+        provider_failure_code: "account_closed",
+        provider_failure_message: CLOSED_MESSAGE,
+      }),
+      payout({
+        payout_id: "code-only",
+        display_reference: "PYO-C",
+        status: "failed",
+        provider_failure_code: "account_closed",
+      }),
+      payout({ payout_id: "no-detail", display_reference: "PYO-N", status: "failed" }),
+    ]);
+
+    const items = await createBlockedPayoutAttentionSourceFromReadModel(readModel as never).load(CONTEXT);
+
+    expect(items.map((item) => [item.id, item.summary.params])).toEqual([
+      ["settlement-blocked-payout:code-and-message", { reference: "PYO-CM", reason: CLOSED_MESSAGE }],
+      ["settlement-blocked-payout:code-only", { reference: "PYO-C", reason: "Payout failed" }],
+      ["settlement-blocked-payout:no-detail", { reference: "PYO-N", reason: "Payout failed" }],
+    ]);
   });
 });
 
@@ -190,5 +249,70 @@ describe("selectBlockedPayoutAttentionRows", () => {
         params: { reference: "PYO-FAILED", reason: "Review the recent payout failure before requesting more funds." },
       },
     });
+  });
+
+  it.each([
+    [
+      "a coded failure_reason",
+      {
+        status: "failed",
+        failure_reason: "identity-verification-required",
+        provider_failure_code: "account_closed",
+        provider_failure_message: CLOSED_MESSAGE,
+      },
+      "identity verification required",
+    ],
+    [
+      "a provider code and message",
+      {
+        status: "failed",
+        failure_reason: null,
+        provider_failure_code: "account_closed",
+        provider_failure_message: CLOSED_MESSAGE,
+      },
+      CLOSED_MESSAGE,
+    ],
+    [
+      "a provider code only",
+      {
+        status: "failed",
+        failure_reason: null,
+        provider_failure_code: "account_closed",
+        provider_failure_message: null,
+      },
+      "Payout failed",
+    ],
+    [
+      "a provider message only",
+      { status: "failed", failure_reason: null, provider_failure_code: null, provider_failure_message: CLOSED_MESSAGE },
+      CLOSED_MESSAGE,
+    ],
+    [
+      "no failure detail",
+      { status: "failed", failure_reason: null, provider_failure_code: null, provider_failure_message: null },
+      "Payout failed",
+    ],
+    ["a stale request", { status: "requested" }, "A previous payout request needs reconciliation."],
+    [
+      "a missing provider reference",
+      { status: "in-transit", updated_at: "2026-07-14T11:50:00.000Z" },
+      "A previous payout request needs reconciliation.",
+    ],
+  ] as const)("shows the seller-facing reason for %s", (_name, overrides, reason) => {
+    const rows = selectBlockedPayoutAttentionRows(
+      [
+        payout({
+          payout_id: "blocked",
+          display_reference: "PYO-BLOCKED",
+          failed_at: "2026-07-14T10:00:00.000Z",
+          ...overrides,
+        }),
+      ],
+      CONTEXT,
+    );
+
+    expect(toBlockedPayoutAttentionItems(rows).map((item) => item.summary.params)).toEqual([
+      { reference: "PYO-BLOCKED", reason },
+    ]);
   });
 });
