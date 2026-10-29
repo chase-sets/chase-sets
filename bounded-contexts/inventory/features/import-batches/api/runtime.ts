@@ -785,6 +785,13 @@ async function findExistingImportTargetItem(
   return result.rows[0] ?? null;
 }
 
+function invokeImportOperation<Arguments extends readonly unknown[], Result>(
+  operation: (...args: Arguments) => Promise<Result>,
+  ...args: Arguments
+): Promise<Result> {
+  return operation(...args);
+}
+
 function listingIdForRow(rowId: string): ListingId {
   return rowId.replace(/^imr_/, "lst_") as ListingId;
 }
@@ -1379,7 +1386,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         : activeContext;
       let inventoryItemId: string | null = existingItem?.item_id ?? null;
       if (!existingItem && quantityDelta > 0) {
-        const itemResult = await itemServices.createItem(
+        const itemResult = await invokeImportOperation(
+          itemServices.createItem,
           {
             accountId: params.accountId,
             catalogItemId: row.catalog_item_id,
@@ -1397,7 +1405,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         );
         inventoryItemId = itemResult.itemId;
       } else if (existingItem && quantityDelta !== 0) {
-        await itemServices.adjustItem(
+        await invokeImportOperation(
+          itemServices.adjustItem,
           {
             accountId: params.accountId,
             itemId: existingItem.item_id,
@@ -1436,7 +1445,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         listingQuantity > 0
       ) {
         listingId = listingIdForRow(row.row_id);
-        const location = await getStorageLocation(deps.db, row.storage_location_id, params.accountId);
+        const location = await invokeImportOperation(
+          getStorageLocation,
+          deps.db,
+          row.storage_location_id,
+          params.accountId,
+        );
         if (!location) throw new InventoryDomainError("Storage location not found.");
         await enqueueInventoryDraftListingMessage(
           deps.db,
