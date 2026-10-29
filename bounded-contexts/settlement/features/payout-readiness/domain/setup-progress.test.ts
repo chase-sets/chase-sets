@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 import { buildPayoutSetupProgress, derivePayoutSetupDecision, withPayoutSetupDecision } from "./setup-progress";
-import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.fixtures";
+import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
   return {
