@@ -14,8 +14,178 @@ import {
   attemptId,
   requestHash,
   actorContext,
+  responseCases,
+  responseFixture,
+  responseSeller,
 } from "./participant-attempt.test-support";
 import { participantOpenSupportRequestId, validateParticipantHistory } from "./participant-runtime";
+import { evolveSupportRequest, initialSupportRequestState, type SupportRequestEvent } from "../domain/domain";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+
+describe("participant response derives resolution after hashing", () => {
+  for (const scenario of responseCases.filter((entry) => entry.resolutionType !== null)) {
+    it(`${scenario.responseType}: explicit, omitted, null and empty have equivalent facts and state`, async () => {
+      const snapshots = [];
+      for (const field of [
+        { offerResolutionType: scenario.resolutionType },
+        {},
+        { offerResolutionType: null },
+        { offerResolutionType: "" },
+      ]) {
+        const f = await responseFixture(scenario.responseType);
+        const body = { ...f.body, ...field };
+        const result = await f.executeParticipant("record-response", body, f.id, attemptId, responseSeller);
+        const history = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${f.id}` });
+        const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
+        const state = history.reduce(
+          (current, event) => evolveSupportRequest(current, codec.decode(event)),
+          initialSupportRequestState,
+        );
+        expect(state.status).toBe("waiting-on-buyer");
+        expect(state.pendingOffer).toMatchObject({
+          resolutionType: scenario.resolutionType,
+          pendingWithRole: "buyer",
+          refundAmount:
+            scenario.responseType === "offer-partial-refund"
+              ? "6.00"
+              : scenario.responseType === "accept-return"
+                ? "24.00"
+                : null,
+        });
+        const fact = history.find((event) => event.eventType.endsWith(".response-recorded"))!;
+        const response = fact.payload.response as Record<string, unknown>;
+        const offer = fact.payload.offer as Record<string, unknown>;
+        snapshots.push({
+          ...fact.payload,
+          supportRequestId: "generated",
+          response: { ...response, responseId: "generated", offerId: "generated" },
+          offer: { ...offer, responseId: "generated", offerId: "generated" },
+        });
+        expect(await f.executeParticipant("record-response", body, f.id, attemptId, responseSeller)).toEqual(result);
+        expect(await f.lookup("record-response", body, f.id, attemptId, responseSeller)).toMatchObject({
+          outcome: "confirming",
+          result,
+        });
+        expect(await readCompleteStream(f.eventStore, { streamId: `support.support-request-${f.id}` })).toEqual(
+          history,
+        );
+      }
+      for (const snapshot of snapshots) expect(snapshot).toEqual(snapshots[0]);
+    });
+  }
+});
+
+describe("participant response refusal controls", () => {
+  for (const scenario of responseCases) {
+    it(`${scenario.responseType}: mismatches refuse without an append`, async () => {
+      const f = await responseFixture(scenario.responseType);
+      const before = f.allEvents.length;
+      const wrong = scenario.resolutionType === "replacement" ? "partial-refund" : "replacement";
+      await expect(
+        f.executeParticipant(
+          "record-response",
+          { ...f.body, offerResolutionType: wrong },
+          f.id,
+          attemptId,
+          responseSeller,
+        ),
+      ).rejects.toThrow(
+        scenario.resolutionType
+          ? "Offer resolution does not match the response type."
+          : "Only offer responses can include an offer resolution.",
+      );
+      expect(f.allEvents).toHaveLength(before);
+    });
+    if (scenario.resolutionType === null) {
+      for (const field of [{}, { offerResolutionType: null }]) {
+        it(`${scenario.responseType}: ${JSON.stringify(field)} has no offer`, async () => {
+          const f = await responseFixture(scenario.responseType);
+          await f.executeParticipant("record-response", { ...f.body, ...field }, f.id, attemptId, responseSeller);
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
+        });
+      }
+    }
+  }
+  it("preserves wrong-role, unknown/type/nested, hash, id, amount, flow and terminal guards", async () => {
+    for (const invalid of [
+      { responseType: "unknown" },
+      { offerResolutionType: "unknown" },
+      { offerResolutionType: 3 },
+      { offerResolutionType: { value: "partial-refund" } },
+      { summary: { unknown: true } },
+      { affectedLineIds: [{ unknown: true }] },
+      { extra: { unknown: true } },
+      { submittedByRole: "buyer" },
+      { refundAmount: "0.00" },
+      { refundAmount: "24.01" },
+    ]) {
+      const f = await responseFixture("offer-partial-refund");
+      const before = f.allEvents.length;
+      await expect(
+        f.runtime.executeParticipantAttempt(
+          {
+            actionKind: "record-response",
+            body: { ...f.body, ...invalid },
+            targetId: f.id,
+            accountId: responseSeller.accountId,
+            actor: responseSeller,
+            attempt: {
+              attemptId,
+              requestHash: requestHash(
+                "record-response",
+                "refundAmount" in invalid || "submittedByRole" in invalid ? { ...f.body, ...invalid } : f.body,
+              ),
+            },
+          },
+          actorContext(responseSeller),
+        ),
+      ).rejects.toThrow();
+      expect(f.allEvents).toHaveLength(before);
+    }
+    const f = await responseFixture("offer-partial-refund");
+    const before = f.allEvents.length;
+    await expect(f.executeParticipant("record-response", f.body, f.id)).rejects.toThrow(
+      "Support responses must come from the seller or support.",
+    );
+    for (const attempt of [
+      { attemptId: "bad", requestHash: requestHash("record-response", f.body) },
+      { attemptId, requestHash: "a".repeat(64) },
+    ]) {
+      await expect(
+        f.runtime.executeParticipantAttempt(
+          {
+            actionKind: "record-response",
+            body: f.body,
+            targetId: f.id,
+            accountId: responseSeller.accountId,
+            actor: responseSeller,
+            attempt,
+          },
+          actorContext(responseSeller),
+        ),
+      ).rejects.toThrow();
+    }
+    expect(f.allEvents).toHaveLength(before);
+    await f.executeParticipant("cancel", { reason: "Withdrawn" }, f.id, `${attemptId}_cancel`);
+    const terminalCount = f.allEvents.length;
+    await expect(f.executeParticipant("record-response", f.body, f.id, attemptId, responseSeller)).rejects.toThrow(
+      "Closed support requests cannot accept responses.",
+    );
+    expect(f.allEvents).toHaveLength(terminalCount);
+    const wrongFlow = await responseFixture("provide-tracking");
+    const flowCount = wrongFlow.allEvents.length;
+    await expect(
+      wrongFlow.executeParticipant(
+        "record-response",
+        { responseType: "accept-return", summary: "Offer" },
+        wrongFlow.id,
+        attemptId,
+        responseSeller,
+      ),
+    ).rejects.toThrow("This response is not accepted for the support flow.");
+    expect(wrongFlow.allEvents).toHaveLength(flowCount);
+  });
+});
 
 describe("scoped-attempt matrix", () => {
   it("participant open identity is a deterministic canonical typed ULID with a SUP display reference", () => {

@@ -45,7 +45,14 @@ import {
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
 import { getSupportFlowDefinition, type SupportFlowDefinition } from "../domain/flow-catalog";
-import { attemptId, openBody, participantFixture, requestHash } from "./participant-attempt.test-support";
+import {
+  attemptId,
+  requestHash,
+  operationsResponseFixture,
+  responseCases,
+  responseFixture,
+  responseSeller,
+} from "./participant-attempt.test-support";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -54,33 +61,79 @@ function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   };
 }
 
-it("participant response derives resolution after hashing", async () => {
-  const fixture = participantFixture();
-  const opened = await fixture.executeParticipant("open-support-request", {
-    ...openBody,
-    flowType: "product-not-as-described",
-  });
-  const seller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
-  fixture.setActor(seller);
-  const body = { responseType: "offer-replacement", summary: "Offer" };
-  const response = await fixture.app.request(`/support-requests/${opened.id}/responses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": `${attemptId}_route_derived`,
-      "X-Support-Request-Hash": requestHash("record-response", body),
-    },
-    body: JSON.stringify(body),
-  });
+it.each(responseCases.filter((entry) => entry.resolutionType !== null))(
+  "participant response derives resolution after hashing: $responseType",
+  async (scenario) => {
+    for (const field of [
+      { offerResolutionType: scenario.resolutionType },
+      {},
+      { offerResolutionType: null },
+      { offerResolutionType: "" },
+    ]) {
+      const fixture = await responseFixture(scenario.responseType);
+      fixture.setActor(responseSeller);
+      const body = { ...fixture.body, ...field };
+      const response = await fixture.app.request(`/support-requests/${fixture.id}/responses`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `${attemptId}_route_derived`,
+          "X-Support-Request-Hash": requestHash("record-response", body),
+        },
+        body: JSON.stringify(body),
+      });
 
-  expect(response.status).toBe(200);
-  const history = await readCompleteStream(fixture.eventStore, {
-    streamId: `support.support-request-${opened.id}`,
-  });
-  expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
-    responseType: "offer-replacement",
-    resolutionType: "replacement",
-  });
+      expect(response.status).toBe(200);
+      const history = await readCompleteStream(fixture.eventStore, {
+        streamId: `support.support-request-${fixture.id}`,
+      });
+      expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+        responseType: scenario.responseType,
+        resolutionType: scenario.resolutionType,
+      });
+    }
+  },
+);
+
+describe("operations response preservation", () => {
+  for (const scenario of responseCases) {
+    for (const field of [{}, { offerResolutionType: null }, { offerResolutionType: 42 }, { offerResolutionType: "" }]) {
+      const empty = field.offerResolutionType === "";
+      it(`${empty ? "operations empty resolution remains refused" : "operations offer omission remains refused"}: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType);
+        const before = f.allEvents.length;
+        const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...f.body, ...field }),
+        });
+        if (scenario.resolutionType || empty) {
+          expect(response.status).toBe(400);
+          expect(await response.json()).toEqual({
+            error: { code: "validation_failed", message: "Support resolution type is not supported." },
+          });
+          expect(f.allEvents).toHaveLength(before);
+        } else {
+          expect(response.status).toBe(200);
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
+        }
+      });
+    }
+    if (scenario.resolutionType) {
+      it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType);
+        const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...f.body, offerResolutionType: scenario.resolutionType }),
+        });
+        expect(response.status).toBe(200);
+        expect(
+          f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer,
+        ).toMatchObject({ resolutionType: scenario.resolutionType, offeredByRole: "support" });
+      });
+    }
+  }
 });
 
 describe("Support evidence submissions use one reference boundary", () => {

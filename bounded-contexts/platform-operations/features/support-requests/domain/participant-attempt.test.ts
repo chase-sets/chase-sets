@@ -1,10 +1,88 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   canonicalParticipantRequest,
   parseParticipantAttempt,
   parseParticipantLookup,
   type ParticipantAction,
 } from "./participant-attempt";
+
+describe("record-response v1 compatibility", () => {
+  const cases = [
+    [
+      "accept-return",
+      "return-for-refund",
+      null,
+      "f55c25ad843076764090111650709d278f019d3dbff8d7eb3b32d90a56a868bb",
+      "cdf5e9128ea848276dbd4538d7c6eeca3de8f180c88d1d444cc871116da68809",
+    ],
+    [
+      "offer-partial-refund",
+      "partial-refund",
+      "6.00",
+      "3ba438568581f403087dcb003a79786b107e03b530c3d82b9e13318fe233bd69",
+      "5311718d3c0f214609932c3796b200034f9eead83a7aec7a1120fe9a1bc54216",
+    ],
+    [
+      "offer-replacement",
+      "replacement",
+      null,
+      "ec80db5e99dfdb15bcd815c7d8c43f02a477ff571df2c2dadbbd2db43d01cedb",
+      "efe6ae0279a96348820e786fb88d70422dbbcad3b18fdc486462ef1d011bfe09",
+    ],
+    [
+      "provide-tracking",
+      null,
+      null,
+      "a9c895a32c46187ee0474e55a76465ab4540a62b4816435886323df6d73860ca",
+      "a9c895a32c46187ee0474e55a76465ab4540a62b4816435886323df6d73860ca",
+    ],
+  ] as const;
+  for (const [responseType, resolution, refundAmount, explicitHash, omittedHash] of cases) {
+    it(`${responseType} preserves ordered bytes and hashes for explicit/omitted/null/empty`, () => {
+      for (const field of [
+        { offerResolutionType: resolution },
+        {},
+        { offerResolutionType: null },
+        { offerResolutionType: "" },
+      ]) {
+        const canonical = canonicalParticipantRequest("record-response", {
+          responseType,
+          summary: "Offer",
+          refundAmount,
+          ...field,
+        });
+        const expectedResolution = field.offerResolutionType || null;
+        const expected = `{"version":1,"actionKind":"record-response","payload":{"submittedByRole":null,"responseType":"${responseType}","summary":"Offer","offerResolutionType":${JSON.stringify(expectedResolution)},"refundAmount":${JSON.stringify(refundAmount)},"affectedLineIds":null,"refundCurrencyCode":null}}`;
+        expect(canonical).toBe(expected);
+        expect(createHash("sha256").update(canonical).digest("hex")).toBe(
+          expectedResolution ? explicitHash : omittedHash,
+        );
+      }
+    });
+  }
+});
+
+it("participant response refusal controls", () => {
+  for (const field of [
+    { responseType: "unknown" },
+    { offerResolutionType: "unknown" },
+    { offerResolutionType: 3 },
+    { offerResolutionType: { nested: true } },
+    { summary: { nested: true } },
+    { affectedLineIds: [{ nested: true }] },
+    { unknown: { nested: true } },
+  ]) {
+    expect(() =>
+      canonicalParticipantRequest("record-response", {
+        responseType: "offer-partial-refund",
+        summary: "Offer",
+        refundAmount: "6.00",
+        ...field,
+      }),
+    ).toThrow();
+  }
+});
 
 describe("schema negatives", () => {
   it("normalizes valid currency form amounts before hashing without admitting invalid amounts", () => {
