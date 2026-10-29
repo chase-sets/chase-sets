@@ -36,6 +36,7 @@
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
+//! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication` | the channel connections, Connect, a connection's writes and the publication list (see `channels`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
@@ -87,6 +88,9 @@ pub const LISTINGS_MANAGE: &str = "listings.manage";
 /// The Seller Desk's repricing page: to see its policies, and to change them or the halt.
 pub const PRICING_VIEW: &str = "pricing.view";
 pub const PRICING_MANAGE: &str = "pricing.manage";
+/// The channel screens: to see the connections, and to connect, activate, pause, resume or disconnect one.
+pub const CHANNELS_VIEW: &str = "channels.view";
+pub const CHANNELS_MANAGE: &str = "channels.manage";
 /// The seller's offer matches: to see them, and to add one to the sell list or decline it.
 pub const OFFERS_VIEW: &str = "offers.view";
 pub const OFFERS_MANAGE: &str = "offers.manage";
@@ -153,6 +157,7 @@ pub mod url {
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
+    pub use channels::{ChannelConnection, ChannelPublications, Channels};
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use consents::Consents;
     pub use desk::Desk;
@@ -1048,6 +1053,33 @@ pub mod url {
         }
     }
 
+    /// The channel screens (Channels' `account-channels` routes): the connections and Connect, a
+    /// connection and its writes, and the publication list (see `channels`). Every handler takes a
+    /// `ChannelsMember`.
+    #[corten::routes(state = crate::app::Shared, area = Channels, caller = crate::auth::ChannelsMember)]
+    pub mod channels {
+        /// The connections, of a status and from a page; Connect posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/channels", get = crate::channels::list, post = crate::channels::connect)]
+        pub struct Channels {
+            #[route(query)]
+            pub place: crate::channels::ListPlace,
+        }
+
+        /// The publication list.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/channels/publication", get = crate::channels::publications)]
+        pub struct ChannelPublications;
+
+        /// A connection, after the write whose receipt the address carries; its writes post to it.
+        #[route("/account/channels/{id}", get = crate::channels::connection, post = crate::channels::command)]
+        pub struct ChannelConnection<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::channels::ConnectionPlace,
+        }
+    }
+
     /// Pricing health (marketplace's `account-desk-pricing-health`): the verdict for a policy,
     /// Compute verdict, Compare goals and Apply goal (see `pricing_health`). Every handler takes a
     /// `PricingManager`.
@@ -1548,6 +1580,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
         .area(|area| url::pricing_health::area(area, shared.clone()).components(views::PRICING_HEALTH))
+        .area(|area| url::channels::area(area, shared.clone()).components(views::CHANNELS))
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)

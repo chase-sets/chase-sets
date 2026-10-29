@@ -16,6 +16,7 @@ mod bulk_reprice;
 mod buying;
 mod cart;
 mod cart_attempt;
+mod channels;
 mod checkout;
 mod consents;
 mod desk;

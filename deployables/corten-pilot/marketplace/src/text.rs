@@ -8,6 +8,7 @@ pub use account::AccountMsg;
 pub use account_home::AccountHomeMsg;
 pub use addresses::AddressesMsg;
 pub use cart::CartMsg;
+pub use channels::ChannelsMsg;
 pub use checkout::CheckoutMsg;
 pub use consents::ConsentsMsg;
 pub use desk::DeskMsg;
@@ -79,6 +80,12 @@ mod payment_methods {
 mod support {
     corten::i18n::messages! {
         pub struct SupportMsg { "en" => "locales/support.en.json" }
+    }
+}
+
+mod channels {
+    corten::i18n::messages! {
+        pub struct ChannelsMsg { "en" => "locales/channels.en.json" }
     }
 }
 

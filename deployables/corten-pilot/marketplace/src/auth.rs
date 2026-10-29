@@ -16,10 +16,10 @@ pub use platform::{
 use crate::{
     api::Identity,
     app::{
-        ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PAYOUTS_SETUP,
-        PAYOUTS_VIEW, PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, SUPPORT_MANAGE,
-        SUPPORT_VIEW, Shared, VIEW, sign_in_at, sign_in_back_to,
+        ACCOUNTS_MANAGE, ACCOUNTS_VIEW, CHANNELS_MANAGE, CHANNELS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT,
+        LISTINGS_MANAGE, LISTINGS_VIEW, MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE,
+        ORDERS_VIEW, PAYOUTS_SETUP, PAYOUTS_VIEW, PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW,
+        SECURITY_MANAGE, SUPPORT_MANAGE, SUPPORT_VIEW, Shared, VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -119,6 +119,27 @@ impl Identify<Shared> for DeskSeller {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer) => Ok(DeskSeller(viewer)),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller on the channel screens (Channels' `account-channels` routes): reading needs
+/// `channels.view`, as marketplace's loaders require, and writing `channels.manage`, as its actions
+/// do (the API checks again). Anyone not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ChannelsMember(pub Viewer);
+
+impl Identify<Shared> for ChannelsMember {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer)
+                if viewer.actor.can(CHANNELS_VIEW) && (parts.method.is_safe() || viewer.actor.can(CHANNELS_MANAGE)) =>
+            {
+                Ok(ChannelsMember(viewer))
+            }
+            Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }

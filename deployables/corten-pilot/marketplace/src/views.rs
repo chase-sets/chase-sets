@@ -26,6 +26,7 @@ mod account_page;
 mod address_page;
 mod bulk_reprice_page;
 mod cart_item;
+mod channels_page;
 mod checkout_page;
 mod consents_page;
 mod decision_card;
@@ -77,6 +78,7 @@ pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
 };
+pub use channels_page::{ChannelConnectionPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
@@ -234,6 +236,7 @@ pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::C
 pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage];
 /// Pricing health (`/account/desk/pricing-health`).
 pub const PRICING_HEALTH: &[Component] = &[PricingHealthPage];
+pub const CHANNELS: &[Component] = &[ChannelsPage];
 /// Bulk reprice (`/account/bulk-reprice`).
 pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
 

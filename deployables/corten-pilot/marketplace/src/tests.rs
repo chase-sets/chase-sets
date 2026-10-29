@@ -423,6 +423,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // read them (and its halt is engaged).
             "pricer" => actor(&["pricing.view", "pricing.manage"]),
             "price_reader" => actor(&["pricing.view"]),
+            // The channel screens: `channeler` may connect and change connections, `channel_reader`
+            // may only see them.
+            "channeler" => actor(&["channels.view", "channels.manage"]),
+            "channel_reader" => actor(&["channels.view"]),
             // A buyer at checkout who may see the wallet and saved addresses and save a card.
             "payer" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
             // Saved payment methods: `card_reader` may only see them, `card_none` has none.
@@ -490,6 +494,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = pricing_health(session, &method, &uri, &body) {
+        return answer;
+    }
+    if let Some(answer) = channels_api(&method, &uri, &body) {
         return answer;
     }
     if let Some(answer) = offer_matches(&method, uri.path()) {
@@ -14924,4 +14931,183 @@ async fn pricing_health_computes_compares_and_applies_a_goal_and_says_what_was_r
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("The verdict could not be started."), "{html}");
     assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.path.ends_with("/apply-goal")));
+}
+
+const CHANNELS_SCREEN: &str = "/account/channels";
+
+/// Channels, as the stand-in answers it: a connection pending setup and an active one on the
+/// first page with a next page holding a paused one; no paused connection on the paused filter's
+/// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
+/// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
+/// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
+/// Channels does (chase-sets/chase-sets#10779). One publication summary.
+fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if !path.starts_with("/api/channels/") {
+        return None;
+    }
+    let query = uri.query().unwrap_or_default();
+    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z" });
+    let status_of = |id: &str| match id {
+        "conn_pending" => Some("pending-setup"),
+        "conn_active" => Some("active"),
+        "conn_paused" => Some("paused"),
+        _ => None,
+    };
+    let transition = |refused: bool, id: &str, to: &str| {
+        if refused {
+            refusal(StatusCode::CONFLICT, "invalid_transition", "invalid_transition")
+        } else if to == "disconnected" {
+            Json(connection(id, to)).into_response()
+        } else {
+            committed(StatusCode::OK, "channels", "50", connection(id, to))
+        }
+    };
+    Some(match (method.as_str(), path) {
+        ("GET", "/api/channels/connections") => {
+            if query.contains("status=disconnected") {
+                refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal")
+            } else if query.contains("status=paused") {
+                Json(json!({ "items": [] })).into_response()
+            } else if query.contains("cursor=c2") {
+                Json(json!({ "items": [connection("conn_paused", "paused")] })).into_response()
+            } else {
+                Json(json!({ "items": [connection("conn_pending", "pending-setup"), connection("conn_active", "active")], "nextCursor": "c2" }))
+                    .into_response()
+            }
+        }
+        ("POST", "/api/channels/connections") if body.contains("\"providerKey\":\"tcgplayer\"") => {
+            committed(StatusCode::CREATED, "channels", "49", connection("conn_new", "pending-setup"))
+        }
+        ("GET", "/api/channels/publication") => {
+            Json(json!({ "items": [{ "connectionId": "conn_active", "providerKey": "tcgplayer",
+            "environment": "sandbox", "connectionStatus": "active", "settingsState": "missing", "reviewCount": 2 }] }))
+            .into_response()
+        }
+        (method, p) => {
+            let rest = p.strip_prefix("/api/channels/connections/")?;
+            let (id, command) = rest.split_once('/').unwrap_or((rest, ""));
+            let Some(status) = status_of(id) else {
+                return Some(refusal(StatusCode::NOT_FOUND, "not_found", "not_found"));
+            };
+            match (method, command) {
+                ("GET", "") => Json(connection(id, status)).into_response(),
+                ("POST", "pause") => transition(status != "active", id, "paused"),
+                ("POST", "resume") => transition(status != "paused", id, "active"),
+                ("POST", "disconnect") => transition(false, id, "disconnected"),
+                ("POST", "activate") => transition(status != "pending-setup", id, "active"),
+                _ => return None,
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connections_status_and_setup() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(CHANNELS_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fchannels"));
+    let (status, _, _) = pilot.send(get(CHANNELS_SCREEN, Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no channels.view");
+
+    let (status, _, html) = pilot.send(get(CHANNELS_SCREEN, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    for expected in
+        ["Connections", "Connect a channel", "Sales Channel", "Pending setup", "Active", "sandbox", "Load more connections"]
+    {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "{html}");
+    assert!(html.contains(r#"href="/account/channels" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"href="/account/channels?status=pending-setup""#), "{html}");
+    assert!(
+        html.contains(r#"href="/account/channels/conn_pending""#) && html.contains(r#"href="/account/channels/conn_active""#)
+    );
+    assert!(html.contains(r#"href="/account/channels?cursor=c2""#), "{html}");
+    // The next page, an empty filter and a failed read.
+    let (_, _, html) = pilot.send(get("/account/channels?cursor=c2", Some("channeler"))).await;
+    assert!(html.contains(r#"href="/account/channels/conn_paused""#) && !html.contains("Load more connections"), "{html}");
+    let (_, _, html) = pilot.send(get("/account/channels?status=paused", Some("channeler"))).await;
+    assert!(
+        text(&html).contains("No channel connections")
+            && html.contains(r#"href="/account/channels?status=paused" aria-current="page""#)
+    );
+    let (status, _, html) = pilot.send(get("/account/channels?status=disconnected", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(text(&html).contains("Connections could not be loaded"), "{html}");
+    // A reader cannot connect.
+    let (_, _, html) = pilot.send(get(CHANNELS_SCREEN, Some("channel_reader"))).await;
+    assert!(html.contains("conn_active") && !html.contains("Connect a channel"), "{html}");
+
+    // A connection: its status and the actions it allows; setup on the locations not archived.
+    let (status, _, html) = pilot.send(get("/account/channels/conn_active", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#"value="pause""#) && html.contains(r#"value="disconnect""#) && !html.contains(r#"value="resume""#),
+        "{html}"
+    );
+    assert!(html.contains("/account/channels/publication/conn_active") && text(&html).contains("Open on marketplace"));
+    let (_, _, html) = pilot.send(get("/account/channels/conn_pending", Some("channeler"))).await;
+    assert!(
+        text(&html).contains("Connection setup") && html.contains(r#"value="loc_main""#) && !html.contains("loc_old"),
+        "{html}"
+    );
+    assert!(!html.contains(r#"value="pause""#) && html.contains(r#"value="disconnect""#));
+    let (_, _, html) = pilot.send(get("/account/channels/conn_pending", Some("channel_reader"))).await;
+    assert!(!html.contains("Connection setup") && !html.contains(r#"value="disconnect""#), "{html}");
+    assert!(text(&html).contains("No actions are available for this connection."));
+    let (status, _, _) = pilot.send(get("/account/channels/conn_gone", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _, html) = pilot.send(get("/account/channels/publication", Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Publication") && words.contains("missing") && words.contains("2 mappings to review"), "{words}");
+}
+
+#[tokio::test]
+async fn channels_connects_pauses_activates_and_says_what_was_refused() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=tcgplayer", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_new?after_write="));
+    // A provider the seller may not connect is refused before Channels sees it.
+    let calls = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Connection action failed."), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.method == Method::POST));
+    let (status, _, _) = pilot.send(post(CHANNELS_SCREEN, "channel_reader", "providerKey=tcgplayer", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, headers, _) = pilot.send(post("/account/channels/conn_active", "channeler", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_active?after_write="));
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/pause")).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(""), "Pause sends no body");
+    // A transition Channels refuses is the page with the words for it.
+    let (status, _, html) = pilot.send(post("/account/channels/conn_pending", "channeler", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Connections could not be loaded Connection action failed."), "{html}");
+    let (status, _, html) = pilot.send(post("/account/channels/conn_pending", "channeler", "intent=delete", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Unknown connection action."), "{html}");
+    let (status, _, html) = pilot.send(post("/account/channels/conn_pending", "channeler", "intent=activate", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Choose at least one storage location to activate on."), "{html}");
+    let (status, _, _) = pilot
+        .send(post("/account/channels/conn_pending", "channeler", "intent=activate&storageLocationIds=loc_main", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/activate")).map(|c| c.body.clone());
+    assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "storageLocationIds": ["loc_main"] }));
+    let (status, _, _) = pilot.send(post("/account/channels/conn_active", "channel_reader", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Disconnect has no receipt to read after: the page is the connection it returned.
+    let (status, _, html) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
 }

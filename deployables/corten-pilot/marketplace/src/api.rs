@@ -7899,3 +7899,101 @@ impl PricingHealthCalls for Caller<'_> {
         })
     }
 }
+
+/// Channels' connection and publication reads and writes (marketplace's channel screens).
+const CHANNEL_CONNECTIONS: &str = "/api/channels/connections";
+const CHANNEL_PUBLICATION: &str = "/api/channels/publication";
+const CHANNELS: &str = "channels";
+
+/// A connection as Channels shows it (`PublicChannelConnection`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelConnection {
+    pub connection_id: String,
+    pub provider_key: String,
+    /// `sandbox` or `production`.
+    pub environment: String,
+    /// `pending-setup`, `active`, `paused` or `disconnected`.
+    pub status: String,
+    pub created_at: String,
+}
+
+/// A page of connections (`ChannelConnectionPage`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelConnectionPage {
+    pub items: Vec<ChannelConnection>,
+    pub next_cursor: Option<String>,
+}
+
+/// A connection's publication summary (`ChannelPublicationConnectionSummary`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelPublicationSummary {
+    pub connection_id: String,
+    pub provider_key: String,
+    pub environment: String,
+    pub connection_status: String,
+    /// `configured` or `missing`.
+    pub settings_state: String,
+    pub review_count: u64,
+}
+
+#[derive(Deserialize)]
+struct ChannelPublicationList {
+    items: Vec<ChannelPublicationSummary>,
+}
+
+/// The channel screens' calls.
+pub trait ChannelCalls {
+    /// A page of connections, of one status (`None`: Channels' default, every one not
+    /// disconnected), from `cursor`.
+    async fn channel_connections(&self, status: Option<&str>, cursor: Option<&str>) -> Result<ChannelConnectionPage, ApiError>;
+    async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError>;
+    /// Connect a provider: the new connection, pending setup.
+    async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
+    /// `pause`, `resume` or `disconnect` a connection.
+    async fn channel_command(&self, id: &str, command: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
+    /// Activate a connection pending setup on the storage locations `locations`.
+    async fn activate_channel(&self, id: &str, locations: &[String]) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
+    async fn channel_publications(&self) -> Result<Vec<ChannelPublicationSummary>, ApiError>;
+}
+
+impl ChannelCalls for Caller<'_> {
+    async fn channel_connections(&self, status: Option<&str>, cursor: Option<&str>) -> Result<ChannelConnectionPage, ApiError> {
+        let mut query = Vec::new();
+        if let Some(cursor) = cursor {
+            query.push(format!("cursor={}", segment(cursor)));
+        }
+        if let Some(status) = status {
+            query.push(format!("status={}", segment(status)));
+        }
+        let path =
+            if query.is_empty() { CHANNEL_CONNECTIONS.to_owned() } else { format!("{CHANNEL_CONNECTIONS}?{}", query.join("&")) };
+        self.read(&path, CHANNELS).await
+    }
+
+    async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError> {
+        self.read(&format!("{CHANNEL_CONNECTIONS}/{}", segment(id)), CHANNELS).await
+    }
+
+    async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({ "providerKey": provider });
+        self.write(self.request(Method::POST, CHANNEL_CONNECTIONS, CHANNELS).json(&body)).await
+    }
+
+    async fn channel_command(&self, id: &str, command: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError> {
+        // Pause, Resume and Disconnect take no body (Channels refuses one).
+        self.write(self.request(Method::POST, &format!("{CHANNEL_CONNECTIONS}/{}/{command}", segment(id)), CHANNELS)).await
+    }
+
+    async fn activate_channel(&self, id: &str, locations: &[String]) -> Result<(ChannelConnection, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({ "storageLocationIds": locations });
+        self.write(self.request(Method::POST, &format!("{CHANNEL_CONNECTIONS}/{}/activate", segment(id)), CHANNELS).json(&body))
+            .await
+    }
+
+    async fn channel_publications(&self) -> Result<Vec<ChannelPublicationSummary>, ApiError> {
+        Ok(self.read::<ChannelPublicationList>(CHANNEL_PUBLICATION, CHANNELS).await?.items)
+    }
+}
