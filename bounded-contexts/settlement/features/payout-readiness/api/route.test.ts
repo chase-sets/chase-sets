@@ -4,7 +4,7 @@ import type { SettlementApiEnv } from "../../../api";
 import { createPayoutReadinessRoutes } from "./route";
 import { createPayoutReadinessRuntime, PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
 import { buildPayoutSetupProgress } from "../domain/setup-progress";
-import { payoutReadinessFixture, payoutSetupMatrix } from "../domain/setup-decision.fixtures";
+import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.fixtures";
 
 const originalFetch = globalThis.fetch;
 

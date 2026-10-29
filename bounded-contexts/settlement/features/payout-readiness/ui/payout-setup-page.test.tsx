@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../../client";
 import { withPayoutSetupDecision } from "../domain/setup-progress";
-import { payoutSetupMatrix } from "../domain/setup-decision.fixtures";
+import { payoutSetupMatrix } from "../tests/setup-decision.fixtures";
 
 const { mockLoadConnectAndInitialize } = vi.hoisted(() => ({
   mockLoadConnectAndInitialize: vi.fn(),

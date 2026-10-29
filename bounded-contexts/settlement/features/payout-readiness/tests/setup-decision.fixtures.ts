@@ -1,5 +1,5 @@
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
-import type { PayoutSetupDecision } from "./setup-progress";
+import type { PayoutSetupDecision } from "../domain/setup-progress";
 
 export function payoutReadinessFixture(
   overrides: Partial<SettlementPayoutReadinessRow> = {},

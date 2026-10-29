@@ -4,7 +4,7 @@ import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/po
 import {
   payoutReadinessFixture,
   payoutSetupMatrix,
-} from "../../features/payout-readiness/domain/setup-decision.fixtures";
+} from "../../features/payout-readiness/tests/setup-decision.fixtures";
 
 const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi, mockResolveRequiredActorFromAuthApi } =
   vi.hoisted(() => ({
