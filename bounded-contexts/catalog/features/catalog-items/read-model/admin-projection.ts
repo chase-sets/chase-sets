@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -52,6 +52,11 @@ type BaseCatalogItemRow = Readonly<{
   product_asset_sets: unknown;
   image_fallback: unknown;
   updated_at: string;
+}>;
+
+type CatalogAdminPageTimestampRow = Readonly<{
+  catalog_item_id: string;
+  updated_at: string | Date;
 }>;
 
 type CatalogItemReferenceOverrides = Readonly<{
@@ -253,6 +258,38 @@ async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, item
   const items = uniqueItemIds
     .map((itemId) => itemsById.get(itemId))
     .filter((item): item is BaseCatalogItemRow => Boolean(item));
+  if (items.length === 0) {
+    return;
+  }
+
+  const itemUpdatedAtById = new Map(items.map((item) => [item.catalog_item_id, new Date(item.updated_at).getTime()]));
+  const pageTimestampResult = await db.query<CatalogAdminPageTimestampRow>(
+    `
+    SELECT catalog_item_id, updated_at
+    FROM catalog_admin_catalog_item_list_pages
+    WHERE catalog_item_id = ANY($1)
+    UNION ALL
+    SELECT catalog_item_id, updated_at
+    FROM catalog_admin_catalog_item_detail_pages
+    WHERE catalog_item_id = ANY($1)
+  `,
+    [items.map((item) => item.catalog_item_id)],
+  );
+  const stalePageItemIds = [
+    ...new Set(
+      pageTimestampResult.rows
+        .filter((page) => {
+          const itemUpdatedAt = itemUpdatedAtById.get(page.catalog_item_id);
+          return itemUpdatedAt !== undefined && new Date(page.updated_at).getTime() > itemUpdatedAt;
+        })
+        .map((page) => page.catalog_item_id),
+    ),
+  ];
+  if (stalePageItemIds.length > 0) {
+    throw createTransientProjectionError(
+      `Catalog Item source projection is behind admin pages for: ${stalePageItemIds.join(", ")}.`,
+    );
+  }
 
   await refreshCatalogAdminCatalogItemPagesForRows(db, items);
 }
@@ -885,10 +922,13 @@ async function enqueueItemAndRefreshFromEvent(
   event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0],
   context: Parameters<NonNullable<ProjectorHandlerMap[string]>>[1],
   reason: DisplayIdentityRecomputeReason,
+  enqueue = true,
 ): Promise<void> {
   const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
   const source = sourceFromEvent(event);
-  await enqueueCatalogItemDisplayIdentityRecomputeWork(db, [itemId], reason, source);
+  if (enqueue) {
+    await enqueueCatalogItemDisplayIdentityRecomputeWork(db, [itemId], reason, source);
+  }
 
   if (!context?.readSourceStreamHistory) {
     await refreshCatalogAdminCatalogItemPagesForItems(db, [itemId]);
@@ -962,37 +1002,37 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
     },
     "catalog.catalog-item.tags-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-urls-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.product-asset-sets-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-cleared": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-linked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-linked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.retired": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.archived": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
     },
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);

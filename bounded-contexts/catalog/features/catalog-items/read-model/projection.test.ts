@@ -255,6 +255,165 @@ describe("Catalog Item projections", () => {
     }
   });
 
+  it("retries an admin refresh when a page is newer than its source item row", async () => {
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("SELECT * FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
+        return { rows: [baseCatalogItemRow(String((params?.[0] as string[])[0]))] };
+      }
+      if (sql.includes("FROM catalog_admin_catalog_item_list_pages")) {
+        return { rows: [{ catalog_item_id: "cat_1", updated_at: "2026-05-17T00:01:00.000Z" }] };
+      }
+      return { rows: [] };
+    });
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+
+    await expect(handlers["catalog.catalog-item.field-value-set"]?.(event())).rejects.toThrow(
+      "Catalog Item source projection is behind admin pages",
+    );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO catalog_admin_catalog_item_list_pages")),
+    ).toBe(false);
+  });
+
+  it("keeps display identity recomputation scoped to pre-existing item families", async () => {
+    const created = {
+      type: "catalog.catalog-item.created",
+      streamId: "catalog.item-cat_family_scope",
+      data: {
+        itemId: "cat_family_scope",
+        languageCode: "en",
+        title: "Before",
+        subtitle: null,
+        description: "Description",
+      },
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never;
+    const history = [
+      created,
+      {
+        type: "catalog.catalog-item.tags-set",
+        streamId: "catalog.item-cat_family_scope",
+        data: { tags: ["rare"] },
+        timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+      },
+    ] as never;
+    const tagsQuery = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const tagsHandlers = buildCatalogAdminCatalogItemProjectionHandlers({ query: tagsQuery });
+    await tagsHandlers["catalog.catalog-item.tags-set"]?.(history[1], { readSourceStreamHistory: async () => history });
+    expect(
+      tagsQuery.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO catalog_item_display_identity_recompute_work"),
+      ),
+    ).toBe(false);
+
+    const fieldQuery = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const fieldHandlers = buildCatalogAdminCatalogItemProjectionHandlers({ query: fieldQuery });
+    const fieldEvent = {
+      type: "catalog.catalog-item.field-value-set",
+      streamId: "catalog.item-cat_family_scope",
+      data: { fieldId: "field_1", value: "value" },
+      timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+    } as never;
+    await fieldHandlers["catalog.catalog-item.field-value-set"]?.(fieldEvent, {
+      readSourceStreamHistory: async () => [created, fieldEvent] as never,
+    });
+    expect(
+      fieldQuery.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO catalog_item_display_identity_recompute_work"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["admin-before-item", "item-before-admin"] as const)(
+    "converges dependent-name refreshes in the %s order",
+    async (order) => {
+      const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
+      const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        calls.push([sql, params]);
+        if (sql.includes("SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1")) {
+          return { rows: [{ catalog_item_id: "cat_dependent_name" }] };
+        }
+        if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
+          return { rows: [{ ...baseCatalogItemRow("cat_dependent_name"), blueprint_id: "bpr_dependent_name" }] };
+        }
+        if (sql.includes("FROM catalog_blueprints")) {
+          return { rows: [{ blueprint_id: "bpr_dependent_name", name: "New Blueprint" }] };
+        }
+        return { rows: [] };
+      });
+      const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+      const itemEvent = {
+        type: "catalog.catalog-item.metadata-revised",
+        streamId: "catalog.item-cat_dependent_name",
+        data: { languageCode: "en", title: "Updated Item", subtitle: null, description: "Description" },
+        timing: { recordedAt: "2026-05-17T00:01:00.000Z" },
+      } as never;
+      const blueprintEvent = {
+        type: "catalog.blueprint.revised",
+        streamId: "catalog.blueprint-bpr_dependent_name",
+        data: {},
+        timing: { recordedAt: "2026-05-17T00:02:00.000Z" },
+      } as never;
+      const history = [
+        {
+          type: "catalog.catalog-item.created",
+          streamId: "catalog.item-cat_dependent_name",
+          data: {
+            itemId: "cat_dependent_name",
+            languageCode: "en",
+            title: "Before",
+            subtitle: null,
+            description: "Description",
+          },
+          timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+        },
+        itemEvent,
+      ] as never;
+
+      if (order === "admin-before-item") {
+        await handlers["catalog.blueprint.revised"]?.(blueprintEvent);
+        await handlers["catalog.catalog-item.metadata-revised"]?.(itemEvent, {
+          readSourceStreamHistory: async () => history,
+        });
+      } else {
+        await handlers["catalog.catalog-item.metadata-revised"]?.(itemEvent, {
+          readSourceStreamHistory: async () => history,
+        });
+        await handlers["catalog.blueprint.revised"]?.(blueprintEvent);
+      }
+
+      const pageWrites = calls.filter(([sql]) => sql.includes("INSERT INTO catalog_admin_catalog_item_"));
+      expect(pageWrites.length).toBeGreaterThanOrEqual(2);
+      expect(pageWrites.every(([sql]) => sql.includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
+    },
+  );
+
+  it("rejects an older page write after a newer write through the freshness predicate", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+    const current = {
+      type: "catalog.catalog-item.metadata-revised",
+      streamId: "catalog.item-cat_guard",
+      data: { languageCode: "en", title: "Current", subtitle: null, description: "Current" },
+      timing: { recordedAt: "2026-05-17T00:02:00.000Z" },
+    } as never;
+    await handlers["catalog.catalog-item.metadata-revised"]?.(current, {
+      readSourceStreamHistory: async () =>
+        [
+          {
+            type: "catalog.catalog-item.created",
+            streamId: "catalog.item-cat_guard",
+            data: { itemId: "cat_guard", languageCode: "en", title: "Old", subtitle: null, description: "Old" },
+            timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+          },
+          current,
+        ] as never,
+    });
+    const writes = query.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO catalog_admin_catalog_item_"));
+    expect(writes).toHaveLength(2);
+    expect(writes.every(([sql]) => String(sql).includes("updated_at <= EXCLUDED.updated_at"))).toBe(true);
+  });
+
   it.each([
     ["catalog.catalog-item.field-value-set", { fieldId: "field_1", value: "value" }],
     ["catalog.catalog-item.category-assigned", { categoryId: "category_1" }],

@@ -489,6 +489,55 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
 
+  it("converges list and detail pages when admin applies metadata before the item projection", async () => {
+    const itemId = "cat_adverse_order";
+    const blueprintId = "bpr_adverse_order";
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "adverse-order",
+      name: l10n("Adverse Order Blueprint"),
+      description: l10n("Adverse order test blueprint"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Before"),
+      subtitle: null,
+      description: l10n("Before description"),
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "ReviseCatalogItemMetadata",
+      languageCode: "en",
+      title: l10n("After"),
+      subtitle: null,
+      description: l10n("After description"),
+    });
+
+    const adminRunner = subscriptionRunners.find(
+      (runner) => runner.projectionName === "catalog-admin-catalog-item-projection",
+    );
+    const itemRunner = subscriptionRunners.find((runner) => runner.projectionName === "catalog-item-projection");
+    if (!adminRunner || !itemRunner) {
+      throw new Error("Catalog item projection runners were not mounted for the adverse-order proof.");
+    }
+
+    await adminRunner.runOnce();
+    await itemRunner.runOnce();
+
+    const itemList = await getJson("/api/catalog/items?limit=10&offset=0");
+    expect(itemList.response.status).toBe(200);
+    expect(itemList.json.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ catalog_item_id: itemId, title: "After" })]),
+    );
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(itemDetail.response.status).toBe(200);
+    expect(itemDetail.json).toMatchObject({ title: "After", description: "After description" });
+  });
+
   it("expands rich reference records from catalog item field values", async () => {
     const setTypeId = "rft_set";
     const seriesTypeId = "rft_series";

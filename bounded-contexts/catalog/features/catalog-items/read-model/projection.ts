@@ -10,6 +10,15 @@ import {
 
 const STREAM_PREFIX = "catalog.item-";
 
+async function advanceCatalogItemUpdatedAt(db: PgQueryable, itemId: string, recordedAt: string): Promise<void> {
+  await db.query(
+    `UPDATE catalog_items
+     SET updated_at = GREATEST(updated_at, $2)
+     WHERE catalog_item_id = $1`,
+    [itemId, recordedAt],
+  );
+}
+
 export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event, context) => {
@@ -275,6 +284,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
           event.timing.recordedAt,
         ],
       );
+      await advanceCatalogItemUpdatedAt(projectionDb, itemId, event.timing.recordedAt);
     },
 
     "catalog.catalog-item.external-catalog-item-reference-linked": async (event, context) => {
@@ -297,10 +307,12 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            updated_at = EXCLUDED.updated_at`,
         [providerKey, externalKey, itemId, event.timing.recordedAt],
       );
+      await advanceCatalogItemUpdatedAt(projectionDb, itemId, event.timing.recordedAt);
     },
 
     "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
         externalKey: string;
@@ -312,10 +324,12 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            AND external_key = $2`,
         [providerKey, externalKey],
       );
+      await advanceCatalogItemUpdatedAt(projectionDb, itemId, event.timing.recordedAt);
     },
 
     "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
         externalKey: string;
@@ -327,6 +341,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            AND external_key = $2`,
         [providerKey, externalKey],
       );
+      await advanceCatalogItemUpdatedAt(projectionDb, itemId, event.timing.recordedAt);
     },
 
     "catalog.catalog-item.gtin-linked": async (event, context) => {
