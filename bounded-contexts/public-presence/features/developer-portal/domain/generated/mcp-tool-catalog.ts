@@ -6139,7 +6139,7 @@ export const mcpToolCatalog = [
           },
         },
         next_payout: {
-          type: ["object", "null"] as McpNullableJsonSchemaType,
+          type: ["object", "null"] as unknown as McpNullableJsonSchemaType,
           description: "Next requested or in-transit payout.",
           additionalProperties: false,
           required: ["payout_id", "amount", "requested_amount", "fee_amount", "currency_code", "estimated_arrival_at"],

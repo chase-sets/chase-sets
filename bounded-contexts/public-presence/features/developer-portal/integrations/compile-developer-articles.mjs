@@ -56,7 +56,7 @@ async function renderDeveloperArticles(articles) {
 async function renderMcpToolCatalog(tools) {
   const serializedTools = JSON.stringify(tools, null, 2).replace(
     /\[\n([ \t]*)"object",\n\1"null"\n([ \t]*)\]/g,
-    '["object", "null"] as McpNullableJsonSchemaType',
+    '["object", "null"] as unknown as McpNullableJsonSchemaType',
   );
 
   return format(
