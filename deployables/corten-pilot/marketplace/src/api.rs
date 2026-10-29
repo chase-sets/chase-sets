@@ -6004,15 +6004,85 @@ pub struct Payout {
     pub last_reconciled_at: Option<String>,
 }
 
-/// Whether the account can be paid out (`SettlementPayoutReadinessRow`), the fields the page reads.
+/// Whether the account can be paid out (`SettlementPayoutReadinessRow`), the fields the money and
+/// payout setup pages read.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PayoutReadiness {
-    /// `ready` once payout setup is complete.
+    /// `ready` once payout setup is complete; `not-started`, `restricted` or another (in progress).
     pub status: String,
     pub missing_requirements: Vec<String>,
+    pub advisory_requirements: Vec<String>,
+    /// The provider's reason the account is disabled (Stripe's `requirements.disabled_reason`).
+    pub disabled_reason: Option<String>,
+    pub requirements_deadline: Option<String>,
     pub provider_reference: Option<String>,
+    /// `not-started`, `pending` or `complete`.
+    pub onboarding_status: String,
+    /// `inactive`, `pending` or `active`.
+    pub transfer_capability_status: String,
+    pub payout_capability_status: String,
+    /// `missing`, `pending` or `ready`.
+    pub payout_destination_status: String,
     pub updated_at: Option<String>,
+}
+
+/// Payout setup's progress as Settlement works it out (`GET /payout-setup/progress`,
+/// `PayoutSetupProgress`): the missing and upcoming requirements by group, and the steps.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutSetupProgress {
+    pub missing_requirement_groups: Vec<RequirementGroup>,
+    pub advisory_requirement_groups: Vec<RequirementGroup>,
+    pub steps: Vec<SetupStep>,
+}
+
+/// A group of requirements (`MissingRequirementGroup`): `payout-account`,
+/// `identity-and-business`, `account-agreement`, `platform-review` or `verification-review`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct RequirementGroup {
+    pub id: String,
+    pub count: u64,
+}
+
+/// A step of payout setup (`PayoutSetupProgressStep`): its words are Settlement's English, as
+/// marketplace shows them; `status` is `not-started`, `needs-attention`, `pending` or `ready`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SetupStep {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+}
+
+/// Which of Stripe's Connect components a session is for, and its Settlement endpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectSession {
+    /// Account onboarding (`/payout-setup/embedded-session`), with the account's email.
+    Onboarding,
+    /// Account management (`/payout-setup/account-management-embedded-session`).
+    Management,
+    /// The notification banner (`/payout-setup/notification-banner-session`).
+    Notifications,
+}
+
+impl ConnectSession {
+    fn path(self) -> &'static str {
+        match self {
+            ConnectSession::Onboarding => "/api/settlement/payout-setup/embedded-session",
+            ConnectSession::Management => "/api/settlement/payout-setup/account-management-embedded-session",
+            ConnectSession::Notifications => "/api/settlement/payout-setup/notification-banner-session",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientSecret {
+    #[serde(default)]
+    client_secret: String,
 }
 
 /// The payout amounts the policy in effect offers (`GET /payouts/quick-amounts`).
@@ -6103,6 +6173,13 @@ pub trait MoneyCalls {
     /// One of the account's payouts; `None` when it has none by `id`.
     async fn payout(&self, id: &str) -> Result<Option<Payout>, ApiError>;
     async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError>;
+    async fn payout_setup_progress(&self) -> Result<PayoutSetupProgress, ApiError>;
+    /// Ask Settlement to read the account's payout setup from the provider again: the readiness it
+    /// now has and the receipt the next read waits for.
+    async fn refresh_payout_setup(&self) -> Result<(PayoutReadiness, Option<Receipt>), ApiError>;
+    /// A Stripe Connect session's client secret for one of its components. `contact_email` goes
+    /// with onboarding only, as marketplace sends it.
+    async fn connect_session(&self, session: ConnectSession, contact_email: Option<&str>) -> Result<String, ApiError>;
     async fn payout_quick_amounts(&self) -> Result<QuickAmounts, ApiError>;
     /// The adjustment by its display reference; `None` when the account has none by it.
     async fn wallet_adjustment(&self, reference: &str) -> Result<Option<WalletAdjustment>, ApiError>;
@@ -6145,6 +6222,26 @@ impl MoneyCalls for Caller<'_> {
 
     async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError> {
         self.read("/api/settlement/payout-readiness", SETTLEMENT).await
+    }
+
+    async fn payout_setup_progress(&self) -> Result<PayoutSetupProgress, ApiError> {
+        self.read("/api/settlement/payout-setup/progress", SETTLEMENT).await
+    }
+
+    async fn refresh_payout_setup(&self) -> Result<(PayoutReadiness, Option<Receipt>), ApiError> {
+        let req = self.request(Method::POST, "/api/settlement/payout-setup/refresh", SETTLEMENT).json(&serde_json::json!({}));
+        self.write(req).await
+    }
+
+    async fn connect_session(&self, session: ConnectSession, contact_email: Option<&str>) -> Result<String, ApiError> {
+        let email = contact_email.map(str::trim).filter(|e| !e.is_empty()).filter(|_| session == ConnectSession::Onboarding);
+        let body = match email {
+            Some(email) => serde_json::json!({ "contactEmail": email }),
+            None => serde_json::json!({}),
+        };
+        let req = self.request(Method::POST, session.path(), SETTLEMENT).json(&body);
+        let (secret, _): (ClientSecret, _) = self.write(req).await?;
+        Ok(secret.client_secret)
     }
 
     async fn payout_quick_amounts(&self) -> Result<QuickAmounts, ApiError> {

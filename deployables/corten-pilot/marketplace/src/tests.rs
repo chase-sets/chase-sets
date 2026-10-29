@@ -432,6 +432,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // `payout_reader` may only see them.
             "banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
             "payout_reader" => actor(&["payouts.view"]),
+            // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
+            // provider account (its management session asks it to sign in again).
+            "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -454,6 +457,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = consents_api(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = payout_setup_api(session, &method, &uri) {
         return answer;
     }
     if let Some(answer) = money_api(session, &method, &uri, &body) {
@@ -1797,7 +1803,9 @@ impl Pilot {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(stand.clone());
         tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
-        let router = app(Config { platform: Platform::new(&origin), proto: "http" }).router();
+        let router =
+            app(Config { platform: Platform::new(&origin), proto: "http", stripe_publishable_key: Some("pk_test_pilot".into()) })
+                .router();
         Pilot { router, stand }
     }
 
@@ -10872,6 +10880,223 @@ fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Re
     })
 }
 
+/// Settlement's payout setup for `setter` (not started: the provider's onboarding and the seller
+/// agreement are missing, two details for verification review), `restricted_setter` (restricted for
+/// overdue details, with a provider account and a missing payout account) and `banker` (ready).
+/// Refresh is committed at position 51 (`banker`'s comes back ready); a session is
+/// `accs_secret_{which}`, but `restricted_setter`'s management session needs a recent sign-in.
+fn payout_setup_api(session: &str, method: &Method, uri: &Uri) -> Option<Response> {
+    if !matches!(session, "setter" | "restricted_setter" | "banker") {
+        return None;
+    }
+    let restricted = session == "restricted_setter";
+    let ready = session == "banker";
+    let readiness = if ready {
+        json!({ "account_id": "acc_seller", "status": "ready", "missing_requirements": [], "provider_reference": "acct_1",
+                "onboarding_status": "complete", "transfer_capability_status": "active", "payout_capability_status": "active",
+                "payout_destination_status": "ready", "updated_at": "2026-10-01T00:00:00.000Z" })
+    } else if restricted {
+        json!({ "account_id": "acc_seller", "status": "restricted", "missing_requirements": ["external_account"],
+                "advisory_requirements": ["company.tax_id"], "disabled_reason": "requirements.past_due",
+                "requirements_deadline": "2026-11-05T00:00:00.000Z", "provider_reference": "acct_9",
+                "onboarding_status": "pending", "transfer_capability_status": "inactive", "payout_capability_status": "inactive",
+                "payout_destination_status": "missing", "updated_at": "2026-10-28T12:00:00.000Z" })
+    } else {
+        json!({ "account_id": "acc_seller", "status": "not-started", "missing_requirements": ["provider-onboarding", "seller-agreement"],
+                "provider_reference": null, "onboarding_status": "not-started", "transfer_capability_status": "inactive",
+                "payout_capability_status": "inactive", "payout_destination_status": "missing", "updated_at": null })
+    };
+    let step = |id: &str, label: &str, status: &str| json!({ "id": id, "label": label, "status": status, "detail": format!("{label}: {status}.") });
+    Some(match (method.as_str(), uri.path()) {
+        ("GET", "/api/settlement/payout-readiness") if !ready => Json(readiness).into_response(),
+        ("GET", "/api/settlement/payout-setup/progress") => {
+            let groups = if ready {
+                json!([])
+            } else if restricted {
+                json!([{ "id": "payout-account", "label": "Payout account", "count": 1, "detail": "" }])
+            } else {
+                json!([{ "id": "verification-review", "label": "Verification review", "count": 2, "detail": "" }])
+            };
+            let advisory = if restricted { json!([{ "id": "identity-and-business", "count": 1 }]) } else { json!([]) };
+            Json(json!({
+                "missing_requirement_groups": groups, "advisory_requirement_groups": advisory,
+                "steps": [step("payout-setup", "Payout setup", if ready { "ready" } else { "not-started" }),
+                          step("payout-destination", "Payout destination", if ready { "ready" } else { "needs-attention" })],
+            }))
+            .into_response()
+        }
+        ("POST", "/api/settlement/payout-setup/refresh") => {
+            let mut body = readiness;
+            body["commandReceipt"] = Value::Null;
+            committed(StatusCode::OK, "settlement", "51", body)
+        }
+        ("POST", "/api/settlement/payout-setup/account-management-embedded-session") if restricted => {
+            refusal(StatusCode::BAD_REQUEST, "step_up_required", "Confirm it is you before managing payout account details.")
+        }
+        ("POST", path) if path.starts_with("/api/settlement/payout-setup/") && path.ends_with("session") => {
+            let which = path.trim_start_matches("/api/settlement/payout-setup/");
+            Json(json!({ "clientSecret": format!("accs_secret_{which}") })).into_response()
+        }
+        _ => return None,
+    })
+}
+
+const PAYOUT_SETUP: &str = "/account/desk/settings";
+
+#[tokio::test]
+async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get(PAYOUT_SETUP, Some("setter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Settlement Payout setup Keep payout destination"), "{shown}");
+    assert!(shown.contains("Not started Start payout setup Add the required account and payout destination details"), "{shown}");
+    assert!(shown.contains("Set up payouts") && shown.contains("Last checked: Not checked yet"), "{shown}");
+    // Not ready and something to do: the groups' words, with no support (chase-sets/chase-sets#10771).
+    assert!(shown.contains("Payout setup details need attention Open payout setup to complete: Verification review."), "{shown}");
+    assert!(
+        shown.contains("Payout setup: not-started.") && shown.contains("Payout destination: needs-attention."),
+        "the steps: {shown}"
+    );
+    assert!(
+        shown.contains("Support details 2 provider details available")
+            && shown.contains("Verification review: 2 detail(s) need attention"),
+        "{shown}"
+    );
+    assert!(
+        html.contains(r#"name="intent" value="refresh-payout-setup""#) && html.contains(r#"name="mode" value="setup""#),
+        "{html}"
+    );
+    // Stripe's onboarding form, its session from the pilot; no notifications without a provider account.
+    assert!(html.contains("/account/desk/settings/session?which=onboarding"), "{html}");
+    assert!(!html.contains("which=notifications") && !shown.contains("Manage details"), "{html}");
+    assert!(shown.contains("Loading secure payout setup"), "{shown}");
+    // Connect.js's sources on this page, and the opener Stripe's sign-in needs (todd-skelton/corten#318).
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(
+        csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
+        "{csp}"
+    );
+    assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
+    // Every other page keeps same-origin and no Connect.js.
+    let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
+    assert_eq!(headers["cross-origin-opener-policy"], "same-origin");
+    assert!(!headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("connect-js"));
+}
+
+#[tokio::test]
+async fn restricted_payout_setup_says_why_offers_support_and_manages_with_a_provider_account() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(PAYOUT_SETUP, Some("restricted_setter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Needs attention Payout setup needs attention."), "{shown}");
+    assert!(shown.contains("Payout setup is restricted Required payout details are overdue."), "past_due: {shown}");
+    assert!(shown.contains("Contact support"), "{shown}");
+    assert!(shown.contains("Upcoming payout requirements"), "{shown}");
+    assert!(html.contains("<details") && html.contains(" open"), "restricted opens the fold: {html}");
+    assert!(shown.contains("Payout destination Missing") && shown.contains("Act by"), "{shown}");
+    assert!(html.contains("which=notifications") && html.contains("which=onboarding"), "{html}");
+    assert!(html.contains(r#"href="/account/desk/settings?mode=manage""#) && shown.contains("Manage details"), "{html}");
+
+    let (_, _, html) = pilot.send(get(&format!("{PAYOUT_SETUP}?mode=manage"), Some("restricted_setter"))).await;
+    assert!(html.contains("which=management") && text(&html).contains("Manage payout details"), "{html}");
+    assert!(html.contains(r#"name="mode" value="management""#) && text(&html).contains("Setup view"), "{html}");
+    // Management without a provider account is setup (`resolvePayoutSetupMode`).
+    let (_, _, html) = pilot.send(get(&format!("{PAYOUT_SETUP}?mode=manage"), Some("setter"))).await;
+    assert!(html.contains("which=onboarding") && !html.contains("which=management"), "{html}");
+
+    // Ready: no form, Request payout instead.
+    let (_, _, html) = pilot.send(get(PAYOUT_SETUP, Some("banker"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Payouts are ready You can request payouts") && shown.contains("Request payout"), "{shown}");
+    assert!(!html.contains("which=onboarding") && html.contains("which=notifications"), "{html}");
+}
+
+#[tokio::test]
+async fn payout_setup_needs_payouts_setup_and_a_visitor_signs_in() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{PAYOUT_SETUP}?mode=manage"), Some("payout_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let shown = text(&html);
+    assert!(shown.contains("Use a payout-enabled account for setup") && shown.contains("Use a different account"), "{shown}");
+    assert!(html.contains("returnTo=%2Faccount%2Fdesk%2Fsettings%3Fmode%3Dmanage"), "{html}");
+    let (status, _, _) = pilot.send(post(PAYOUT_SETUP, "payout_reader", "intent=refresh-payout-setup", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(post(&format!("{PAYOUT_SETUP}/session?which=onboarding"), "payout_reader", "", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get(PAYOUT_SETUP, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo=%2Faccount%2Fdesk%2Fsettings"));
+    assert!(pilot.stand.calls.lock().unwrap().iter().all(|c| !c.path.starts_with("/api/settlement/payout-setup")));
+}
+
+#[tokio::test]
+async fn refresh_reads_the_page_after_it_or_goes_back_once_setup_is_ready() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post(&format!("{PAYOUT_SETUP}?mode=manage"), "setter", "intent=refresh-payout-setup&mode=management", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/desk/settings?mode=manage&setup=updated&afterWrite="), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("setter"))).await;
+    assert!(text(&html).contains("Setup status checked Payout setup status was refreshed."), "{html}");
+    let read =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == "/api/settlement/payout-readiness").cloned().unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("51"), "read after the refresh");
+
+    // Ready, with an account page to go back to: there. Not an account page: the page.
+    let (status, headers, _) = pilot
+        .send(post(&format!("{PAYOUT_SETUP}?returnTo=%2Faccount%2Fdesk%2Fmoney"), "banker", "intent=refresh-payout-setup", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/desk/money");
+    let (_, headers, _) = pilot
+        .send(post(&format!("{PAYOUT_SETUP}?returnTo=%2F%2Fevil.test%2F"), "banker", "intent=refresh-payout-setup", false))
+        .await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/settings?setup=updated"), "{headers:?}");
+    // Any other intent goes back to the page in its mode, writing nothing.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, headers, _) = pilot.send(post(PAYOUT_SETUP, "setter", "intent=start-payout-setup&mode=management", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/desk/settings?mode=manage");
+    assert!(pilot.stand.calls.lock().unwrap()[before..].iter().all(|c| c.method != Method::POST), "nothing sent");
+}
+
+#[tokio::test]
+async fn a_connect_session_is_json_kept_by_no_cache_and_says_when_to_sign_in_again() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) =
+        pilot.send(post(&format!("{PAYOUT_SETUP}/session?which=onboarding"), "setter", "", false)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let answer: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(answer["secret"], "accs_secret_embedded-session", "{body}");
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/embedded-session")).cloned().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "contactEmail": "seller@chasesets.test" }));
+
+    let (_, _, body) =
+        pilot.send(post(&format!("{PAYOUT_SETUP}/session?which=notifications"), "restricted_setter", "", false)).await;
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["secret"], "accs_secret_notification-banner-session");
+    let (status, _, body) =
+        pilot.send(post(&format!("{PAYOUT_SETUP}/session?which=management"), "restricted_setter", "", false)).await;
+    assert_eq!(status, StatusCode::OK);
+    let answer: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(answer["code"], "step_up_required", "{body}");
+    assert!(answer["secret"].is_null(), "{body}");
+    let sent = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|c| c.path.ends_with("/account-management-embedded-session"))
+        .cloned()
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({}), "management sends no email");
+}
+
 /// The money page's calls to Settlement's writes: path and body.
 fn money_writes(pilot: &Pilot) -> Vec<(String, Value, Option<String>)> {
     let calls = pilot.stand.calls.lock().unwrap();
@@ -11025,7 +11250,7 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     let words = text(&html);
     assert!(words.contains("Needs attention") && words.contains("Bank account temporarily unavailable"), "{words}");
     assert!(words.contains("Payout account needs review"), "{words}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/desk/settings?mode=manage""#), "{html}");
+    assert!(html.contains(r#"href="/account/desk/settings?mode=manage""#), "Review payout details is the pilot's: {html}");
     assert!(html.contains(r#"href="/account/support""#), "Contact support is the pilot's: {html}");
     assert!(html.contains(r#"data-status="issue""#), "{html}");
 
@@ -11066,7 +11291,7 @@ async fn settlements_old_addresses_move_for_good_with_their_query() {
         ("/account/payouts?tab=history", "/account/desk/money?tab=history"),
         ("/account/settlement", "/account/desk/money"),
         ("/account/payouts/pyo_paid?requested=1", "/account/desk/payouts/pyo_paid?requested=1"),
-        ("/account/payouts/setup?mode=manage", "http://localhost:7753/account/desk/settings?mode=manage"),
+        ("/account/payouts/setup?mode=manage", "/account/desk/settings?mode=manage"),
         ("/account/wallet/adjustments/WADJ-1", "/account/desk/money?drawer=wallet-adjustment&entity=WADJ-1"),
     ] {
         let (status, headers, _) = pilot.send(get(from, None)).await;

@@ -113,6 +113,10 @@ pub struct Config {
     pub platform: Platform,
     /// The scheme browsers use for the pilot, forwarded to the API.
     pub proto: &'static str,
+    /// Stripe's publishable key, which payout setup's Connect components start with
+    /// (`STRIPE_PUBLISHABLE_KEY`, as marketplace reads it); without it the page says setup is not
+    /// configured.
+    pub stripe_publishable_key: Option<String>,
 }
 
 impl Config {
@@ -121,6 +125,10 @@ impl Config {
         Config {
             platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762")),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
+            stripe_publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
+                .ok()
+                .map(|key| key.trim().to_owned())
+                .filter(|key| !key.is_empty()),
         }
     }
 }
@@ -162,6 +170,7 @@ pub mod url {
     pub use payment_methods::PaymentMethods;
     pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
     pub use payout::DeskPayout;
+    pub use payout_setup::{PayoutSetup, PayoutSetupSession};
     pub use purchase_reviews::PurchaseReview;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use repricing::{Repricing, RepricingDryRunLive};
@@ -889,6 +898,27 @@ pub mod url {
         }
     }
 
+    /// Payout setup (Settlement's `account-desk-settings`, see `payout_setup`): any account may
+    /// open it; Refresh and Stripe's sessions need `payouts.setup` (`PayoutSetter`).
+    #[corten::routes(state = crate::app::Shared, area = PayoutSetup, caller = crate::auth::PayoutSetter)]
+    pub mod payout_setup {
+        /// The page; Refresh setup status posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/settings", get = crate::payout_setup::page, post = crate::payout_setup::write)]
+        pub struct PayoutSetup {
+            #[route(query)]
+            pub place: crate::payout_setup::Place,
+        }
+
+        /// A Stripe Connect session for the page's script, as JSON.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/desk/settings/session", post = crate::payout_setup::session)]
+        pub struct PayoutSetupSession {
+            #[route(query)]
+            pub which: crate::payout_setup::Which,
+        }
+    }
+
     /// A payout's page (Settlement's `account-desk-payout`, see `money`). It takes a
     /// `PayoutViewer`, as the money page does.
     #[corten::routes(state = crate::app::Shared, area = PayoutsArea, caller = crate::auth::PayoutViewer)]
@@ -1338,6 +1368,23 @@ fn stripe(p: corten::security::Sources) -> corten::security::Sources {
         .connect_src("https://merchant-ui-api.stripe.com")
 }
 
+/// Where Stripe's Connect.js loads from, and the origin of its components' frames.
+pub const CONNECT_JS: &str = "https://connect-js.stripe.com";
+
+/// What Stripe's Connect embedded components need (Stripe's CSP list, and marketplace's
+/// `CONNECT_EMBEDDED_COMPONENT_CSP`): Connect.js and Stripe.js, their frames, the APIs they call,
+/// and the empty `<style>` Connect.js writes, by its hash, rather than marketplace's
+/// `'unsafe-inline'`. Images from Stripe are `https:`, which every page allows.
+fn stripe_connect(p: corten::security::Sources) -> corten::security::Sources {
+    p.script_src(CONNECT_JS)
+        .script_src(STRIPE_JS)
+        .frame_src(CONNECT_JS)
+        .frame_src(STRIPE_JS)
+        .connect_src("https://api.stripe.com")
+        .connect_src("https://merchant-ui-api.stripe.com")
+        .style_src("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='")
+}
+
 // The app's `static/` directory, compiled into the program, so the binary is the whole deploy
 // (todd-skelton/corten#268).
 corten::assets::embed!(pub struct Static = "static");
@@ -1406,6 +1453,7 @@ pub fn app(config: Config) -> App {
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
         .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payout_setup::area(area, shared.clone()).components(views::PAYOUT_SETUP).policy(stripe_connect))
         // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
@@ -1421,6 +1469,8 @@ pub fn app(config: Config) -> App {
         .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::sign_out::area(area, shared.clone()))
         .error_page(views::error_page, shared)
+        // Stripe's Connect sign-in on payout setup (todd-skelton/corten#318).
+        .layer(corten::axum::middleware::from_fn(crate::payout_setup::opener))
 }
 
 /// Marketplace's sign-in, for a session the API says has ended (the callers' `identify` sends the rest

@@ -203,7 +203,10 @@ pub fn PayoutPage<'a>(t: MoneyMsg, screen: &'a PayoutScreen) -> impl Render {
                     <p class={Strong}>{t.detail_payout_account_needs_review()}</p>
                     <p>{t.detail_review_payout_details_before_requesting()}</p>
                     <p class={Row}>
-                        <a class={(Button, Secondary)} href={on_marketplace("/account/desk/settings?mode=manage")}>
+                        <a
+                            class={(Button, Secondary)}
+                            href={url::PayoutSetup { place: crate::payout_setup::Place::of(crate::payout_setup::Mode::Management, None) }}
+                        >
                             {t.detail_review_payout_details()}
                         </a>
                         <a class={(Button, Secondary)} href={url::SupportList::default()}>{t.detail_contact_support()}</a>
@@ -291,7 +294,7 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
     } else {
         t.page_many_need_attention(blocked_count).to_string()
     };
-    let settings = on_marketplace("/account/desk/settings");
+    let settings = url::PayoutSetup::default();
     html! {
         <header class={Header}>
             <div class={Tight}>

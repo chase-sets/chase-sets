@@ -17,9 +17,9 @@ use crate::{
     api::Identity,
     app::{
         ACCOUNTS_MANAGE, ACCOUNTS_VIEW, FULFILLMENT_MANAGE, FULFILLMENT_VIEW, GUEST_CHECKOUT, LISTINGS_MANAGE, LISTINGS_VIEW,
-        MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PAYOUTS_VIEW,
-        PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, SUPPORT_MANAGE, SUPPORT_VIEW, Shared,
-        VIEW, sign_in_at, sign_in_back_to,
+        MANAGE, MEMBERSHIPS_MANAGE, MEMBERSHIPS_VIEW, OFFERS_MANAGE, OFFERS_VIEW, ORDERS_MANAGE, ORDERS_VIEW, PAYOUTS_SETUP,
+        PAYOUTS_VIEW, PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW, SECURITY_MANAGE, SUPPORT_MANAGE,
+        SUPPORT_VIEW, Shared, VIEW, sign_in_at, sign_in_back_to,
     },
     views,
 };
@@ -440,6 +440,25 @@ impl Identify<Shared> for ListingSeller {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer) if parts.method.is_safe() || viewer.actor.can(LISTINGS_MANAGE) => Ok(ListingSeller(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// A seller on payout setup (Settlement's `account-desk-settings`): any account may open the page,
+/// which says when it may not set up payouts (marketplace's "Account access required",
+/// `payouts.setup`); Refresh and a Stripe Connect session need `payouts.setup`, as marketplace's
+/// action requires (the API checks again). Anyone not signed in is sent to the sign-in, back to the
+/// page.
+#[derive(Clone, Debug, Hash)]
+pub struct PayoutSetter(pub Viewer);
+
+impl Identify<Shared> for PayoutSetter {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if parts.method.is_safe() || viewer.actor.can(PAYOUTS_SETUP) => Ok(PayoutSetter(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),

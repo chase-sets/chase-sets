@@ -18,7 +18,7 @@
 //! requests the payout with the form's `SubmitKey` as its `Idempotency-Key` (marketplace sends none),
 //! so a request sent again after a lost answer is the same payout, and goes to the payout's page,
 //! read after it. Unlike marketplace's route, the page sends no Stripe Connect CSP:
-//! nothing on it embeds Stripe (payout setup is on marketplace's settings page).
+//! nothing on it embeds Stripe (payout setup is its own page, `payout_setup`).
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -28,7 +28,7 @@
 //! | `GET /account/payouts`, `/account/settlement` | `301` to the money page, with the query |
 //! | `GET /account/payouts/{id}` | `301` to the payout's page, with the query |
 //! | `GET /account/wallet/adjustments/{reference}` | `301` to the money page with the adjustment open |
-//! | `GET /account/payouts/setup` | `301` to marketplace's payout settings (not ported), with the query |
+//! | `GET /account/payouts/setup` | `301` to payout setup (`payout_setup`), with the query |
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
@@ -537,9 +537,9 @@ pub(crate) async fn legacy_payout(
     moved_with(&req, url::DeskPayout { id: &id, place: PayoutPlace::default() }.href(), &uri)
 }
 
-/// `/account/payouts/setup`: marketplace's payout settings, which the pilot does not port.
+/// `/account/payouts/setup`: payout setup.
 pub(crate) async fn legacy_payout_setup(req: Req, uri: Uri) -> HtmlResult {
-    moved_with(&req, views::on_marketplace("/account/desk/settings"), &uri)
+    moved_with(&req, crate::payout_setup::PATH.to_owned(), &uri)
 }
 
 /// `/account/wallet/adjustments/{reference}`: the money page with the adjustment's breakdown open.

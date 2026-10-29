@@ -47,6 +47,7 @@ mod packing_slips_page;
 mod page_actions;
 mod payment_methods_page;
 mod payment_page;
+mod payout_setup_page;
 mod recovery;
 mod repricing_page;
 mod reviews_page;
@@ -94,6 +95,7 @@ pub use packing_slips_page::PackingSlipsPage;
 pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
+pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
@@ -203,6 +205,9 @@ pub const DESK: &[Component] = &[DeskPage];
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
 /// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modalClosedBy`).
 pub const MONEY: &[Component] = &[MoneyPage];
+/// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
+/// module their appearance comes from.
+pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports.
 pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::stripe::COMPONENT];
 
