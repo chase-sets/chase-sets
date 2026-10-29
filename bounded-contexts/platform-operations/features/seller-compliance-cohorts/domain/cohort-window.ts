@@ -238,9 +238,14 @@ export function evaluateSellerComplianceCohort(
     const candidates = sales
       .flatMap((sale) => [
         addUtcMonths(sale.occurredAt, windowMonths),
-        isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, addUtcMonths(sale.occurredAt, lookbackMonths))
-          ? new Date(Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1).toISOString()
-          : null,
+        (() => {
+          const firstInadmissible = new Date(
+            Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1,
+          ).toISOString();
+          return isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, firstInadmissible)
+            ? null
+            : firstInadmissible;
+        })(),
       ])
       .filter((instant): instant is string => instant !== null)
       .filter((instant) => Date.parse(instant) > Date.parse(entry) && Date.parse(instant) <= Date.parse(evaluationAt))
