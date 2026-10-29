@@ -7,7 +7,7 @@ import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
 import AccountSupportDetailRoute, { loader as detailLoader } from "../../../routes/marketplace/account-support-detail";
-import { supportParticipantDetailFixture } from "./participant-router.test-data";
+import { supportParticipantDetailFixture, withParticipantPolicy } from "./participant-router.test-data";
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
@@ -111,26 +111,31 @@ describe("SupportRequestListPage", () => {
           if (url.endsWith("/flows")) return json({ items: supportFlowCatalog });
           if (url.endsWith("/purchases") || url.endsWith("/sales")) return json({ items: [] });
           if (url.endsWith("/support-requests/sup_1"))
-            return json({
-              ...supportParticipantDetailFixture(),
-              support_request_id: "sup_1",
-              order_id: "ord_1",
-              display_reference: "SUP-OPENED",
-              flow_type: "product-damaged",
-              flow: getSupportFlowDefinition("product-damaged"),
-              status: "waiting-on-seller",
-              checklist: [],
-              evidence: [
+            return json(
+              withParticipantPolicy(
                 {
-                  evidenceId: "sev_opening",
-                  evidenceType: "photo",
-                  summary: "Opening photos recorded",
-                  submittedByRole: "buyer",
-                  submittedAt: "2026-10-12T12:01:00.000Z",
-                  attachments: [],
+                  ...supportParticipantDetailFixture(),
+                  support_request_id: "sup_1",
+                  order_id: "ord_1",
+                  display_reference: "SUP-OPENED",
+                  flow_type: "product-damaged",
+                  flow: getSupportFlowDefinition("product-damaged"),
+                  status: "waiting-on-seller",
+                  checklist: [],
+                  evidence: [
+                    {
+                      evidenceId: "sev_opening",
+                      evidenceType: "photo",
+                      summary: "Opening photos recorded",
+                      submittedByRole: "buyer",
+                      submittedAt: "2026-10-12T12:01:00.000Z",
+                      attachments: [],
+                    },
+                  ],
                 },
-              ],
-            });
+                "acc_buyer",
+              ),
+            );
           if (url.endsWith("/orders/ord_1"))
             return json({
               ...buyerOrder,

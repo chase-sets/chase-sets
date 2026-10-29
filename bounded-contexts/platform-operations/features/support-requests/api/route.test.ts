@@ -1,8 +1,17 @@
 // @vitest-environment node
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
+import {
+  projectSupportFlow,
+  type SupportFlowDetail,
+  type SupportParticipantAction,
+  type SupportParticipantPolicy,
+} from "./support-flow-projection";
+import type { SupportRequestDetailResponse, SupportRequestParticipantDetailResponse } from "../ui/contracts";
+import type { SupportRequestDetailRow } from "../read-model/queries";
+import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
@@ -34,7 +43,7 @@ import {
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
-import { getSupportFlowDefinition } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, type SupportFlowDefinition } from "../domain/flow-catalog";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -1659,6 +1668,469 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+const attestationDueAt = "2026-06-03T00:00:00.000Z";
+const responseDueAt = "2026-06-02T00:00:00.000Z";
+const reviewDueAt = "2026-06-04T00:00:00.000Z";
+
+function participantRow(overrides: Record<string, unknown> = {}) {
+  return {
+    ...supportRequestDetail(),
+    status: "waiting-on-seller",
+    seller_condition_attestation_due_at: attestationDueAt,
+    seller_response_due_at: responseDueAt,
+    support_review_due_at: reviewDueAt,
+    ...overrides,
+  };
+}
+
+function checklistItem(
+  key: string,
+  ownerRole: SupportRequesterRole,
+  required = true,
+  satisfiedAt: string | null = null,
+) {
+  return { key, label: `Provide ${key}`, ownerRole, evidenceTypes: ["photo"], required, satisfiedAt };
+}
+
+function pendingOffer(pendingWithRole: SupportRequesterRole) {
+  return {
+    offerId: "sof_1",
+    responseId: "srp_1",
+    offeredByAccountId: "acc_seller",
+    offeredByRole: "seller",
+    pendingWithRole,
+    responseType: "offer-partial-refund",
+    resolutionType: "partial-refund",
+    refundAmount: "12.00",
+    summary: "Keep the item and receive a partial refund.",
+    offeredAt: "2026-06-01T01:00:00.000Z",
+    status: "pending",
+    decidedByAccountId: null,
+    decidedByRole: null,
+    decidedAt: null,
+    decisionSummary: null,
+  };
+}
+
+function policy(
+  nextActor: SupportParticipantPolicy["nextActor"],
+  deadlineAt: string | null,
+  ...actions: SupportParticipantAction[]
+): SupportParticipantPolicy {
+  return { nextActor, deadlineAt, actions };
+}
+
+const respond = { kind: "record-response" } as const;
+const review = { kind: "escalate" } as const;
+const cancel = { kind: "cancel" } as const;
+const accept = { kind: "accept-offer" } as const;
+const decline = { kind: "decline-offer" } as const;
+const prompt = (checklistItemKey: string) => ({ kind: "submit-evidence", checklistItemKey }) as const;
+
+async function readParticipantDetail(
+  row: ReturnType<typeof participantRow>,
+  accountId: string,
+  {
+    path = "/support-requests/sup_1",
+    headers,
+    definition,
+  }: Readonly<{ path?: string; headers?: Record<string, string>; definition?: SupportFlowDefinition }> = {},
+) {
+  const services = createServices({
+    // Mirrors the account-scoped read: `buyer_account_id = $2 OR seller_account_id = $2`.
+    getAccountSupportRequest: vi.fn(async (_supportRequestId: string, scopedAccountId: string) =>
+      row.buyer_account_id === scopedAccountId || row.seller_account_id === scopedAccountId ? (row as never) : null,
+    ),
+    ...(definition ? { resolveSupportFlowDefinition: vi.fn(async () => definition) } : {}),
+  });
+  const response = await buildApp(services, ["support.view"], accountId).request(path, headers ? { headers } : {});
+  return { status: response.status, body: (await response.json()) as Record<string, unknown>, services };
+}
+
+describe("support-request-detail-participant-policy", () => {
+  it("waiting-on-seller: the seller acts next with response and review actions while the buyer opener waits with none", async () => {
+    const row = participantRow();
+
+    const seller = await readParticipantDetail(row, "acc_seller");
+    expect(seller.status).toBe(200);
+    expect(seller.body.participantPolicy).toEqual(policy("seller", attestationDueAt, respond, review));
+
+    const buyer = await readParticipantDetail(row, "acc_buyer");
+    expect(buyer.status).toBe(200);
+    expect(buyer.body.participantPolicy).toEqual(policy("seller", attestationDueAt));
+  });
+
+  it("unsatisfied checklist: the first required non-support item names the next actor and only its owner gets prompts", async () => {
+    const row = participantRow({
+      checklist: [
+        checklistItem("support-note", "support"),
+        checklistItem("buyer-optional", "buyer", false),
+        checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        checklistItem("buyer-photos", "buyer"),
+        checklistItem("seller-attestation", "seller"),
+        checklistItem("buyer-notes", "buyer"),
+      ],
+    });
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, prompt("buyer-photos"), prompt("buyer-notes"), cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it("pending offer: only its holder may accept or decline, and the offer outranks unsatisfied checklist prompts", async () => {
+    const row = participantRow({
+      pending_offer: pendingOffer("buyer"),
+      checklist: [checklistItem("seller-attestation", "seller"), checklistItem("buyer-photos", "buyer")],
+    });
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, accept, decline, cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it.each(["resolved", "closed", "cancelled"])(
+    "%s: a terminal request names no next actor and gives neither party an action",
+    async (status) => {
+      const row = participantRow({
+        status,
+        pending_offer: pendingOffer("buyer"),
+        checklist: [checklistItem("buyer-photos", "buyer")],
+      });
+
+      for (const accountId of ["acc_buyer", "acc_seller"]) {
+        expect((await readParticipantDetail(row, accountId)).body.participantPolicy).toEqual(
+          policy(null, responseDueAt),
+        );
+      }
+    },
+  );
+
+  it("an unrelated account reads 404 with no policy while each party of the row gets its own policy", async () => {
+    const row = participantRow({ status: "waiting-on-buyer" });
+
+    const unrelated = await readParticipantDetail(row, "acc_other");
+    expect(unrelated.status).toBe(404);
+    expect(unrelated.body).toEqual({ error: { code: "not_found", message: expect.any(String) } });
+    expect(unrelated.services.getAccountSupportRequest).toHaveBeenCalledWith("sup_1", "acc_other");
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, review, cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it("request-supplied role, account and opener inputs cannot alter the authenticated participant's policy", async () => {
+    const forged = await readParticipantDetail(participantRow(), "acc_buyer", {
+      path: "/support-requests/sup_1?role=seller&viewerRole=seller&accountId=acc_seller&submittedByRole=seller&canCancel=true",
+      headers: { "x-support-role": "seller", "x-account-id": "acc_seller" },
+    });
+
+    expect(forged.status).toBe(200);
+    expect(forged.body.participantPolicy).toEqual(policy("seller", attestationDueAt));
+    expect(forged.services.getAccountSupportRequest).toHaveBeenCalledWith("sup_1", "acc_buyer");
+  });
+
+  it("refuses an account without support.view before reading the row", async () => {
+    const services = createServices({ getAccountSupportRequest: vi.fn() });
+    const response = await buildApp(services, [], "acc_buyer").request("/support-requests/sup_1");
+
+    expect(response.status).toBe(403);
+    expect(services.getAccountSupportRequest).not.toHaveBeenCalled();
+  });
+
+  it("adds participantPolicy as the only new key from one row read and leaves the operations detail without it", async () => {
+    expectTypeOf<SupportRequestDetailResponse>().toEqualTypeOf<
+      SupportRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>
+    >();
+    expectTypeOf<SupportRequestParticipantDetailResponse>().toEqualTypeOf<
+      SupportRequestDetailResponse & Readonly<{ participantPolicy: SupportParticipantPolicy }>
+    >();
+    expectTypeOf<SupportParticipantPolicy>().toEqualTypeOf<
+      Readonly<{
+        nextActor: SupportRequesterRole | null;
+        deadlineAt: string | null;
+        actions: readonly SupportParticipantAction[];
+      }>
+    >();
+
+    const row = participantRow();
+    const { body, services } = await readParticipantDetail(row, "acc_seller");
+    const { participantPolicy, ...existing } = body;
+    expect(existing).toEqual({
+      ...row,
+      flow: projectSupportFlow(getSupportFlowDefinition("product-not-received"), "seller", row),
+    });
+    expect(participantPolicy).toEqual(policy("seller", attestationDueAt, respond, review));
+    expect(
+      Object.entries(services)
+        .filter(([, service]) => vi.isMockFunction(service) && service.mock.calls.length > 0)
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(["getAccountSupportRequest", "resolveSupportFlowDefinition"]);
+    expect(services.getAccountSupportRequest).toHaveBeenCalledTimes(1);
+    expect(services.resolveSupportFlowDefinition).toHaveBeenCalledTimes(1);
+
+    const operations = await buildApp(
+      createServices({ getSupportOperationsRequest: vi.fn(async () => row as never) }),
+    ).request("/support-requests/ops/sup_1");
+    expect(operations.status).toBe(200);
+    expect(Object.keys((await operations.json()) as Record<string, unknown>)).not.toContain("participantPolicy");
+  });
+});
+
+const sellerOpened = { opened_by_account_id: "acc_seller", opened_by_role: "seller" };
+const escalated = { escalated_at: "2026-06-01T02:00:00.000Z" };
+const flowWithoutReview: SupportFlowDefinition = {
+  ...getSupportFlowDefinition("product-not-received"),
+  allowedResponses: getSupportFlowDefinition("product-not-received").allowedResponses.filter(
+    (response) => response !== "request-support-review",
+  ),
+};
+
+describe("support-request-detail-participant-policy-matrix", () => {
+  it.each([
+    // status mapping with no pending offer and no checklist item open
+    ["open: the buyer waits on support", {}, "open", "acc_buyer", policy("support", reviewDueAt)],
+    ["open: the seller waits on support", {}, "open", "acc_seller", policy("support", reviewDueAt)],
+    [
+      "waiting-on-buyer: the buyer opener may request review or cancel",
+      {},
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review, cancel),
+    ],
+    ["waiting-on-buyer: the seller waits", {}, "waiting-on-buyer", "acc_seller", policy("buyer", responseDueAt)],
+    [
+      "waiting-on-seller: the seller responds or requests review",
+      {},
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review),
+    ],
+    [
+      "waiting-on-seller: the buyer opener waits and cannot cancel",
+      {},
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "ready-for-support: the buyer waits on support",
+      {},
+      "ready-for-support",
+      "acc_buyer",
+      policy("support", reviewDueAt),
+    ],
+    [
+      "ready-for-support: the seller waits on support",
+      {},
+      "ready-for-support",
+      "acc_seller",
+      policy("support", reviewDueAt),
+    ],
+    ["resolved: the buyer has no next actor", {}, "resolved", "acc_buyer", policy(null, responseDueAt)],
+    ["resolved: the seller has no next actor", {}, "resolved", "acc_seller", policy(null, responseDueAt)],
+    ["closed: the buyer has no next actor", {}, "closed", "acc_buyer", policy(null, responseDueAt)],
+    ["closed: the seller has no next actor", {}, "closed", "acc_seller", policy(null, responseDueAt)],
+    ["cancelled: the buyer has no next actor", {}, "cancelled", "acc_buyer", policy(null, responseDueAt)],
+    ["cancelled: the seller has no next actor", {}, "cancelled", "acc_seller", policy(null, responseDueAt)],
+    // opener gate follows the authenticated account
+    [
+      "the seller opener acting next may cancel",
+      sellerOpened,
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review, cancel),
+    ],
+    [
+      "the buyer acting next without opening may not cancel",
+      sellerOpened,
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review),
+    ],
+    // deadline fallbacks and null controls
+    [
+      "the seller deadline falls back to the response deadline",
+      { seller_condition_attestation_due_at: null },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", responseDueAt, respond, review),
+    ],
+    [
+      "the seller deadline is null without attestation or response deadlines",
+      { seller_condition_attestation_due_at: null, seller_response_due_at: null },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", null, respond, review),
+    ],
+    [
+      "the support deadline is only the review deadline",
+      { support_review_due_at: null },
+      "ready-for-support",
+      "acc_buyer",
+      policy("support", null),
+    ],
+    [
+      "the buyer deadline falls back to the review deadline",
+      { seller_response_due_at: null },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", reviewDueAt, review, cancel),
+    ],
+    [
+      "the buyer deadline never uses the attestation deadline",
+      { seller_response_due_at: null, support_review_due_at: null },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", null, review, cancel),
+    ],
+    [
+      "a terminal deadline is null without response or review deadlines",
+      { seller_response_due_at: null, support_review_due_at: null },
+      "resolved",
+      "acc_seller",
+      policy(null, null),
+    ],
+    // pending offer outranks checklist and status
+    [
+      "an offer pending with the buyer outranks the seller's open item",
+      { pending_offer: pendingOffer("buyer"), checklist: [checklistItem("seller-attestation", "seller")] },
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("buyer", responseDueAt, accept, decline, cancel),
+    ],
+    [
+      "the seller waits on an offer pending with the buyer",
+      { pending_offer: pendingOffer("buyer"), checklist: [checklistItem("seller-attestation", "seller")] },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("buyer", responseDueAt),
+    ],
+    [
+      "an offer pending with the seller lets only the seller decide",
+      { pending_offer: pendingOffer("seller") },
+      "waiting-on-buyer",
+      "acc_seller",
+      policy("seller", attestationDueAt, accept, decline),
+    ],
+    [
+      "the buyer opener waits on an offer pending with the seller",
+      { pending_offer: pendingOffer("seller") },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "an offer pending with support leaves the buyer waiting",
+      { pending_offer: pendingOffer("support") },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("support", reviewDueAt),
+    ],
+    [
+      "an offer pending with support leaves the seller waiting",
+      { pending_offer: pendingOffer("support") },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("support", reviewDueAt),
+    ],
+    // checklist precedence
+    [
+      "a support-owned item never names the next actor",
+      { checklist: [checklistItem("support-note", "support"), checklistItem("seller-attestation", "seller")] },
+      "waiting-on-buyer",
+      "acc_seller",
+      policy("seller", attestationDueAt, prompt("seller-attestation")),
+    ],
+    [
+      "the buyer waits on the seller's open item",
+      { checklist: [checklistItem("support-note", "support"), checklistItem("seller-attestation", "seller")] },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "optional and satisfied items leave the status mapping in charge",
+      {
+        checklist: [
+          checklistItem("buyer-optional", "buyer", false),
+          checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        ],
+      },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review),
+    ],
+    [
+      "the buyer gets no prompt for optional or satisfied items",
+      {
+        checklist: [
+          checklistItem("buyer-optional", "buyer", false),
+          checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        ],
+      },
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "an owned open item outranks the ready-for-support status",
+      { checklist: [checklistItem("buyer-photos", "buyer")] },
+      "ready-for-support",
+      "acc_buyer",
+      policy("buyer", responseDueAt, prompt("buyer-photos"), cancel),
+    ],
+    [
+      "the seller waits on the buyer's open item",
+      { checklist: [checklistItem("buyer-photos", "buyer")] },
+      "ready-for-support",
+      "acc_seller",
+      policy("buyer", responseDueAt),
+    ],
+    // the seller's review action follows the projected flow; the buyer's does not
+    [
+      "an escalated seller may respond but has no review action",
+      escalated,
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond),
+    ],
+    [
+      "the buyer's review action does not depend on escalation",
+      escalated,
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review, cancel),
+    ],
+  ] as const)("%s", async (_name, overrides, status, accountId, expected) => {
+    const { status: httpStatus, body } = await readParticipantDetail(
+      participantRow({ ...overrides, status }),
+      accountId,
+    );
+    expect(httpStatus).toBe(200);
+    expect(body.participantPolicy).toEqual(expected);
+  });
+
+  it("a flow without request-support-review gives the seller no review action and leaves the buyer's", async () => {
+    const seller = await readParticipantDetail(participantRow(), "acc_seller", { definition: flowWithoutReview });
+    expect(seller.body.participantPolicy).toEqual(policy("seller", attestationDueAt, respond));
+
+    const buyer = await readParticipantDetail(participantRow({ status: "waiting-on-buyer" }), "acc_buyer", {
+      definition: flowWithoutReview,
+    });
+    expect(buyer.body.participantPolicy).toEqual(policy("buyer", responseDueAt, review, cancel));
   });
 });
 

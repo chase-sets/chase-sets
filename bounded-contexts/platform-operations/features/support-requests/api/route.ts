@@ -4,7 +4,7 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SupportApiEnv } from "./http";
 import { accountRoleForSupportRequest, type SupportRequestServices } from "./runtime";
 import { normalizeFlowType } from "../domain/common";
-import { projectSupportFlow } from "./support-flow-projection";
+import { projectSupportFlow, projectSupportParticipantPolicy } from "./support-flow-projection";
 import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../domain/platform-remedy-policy";
 import { SupportEvidenceAttachmentError } from "./attachments";
 import { EvidenceAccessError } from "./evidence-access-audit";
@@ -942,9 +942,15 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
 
     const role = accountRoleForSupportRequest(supportRequest, access.actor.accountId);
     const definition = await services.resolveSupportFlowDefinition(normalizeFlowType(supportRequest.flow_type));
+    const flow = projectSupportFlow(definition, role, supportRequest);
     return c.json({
       ...supportRequest,
-      flow: projectSupportFlow(definition, role, supportRequest),
+      flow,
+      participantPolicy: projectSupportParticipantPolicy(
+        supportRequest,
+        { role, accountId: access.actor.accountId },
+        flow,
+      ),
     });
   });
 
