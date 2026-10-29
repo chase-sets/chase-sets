@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamsIndependentResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -12,6 +13,15 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
+import {
+  evaluateListingEvidencePolicy,
+  LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
+} from "../../listing-evidence-policy/domain/policy";
+import {
+  evolveMarketplaceListing,
+  initialMarketplaceListingState,
+  type MarketplaceListingEvent,
+} from "../domain/domain";
 import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
 import {
   openMarketplaceListingTermsSession,
@@ -2600,6 +2610,382 @@ describe("marketplace listing runtime", () => {
   });
 });
 
+describe("inventory capacity recovery", () => {
+  function fixture(quantity = 6) {
+    const memory = createInMemoryEventStore();
+    let available = quantity;
+    let publication: "ready" | "unavailable" | "missing-evidence" = "ready";
+    let beforeAppend: (() => Promise<void>) | undefined;
+    const eventStore: EventStore = {
+      ...memory.eventStore,
+      appendToStreams: async (inputs) => {
+        const callback = beforeAppend;
+        if (callback && inputs.some((i) => i.events.some((e) => e.eventType === "marketplace.listing.published"))) {
+          beforeAppend = undefined;
+          await callback();
+        }
+        return memory.eventStore.appendToStreams!(inputs);
+      },
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_supply_items AS item"))
+            return {
+              rows: [
+                {
+                  item_id: "inv_shared",
+                  account_id: "acc_seller",
+                  catalog_catalog_item_id: "cat_1",
+                  product_id: "cat_1::",
+                  item_title: "Test Card",
+                  selected_options: [],
+                  product_measure_snapshot: productMeasureSnapshot,
+                  storage_location_name: "Main",
+                  ship_from_code: "CHI",
+                  ship_from_address: shipFromAddress,
+                  available_quantity: available,
+                },
+              ],
+            };
+          return { rows: [] };
+        }),
+      } as never,
+      listingEvidencePolicyEvaluator: {
+        evaluate: async (facts) => {
+          if (publication === "unavailable") throw new Error("unavailable");
+          const evaluation = evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
+            policyId: null,
+            policyVersion: null,
+            effectiveFrom: null,
+            effectiveUntil: null,
+          });
+          return publication === "missing-evidence"
+            ? { ...evaluation, requirements: { ...evaluation.requirements, minimumPhotoCount: 1 } }
+            : evaluation;
+        },
+      },
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "0.50",
+          sellerNetUnitAmount: "9.50",
+          scheduleId: "cts_test",
+          agreementId: null,
+          resolvedAt: "2026-10-28T00:00:00.000Z",
+        }),
+      } as never,
+    });
+    return {
+      ...memory,
+      services,
+      setAvailable: (value: number) => {
+        available = value;
+      },
+      setPublication: (value: typeof publication) => {
+        publication = value;
+      },
+      race: (callback: () => Promise<void>) => {
+        beforeAppend = callback;
+      },
+      reconcile: () => services.reconcileInventoryCapacity("inv_shared"),
+      create: async (listingId: string, quantityCap = 1) => {
+        await services.createListing(
+          {
+            accountId: "acc_seller" as never,
+            inventoryItemId: "inv_shared",
+            priceAmount: "10.00",
+            priceCurrencyCode: "USD",
+            quantityCap,
+            listingIdOverride: listingId as never,
+          },
+          context,
+        );
+        await services.publishListing({ accountId: "acc_seller", listingId }, context);
+      },
+    };
+  }
+
+  it("includes every recovery candidate beyond the first seller-listings page", async () => {
+    const f = fixture(51);
+    for (let i = 0; i < 51; i += 1) await f.create(`lst_page_${String(i).padStart(3, "0")}`);
+    f.setAvailable(0);
+    await f.reconcile();
+    f.setAvailable(51);
+    await f.reconcile();
+    expect((await f.services.loadListingState("lst_page_050")).status).toBe("active");
+    expect(f.allEvents.filter((event) => event.eventType === "marketplace.listing.published")).toHaveLength(102);
+  });
+
+  it("never activates a moderated Listing or a channel-only Listing", async () => {
+    const f = fixture(2);
+    await f.create("lst_moderated");
+    await f.services.operatorUnlistListing(
+      {
+        listingId: "lst_moderated" as never,
+        sourceActionId: createId("rca"),
+        listingEnforcementActionId: createId("lea"),
+        recordedAt: new Date().toISOString(),
+      },
+      context,
+    );
+    await f.services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_shared",
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        listingIdOverride: "lst_channel_only" as never,
+        publicationScope: "channel-only",
+      },
+      context,
+    );
+    const count = f.allEvents.length;
+    await f.reconcile();
+    expect(f.allEvents).toHaveLength(count);
+    expect((await f.services.loadListingState("lst_moderated")).status).toBe("paused");
+    expect((await f.services.loadListingState("lst_channel_only")).status).toBe("draft");
+  });
+
+  it.each(["unavailable", "missing-evidence"] as const)(
+    "persists an actionable %s gate condition, stays inert, and clears it on recovery",
+    async (gate) => {
+      const f = fixture(1);
+      await f.create("lst_blocked");
+      f.setAvailable(0);
+      await f.reconcile();
+      f.setAvailable(1);
+      f.setPublication(gate);
+      await f.reconcile();
+      const expectedBlock = gate === "unavailable" ? "publication-unavailable" : "evidence-incomplete";
+      expect(await f.services.loadListingState("lst_blocked")).toMatchObject({
+        status: "paused",
+        pauseReason: "inventory-capacity",
+        inventoryCapacityRecoveryBlock: expectedBlock,
+      });
+      const blockedCount = f.allEvents.length;
+      await f.reconcile();
+      expect(f.allEvents).toHaveLength(blockedCount);
+      const replayed = (await f.eventStore.readStream({ streamId: "marketplace.listing-lst_blocked" })).reduce(
+        (state, event) =>
+          evolveMarketplaceListing(state, { type: event.eventType, data: event.payload } as MarketplaceListingEvent),
+        initialMarketplaceListingState,
+      );
+      expect(replayed.inventoryCapacityRecoveryBlock).toBe(expectedBlock);
+      f.setPublication("ready");
+      await f.reconcile();
+      expect(await f.services.loadListingState("lst_blocked")).toMatchObject({
+        status: "active",
+        inventoryCapacityRecoveryBlock: null,
+      });
+    },
+  );
+
+  it("allocates fitting candidates after active commitments in registry order and ignores stale empty Listing projections", async () => {
+    const f = fixture(6);
+    await f.create("lst_a_active", 1);
+    await f.create("lst_b_large", 3);
+    await f.create("lst_c_small", 1);
+    await f.create("lst_z_small", 1);
+    f.setAvailable(3);
+    await f.reconcile();
+    expect((await f.services.loadListingState("lst_a_active")).status).toBe("active");
+    f.setAvailable(2);
+    await Promise.all([f.reconcile(), f.reconcile()]);
+    const states = await Promise.all(
+      ["lst_a_active", "lst_b_large", "lst_c_small", "lst_z_small"].map((id) => f.services.loadListingState(id)),
+    );
+    expect(states.map((s) => s.status)).toEqual(["active", "paused", "active", "paused"]);
+    expect(states.filter((s) => s.status === "active").reduce((sum, s) => sum + s.quantityCap, 0)).toBe(2);
+    const settled = f.allEvents.length;
+    await f.reconcile();
+    expect(f.allEvents).toHaveLength(settled);
+  });
+
+  it.each(["pause", "withdraw"] as const)(
+    "does not override a seller %s racing the protected recovery append",
+    async (action) => {
+      const f = fixture(1);
+      await f.create("lst_race");
+      f.setAvailable(0);
+      await f.reconcile();
+      f.setAvailable(1);
+      f.race(async () => {
+        const params = { accountId: "acc_seller", listingId: "lst_race" };
+        if (action === "pause") await f.services.pauseListing(params, context);
+        else await f.services.withdrawListing(params, context);
+      });
+      await f.reconcile();
+      expect(await f.services.loadListingState("lst_race")).toMatchObject({
+        status: action === "pause" ? "paused" : "withdrawn",
+        pauseReason: action === "pause" ? "seller" : null,
+      });
+      expect(f.allEvents.filter((e) => e.eventType === "marketplace.listing.published")).toHaveLength(1);
+    },
+  );
+
+  it("recovers a seller-edited capacity-paused Listing on the fresh revision", async () => {
+    const f = fixture(1);
+    await f.create("lst_revision");
+    f.setAvailable(0);
+    await f.reconcile();
+    f.setAvailable(1);
+    f.race(async () => {
+      await f.services.updateListingPurchaseLimits(
+        { accountId: "acc_seller", listingId: "lst_revision", purchaseLimits: { maxUnitsPerOrder: 1 } },
+        context,
+      );
+    });
+    await f.reconcile();
+    expect(await f.services.loadListingState("lst_revision")).toMatchObject({
+      status: "active",
+      purchaseLimits: { maxUnitsPerOrder: 1 },
+    });
+    expect(f.allEvents.filter((e) => e.eventType === "marketplace.listing.published")).toHaveLength(2);
+  });
+
+  it.each(["seller", "channel-inbound-dark", "policy-input-missing"] as const)(
+    "never recovers a %s pause",
+    async (reason) => {
+      const f = fixture(1);
+      await f.create("lst_excluded");
+      await f.services.commandHandler({
+        streamId: "marketplace.listing-lst_excluded",
+        command: { type: "PauseListing", reason },
+        context,
+      });
+      const count = f.allEvents.length;
+      await f.reconcile();
+      expect(f.allEvents).toHaveLength(count);
+      expect(await f.services.loadListingState("lst_excluded")).toMatchObject({
+        status: "paused",
+        pauseReason: reason,
+      });
+    },
+  );
+
+  it("keeps seller Away effective and records an actionable condition until current authority allows recovery", async () => {
+    const f = fixture(1);
+    await f.create("lst_away");
+    f.setAvailable(0);
+    await f.reconcile();
+    f.setAvailable(1);
+    await f.services.disableSellerListingAvailability(
+      { accountId: "acc_seller", reasonCategory: "travel", availableAgainOn: null },
+      context,
+    );
+    await f.reconcile();
+    expect(await f.services.loadListingState("lst_away")).toMatchObject({
+      status: "paused",
+      inventoryCapacityRecoveryBlock: "seller-away",
+    });
+    await f.services.enableSellerListingAvailability({ accountId: "acc_seller" }, context);
+    await f.reconcile();
+    expect((await f.services.loadListingState("lst_away")).status).toBe("active");
+  });
+
+  it("records a system capacity pause for a held quantity-one Listing and restores it after release", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    let availableQuantity = 1;
+    let services: ReturnType<typeof createMarketplaceListingRuntime>;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_capacity",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                selected_options: [],
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: availableQuantity,
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM marketplace_listing_pages")) {
+          const state = await services.loadListingState("lst_capacity");
+          return {
+            rows:
+              state.status === "active"
+                ? [
+                    {
+                      listing_id: state.listingId,
+                      account_id: state.accountId,
+                      quantity_cap: state.quantityCap,
+                    },
+                  ]
+                : [],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        }),
+      } as never,
+    });
+    await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_capacity",
+        priceAmount: "20.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        listingIdOverride: "lst_capacity" as never,
+      },
+      context,
+    );
+    await services.publishListing({ accountId: "acc_seller", listingId: "lst_capacity" }, context);
+    const original = await services.loadListingState("lst_capacity");
+    availableQuantity = 0;
+    await services.reconcileInventoryCapacity("inv_capacity");
+    expect(await services.loadListingState("lst_capacity")).toMatchObject({
+      status: "paused",
+      pauseReason: "inventory-capacity",
+    });
+    expect(allEvents.find((event) => event.eventType === "marketplace.listing.paused")).toMatchObject({
+      performedByUserId: "usr_marketplace_system",
+    });
+    availableQuantity = 1;
+    await services.reconcileInventoryCapacity("inv_capacity");
+    expect(await services.loadListingState("lst_capacity")).toMatchObject({
+      status: "active",
+      pauseReason: null,
+      feeLocks: original.feeLocks,
+      quantityCap: 1,
+      priceAmount: "20.00",
+    });
+    const recoveredCount = allEvents.length;
+    await services.reconcileInventoryCapacity("inv_capacity");
+    expect(allEvents).toHaveLength(recoveredCount);
+  });
+});
+
 describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", () => {
   function createFixture() {
     const { allEvents, eventStore } = createInMemoryEventStore();
@@ -2697,5 +3083,133 @@ describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", ()
     ).rejects.toMatchObject({ name: "AuthoredTextRejectedError", code: "text_control_character" });
     expect(putObject).not.toHaveBeenCalled();
     expect(allEvents).toHaveLength(eventCount);
+  });
+});
+
+describe("inventory capacity recovery revision races", () => {
+  function probeFixture(quantity: number) {
+    const memory = createInMemoryEventStore();
+    let available = quantity;
+    let hook: { eventType: string; run: () => Promise<void> } | undefined;
+    const eventStore: EventStore = {
+      ...memory.eventStore,
+      appendToStreams: async (inputs) => {
+        const current = hook;
+        if (current && inputs.some((i) => i.events.some((e) => e.eventType === current.eventType))) {
+          hook = undefined;
+          await current.run();
+        }
+        return memory.eventStore.appendToStreams!(inputs);
+      },
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_supply_items AS item"))
+            return {
+              rows: [
+                {
+                  item_id: "inv_probe",
+                  account_id: "acc_seller",
+                  catalog_catalog_item_id: "cat_1",
+                  product_id: "cat_1::",
+                  item_title: "Probe Card",
+                  selected_options: [],
+                  product_measure_snapshot: productMeasureSnapshot,
+                  storage_location_name: "Main",
+                  ship_from_code: "CHI",
+                  ship_from_address: shipFromAddress,
+                  available_quantity: available,
+                },
+              ],
+            };
+          return { rows: [] };
+        }),
+      } as never,
+      listingEvidencePolicyEvaluator: {
+        evaluate: async (facts) =>
+          evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
+            policyId: null,
+            policyVersion: null,
+            effectiveFrom: null,
+            effectiveUntil: null,
+          }),
+      },
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "0.50",
+          sellerNetUnitAmount: "9.50",
+          scheduleId: "cts_test",
+          agreementId: null,
+          resolvedAt: "2026-10-28T00:00:00.000Z",
+        }),
+      } as never,
+    });
+    const create = async (listingId: string) => {
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_probe",
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          listingIdOverride: listingId as never,
+        },
+        context,
+      );
+      await services.publishListing({ accountId: "acc_seller", listingId }, context);
+    };
+    const sellerEdit = (listingId: string) =>
+      services.updateListingPurchaseLimits(
+        { accountId: "acc_seller", listingId, purchaseLimits: { maxUnitsPerOrder: 1 } },
+        context,
+      );
+    return {
+      services,
+      create,
+      sellerEdit,
+      setAvailable: (value: number) => {
+        available = value;
+      },
+      on: (eventType: string, run: () => Promise<void>) => {
+        hook = { eventType, run };
+      },
+      activeTotal: async (ids: readonly string[]) =>
+        (await Promise.all(ids.map((id) => services.loadListingState(id))))
+          .filter((s) => s.status === "active")
+          .reduce((sum, s) => sum + s.quantityCap, 0),
+    };
+  }
+
+  it("PROBE-F1: a seller edit racing a shortage pause must not leave active caps above available", async () => {
+    const f = probeFixture(2);
+    await f.create("lst_probe_a");
+    await f.create("lst_probe_b");
+    f.setAvailable(1);
+    // Reverse registry order pauses lst_probe_b first; the seller edits it just before that append.
+    f.on("marketplace.listing.paused", () => f.sellerEdit("lst_probe_b").then(() => undefined));
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    expect(await f.activeTotal(["lst_probe_a", "lst_probe_b"])).toBeLessThanOrEqual(1);
+  });
+
+  it("PROBE-F2: a seller edit racing recovery must not strand an unblocked capacity pause with capacity available", async () => {
+    const f = probeFixture(1);
+    await f.create("lst_probe_r");
+    f.setAvailable(0);
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    f.setAvailable(1);
+    f.on("marketplace.listing.published", () => f.sellerEdit("lst_probe_r").then(() => undefined));
+    // The release callback runs exactly once; no further Inventory event follows in this scenario.
+    await f.services.reconcileInventoryCapacity("inv_probe");
+    const state = await f.services.loadListingState("lst_probe_r");
+    expect({ status: state.status, block: state.inventoryCapacityRecoveryBlock }).not.toEqual({
+      status: "paused",
+      block: null,
+    });
   });
 });
