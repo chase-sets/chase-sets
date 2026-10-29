@@ -730,9 +730,12 @@ describe("manifest host-registration predicate parity", () => {
 describe("real repository execution membership", () => {
   describe("shared real repository census", () => {
     let realCensus;
+    let realCensusHookDurationMs;
 
     beforeAll(async () => {
+      const startedAt = performance.now();
       realCensus = deepFreeze(await validateJsonImportAttributes());
+      realCensusHookDurationMs = performance.now() - startedAt;
     });
 
     it("census work stays source-bounded", () => {
@@ -747,6 +750,7 @@ describe("real repository execution membership", () => {
         JSON.stringify({
           censusWork: {
             invocations: realCensusCalls.count,
+            hookDurationMs: realCensusHookDurationMs,
             gitSubprocesses: work.gitSubprocesses,
             wholeTreeScans: work.wholeTreeScans,
             indexCandidates: work.indexCandidates.length,
