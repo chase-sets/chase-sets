@@ -5,8 +5,11 @@
 //!
 //! On screen each slip is a sheet the shape of its paper; on a phone it is one column whose rows
 //! stack, each with its quantity labelled. Printed, the top bar and the toolbar are left out and
-//! each slip is a page of its own size (`@page letter` or `@page thermal`).
+//! each slip is a page of its own size (`@page packing-slips-page-letter` or
+//! `@page packing-slips-page-thermal`). Print is corten-ui's `PrintButton`, in the toolbar, which
+//! print hides.
 use corten::prelude::*;
+use corten_ui::PrintButton;
 
 use super::{order_page::display_reference, packing_page::address_lines};
 use crate::{
@@ -15,8 +18,6 @@ use crate::{
     packing_slips::{Format, SlipsScreen},
     text::ShipmentsMsg,
 };
-
-corten::script::script!(pub mod handlers = "packing_slips.js");
 
 /// The page.
 #[component(css)]
@@ -47,15 +48,9 @@ pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Re
                         </label>
                         <button type="submit" class={Button} data-tone="secondary">{t.slip_change_format()}</button>
                     </form>
-                    <button
-                        type="button"
-                        class={Button}
-                        hidden
-                        on:connect={handlers::reveal(target)}
-                        on:click={handlers::print()}
-                    >
-                        {t.slip_print()}
-                    </button>
+                    <span class={Print}>
+                        <PrintButton label={t.slip_print()} />
+                    </span>
                 </div>
             </div>
             <div class={Sheets} data-format={screen.format.as_str()}>

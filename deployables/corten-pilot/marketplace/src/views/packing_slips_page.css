@@ -21,7 +21,8 @@
 .actions, .chooser { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
 .field { display: grid; gap: var(--space-1); }
 .label { font-size: 0.875rem; font-weight: 600; }
-.button { min-height: 2.75rem; }
+.button, .print > button { min-height: 2.75rem; }
+.print { display: contents; }
 .button[data-tone="secondary"] { border-color: var(--color-border-strong); background: var(--color-surface); color: var(--color-text); }
 
 .sheets { display: grid; gap: var(--space-4); width: 100%; max-width: 8.5in; margin-inline: auto; }
@@ -83,14 +84,14 @@
   .qty-label { display: inline; }
 }
 
-@page letter { size: letter; margin: 0; }
-@page thermal { size: 4in 6in; margin: 0; }
+@page packing-slips-page-letter { size: letter; margin: 0; }
+@page packing-slips-page-thermal { size: 4in 6in; margin: 0; }
 
 @media print {
   .page { display: block; }
   .toolbar { display: none; }
   .sheets { display: block; max-width: none; }
   .sheet { margin: 0; border: 0; box-shadow: none; aspect-ratio: auto; max-width: none; }
-  .letter { page: letter; width: 8.5in; height: 11in; }
-  .thermal { page: thermal; width: 4in; height: 6in; }
+  .letter { page: packing-slips-page-letter; width: 8.5in; height: 11in; }
+  .thermal { page: packing-slips-page-thermal; width: 4in; height: 6in; }
 }

@@ -237,7 +237,7 @@ pub const SALE_SHIPMENTS: &[Component] = &[
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,
-    packing_slips_page::handlers::COMPONENT,
+    corten_ui::PrintButton,
 ];
 
 /// A listing's public page (`/listings`).

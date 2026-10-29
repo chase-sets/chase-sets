@@ -5844,8 +5844,8 @@ async fn the_packing_slips_print_each_shipment_named_once_in_the_format_chosen()
     for id in ["shp_done", "shp_two"] {
         assert!(html.contains(&format!(r#"<input type="hidden" name="shipmentIds" value="{id}">"#)), "{id}: {html}");
     }
-    // Print is the script's: without it the button stays hidden.
-    assert!(html.contains("ui.reveal(") || html.contains(".reveal("), "{html}");
+    // Print is corten-ui's PrintButton: drawn hidden, its script shows it.
+    assert!(html.contains("print_button.connect(") && html.contains("print_button.print()"), "{html}");
     // Anything else asked for is letter.
     let (_, _, html) =
         pilot.send(get("/account/sales/shipments/packing-slips?shipmentIds=shp_done&format=a4", Some("shipper"))).await;
