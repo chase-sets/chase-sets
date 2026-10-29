@@ -49,7 +49,7 @@ function actualType(value: unknown) {
   return typeof value;
 }
 
-function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]): boolean {
   if (Array.isArray(expected)) {
     return value === null || matchesType(value, expected[0]);
   }
