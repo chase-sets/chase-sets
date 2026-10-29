@@ -150,8 +150,8 @@ pub mod url {
     pub use desk_offers::DeskOffers;
     pub use home::Home;
     pub use inventory::{
-        Archive, Inventory, Location, Locations, OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem,
-        StockRelease, StockSale, WrittenOff,
+        Archive, ImportBatch, ImportCommit, ImportExport, ImportTemplate, Imports, Inventory, Location, Locations, OfflineSale,
+        Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
     };
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
@@ -515,6 +515,38 @@ pub mod url {
         #[route("/account/inventory/locations/{id}/archive", post = crate::locations::archive)]
         pub struct Archive<'a> {
             pub id: &'a str,
+        }
+
+        /// Inventory import: the upload form and the recent batches, a job's progress, and a new
+        /// import (see `imports`).
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/inventory/imports", get = crate::imports::list, post = crate::imports::create)]
+        pub struct Imports {
+            #[route(query)]
+            pub place: crate::imports::Place,
+        }
+
+        /// The native CSV template, as the API sends it.
+        #[route("/account/inventory/imports/template.csv", get = crate::imports::template)]
+        pub struct ImportTemplate;
+
+        /// The account's inventory as native CSV, as the API sends it.
+        #[route("/account/inventory/imports/export.csv", get = crate::imports::export)]
+        pub struct ImportExport;
+
+        /// An import batch: its summary, a page of its rows and Commit.
+        #[derive(Clone, Debug)]
+        #[route("/account/inventory/imports/{batch}", get = crate::imports::batch)]
+        pub struct ImportBatch<'a> {
+            pub batch: &'a str,
+            #[route(query)]
+            pub place: crate::imports::Place,
+        }
+
+        /// Commit a batch's accepted rows.
+        #[route("/account/inventory/imports/{batch}/commit", post = crate::imports::commit)]
+        pub struct ImportCommit<'a> {
+            pub batch: &'a str,
         }
 
         /// The pending restock decisions, and the write to confirm.

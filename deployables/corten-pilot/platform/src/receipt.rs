@@ -58,6 +58,18 @@ impl Receipt {
         Some(Receipt { observed_at_ms: now_ms(), commit_position: Some(position.to_owned()), sources })
     }
 
+    /// The receipt a write's result carries in its body (`CommandReceiptMetadata`: a durable job's
+    /// `commandReceipt`), as `navigateAfterWrite` reads it: its `commitPosition` and its
+    /// `commitPositions`, the sources. `None` when it points at nothing.
+    pub fn of_metadata(commit_position: Option<&str>, sources: &RawValue) -> Option<Self> {
+        let commit_position = commit_position.filter(|p| !p.is_empty()).map(str::to_owned);
+        let sources = RawValue::from_string(sources.get().to_owned()).ok().filter(|raw| raw.get().starts_with('['))?;
+        if commit_position.is_none() && sources.get().trim() == "[]" {
+            return None;
+        }
+        Some(Receipt { observed_at_ms: now_ms(), commit_position, sources })
+    }
+
     /// The `afterWrite` value a redirect carries: the JSON (the typed route encodes it).
     pub fn param(&self) -> String {
         serde_json::to_string(self).expect("a receipt serializes")

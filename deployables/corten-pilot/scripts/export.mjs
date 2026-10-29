@@ -59,6 +59,9 @@
 // - marketplace/locales/orders.en.json: the account's order pages' English catalog
 //   (ordering.features.orders.ui.orderListPage.*, .orderDetailPage.*, .moneyTimeline.*, .orderOutcome.* and
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
+// - marketplace/locales/imports.en.json: the inventory import page's English catalog
+//   (inventory.features.importBatches.ui.importBatchPage.* as page.*, .api.route.* as api.*,
+//   inventory.routes.marketplace.accountInventoryImports.* as route.*, and inventory.import.* as import.*).
 // - marketplace/locales/shipments.en.json: the shipment pages' English catalog
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
@@ -568,6 +571,18 @@ const outputs = [
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [["localization.languageCode.", "language"]])),
     }),
+  ],
+  [
+    "marketplace/locales/imports.en.json",
+    json(
+      await catalog("inventory.ts", "inventoryEnglishTranslations", [
+        ["inventory.features.importBatches.ui.importBatchPage.", "page"],
+        ["inventory.routes.marketplace.accountInventoryImports.", "route"],
+        ["inventory.import.", "import"],
+        ["inventory.features.importBatches.api.route.", "api"],
+        ["inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing", "list.create.listing"],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/cart.en.json",

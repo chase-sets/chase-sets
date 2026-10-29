@@ -19,6 +19,7 @@ mod checkout;
 mod consents;
 mod desk;
 mod form;
+mod imports;
 mod inventory_item;
 mod inventory_list;
 mod items;

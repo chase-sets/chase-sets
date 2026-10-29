@@ -585,6 +585,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = checkout(session, &method, uri.path(), &body) {
         return answer;
     }
+    if let Some(answer) = imports_api(&method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = inventory_items(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
@@ -10378,7 +10381,7 @@ async fn a_password_starts_the_session_and_goes_back_to_the_pilot_or_marketplace
     for (return_to, to) in [
         ("%2Faccount%2Fmessages", "http://localhost:7753/account/messages"),
         // Under an area the pilot has, but a page it does not route (`Req::serves`): marketplace's.
-        ("%2Faccount%2Finventory%2Fimports", "http://localhost:7753/account/inventory/imports"),
+        ("%2Faccount%2Flistings%2Fprices%2Fbulk", "http://localhost:7753/account/listings/prices/bulk"),
         ("%2Faccount%2Foffers%2Fsubmitted%2Fofr_1", "http://localhost:7753/account/offers/submitted/ofr_1"),
         // A route the pilot has: its page, with the query.
         ("%2Faccount%2Finventory%2Fitems%2Finv_1%3FledgerKind%3Dadjusted", "/account/inventory/items/inv_1?ledgerKind=adjusted"),
@@ -13329,4 +13332,373 @@ async fn the_payment_methods_are_an_accounts_with_orders_view() {
         (status, headers[header::LOCATION].to_str().unwrap()),
         (StatusCode::SEE_OTHER, "http://localhost:7753/account/payment-methods")
     );
+}
+
+const IMPORT_BATCHES: &str = "/api/inventory/import-batches";
+const IMPORTS_SCREEN: &str = "/account/inventory/imports";
+
+/// An import batch as Inventory lists it.
+fn import_batch(id: &str, status: &str, total: u64, accepted: u64, rejected: u64, committed: u64) -> Value {
+    json!({
+        "batch_id": id, "status": status, "source_key": "native-csv", "adapter_version": 2, "quantity_mode": "add",
+        "default_storage_location_id": "loc_main", "total_count": total, "accepted_count": accepted,
+        "rejected_count": rejected, "committed_count": committed, "updated_at": "2026-10-28T12:00:00.000Z",
+    })
+}
+
+fn import_row(id: &str, number: u64, status: &str, resolution: &str, product: Option<&str>, errors: &[&str]) -> Value {
+    json!({
+        "row_id": id, "row_number": number, "status": status, "external_reference": null, "row_fingerprint": format!("fp_{id}"),
+        "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
+        "resolution_status": resolution, "catalog_item_id": product.map(|_| "cat_card"), "product_id": product,
+        "listing_price_amount": null, "listing_price_currency_code": null, "listing_quantity_cap": null, "row_note": null,
+        "validation_errors": errors, "committed_inventory_item_id": null, "committed_listing_id": null, "committed_at": null,
+    })
+}
+
+/// A durable job's public snapshot.
+fn import_job(id: &str, status: &str) -> Value {
+    json!({ "jobId": id, "status": status, "progress": {}, "result": null, "errorMessage": null })
+}
+
+/// The stand-in Inventory import API. Batches: `imb_1` (3 rows: one accepted, one rejected that
+/// needs the seller, one rejected with a product, which does not), `imb_big` (150 rows, 100 a page),
+/// `imb_done` (committed, nothing to commit), `imb_gone` unknown; a read that waits for 43 is
+/// still catching up. Jobs: `job_run` running, `job_done` finished with `imb_1` and a receipt at
+/// 42, `job_fail` failed, `job_other` another account's. A create needs its attempt and refuses
+/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`.
+fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix(IMPORT_BATCHES)?;
+    let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let query = uri.query().unwrap_or_default();
+    let csv = |name: &str| {
+        let headers = [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_owned()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+            (header::SET_COOKIE, "upstream=1".to_owned()),
+        ];
+        (StatusCode::OK, headers, "sku,quantity\r\nA-1,2\r\n").into_response()
+    };
+    let answer = match (method.as_str(), rest) {
+        ("GET", "") => {
+            let items = [import_batch("imb_1", "ready-to-commit", 3, 1, 2, 0), import_batch("imb_done", "committed", 1, 1, 0, 1)];
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
+        }
+        ("GET", "/templates/native-csv") => csv("chase-sets-native-inventory-template.csv"),
+        ("GET", "/exports/native-csv") => csv("chase-sets-native-inventory-export.csv"),
+        ("GET", job) if job.starts_with("/jobs/") => match &job["/jobs/".len()..] {
+            "job_run" => {
+                let mut job = import_job("job_run", "running");
+                job["progress"] = json!({ "message": "Validated 2 of 3 rows." });
+                Json(job).into_response()
+            }
+            "job_done" => {
+                let mut job = import_job("job_done", "completed");
+                job["result"] = json!({
+                    "batch": import_batch("imb_1", "ready-to-commit", 3, 1, 2, 0),
+                    "commandReceipt": { "commitPosition": "42", "commitPositions": [{ "sourceContextName": "inventory", "maxGlobalPosition": "42", "eventIds": ["e1"] }] },
+                });
+                Json(job).into_response()
+            }
+            "job_fail" => {
+                let mut job = import_job("job_fail", "failed");
+                job["errorMessage"] = json!("The CSV header is missing a quantity column.");
+                Json(job).into_response()
+            }
+            _ => refusal(StatusCode::NOT_FOUND, "not_found", "Import batch not found."),
+        },
+        ("GET", batch) => {
+            if waits_for(headers).as_deref() == Some("43") {
+                return Some(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_freshness_timeout",
+                    "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+                ));
+            }
+            let mut detail = match &batch[1..] {
+                "imb_1" => {
+                    let mut detail = import_batch("imb_1", "ready-to-commit", 3, 1, 2, 0);
+                    detail["rows"] = json!([
+                        import_row("row_1", 1, "accepted", "resolved", Some("prd_1"), &[]),
+                        import_row("row_2", 2, "rejected", "unresolved", None, &["No catalog product matches this row."]),
+                        import_row("row_3", 3, "rejected", "resolved", Some("prd_3"), &["Quantity must be a whole number."]),
+                    ]);
+                    detail
+                }
+                "imb_big" => import_batch("imb_big", "ready-to-commit", 150, 150, 0, 0),
+                "imb_done" => import_batch("imb_done", "committed", 1, 1, 0, 1),
+                _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Import batch not found.")),
+            };
+            if batch == "/imb_big" {
+                let offset: u64 =
+                    query.split('&').find_map(|p| p.strip_prefix("offset=")).and_then(|o| o.parse().ok()).unwrap_or(0);
+                let rows: Vec<Value> = (offset + 1..=(offset + 100).min(150))
+                    .map(|n| import_row(&format!("row_{n}"), n, "accepted", "resolved", Some("prd_1"), &[]))
+                    .collect();
+                detail["rows"] = json!(rows);
+            }
+            Json(detail).into_response()
+        }
+        ("POST", "") => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            if attempt.is_empty() || sent["csvText"].as_str().is_some_and(|t| t.contains("bad")) {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "validation_failed",
+                    "Import source was not accepted. Check the file and attempt identity.",
+                ));
+            }
+            (StatusCode::ACCEPTED, Json(import_job("job_run", "queued"))).into_response()
+        }
+        ("POST", commit) if commit.ends_with("/commit") => {
+            if attempt.is_empty() {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "validation_failed",
+                    "A caller-created Inventory mutation attempt is required.",
+                ));
+            }
+            if commit == "/imb_done/commit" {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "validation_failed",
+                    "Import batch has no accepted rows to commit.",
+                ));
+            }
+            (StatusCode::ACCEPTED, Json(import_job("job_commit", "queued"))).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    };
+    Some(answer)
+}
+
+/// The calls the pilot made to Inventory's imports.
+fn import_calls(pilot: &Pilot) -> Vec<Call> {
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(IMPORT_BATCHES)).cloned().collect()
+}
+
+#[tokio::test]
+async fn the_imports_page_lists_batches_and_offers_the_upload_form() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(IMPORTS_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "/sign-in?returnTo=%2Faccount%2Finventory%2Fimports");
+    let (status, _, _) = pilot.send(get(IMPORTS_SCREEN, Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without inventory.view");
+    assert!(import_calls(&pilot).is_empty(), "nothing is read for who may not see it");
+
+    let (status, _, html) = pilot.send(get(IMPORTS_SCREEN, Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let paths: Vec<_> = import_calls(&pilot).into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, [format!("{IMPORT_BATCHES}?limit=25&offset=0")], "the 25 latest, nothing else of imports");
+    let shown = text(&html);
+    assert!(shown.contains("Recent imports"), "{shown}");
+    assert!(
+        html.contains(r#"href="/account/inventory/imports/imb_1""#)
+            && html.contains(r#"href="/account/inventory/imports/imb_done""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"action="/account/inventory/imports" enctype="multipart/form-data""#), "{html}");
+    assert!(html.contains(r#"<option value="loc_main">Main shelf</option>"#), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/imports/template.csv" download"#), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/imports/export.csv" download"#), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "nothing to follow: {html}");
+}
+
+#[tokio::test]
+async fn an_import_job_is_followed_until_it_sends_the_page_to_its_batch() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}?jobId=job_run"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Import job running Validated 2 of 3 rows."), "{}", text(&html));
+    assert!(html.contains(r#"data-corten-read-again="2""#), "read again while it runs: {html}");
+
+    let (status, headers, _) = pilot.send(get(&format!("{IMPORTS_SCREEN}?jobId=job_done"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/inventory/imports/imb_1?after_write="), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = import_calls(&pilot).into_iter().find(|c| c.path.starts_with(&format!("{IMPORT_BATCHES}/imb_1"))).unwrap();
+    assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the batch is read after the job's write");
+
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}?jobId=job_fail"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("The CSV header is missing a quantity column."), "{}", text(&html));
+    assert!(!html.contains("data-corten-read-again"), "a failed job is not followed: {html}");
+
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}?jobId=job_other"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "another account's job says nothing");
+    assert!(!text(&html).contains("Import job running") && !html.contains("data-corten-read-again"), "{html}");
+}
+
+#[tokio::test]
+async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_1"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Review batch 1 rows need you"), "only the unresolved rejected row: {shown}");
+    assert!(html.contains("/account/inventory/imports/imb_1?resolveRowId=row_2"), "Resolve opens marketplace at the row: {html}");
+    assert!(shown.contains("1 accepted rows are ready to commit. Commit accepted rows"), "{shown}");
+    assert!(html.contains(r#"action="/account/inventory/imports/imb_1/commit""#), "{html}");
+    assert!(
+        shown.contains("No catalog product matches this row.") && shown.contains("Quantity must be a whole number."),
+        "{shown}"
+    );
+
+    let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_done"), Some("seller"))).await;
+    assert!(!html.contains("/commit\""), "nothing left to commit: {html}");
+
+    let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_big"), Some("seller"))).await;
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_big?offset=100""#), "the next 100: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_big?offset=100"), Some("seller"))).await;
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_big""#), "back to the first 100: {html}");
+    assert!(!html.contains("offset=200"), "{html}");
+
+    let (status, _, _) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_gone"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // A read behind the write the page follows says so and reads again.
+    let raw = serde_json::value::RawValue::from_string(
+        r#"[{"sourceContextName":"inventory","maxGlobalPosition":"43","eventIds":["e1"]}]"#.to_owned(),
+    )
+    .unwrap();
+    let receipt = platform::receipt::Receipt::of_metadata(Some("43"), &raw).unwrap().param();
+    let place = crate::imports::Place { after_write: Some(receipt), ..Default::default() };
+    let to = {
+        use corten::prelude::*;
+        crate::app::url::ImportBatch { batch: "imb_1", place }.href()
+    };
+    let (status, _, html) = pilot.send(get(&to, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Import still updating"), "{}", text(&html));
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_new_import_is_sent_once_with_its_attempt_from_a_file_or_pasted_rows() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let fields = [
+        ("attempt", attempt.as_str()),
+        ("sourceKey", "tcgplayer-csv"),
+        ("quantityMode", "replace"),
+        ("defaultStorageLocationId", " loc_main "),
+        ("csvText", ""),
+    ];
+    let (status, headers, html) = pilot
+        .send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[("file", "stock.csv", "text/csv", b"sku,quantity\nA-1,2\n")]))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports?jobId=job_run");
+    let sent = import_calls(&pilot).into_iter().find(|c| c.method == Method::POST).unwrap();
+    assert_eq!(sent.path, IMPORT_BATCHES);
+    assert_eq!(sent.headers["inventory-mutation-attempt"].to_str().unwrap(), attempt);
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        body,
+        json!({ "csvText": "sku,quantity\nA-1,2\n", "sourceKey": "tcgplayer-csv", "quantityMode": "replace",
+                "defaultStorageLocationId": "loc_main", "sourceFilename": "stock.csv" })
+    );
+
+    // Pasted rows, and a source or mode the page does not offer read as the first.
+    let attempt = new_attempt();
+    let fields = [
+        ("attempt", attempt.as_str()),
+        ("sourceKey", "csv-of-mine"),
+        ("quantityMode", "double"),
+        ("defaultStorageLocationId", ""),
+        ("csvText", "sku,quantity\nB-2,1"),
+    ];
+    let (status, _, _) = pilot.send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = import_calls(&pilot).into_iter().filter(|c| c.method == Method::POST).last().unwrap();
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        body,
+        json!({ "csvText": "sku,quantity\nB-2,1", "sourceKey": "native-csv", "quantityMode": "add", "defaultStorageLocationId": null })
+    );
+}
+
+#[tokio::test]
+async fn a_refused_import_shows_the_form_as_it_was_sent() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let fields = [
+        ("attempt", attempt.as_str()),
+        ("sourceKey", "ebay-csv"),
+        ("quantityMode", "add"),
+        ("defaultStorageLocationId", ""),
+        ("csvText", "a bad row"),
+    ];
+    let (status, _, html) = pilot.send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Import failed Import source was not accepted."), "{}", text(&html));
+    assert!(html.contains(r#"<option value="ebay-csv" selected>"#) && html.contains(">a bad row</textarea>"), "kept: {html}");
+
+    // No attempt, a file that is not UTF-8 or one past 8 MiB: refused before the API.
+    let before = import_calls(&pilot).len();
+    let fields = [("sourceKey", "native-csv"), ("csvText", "sku\nA")];
+    let (status, _, _) = pilot.send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let attempt = new_attempt();
+    let fields = [("attempt", attempt.as_str())];
+    let (status, _, _) =
+        pilot.send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[("file", "x.csv", "text/csv", b"\xff\xfe")])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let big = vec![b'a'; 8 * 1024 * 1024 + 1];
+    let (status, _, html) =
+        pilot.send(post_multipart(IMPORTS_SCREEN, "seller", &fields, &[("file", "big.csv", "text/csv", &big)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let writes = import_calls(&pilot).into_iter().skip(before).filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 0, "nothing sent");
+
+    let (status, _, _) = pilot.send(post_multipart(IMPORTS_SCREEN, "reader", &[("attempt", &new_attempt())], &[])).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "inventory.manage imports");
+}
+
+#[tokio::test]
+async fn commit_sends_its_attempt_and_follows_the_job_on_the_batch() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let (status, headers, _) =
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/commit"), "seller", &format!("attempt={attempt}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1?jobId=job_commit");
+    let sent = import_calls(&pilot).into_iter().find(|c| c.method == Method::POST).unwrap();
+    assert_eq!(sent.path, format!("{IMPORT_BATCHES}/imb_1/commit"));
+    assert_eq!(sent.headers["inventory-mutation-attempt"].to_str().unwrap(), attempt);
+
+    let (status, _, html) = pilot
+        .send(post(&format!("{IMPORTS_SCREEN}/imb_done/commit"), "seller", &format!("attempt={}", new_attempt()), false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Import batch has no accepted rows to commit."), "{}", text(&html));
+
+    let before = import_calls(&pilot).iter().filter(|c| c.method == Method::POST).count();
+    let (status, _, _) = pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/commit"), "seller", "attempt=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a form without its key");
+    let (status, _, _) =
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/commit"), "reader", &format!("attempt={}", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(import_calls(&pilot).iter().filter(|c| c.method == Method::POST).count(), before, "neither is sent");
+}
+
+#[tokio::test]
+async fn the_csv_downloads_pass_on_the_apis_file_and_nothing_else() {
+    let pilot = Pilot::new().await;
+    for (page, name) in [
+        ("/account/inventory/imports/template.csv", "chase-sets-native-inventory-template.csv"),
+        ("/account/inventory/imports/export.csv", "chase-sets-native-inventory-export.csv"),
+    ] {
+        let (status, headers, body) = pilot.send(get(page, Some("reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(headers[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+        assert_eq!(headers[header::CONTENT_DISPOSITION].to_str().unwrap(), format!("attachment; filename=\"{name}\""));
+        assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c.to_str().unwrap().contains("upstream")), "{headers:?}");
+        assert_eq!(body, "sku,quantity\r\nA-1,2\r\n");
+    }
+    let (status, _, _) = pilot.send(get("/account/inventory/imports/template.csv", Some("other"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

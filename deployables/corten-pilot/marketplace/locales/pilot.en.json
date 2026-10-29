@@ -183,6 +183,10 @@
     "rating": "{rating} out of 5 from {reviews} reviews",
     "unknown_action": "That change is not one an Offer takes."
   },
+  "imports": {
+    "file_or_rows": "A file is read when one is chosen; otherwise the rows pasted above are.",
+    "rows": "Rows"
+  },
   "inventory": {
     "quantity": "Enter a whole number of 1 or more.",
     "price": "Enter a price like 12.50.",

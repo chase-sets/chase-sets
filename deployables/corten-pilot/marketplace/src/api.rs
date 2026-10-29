@@ -6847,3 +6847,201 @@ impl SupportListCalls for Caller<'_> {
         Ok(uploaded.attachments.into_iter().map(|a| a.reference).collect())
     }
 }
+
+/// The account's import batches (`/api/inventory/import-batches`, Inventory's import-batches API).
+const IMPORTS: &str = "/api/inventory/import-batches";
+
+/// A page of import batches (`ListResponse<InventoryImportBatch>`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ImportBatchList {
+    pub items: Vec<ImportBatch>,
+}
+
+/// An import batch (`InventoryImportBatch`), the fields the page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ImportBatch {
+    pub batch_id: String,
+    /// `uploaded`, `validating`, `ready-to-commit`, `committing`, `partial`, `committed`,
+    /// `failed-safe` or `expired`.
+    pub status: String,
+    pub source_key: String,
+    pub adapter_version: u64,
+    pub quantity_mode: String,
+    pub default_storage_location_id: Option<String>,
+    pub total_count: u64,
+    pub accepted_count: u64,
+    pub rejected_count: u64,
+    pub committed_count: u64,
+    pub updated_at: String,
+}
+
+/// A batch with a page of its rows (`InventoryImportBatchDetail`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ImportBatchDetail {
+    #[serde(flatten)]
+    pub batch: ImportBatch,
+    #[serde(default)]
+    pub rows: Vec<ImportRow>,
+}
+
+/// A row of a batch (`InventoryImportBatchRow`), the fields the page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ImportRow {
+    pub row_id: String,
+    pub row_number: u64,
+    /// `accepted`, `rejected` or `committed`.
+    pub status: String,
+    pub external_reference: Option<ExternalReference>,
+    pub row_fingerprint: String,
+    pub quantity_mode: String,
+    pub quantity_delta: Option<i64>,
+    pub set_quantity: Option<i64>,
+    pub total_quantity: Option<i64>,
+    pub resolution_status: String,
+    pub catalog_item_id: Option<String>,
+    pub product_id: Option<String>,
+    pub listing_price_amount: Option<String>,
+    pub listing_price_currency_code: Option<String>,
+    pub listing_quantity_cap: Option<i64>,
+    pub row_note: Option<String>,
+    pub validation_errors: Vec<String>,
+    pub committed_inventory_item_id: Option<String>,
+    pub committed_listing_id: Option<String>,
+    pub committed_at: Option<String>,
+}
+
+/// Where a row came from in another system (`InventoryImportExternalReference`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ExternalReference {
+    pub provider_key: String,
+    pub external_key: String,
+    pub display_name: Option<String>,
+}
+
+/// An import job (`InventoryImportBatchJobStatus`, a durable job's public snapshot).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ImportJob {
+    pub job_id: String,
+    /// `queued`, `running`, `completed` or `failed`.
+    pub status: String,
+    pub progress: ImportProgress,
+    pub result: Option<ImportJobResult>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ImportProgress {
+    pub message: Option<String>,
+}
+
+/// What a finished job made: its batch and the receipt of its write.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ImportJobResult {
+    pub batch: Option<JobBatch>,
+    #[serde(skip_serializing)]
+    pub command_receipt: Option<CommandReceipt>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct JobBatch {
+    pub batch_id: String,
+}
+
+/// A write's receipt in its body (`CommandReceiptMetadata`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandReceipt {
+    pub commit_position: Option<String>,
+    pub commit_positions: Box<serde_json::value::RawValue>,
+}
+
+impl ImportJob {
+    /// The receipt of the job's write, for the read after it.
+    pub fn receipt(&self) -> Option<Receipt> {
+        let receipt = self.result.as_ref()?.command_receipt.as_ref()?;
+        Receipt::of_metadata(receipt.commit_position.as_deref(), &receipt.commit_positions)
+    }
+}
+
+/// A new import, as marketplace's action sends it: the CSV's text (the file's, else the pasted
+/// rows), its source, how quantities apply and the default storage location.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewImport {
+    pub csv_text: String,
+    pub source_key: String,
+    pub quantity_mode: String,
+    pub default_storage_location_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_filename: Option<String>,
+}
+
+/// The import screen's calls.
+pub trait Imports {
+    /// The 25 latest batches (`limit=25&offset=0`, as marketplace's loader reads them).
+    async fn import_batches(&self) -> Result<ImportBatchList, ApiError>;
+    /// A batch with 100 of its rows from `offset`.
+    async fn import_batch(&self, id: &str, offset: u64) -> Result<ImportBatchDetail, ApiError>;
+    /// A job, or `None` when it is not the caller's to read (the API's 404).
+    async fn import_job(&self, id: &str) -> Result<Option<ImportJob>, ApiError>;
+    /// Start a batch's validation, as `attempt` (`Inventory-Mutation-Attempt`): a repeat is the same job.
+    async fn create_import(&self, attempt: &str, body: &NewImport) -> Result<ImportJob, ApiError>;
+    /// Start committing a batch's accepted rows, as `attempt` (`Inventory-Mutation-Attempt`, which
+    /// the API requires).
+    async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError>;
+    /// The storage locations a row or a batch may name (`limit=100&offset=0`, not archived).
+    async fn import_locations(&self) -> Result<LocationList, ApiError>;
+    /// The native template or the account's inventory as CSV (`templates/native-csv`,
+    /// `exports/native-csv`): the API's answer as it came, to pass on.
+    async fn import_csv(&self, which: &str) -> Result<reqwest::Response, ApiError>;
+}
+
+impl Imports for Caller<'_> {
+    async fn import_batches(&self) -> Result<ImportBatchList, ApiError> {
+        self.read(&format!("{IMPORTS}?limit=25&offset=0"), INVENTORY).await
+    }
+
+    async fn import_batch(&self, id: &str, offset: u64) -> Result<ImportBatchDetail, ApiError> {
+        self.read(&format!("{IMPORTS}/{}?limit=100&offset={offset}", segment(id)), INVENTORY).await
+    }
+
+    async fn import_job(&self, id: &str) -> Result<Option<ImportJob>, ApiError> {
+        match self.read(&format!("{IMPORTS}/jobs/{}", segment(id)), INVENTORY).await {
+            Ok(job) => Ok(Some(job)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn create_import(&self, attempt: &str, body: &NewImport) -> Result<ImportJob, ApiError> {
+        let req = self.request(Method::POST, IMPORTS, INVENTORY).header(ATTEMPT_HEADER, attempt).json(body);
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError> {
+        let path = format!("{IMPORTS}/{}/commit", segment(id));
+        let req = self.request(Method::POST, &path, INVENTORY).header(ATTEMPT_HEADER, attempt).json(&serde_json::json!({}));
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn import_locations(&self) -> Result<LocationList, ApiError> {
+        self.read(&format!("{LOCATIONS}?limit=100&offset=0"), INVENTORY).await
+    }
+
+    async fn import_csv(&self, which: &str) -> Result<reqwest::Response, ApiError> {
+        let res = self.request(Method::GET, &format!("{IMPORTS}/{which}/native-csv"), INVENTORY).send().await?;
+        if res.status().is_success() {
+            return Ok(res);
+        }
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        Err(ApiError::Status { status, code: None, message: String::new() })
+    }
+}

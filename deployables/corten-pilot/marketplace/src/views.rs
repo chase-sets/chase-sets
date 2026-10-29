@@ -29,6 +29,7 @@ mod checkout_page;
 mod consents_page;
 mod decision_card;
 mod desk_page;
+mod imports_page;
 mod inventory_item_page;
 mod inventory_page;
 mod item_detail;
@@ -75,6 +76,7 @@ pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
+pub use imports_page::ImportsPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
@@ -114,7 +116,7 @@ pub use team_page::TeamPage;
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
 
-/// The inventory screens' components (`/account/inventory`).
+/// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
 /// makes Record sale's dialog modal.
 pub const INVENTORY: &[Component] = &[
@@ -125,6 +127,7 @@ pub const INVENTORY: &[Component] = &[
     DecisionCard,
     InventoryPage,
     InventoryItemPage,
+    ImportsPage,
     listing_new_page::handlers::COMPONENT,
     corten_ui::dialog::COMPONENT,
 ];
