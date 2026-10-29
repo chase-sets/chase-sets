@@ -1749,7 +1749,12 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
 /// for two accounts and chooses one; `limited@..` is refused for too many attempts, and `broken@..`
 /// gets an answer the page does not know. Phone `+15550100`'s code is `123456`. Magic link `good`
 /// signs in, `used` is spent and `broken` fails. Selection `sel_1` holds; any other has ended.
+/// Registering `new@example.test` with the consent resolution `rcr_1` starts a session with
+/// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
+    if *method == Method::GET && path == "/api/auth/registration-consent" {
+        return Some(Json(json!({ "resolutionId": "rcr_1", "requirements": [] })).into_response());
+    }
     if *method != Method::POST || !path.starts_with("/api/auth/") || path == "/api/auth/session" {
         return None;
     }
@@ -1777,6 +1782,26 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
             ("limited@example.test", _) => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
             ("broken@example.test", _) => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
             _ => unknown(),
+        },
+        "/api/auth/register" => match text("email").as_str() {
+            "new@example.test"
+                if sent["registrationConsent"]
+                    == json!({ "resolution": { "resolutionId": "rcr_1", "requirements": [] }, "affirmed": false }) =>
+            {
+                let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"77","eventIds":["evt_reg"]}]"#;
+                let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "77".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                let body = json!({
+                    "type": "session-started", "userId": "usr_new", "sessionId": "ses_new", "sessionToken": "tok_new",
+                    "session": { "expires_at": later }, "memberships": [], "accountId": "acc_new",
+                });
+                (StatusCode::CREATED, headers, Json(body)).into_response()
+            }
+            "taken@example.test" => {
+                (StatusCode::CONFLICT, Json(json!({ "error": "A user already exists for that email." }))).into_response()
+            }
+            "stranger@example.test" => refusal(StatusCode::FORBIDDEN, "registration_admission_required", "Invitation required."),
+            _ => refusal(StatusCode::BAD_REQUEST, "registration_consent_not_server_minted", "No consent."),
         },
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
@@ -4529,10 +4554,7 @@ async fn a_guest_drafts_a_listing_and_registers_to_claim_it() {
     let req = post(LIST, "nobody", &list_body(ATTEMPT, "25.5", "usd", "1"), false);
     let (status, headers, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(
-        headers[header::LOCATION],
-        "http://localhost:7753/register?returnTo=%2Faccount%2Flistings%2Fnew%3FclaimListingIntent%3Dldi_1"
-    );
+    assert_eq!(headers[header::LOCATION], "/register?returnTo=%2Faccount%2Flistings%2Fnew%3FclaimListingIntent%3Dldi_1");
     let cookie = headers[header::SET_COOKIE].to_str().unwrap();
     assert!(
         cookie.starts_with("chase_sets_anonymous_listing_drafts=anon_cmd_") && cookie.contains("Max-Age=2592000"),
@@ -4557,10 +4579,7 @@ async fn an_account_that_may_not_list_is_sent_to_registration_and_cannot_post() 
     let (_, _, html) = pilot.send(get(SELL_PAGE, Some("watcher"))).await;
     let page = text(&html);
     assert!(page.contains("Asking price Set before publishing Inventory Confirm before publishing"), "{page}");
-    assert_eq!(
-        hrefs(&html, "Continue to create listing"),
-        ["http://localhost:7753/register?returnTo=%2Fitems%2Fcharizard%3Fmarket%3Dsell"]
-    );
+    assert_eq!(hrefs(&html, "Continue to create listing"), ["/register?returnTo=%2Fitems%2Fcharizard%3Fmarket%3Dsell"]);
     assert!(!html.contains(r#"action="/items/charizard/list""#), "{html}");
     let (status, _, _) = pilot.send(post(LIST, "watcher", &list_body(ATTEMPT, "10", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -11103,6 +11122,109 @@ async fn a_magic_link_signs_in_or_says_why_it_could_not() {
 }
 
 #[tokio::test]
+async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_own_address() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/register?returnTo=%2Faccount%2Fcart", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Create your account") && page.contains("Use an account you already have."), "{page}");
+    let order: Vec<usize> =
+        ["Passkey", "Phone Code", "Magic Link", "Password"].iter().map(|m| html.find(&format!(">{m}</a>")).unwrap()).collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "marketplace's order: {order:?}");
+    // A passkey is the first, and marketplace's page: WebAuthn is its script.
+    assert!(html.contains(r#"aria-current="true">Passkey"#) && page.contains("Recommended"), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7753/register?returnTo=%2Faccount%2Fcart""#), "{html}");
+    assert!(
+        html.contains("http://localhost:7753/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart"),
+        "{html}"
+    );
+
+    let (_, _, html) = pilot.send(get("/register?returnTo=%2Faccount%2Fcart&registrationMethod=password", None)).await;
+    assert!(html.contains(r#"aria-current="true">Password"#) && html.contains(r#"autocomplete="new-password""#), "{html}");
+    assert!(html.contains(r#"action="/register?returnTo=%2Faccount%2Fcart""#), "the form posts back to the same return: {html}");
+    let (_, _, html) = pilot.send(get("/register?registrationMethod=magic-link", None)).await;
+    assert!(html.contains(r#"value="magic-link-register""#) && !html.contains(r#"type="password""#), "{html}");
+    let (_, _, html) = pilot.send(get("/register?registrationMethod=phone-code", None)).await;
+    assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"name="code""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_password_registration_resolves_consent_first_and_lands_on_the_account_read_after_the_write() {
+    let pilot = Pilot::new().await;
+    let body = "intent=password&displayName=New+Seller&email=new%40example.test&password=hunter22";
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account?after_write="), "the account's page, after Identity's write: {to}");
+    assert!(to.contains("77"), "{to}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_new;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/register");
+    assert_eq!(sent[0].headers["x-forwarded-for"], "203.0.113.7", "the browser's address, for the API's limit");
+    let sent: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "displayName": "New Seller", "email": "new@example.test", "password": "hunter22",
+            "registrationConsent": { "resolution": { "resolutionId": "rcr_1", "requirements": [] }, "affirmed": false },
+        })
+    );
+
+    // Elsewhere, where it was going.
+    let (_, headers, _) = pilot.send(sign_in_post("/register?returnTo=%2Faccount%2Fcart", None, body)).await;
+    assert_eq!(headers[header::LOCATION], "/account/cart");
+}
+
+#[tokio::test]
+async fn a_refused_registration_says_why_keeps_what_was_typed_and_names_no_account() {
+    let pilot = Pilot::new().await;
+    for (email, status, says) in [
+        // An existing email is the generic failure, as marketplace's: nothing says the account exists.
+        ("taken%40example.test", StatusCode::UNPROCESSABLE_ENTITY, "This request could not be completed."),
+        ("stranger%40example.test", StatusCode::UNPROCESSABLE_ENTITY, "Registration requires an invitation"),
+    ] {
+        let body = format!("intent=password&displayName=Someone&email={email}&password=hunter22");
+        let (got, headers, html) = pilot.send(sign_in_post("/register?registrationMethod=password", None, &body)).await;
+        assert_eq!(got, status, "{email}: {html}");
+        assert!(headers.get(header::SET_COOKIE).is_none(), "{email}");
+        let page = text(&html);
+        assert!(page.contains("Registration failed") && page.contains(says), "{email}: {page}");
+        assert!(!page.contains("already exists"), "{page}");
+        assert!(
+            html.contains(r#"value="Someone""#) && !html.contains("hunter22"),
+            "the name stays, the password does not: {html}"
+        );
+        assert!(html.contains(r#"aria-current="true">Password"#), "{html}");
+    }
+}
+
+#[tokio::test]
+async fn a_magic_link_registration_sends_the_link_and_a_phone_code_registration_sends_the_name_with_the_code() {
+    let pilot = Pilot::new().await;
+    let body = "intent=magic-link-register&displayName=New+Seller&email=new%40example.test";
+    let (status, headers, html) = pilot.send(sign_in_post("/register?returnTo=%2Fsearch", None, body)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "no account until the link is used (chase-sets/chase-sets#10245)");
+    assert!(text(&html).contains("Magic link sent"), "{html}");
+    assert!(auth_calls(&pilot, "/api/auth/register").is_empty(), "{html}");
+    let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/magic-link/request")[0].body).unwrap();
+    assert_eq!(sent, json!({ "email": "new@example.test", "landingPath": "/sign-in/magic", "returnTo": "/search" }));
+
+    let (status, _, html) =
+        pilot.send(sign_in_post("/register", None, "intent=phone-code-request&displayName=New+Seller&phone=%2B15550100")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains(r#"name="tokenId" value="pc_1""#) && html.contains(r#"name="displayName" value="New Seller""#),
+        "{html}"
+    );
+    let code = "intent=phone-code-consume&tokenId=pc_1&displayName=New+Seller&phone=%2B15550100&code=123456";
+    let (status, headers, _) = pilot.send(sign_in_post("/register", None, code)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account", "no receipt, so the page as it is");
+    let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/phone-code/consume")[0].body).unwrap();
+    assert_eq!(sent["displayName"], "New Seller");
+}
+
+#[tokio::test]
 async fn a_phone_code_is_sent_then_entered() {
     let pilot = Pilot::new().await;
     let at = "/sign-in?returnTo=%2Fsearch&signInIdentifier=%2B15550100";
@@ -13428,10 +13550,7 @@ async fn a_guest_sees_their_sell_list_with_the_standard_terms_and_continues_to_r
     let continue_ = post_signed_out(SELL_LIST_PAGE, "intent=review-sell-list-checkout");
     let (status, headers, html) = pilot.send(with_guest(continue_, None, "anon_one")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(
-        headers[header::LOCATION],
-        "http://localhost:7753/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout"
-    );
+    assert_eq!(headers[header::LOCATION], "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout");
     // A guest may not decline or accept: those are an account's.
     let decline = post_signed_out(SELL_LIST_PAGE, "intent=decline-sell-list-offers&bulkOfferId=off_ready");
     let (status, _, html) = pilot.send(with_guest(decline, None, "anon_one")).await;
@@ -13925,10 +14044,7 @@ async fn a_guests_seller_checkout_checks_the_form_and_goes_to_registration() {
     let body = sell_form(&plan, &[("readinessDecisions", "{}")]);
     let (status, headers, html) = pilot.send(with_guest(post_signed_out(at, &body), None, "anon_one")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(
-        headers[header::LOCATION],
-        "http://localhost:7753/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout"
-    );
+    assert_eq!(headers[header::LOCATION], "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout");
     assert!(handoff_calls(&pilot).is_empty(), "a guest hands nothing off");
 }
 

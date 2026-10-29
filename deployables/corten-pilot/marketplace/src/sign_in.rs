@@ -36,7 +36,7 @@ use corten::{
     prelude::*,
     security::cookie::{self, SetCookie},
 };
-use platform::session::SESSION_COOKIE;
+use platform::{receipt::Receipt, session::SESSION_COOKIE};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
@@ -326,17 +326,27 @@ struct Memberships {
 }
 
 /// An auth call: the browser's cookies and host, as every call sends them, and its address.
-async fn call<T: DeserializeOwned>(
+pub(crate) async fn call<T: DeserializeOwned>(
     caller: &Caller<'_>,
     client: Option<ClientIp>,
     path: &str,
     body: Value,
 ) -> Result<T, ApiError> {
+    call_written(caller, client, path, body).await.map(|(answer, _)| answer)
+}
+
+/// An auth call that writes, and the receipt the next read waits for (a new identity's).
+pub(crate) async fn call_written<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    path: &str,
+    body: Value,
+) -> Result<(T, Option<Receipt>), ApiError> {
     let mut req = caller.request(Http::POST, path, AUTH).json(&body);
     if let Some(ClientIp(ip)) = client {
         req = req.header("x-forwarded-for", ip.to_string());
     }
-    caller.write::<T>(req).await.map(|(answer, _)| answer)
+    caller.write::<T>(req).await
 }
 
 /// Whether the API never received the request: marketplace retries a password sign-in then.
@@ -345,7 +355,7 @@ fn unsent(error: &ApiError) -> bool {
 }
 
 /// A sign-in's refusal in the page's words (`authApiActionError`), and the status the page has.
-fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, String) {
+pub(crate) fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, String) {
     let failed = (StatusCode::UNPROCESSABLE_ENTITY, t.host_request_failed().to_owned());
     let Some(status) = error.status() else {
         tracing::warn!("a sign-in call failed: {error}");
@@ -394,7 +404,7 @@ fn seconds_until(expires_at: &str) -> i64 {
 
 /// The browser signed in (`completeBrowserAuthentication`): the session's cookie and back to
 /// `return_to`, or the selection's cookie and the choice of account, which then goes there.
-fn complete(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
+pub(crate) fn complete(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
     // A token the API wrote that a cookie cannot carry is the API's mistake: 502, not a panic.
     let keep = match &result {
         Authenticated::SessionStarted { session_token, session } => {

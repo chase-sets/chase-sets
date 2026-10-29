@@ -27,8 +27,9 @@
 // - marketplace/locales/cart.en.json: the cart page's English catalog (checkout.features.cart.ui.cartPage.*
 //   and checkout.routes.accountCart.*, the route's title, description and messages, and the
 //   language labels a line's badge uses).
-// - marketplace/locales/sign_in.en.json: marketplace's sign-in, magic-link landing and account
-//   selection (auth.features.signIn.ui.signInPage.* as page.*, the auth host's and API's refusals as
+// - marketplace/locales/sign_in.en.json: marketplace's sign-in, registration, magic-link landing and
+//   account selection (auth.features.signIn.ui.signInPage.* as page.*,
+//   auth.features.registration.ui.registerPage.* as register.*, the auth host's and API's refusals as
 //   host.*, password.*, phone.*, magic_api.* and gate.*, the magic-link landing as magic.*, the
 //   account gate's context as context.*, account selection's refusals as selection_api.*, social
 //   sign-in's refusals as social.*, and auth.features.accountSelection.ui.accountSelectionPage.*
@@ -630,6 +631,7 @@ const outputs = [
     json({
       ...(await catalog("auth.ts", "authEnglishTranslations", [
         ["auth.features.signIn.ui.signInPage.", "page"],
+        ["auth.features.registration.ui.registerPage.", "register"],
         ["auth.support.routeSupport.authHost.", "host"],
         ["auth.support.routeSupport.magicLinkLanding.", "magic"],
         ["auth.support.apiSupport.passwordRoutes.", "password"],

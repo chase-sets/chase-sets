@@ -237,6 +237,7 @@
   },
   "auth": {
     "sign_in_title": "Sign In | Marketplace",
+    "register_title": "Register | Marketplace",
     "account_selection_title": "Select Account | Marketplace"
   },
   "team": {

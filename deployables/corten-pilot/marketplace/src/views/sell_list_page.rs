@@ -24,7 +24,6 @@ use crate::{
         support_reference,
     },
     text::{Pilot, SellListMsg},
-    views::on_marketplace,
 };
 
 /// Continue to seller checkout's form, which every line's fields belong to.
@@ -180,7 +179,7 @@ fn date_time(t: SellListMsg, at: &str) -> String {
 pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) -> impl Render {
     let desk = screen.surface == Surface::DeskOffers;
     let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
-    let register = on_marketplace(&format!("/register?returnTo={}", platform::api::segment(&back)));
+    let register = crate::register::href(&back);
     let sign_in = crate::app::sign_in_back_to(&back).map(|u| u.to_string()).unwrap_or_default();
     let continue_label = if screen.account { t.page_continue_to_seller_checkout() } else { t.page_create_account_to_continue() };
     let _ = p;

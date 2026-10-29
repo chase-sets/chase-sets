@@ -42,6 +42,7 @@ mod pricing_health;
 mod public_listing;
 mod recommendations;
 mod recovery;
+mod register;
 mod repricing;
 mod repricing_policy;
 mod restock;

@@ -37,7 +37,6 @@ use crate::{
     items::{self, Address, ItemScreen, Market, Raw},
     selling,
     text::ItemMsg,
-    views,
 };
 
 /// The item page's parameter after a seller's write: the write's receipt, which its reads wait
@@ -120,12 +119,10 @@ pub fn listing_id(attempt: &str) -> Option<String> {
     uuid::Uuid::parse_str(attempt).ok().map(|id| format!("lst_{}", id.simple()))
 }
 
-/// Marketplace's registration, then its new listing page claiming the draft
+/// Registration, then the new listing page claiming the draft
 /// (`buildRegisterToClaimListingDraftHref`).
 fn register_href(intent: &str) -> String {
-    let back = format!("/account/listings/new?claimListingIntent={}", segment(intent));
-    let path = format!("/register?returnTo={}", segment(&back));
-    views::marketplace(&path).map(|u| u.to_string()).unwrap_or(path)
+    crate::register::href(&format!("/account/listings/new?claimListingIntent={}", segment(intent)))
 }
 
 /// The guest draft owner a request writes as, by the id the browser keeps or a new one

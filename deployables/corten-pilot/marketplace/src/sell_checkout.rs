@@ -27,7 +27,7 @@ use corten::{
     axum::http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
-use platform::{api::segment, money, receipt::Receipt};
+use platform::{money, receipt::Receipt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -887,8 +887,7 @@ pub(crate) async fn write(
     }
     if !screen.account {
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
-        let to = views::on_marketplace(&format!("/register?returnTo={}", segment(&back)));
-        return req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?);
+        return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
     confirm(&req, session, &caller, screen, &started).await
 }
@@ -995,8 +994,7 @@ pub(crate) async fn confirmation(
     }
     if !account_sell_list(session) {
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
-        let to = views::on_marketplace(&format!("/register?returnTo={}", segment(&back)));
-        return req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?);
+        return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());

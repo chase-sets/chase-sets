@@ -1090,7 +1090,7 @@ async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, a
         };
         return match caller.sell_list_readiness(&ReadinessDecisions::default(), Some(id)).await {
             Ok((snapshot, _)) if snapshot.status == "ready" && snapshot.unresolved_line_ids.is_empty() => {
-                Done::To(views::on_marketplace(&format!("/register?returnTo={}", segment(&back))))
+                Done::To(crate::register::href(&back))
             }
             Ok(_) => Done::Refused(t.route_sell_list_readiness_must_be_resolved().to_owned()),
             Err(error) => Done::Failed(error),

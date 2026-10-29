@@ -1,5 +1,6 @@
-//! Marketplace's sign-in page (`SignInPage`), its account selection (`AccountSelectionPage`) and a
-//! magic link that could not sign in (`MagicLinkLandingPage`).
+//! Marketplace's sign-in page (`SignInPage`), its registration page (`RegisterPage`), its account
+//! selection (`AccountSelectionPage`) and a magic link that could not sign in
+//! (`MagicLinkLandingPage`).
 //!
 //! No script: each step is an address, each method a link and each action a form. One narrow
 //! column on every screen, every control at least --control-height (44 px) tall.
@@ -8,6 +9,7 @@ use corten::prelude::*;
 use crate::{
     api::segment,
     app::url,
+    register::{self, Join, RegisterForm, RegisterScreen},
     sign_in::{
         Ask, Back, DEFAULT_SUCCESS, Kind, Membership, Method, Notice, SelectForm, SignInForm, SignInScreen, on_marketplace,
         safe_return_to,
@@ -238,5 +240,178 @@ pub fn MagicLinkFailed<'a>(t: SignInMsg, title: &'a str, description: &'a str, a
             </header>
             <p><a class={Button} href={again}>{t.magic_request_new_link()}</a></p>
         </div>
+    }
+}
+
+/// A social registration's start, on marketplace's origin, where the provider comes back to.
+fn social_registration(provider: &str, return_to: &str) -> String {
+    super::on_marketplace(&format!("/api/auth/social/{provider}/start?journey=registration&returnTo={}", segment(return_to)))
+}
+
+/// Creating an account: a social account, or a method's form. Marketplace's segmented control is a
+/// row of links, one per method.
+#[component(css = SignInPage)]
+pub fn RegisterPage<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
+    let method = screen.method;
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <h1 class={Title}>{t.register_create_account()}</h1>
+                <p class={Muted}>{t.register_create_your_personal_identity_and_owner()}</p>
+            </header>
+            if let Some((title, description)) = screen.context {
+                <div class={Banner} data-tone="info">
+                    <p class={Strong}>{title}</p>
+                    <p>{description}</p>
+                </div>
+            }
+            if let Some(error) = &screen.error {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.register_registration_failed()}</p>
+                    <p>{error}</p>
+                </div>
+            } else {
+                if let Some(error) = screen.social_error {
+                    <div class={Banner} data-tone="danger" role="alert">
+                        <p class={Strong}>{t.register_registration_failed()}</p>
+                        <p>{error}</p>
+                    </div>
+                }
+            }
+            if let Some(notice) = &screen.notice {
+                <div class={Banner} data-tone="success" role="status">
+                    if *notice == register::Notice::MagicLinkSent {
+                        <p class={Strong}>{t.page_magic_link_sent()}</p>
+                        <p>{t.page_magic_link_ready_check_your_email()}</p>
+                    } else {
+                        <p class={Strong}>{t.register_phone_code_sent()}</p>
+                        <p>{t.register_phone_code_ready_check_your_phone()}</p>
+                    }
+                </div>
+            }
+            <section class={(Card, Flush)}>
+                <p class={Muted}>{t.register_use_an_account_you_already_have()}</p>
+                <div class={Row}>
+                    <a class={(Button, Secondary)} href={&social_registration("google", &screen.return_to)}>
+                        {t.register_continue_with_google()}
+                    </a>
+                    <a class={(Button, Secondary)} href={&social_registration("facebook", &screen.return_to)}>
+                        {t.register_continue_with_facebook()}
+                    </a>
+                </div>
+            </section>
+            <nav class={Methods} aria-label={t.register_method()}>
+                for choice in register::Method::ALL {
+                    <a
+                        class={Choice}
+                        href={url::Register { join: screen.join.with_method(choice) }}
+                        aria-current={(choice == method).then_some("true")}
+                    >
+                        {choice.label(t)}
+                    </a>
+                }
+            </nav>
+            <MethodForm t={t} screen={screen} />
+        </div>
+    }
+}
+
+/// The display name and email every email method asks for, as last sent.
+#[component(css = SignInPage)]
+fn Identity<'a>(t: SignInMsg, typed: &'a RegisterForm) -> impl Render {
+    let f = RegisterForm::FIELDS;
+    html! {
+        <label class={Field}>
+            <span class={Label}>{t.register_display_name()}</span>
+            <input class={Input} type="text" name={f.display_name} autocomplete="name" required value={&typed.display_name}>
+        </label>
+        <label class={Field}>
+            <span class={Label}>{t.register_email()}</span>
+            <input class={Input} type="email" name={f.email} autocomplete="email" required value={&typed.email}>
+        </label>
+    }
+}
+
+/// The shown method's form (or, for a passkey, marketplace's page).
+#[component(css = SignInPage)]
+fn MethodForm<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
+    let f = RegisterForm::FIELDS;
+    let action = url::Register { join: Join { registration_method: None, social_login_error: None, ..screen.join.clone() } };
+    let typed = &screen.typed;
+    let token_id = match &screen.notice {
+        Some(register::Notice::PhoneCodeSent { token_id }) => Some(token_id.as_str()),
+        _ => None,
+    };
+    html! {
+        if screen.method == register::Method::Passkey {
+            <section class={Card}>
+                <div class={Row}>
+                    <span class={Badge}>{t.register_recommended()}</span>
+                    <p class={Muted}>{t.register_passkey_recommended_copy()}</p>
+                </div>
+                // WebAuthn is marketplace's page's script.
+                <a class={Button} href={&register::on_marketplace(&screen.join)}>{t.register_create_with_passkey()}</a>
+            </section>
+        }
+        if screen.method == register::Method::MagicLink {
+            <form class={(Card, Form)} method="post" action={&action}>
+                <input type="hidden" name={f.intent} value="magic-link-register">
+                <p class={Muted}>{t.register_magic_link_copy()}</p>
+                <Identity t={t} typed={typed} />
+                <button type="submit">{t.register_email_me_magic_link()}</button>
+            </form>
+        }
+        if screen.method == register::Method::PhoneCode {
+            <form class={(Card, Form)} method="post" action={&action}>
+                <input type="hidden" name={f.intent} value="phone-code-request">
+                <p class={Muted}>{t.register_phone_code_copy()}</p>
+                <label class={Field}>
+                    <span class={Label}>{t.register_display_name()}</span>
+                    <input
+                        class={Input}
+                        type="text"
+                        name={f.display_name}
+                        autocomplete="name"
+                        required
+                        value={&typed.display_name}
+                    >
+                </label>
+                <label class={Field}>
+                    <span class={Label}>{t.register_phone()}</span>
+                    <input class={Input} type="tel" name={f.phone} autocomplete="tel" required value={&typed.phone}>
+                </label>
+                <button type="submit">{t.register_text_me_a_code()}</button>
+            </form>
+            // The code's form once a code is sent: it sends the request's id back with the name.
+            if let Some(token_id) = token_id {
+                <form class={(Card, Form)} method="post" action={&action}>
+                    <input type="hidden" name={f.intent} value="phone-code-consume">
+                    <input type="hidden" name={f.token_id} value={token_id}>
+                    <input type="hidden" name={f.display_name} value={&typed.display_name}>
+                    <p class={Muted}>{t.register_enter_phone_code_copy()}</p>
+                    <label class={Field}>
+                        <span class={Label}>{t.register_phone()}</span>
+                        <input class={Input} type="tel" name={f.phone} autocomplete="tel" required value={&typed.phone}>
+                    </label>
+                    <label class={Field}>
+                        <span class={Label}>{t.register_phone_code_2()}</span>
+                        <input class={Input} type="text" name={f.code} autocomplete="one-time-code" inputmode="numeric" required>
+                    </label>
+                    <button class={Secondary} type="submit">{t.register_create_account_with_code()}</button>
+                </form>
+            }
+        }
+        if screen.method == register::Method::Password {
+            <form class={(Card, Form)} method="post" action={&action}>
+                <input type="hidden" name={f.intent} value="password">
+                <p class={Muted}>{t.register_password_fallback_copy()}</p>
+                <Identity t={t} typed={typed} />
+                <label class={Field}>
+                    <span class={Label}>{t.register_password_2()}</span>
+                    <input class={Input} type="password" name={f.password} autocomplete="new-password" required>
+                </label>
+                <button class={Secondary} type="submit">{t.register_create_account_with_password()}</button>
+            </form>
+        }
     }
 }

@@ -147,7 +147,8 @@ pub fn alerts_href(receipt: &str) -> String {
 }
 
 /// Marketplace's registration, back to the item's Watch tab with the intent to claim
-/// (`buildRegisterToClaimProductAlertHref`).
+/// (`buildRegisterToClaimProductAlertHref`). Marketplace's: the claim is its item page's, which
+/// the pilot's does not make.
 fn register_href(slug: &str, intent: &str) -> String {
     let back = format!("/items/{}?market=watch&claimProductAlertIntent={}", segment(slug), segment(intent));
     let path = format!("/register?returnTo={}", segment(&back));

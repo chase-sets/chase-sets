@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::on_marketplace;
 use crate::{
-    api::{FieldValue, Item, Listing, MarketAggregate, MarketState, Offer, Reference, RollupPoint, SimilarItem, segment},
+    api::{FieldValue, Item, Listing, MarketAggregate, MarketState, Offer, Reference, RollupPoint, SimilarItem},
     app::url,
     buying::{BuyFields, BuyNotice, RailForm, field},
     items::{
@@ -1508,7 +1508,7 @@ fn ListForms<'a>(
     let currency = typed.map(|i| i.currency.as_str()).or(screen.summary.lowest_price_currency_code.as_deref()).unwrap_or("USD");
     let quantity = typed.map_or("1", |i| i.quantity.as_str());
     let manage = |id: &str| crate::seller_listing::at(id, None, None).href();
-    let register = on_marketplace(&format!("/register?returnTo={}", segment(here)));
+    let register = crate::register::href(here);
     let register_label =
         if screen.selected_offer().is_some() { t.route_sign_in_or_register_to_list() } else { t.route_register_to_sell() };
     let action = url::ItemList { slug }.href();

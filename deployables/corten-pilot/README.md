@@ -53,6 +53,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Buy > Checkout, `/checkout/buy/session/{id}`, and its confirmation, `/checkout/buy/session/{id}/confirmation` |
 | `marketplace/` | Buy > a payment, `/account/payments/{id}` |
 | `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out` |
+| `marketplace/` | Create an account, `/register` (`?registrationMethod=`); a passkey stays on marketplace |
 | `marketplace/` | The account's own page, `/account` |
 | `marketplace/` | The user's security page, `/account/security` |
 | `marketplace/` | The user's sessions, `/account/sessions` and `/account/sessions/{id}` |
@@ -92,7 +93,6 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
 | `marketplace/` | Product alerts, `/account/product-alerts` |
 | `marketplace/` | marketplace's older money addresses, which move to the Seller Desk: `/account/payouts`, `/account/settlement`, `/account/payouts/{id}`, `/account/payouts/setup` and `/account/wallet/adjustments/{reference}` |
-| `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
 
 What each screen covers and leaves out, screen by screen, is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("What it covers"), with decisions 1 to 96 behind them.
@@ -268,6 +268,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10707 [identity] A security.manage owner can list another user's or account's consents by naming its ids, or every consent by naming neither](https://github.com/chase-sets/chase-sets/issues/10707) | [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#10710 [platform-operations] List each blocked projection's streams and poison events in the projections read (the repair queue and Operations Attention show none)](https://github.com/chase-sets/chase-sets/issues/10710) | [admin/src/projections/api.rs](admin/src/projections/api.rs), [admin/src/projections/mod.rs](admin/src/projections/mod.rs), [admin/src/projections/views/detail_sheet.rs](admin/src/projections/views/detail_sheet.rs), [scripts/smoke-projections.mjs](scripts/smoke-projections.mjs) |
 | [chase-sets/chase-sets#10712 [settlement] Answer the money dashboard's next payout, blocked payouts and payout availability from the Settlement API](https://github.com/chase-sets/chase-sets/issues/10712) | [marketplace/src/money.rs](marketplace/src/money.rs), [scripts/smoke-market-money.mjs](scripts/smoke-market-money.mjs) |
+| [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
 | [chase-sets/chase-sets#10787 [platform-operations] Derive a support response's offer resolution from its response type in the API instead of requiring the page to send it](https://github.com/chase-sets/chase-sets/issues/10787) | [marketplace/src/support.rs](marketplace/src/support.rs) |
 | [chase-sets/chase-sets#10789 [inventory] Derive a graded inventory item's grading company and grade from its selected options instead of requiring the form to send them](https://github.com/chase-sets/chase-sets/issues/10789) | [marketplace/src/inventory_list.rs](marketplace/src/inventory_list.rs) |
 | [chase-sets/chase-sets#10724 [platform-operations] Return each Support Request's customer remedy status and next deadline from the list reads, and enforce intake photos in the API](https://github.com/chase-sets/chase-sets/issues/10724) | [marketplace/src/support_list.rs](marketplace/src/support_list.rs) |

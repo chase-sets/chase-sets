@@ -181,6 +181,7 @@ pub mod url {
     pub use purchase_reviews::PurchaseReview;
     pub use purchases::{Purchase, PurchaseCancel, Purchases};
     pub use recommendations::{Recommendations, RecommendationsLive};
+    pub use register::Register;
     pub use repricing::{Repricing, RepricingDryRunLive, RepricingPolicy};
     pub use reviews::{ReceivedReviews, Review, Reviews, WrittenReviews};
     pub use sale_reviews::SaleReview;
@@ -1412,6 +1413,19 @@ pub mod url {
         }
     }
 
+    /// Creating an account (see `register`): the page and its writes. Public: no handler reads who
+    /// is asking.
+    #[corten::routes(state = crate::app::Shared, area = Register)]
+    pub mod register {
+        /// The page, with the method its address asks for; every registration form posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/register", get = crate::register::page, post = crate::register::write)]
+        pub struct Register {
+            #[route(query)]
+            pub join: crate::register::Join,
+        }
+    }
+
     /// The account a sign-in acts for, when the user may act for more than one. Public: the
     /// selection's cookie says whose it is.
     #[corten::routes(state = crate::app::Shared, area = AccountSelect)]
@@ -1597,6 +1611,7 @@ pub fn app(config: Config) -> App {
             url::new_listing::area(area, shared.clone()).components(views::NEW_LISTING).deadline(crate::listing_new::DEADLINE)
         })
         .area(|area| url::sign_in::area(area, shared.clone()).components(views::SIGN_IN))
+        .area(|area| url::register::area(area, shared.clone()).components(views::REGISTER))
         .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::sign_out::area(area, shared.clone()))
         .error_page(views::error_page, shared)
