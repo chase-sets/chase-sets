@@ -50,7 +50,11 @@
   "access": {
     "view": "View",
     "item": "{count} item",
-    "items": "{count} items"
+    "items": "{count} items",
+    "close": "Close",
+    "breadcrumbs": "Breadcrumbs",
+    "refused": "The change was not made.",
+    "assignable_badges": "Assign or remove badges"
   },
   "bulk": {
     "label": "Bulk changes",

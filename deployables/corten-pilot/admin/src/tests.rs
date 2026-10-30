@@ -75,6 +75,11 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform_admin", "permissions": permissions } }))
                 .into_response()
         };
+        if cookie.contains("chase_sets_session=access-admin") || cookie.contains("chase_sets_session=lagging-admin") {
+            let permissions = ["accounts.view", "accounts.manage", "security.manage", "memberships.view", "memberships.manage"];
+            return Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
+                .into_response();
+        }
         return if cookie.contains("chase_sets_session=access-staff") {
             actor(&["accounts.view", "security.manage", "memberships.view"])
         } else if cookie.contains("chase_sets_session=accounts-only") {
@@ -123,7 +128,17 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         return attention_queue(method, rest, cookie, &headers, &body);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/identity/") {
-        return identity_api(rest);
+        if rest == "access-hub/accounts/acc_1"
+            && cookie.contains("lagging")
+            && headers.contains_key("chase-sets-read-after-write")
+        {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return identity_api(&method, rest, &body);
     }
     if uri.path() == "/api/catalog/alias-review/commands" {
         return written(StatusCode::OK, "alias");
@@ -164,9 +179,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
 }
 
-/// The Identity API's reads: Access's home with one of each attention kind, and each list as one
-/// row of 120 (so its pages show).
-fn identity_api(rest: &str) -> Response {
+/// The Identity API: Access's home with one of each attention kind, each list as one row of 120
+/// (so its pages show), `acc_1`'s workspace, and its writes (an invitation to `taken@` is refused).
+fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
     let account = |id: &str, status: &str| {
         json!({
             "account_id": id, "name": "Acme Cards LLC", "display_name": "Acme Cards", "account_type": "business",
@@ -191,7 +206,42 @@ fn identity_api(rest: &str) -> Response {
         "auth_methods": ["password", "passkey"],
     });
     let page = |item: Value| Json(json!({ "items": [item], "total": 120 })).into_response();
+    if *method != Method::GET {
+        return match rest {
+            "invitations" if body.contains("taken@example.test") => {
+                refusal(StatusCode::CONFLICT, "invitation_exists", "That email already has a pending invitation.")
+            }
+            "api-keys/key_1/rotate" => {
+                let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let answer = json!({ "id": "key_1", "keyPrefix": "csk_new", "secret": "csk_new_full_secret" });
+                (StatusCode::OK, [("chase-sets-commit-receipt", receipt)], Json(answer)).into_response()
+            }
+            _ => written(StatusCode::OK, "identity"),
+        };
+    }
     match rest {
+        "access-hub/accounts/acc_1" => {
+            let mut user = user.clone();
+            user["contact_methods"] =
+                json!([{ "contactMethodId": "ctm_1", "type": "email", "value": "dana@example.test", "verifiedAt": null }]);
+            let mut key = key.clone();
+            key["account_id"] = json!("acc_1");
+            Json(json!({
+                "account": account("acc_1", "active"),
+                "users": [user],
+                "memberships": [membership],
+                "invitations": [invitation],
+                "api_keys": [key],
+                "audit_events": [{
+                    "event_id": "evt_1", "stream_id": "acc_1", "event_type": "identity.account.suspended",
+                    "performed_by_user_id": "usr_1", "recorded_at": "2026-10-02T12:00:00.000Z",
+                }],
+            }))
+            .into_response()
+        }
+        "access-hub/users/usr_2/account" => Json(json!({ "account_id": "acc_1" })).into_response(),
+        "access-hub/users/usr_9/account" => Json(json!({ "account_id": null })).into_response(),
+        "api-keys/key_1" => Json(key).into_response(),
         "access-hub" => {
             let mut rotation = key.clone();
             rotation["account_id"] = json!("acc_1");
@@ -3276,9 +3326,10 @@ async fn accesss_home_shows_each_attention_kind_and_searches_accounts() {
     assert!(html.contains("new@example.test · Manager · "), "{html}");
     assert!(html.contains("Inventory sync · Dana · "), "{html}");
     assert!(html.contains("dana@example.test · Unrecognized"), "an unknown role is named as one: {html}");
-    assert!(html.contains("/access/accounts/acc_1?tab=team&amp;invitation=inv_1"), "{html}");
-    assert!(html.contains("/access/accounts/acc_1?tab=api-access&amp;apiKey=key_1"), "{html}");
-    assert!(html.contains("/access/accounts/acc_2?tab=overview"), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=api-access""#), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_2""#), "the overview is the plain address: {html}");
+    assert!(!html.contains("localhost:7752/access/accounts"), "nothing opens admin-web's workspace: {html}");
     assert!(html.contains("39 accounts found") && html.contains(r#"value="acme""#), "{html}");
     let section = pilot.stylesheet(&html, "sections/access").await.unwrap();
     assert!(section.contains(".access-page__table") && !section.contains(".list-page__"), "{section}");
@@ -3311,7 +3362,108 @@ async fn an_access_list_asks_identity_as_admin_web_does_and_pages() {
     assert!(html.contains("Password, Passkey"), "{html}");
     let (_, _, html) = pilot.send(get("/access/memberships", Some("access-staff"))).await;
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards LLC"), "{html}");
-    assert!(html.contains("/access/accounts/acc_1?tab=team&amp;membership=mem_1"), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/api-keys", Some("access-staff"))).await;
-    assert!(html.contains("<code>csk_abc</code>"), "{html}");
+    assert!(html.contains("<code>csk_abc</code>") && html.contains(r#"href="/access/api-keys/key_1""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_accounts_workspace_draws_each_tab_from_one_read() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1", Some("access-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let paths: Vec<String> = pilot.calls_to("/api/identity/").into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, ["/api/identity/access-hub/accounts/acc_1"]);
+    for words in ["Acme Cards", "Overview", "Team", "API Access", "Audit", "Suspend"] {
+        assert!(html.contains(words), "{words}: {html}");
+    }
+    let (_, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team", Some("access-admin"))).await;
+    assert!(html.contains("dana@example.test") && html.contains("new@example.test"), "{html}");
+    assert!(html.contains(r#"value="resend-invitation""#), "a manager may resend: {html}");
+    let (_, _, html) = pilot.send(get("/access/accounts/acc_1?tab=api-access", Some("access-admin"))).await;
+    assert!(html.contains("Inventory sync") && html.contains(r#"value="rotate-api-key""#), "{html}");
+    let (_, _, html) = pilot.send(get("/access/accounts/acc_1?tab=audit", Some("access-admin"))).await;
+    assert!(html.contains("acc_1 · usr_1"), "{html}");
+
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team", Some("accounts-only"))).await;
+    assert_eq!(status, StatusCode::OK, "accounts.view reads the workspace: {html}");
+    for intent in ["suspend", "resend-invitation", "create-invitation"] {
+        assert!(!html.contains(&format!(r#"value="{intent}""#)), "{intent} is not offered: {html}");
+    }
+    let (status, _, _) = pilot.send(post_as("accounts-only", "/access/accounts/acc_1", "intent=suspend", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", "intent=bogus", false)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let writes = pilot.calls_to("/api/identity/").into_iter().filter(|c| c.method != Method::GET).count();
+    assert_eq!(writes, 0, "a refused or unknown form writes nothing");
+}
+
+#[tokio::test]
+async fn a_workspace_form_writes_to_identity_and_reads_the_page_after_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", "intent=suspend", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/access/accounts/acc_1?tab=overview&after_write="), "{to}");
+
+    let body = "intent=create-invitation&email=new2%40example.test&roleKey=manager";
+    let (status, headers, _) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/access/accounts/acc_1?tab=team&after_write="));
+    let writes: Vec<Call> = pilot.calls_to("/api/identity/").into_iter().filter(|c| c.method == Method::POST).collect();
+    assert_eq!(
+        writes.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        ["/api/identity/accounts/acc_1/suspend", "/api/identity/invitations"]
+    );
+    let sent: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!((sent["accountId"].as_str(), sent["roleKey"].as_str()), (Some("acc_1"), Some("manager")), "{sent}");
+    let expires =
+        time::OffsetDateTime::parse(sent["expiresAt"].as_str().unwrap(), &time::format_description::well_known::Rfc3339).unwrap();
+    let hours = (expires - time::OffsetDateTime::now_utc()).whole_hours();
+    assert!(
+        (167..=168).contains(&hours) && expires.nanosecond().is_multiple_of(1_000_000),
+        "seven days, to the millisecond: {sent}"
+    );
+
+    let body = "intent=create-invitation&email=taken%40example.test&roleKey=viewer";
+    let (status, headers, html) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("That email already has a pending invitation.") && html.contains(r#"role="alert""#), "{html}");
+
+    let (status, headers, html) =
+        pilot.send(post_as("access-admin", "/access/accounts/acc_1", "intent=rotate-api-key&apiKeyId=key_1", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.get(header::LOCATION).is_none(), "the secret is never put in an address");
+    assert!(html.contains("API key secret rotated") && html.contains("csk_new_full_secret"), "{html}");
+}
+
+#[tokio::test]
+async fn a_workspace_whose_write_is_not_readable_yet_is_read_without_it() {
+    let pilot = Pilot::new().await;
+    let uri = format!("/access/accounts/acc_1?tab=team&after_write={}", fresh_receipt());
+    let (status, _, html) = pilot.send(get(&uri, Some("lagging-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "admin-web's onPending: {html}");
+    assert!(
+        html.contains("new@example.test") && html.contains("Refresh in a moment"),
+        "it says the change is on its way: {html}"
+    );
+    let reads: Vec<bool> =
+        pilot.calls_to("/api/identity/").iter().map(|c| c.headers.contains_key("chase-sets-read-after-write")).collect();
+    assert_eq!(reads, [true, false], "the write's read, then the read without it");
+}
+
+#[tokio::test]
+async fn a_users_or_keys_page_opens_its_accounts_workspace() {
+    let pilot = Pilot::new().await;
+    for (path, to) in [
+        ("/access/users/usr_2", "/access/accounts/acc_1?tab=team"),
+        ("/access/users/usr_9", "/access/users?search=usr_9"),
+        ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access"),
+    ] {
+        let (status, headers, html) = pilot.send(get(path, Some("access-staff"))).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{path}: {html}");
+        assert_eq!(headers[header::LOCATION], to, "{path}");
+    }
+    assert_eq!(pilot.send(get("/access/users/usr_2", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
 }

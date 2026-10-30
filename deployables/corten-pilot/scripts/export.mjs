@@ -10,7 +10,8 @@
 //   Attention queue's (platformOperations.operationsAttention.*) and Projection Operations'
 //   (platformOperations.projectionOperations.* as projections.*).
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
-//   accounts, users, memberships, invitations and API keys lists, the identity value labels and
+//   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
+//   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
 //   the routes' titles.
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
@@ -614,6 +615,14 @@ const outputs = [
         ["identity.features.memberships.ui.role.", "role"],
         ["identity.features.invitations.ui.invitationListPage.", "invitations"],
         ["identity.features.apiKeys.ui.apiKeyListPage.", "api_keys"],
+        ["identity.features.accessHub.ui.account.", "account"],
+        ["identity.features.accounts.ui.accountDetailPage.", "account_detail"],
+        ["identity.features.users.ui.userDetailPage.", "user_detail"],
+        ["identity.features.memberships.ui.membershipDetailPage.", "membership_detail"],
+        ["identity.features.memberships.ui.accountTeamPage.", "team"],
+        ["identity.features.invitations.ui.invitationDetailPage.", "invitation_detail"],
+        ["identity.features.apiKeys.ui.apiKeyDetailPage.", "api_key_detail"],
+        ["identity.features.apiKeys.ui.apiKeySecretReveal.", "secret"],
         ["identity.values.accountType.", "account_type"],
         ["identity.values.authenticationMethod.", "method"],
         ["identity.values.role.platformAdmin", "role.platform_admin"],
@@ -627,6 +636,7 @@ const outputs = [
         ["identity.routes.admin.memberships.memberships.identity.admin", "route.memberships"],
         ["identity.routes.admin.invitations.invitations.identity.admin", "route.invitations"],
         ["identity.routes.admin.apiKeys.api.keys.identity.admin", "route.api_keys"],
+        ["identity.routes.admin.accountsDetail.account.detail.identity.admin", "route.account"],
       ]),
     ),
   ],

@@ -11,13 +11,16 @@
 //! | `GET /access/memberships?...` | the memberships | `memberships.view` |
 //! | `GET /access/invitations?...` | the invitations | `memberships.view` |
 //! | `GET /access/api-keys?...` | the API keys | `security.manage` |
+//! | `GET /access/users/{id}`, `GET /access/api-keys/{id}` | its account's workspace (a redirect), else the list searched for it | `security.manage` |
+//! | `GET /access/accounts/{id}?tab&after_write`, `POST` | an account's workspace; its forms | `accounts.view`, and each form what admin-web shows it for |
 //!
 //! Each route needs what admin-web's access layout challenges its path for: the nav entry's
-//! permission, else `accounts.view`. An account's workspace (`/access/accounts/{id}`, where every
-//! Review, Open and View goes) is not in the pilot yet, so those links open admin-web.
+//! permission, else `accounts.view`. A user's, a membership's, an invitation's or an API key's
+//! page is its account's workspace on a tab, as admin-web's are.
 use corten::{axum::http::HeaderMap, prelude::*};
 use serde::Serialize;
 
+pub mod account;
 pub mod api;
 pub mod views;
 
@@ -79,6 +82,15 @@ pub mod url {
         #[route(query)]
         pub query: ListQuery,
     }
+
+    /// An account's workspace on a tab, after the write whose receipt the address carries; a
+    /// `POST` is one of its forms (`intent`).
+    #[route("/access/accounts/{id}", get = crate::access::account::page, post = crate::access::account::write)]
+    pub struct AccountHub<'a> {
+        pub id: &'a str,
+        pub tab: Option<&'a str>,
+        pub after_write: Option<String>,
+    }
 }
 
 /// Users and API keys: `security.manage`.
@@ -98,6 +110,18 @@ pub mod people {
     pub struct ApiKeys {
         #[route(query)]
         pub query: ListQuery,
+    }
+
+    /// A user's page: their account's workspace on its team tab (admin-web's redirect).
+    #[route("/access/users/{id}", get = crate::access::account::user)]
+    pub struct UserPage<'a> {
+        pub id: &'a str,
+    }
+
+    /// An API key's page: its user's account's workspace on its API access tab.
+    #[route("/access/api-keys/{id}", get = crate::access::account::api_key)]
+    pub struct ApiKeyPage<'a> {
+        pub id: &'a str,
     }
 }
 

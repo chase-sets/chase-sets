@@ -10,14 +10,16 @@ use corten::{
 use crate::{
     access::{
         self, Read,
+        account::{Tab, hub},
         api::{Account, ApiKey, Invitation, List, Membership, User},
+        people,
         url::{self, ListQuery},
     },
     text::{Acc, Pilot},
 };
 
 /// A moment as admin-web's `formatDateTime` writes it, else the date's unavailable words.
-fn when(t: Acc, at: Option<&str>) -> String {
+pub(super) fn when(t: Acc, at: Option<&str>) -> String {
     at.and_then(parse_timestamp).map_or_else(
         || t.value_date_unavailable().to_owned(),
         |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string(),
@@ -35,14 +37,13 @@ struct Attention {
 
 fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
     let a = &home.attention;
-    let web = access::admin_web;
     let invitations = a.pending_invitations.iter().map(|i| Attention {
         kind: t.home_pending_invitation(),
         account: i.account_label().to_owned(),
         detail: t
             .home_pending_invitation_detail(&i.email, &access::role(t, &i.role_key), &when(t, Some(&i.expires_at)))
             .to_string(),
-        href: web(&format!("/access/accounts/{}?tab=team&invitation={}", i.account_id, i.invitation_id)),
+        href: hub(&i.account_id, Tab::Team),
     });
     let keys = a.api_keys_needing_rotation.iter().map(|k| Attention {
         kind: t.home_api_key_rotation(),
@@ -50,19 +51,19 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
         detail: t
             .home_api_key_rotation_detail(&k.key.name, k.key.user_label(), &when(t, k.rotation_due_at.as_deref()))
             .to_string(),
-        href: web(&format!("/access/accounts/{}?tab=api-access&apiKey={}", k.account_id, k.key.api_key_id)),
+        href: hub(&k.account_id, Tab::ApiAccess),
     });
     let suspended = a.suspended_accounts.iter().map(|acc| Attention {
         kind: t.home_suspended_account(),
         account: account_label(acc).to_owned(),
         detail: when(t, Some(&acc.updated_at)),
-        href: web(&format!("/access/accounts/{}?tab=overview", acc.account_id)),
+        href: hub(&acc.account_id, Tab::Overview),
     });
     let review = a.memberships_awaiting_review.iter().map(|m| Attention {
         kind: t.home_membership_review(),
         account: m.account_label().to_owned(),
         detail: t.home_membership_review_detail(m.user_label(), &access::role(t, &m.role_key)).to_string(),
-        href: web(&format!("/access/accounts/{}?tab=team&membership={}", m.account_id, m.membership_id)),
+        href: hub(&m.account_id, Tab::Team),
     });
     invitations.chain(keys).chain(suspended).chain(review).collect()
 }
@@ -158,10 +159,7 @@ pub fn AccessPage<'a>(t: Acc, screen: &'a access::HomeScreen) -> impl Render {
                                             }
                                         </td>
                                         <td>
-                                            <a
-                                                class={Open}
-                                                href={access::admin_web(&format!("/access/accounts/{}", account.account_id))}
-                                            >
+                                            <a class={Open} href={hub(&account.account_id, Tab::Overview)}>
                                                 {t.home_open_account()}
                                             </a>
                                         </td>
@@ -279,7 +277,7 @@ fn ListFrame<'a, C: Render>(
     }
 }
 
-/// A row's View: the record's admin-web page.
+/// A row's View: the record's page (its account's workspace).
 #[component(css = AccessPage)]
 fn View<'a>(p: Pilot, href: &'a str) -> impl Render {
     html! { <td><a class={Open} href={href}>{p.access_view()}</a></td> }
@@ -338,7 +336,7 @@ pub fn accounts<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Account>) -
                     <td>{&account.name}</td>
                     <td>{access::account_type(t, &account.account_type)}</td>
                     <td>{access::account_status(t, &account.status)}</td>
-                    <View p={p} href={&access::admin_web(&format!("/access/accounts/{}", account.account_id))} />
+                    <View p={p} href={&hub(&account.account_id, Tab::Overview)} />
                 </tr>
             }
         </ListFrame>
@@ -385,7 +383,7 @@ pub fn users<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<User>) -> impl
                         }}
                     </td>
                     <td>{access::user_status(t, &user.status)}</td>
-                    <View p={p} href={&access::admin_web(&format!("/access/users/{}", user.user_id))} />
+                    <View p={p} href={&people::UserPage { id: &user.user_id }.href()} />
                 </tr>
             }
         </ListFrame>
@@ -426,10 +424,7 @@ pub fn memberships<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Membersh
                     <td>{m.account_label()}</td>
                     <td>{access::role(t, &m.role_key)}</td>
                     <td>{access::membership_status(t, &m.status)}</td>
-                    <View
-                        p={p}
-                        href={&access::admin_web(&format!("/access/accounts/{}?tab=team&membership={}", m.account_id, m.membership_id))}
-                    />
+                    <View p={p} href={&hub(&m.account_id, Tab::Team)} />
                 </tr>
             }
         </ListFrame>
@@ -470,10 +465,7 @@ pub fn invitations<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Invitati
                     <td>{i.account_label()}</td>
                     <td>{access::role(t, &i.role_key)}</td>
                     <td>{access::invitation_status(t, &i.status)}</td>
-                    <View
-                        p={p}
-                        href={&access::admin_web(&format!("/access/accounts/{}?tab=team&invitation={}", i.account_id, i.invitation_id))}
-                    />
+                    <View p={p} href={&hub(&i.account_id, Tab::Team)} />
                 </tr>
             }
         </ListFrame>
@@ -514,7 +506,7 @@ pub fn api_keys<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<ApiKey>) ->
                     <td>{key.user_label()}</td>
                     <td><code>{&key.key_prefix}</code></td>
                     <td>{access::api_key_status(t, &key.status)}</td>
-                    <View p={p} href={&access::admin_web(&format!("/access/api-keys/{}", key.api_key_id))} />
+                    <View p={p} href={&people::ApiKeyPage { id: &key.api_key_id }.href()} />
                 </tr>
             }
         </ListFrame>
