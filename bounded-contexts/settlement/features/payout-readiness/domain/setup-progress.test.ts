@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
-import { buildPayoutSetupProgress } from "./setup-progress";
+import { buildPayoutSetupProgress, derivePayoutSetupDecision, withPayoutSetupDecision } from "./setup-progress";
+import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
   return {
@@ -28,6 +29,26 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout setup progress", () => {
+  it.each(payoutSetupMatrix)("matrix-row-tests: $name", ({ projection, expected }) => {
+    expect(derivePayoutSetupDecision(projection)).toEqual(expected);
+    expect(buildPayoutSetupProgress(projection)).toMatchObject(expected);
+    expect(withPayoutSetupDecision(projection)).toEqual({ ...projection, ...expected });
+    expect(derivePayoutSetupDecision(projection)).toEqual(expected);
+  });
+
+  it("unknown-input-negative-tests: missing provider facts never enable management", () => {
+    for (const provider_reference of [null, ""]) {
+      expect(derivePayoutSetupDecision(payoutReadinessFixture({ provider_reference }))).toMatchObject({
+        provider_management_available: false,
+        support_recommended: false,
+      });
+    }
+    expect(derivePayoutSetupDecision(payoutReadinessFixture({ missing_requirements: ["", " "] }))).toMatchObject({
+      next_step: "none",
+      support_recommended: false,
+    });
+  });
+
   it("groups embedded setup requirements into support-safe account-facing buckets", () => {
     const progress = buildPayoutSetupProgress(
       readiness({

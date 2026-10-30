@@ -94,19 +94,6 @@ function responseTypeLabel(type: SupportResponseType) {
   return t(`support.features.supportRequests.ui.supportRequestDetailPage.responseType.${type}`);
 }
 
-function responseResolutionType(type: SupportResponseType) {
-  switch (type) {
-    case "accept-return":
-      return "return-for-refund";
-    case "offer-partial-refund":
-      return "partial-refund";
-    case "offer-replacement":
-      return "replacement";
-    default:
-      return null;
-  }
-}
-
 function EvidencePrompt({
   item,
   viewerRole,
@@ -156,7 +143,6 @@ function ResponseForm({ flow, viewerRole }: Readonly<{ flow: SupportFlowDetail; 
   const firstResponse = allowedResponses[0];
   const [responseType, setResponseType] = useState<SupportResponseType | null>(firstResponse ?? null);
   if (!firstResponse || !responseType) return null;
-  const resolutionType = responseResolutionType(responseType);
 
   return (
     <Card elevation="tinted" data-elevation-role="furniture">
@@ -170,7 +156,6 @@ function ResponseForm({ flow, viewerRole }: Readonly<{ flow: SupportFlowDetail; 
         <RouterForm method="post" spacing="md">
           <HiddenInput name="intent" value="response" readOnly />
           <HiddenInput name="submittedByRole" value={viewerRole} readOnly />
-          {resolutionType ? <HiddenInput name="offerResolutionType" value={resolutionType} readOnly /> : null}
           <NativeSelect
             label={t("support.features.supportRequests.ui.supportRequestDetailPage.response.type")}
             name="responseType"
