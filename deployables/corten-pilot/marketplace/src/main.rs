@@ -40,6 +40,7 @@ mod packing;
 mod packing_slips;
 mod payment;
 mod payment_methods;
+mod payment_start;
 mod payout_setup;
 mod pricing_health;
 mod public_listing;

@@ -1706,6 +1706,10 @@ pub struct PaymentPreview {
     pub payment_method_quotes: Vec<FeeQuote>,
     #[serde(default)]
     pub wallet_credit: WalletCredit,
+    /// Why Payments withholds part of the payment, in its words: the wallet's credit while the
+    /// buyer has not accepted the current terms (`wallet-terms-not-accepted`), or nothing to pay.
+    #[serde(default)]
+    pub unavailable_reason_details: Vec<ReasonDetail>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1713,8 +1717,14 @@ pub struct FeeQuote {
     pub payment_method_category: String,
     #[serde(default)]
     pub marketplace_checkout_fee_amount: String,
+    /// How much less than the card's fee this method's is.
+    #[serde(default)]
+    pub marketplace_checkout_fee_reduction_amount: String,
     #[serde(default)]
     pub total_amount: String,
+    /// What the provider charges: the total less the wallet's credit.
+    #[serde(default)]
+    pub processor_amount: String,
     #[serde(default)]
     pub quote_fingerprint: String,
 }
@@ -7148,8 +7158,22 @@ pub struct PaymentOrder {
     pub buyer_email: Option<String>,
     pub shipping_destination_snapshot: Option<PaymentDestination>,
     pub total_amount: String,
+    pub marketplace_sales_fee_amount: String,
+    pub seller_payout_amount: String,
+    pub sales_tax_amount: Option<String>,
     pub status: String,
     pub payment_deadline_at: Option<String>,
+    /// The seller's condition photos committed when an offer was accepted, a set per line.
+    pub listing_evidence: Vec<PaymentEvidence>,
+}
+
+/// A line's condition photos as the seller committed them when the offer was accepted.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PaymentEvidence {
+    pub line_id: String,
+    pub item_title: String,
+    pub gallery: Vec<GalleryImage>,
 }
 
 /// Where an order ships, as the order recorded it.
@@ -7181,6 +7205,24 @@ pub trait PaymentCalls {
     /// What Payments quotes for paying a payment's orders again (`GET /account/checkout/status`),
     /// with its wallet credit and method.
     async fn checkout_status(&self, payment: &AccountPayment) -> Result<PaymentPreview, ApiError>;
+    /// What Payments quotes for paying `order_ids` (`GET /account/checkout/status`), `credit` of it
+    /// from the wallet (none when `None`), by `method`.
+    async fn quote(
+        &self,
+        order_ids: &[String],
+        currency: &str,
+        credit: Option<&str>,
+        method: &str,
+    ) -> Result<PaymentPreview, ApiError>;
+    /// A payment for `order_ids` at the quote `fingerprint` (`POST /account/payments`, marketplace's
+    /// Start payment), `credit` of it from the wallet.
+    async fn start_payment(
+        &self,
+        order_ids: &[String],
+        credit: Option<&str>,
+        method: &str,
+        fingerprint: &str,
+    ) -> Result<(AccountPayment, Option<Receipt>), ApiError>;
     /// A new payment for a failed or closed one's orders at the quote `fingerprint`
     /// (`POST /account/checkout/recover`), the provider sent back to `return_path`.
     async fn recover_payment(
@@ -7210,14 +7252,41 @@ impl PaymentCalls for Caller<'_> {
     }
 
     async fn checkout_status(&self, payment: &AccountPayment) -> Result<PaymentPreview, ApiError> {
-        let ids = payment.order_ids.iter().map(|id| segment(id)).collect::<Vec<_>>().join(",");
+        let method = payment.payment_method_category.as_deref().unwrap_or("card");
+        self.quote(&payment.order_ids, &payment.currency_code, Some(&payment.balance_credit_amount), method).await
+    }
+
+    async fn quote(
+        &self,
+        order_ids: &[String],
+        currency: &str,
+        credit: Option<&str>,
+        method: &str,
+    ) -> Result<PaymentPreview, ApiError> {
+        let ids = order_ids.iter().map(|id| segment(id)).collect::<Vec<_>>().join(",");
+        let credit = credit.map(|c| format!("&requestedBalanceCreditAmount={}", segment(c))).unwrap_or_default();
         let path = format!(
-            "/api/marketplace/account/checkout/status?orderIds={ids}&currencyCode={}&requestedBalanceCreditAmount={}&paymentMethodCategory={}",
-            segment(&payment.currency_code),
-            segment(&payment.balance_credit_amount),
-            segment(payment.payment_method_category.as_deref().unwrap_or("card"))
+            "/api/marketplace/account/checkout/status?orderIds={ids}&currencyCode={}{credit}&paymentMethodCategory={}",
+            segment(currency),
+            segment(method)
         );
         self.read(&path, PAYMENTS).await
+    }
+
+    async fn start_payment(
+        &self,
+        order_ids: &[String],
+        credit: Option<&str>,
+        method: &str,
+        fingerprint: &str,
+    ) -> Result<(AccountPayment, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({
+            "orderIds": order_ids,
+            "requestedBalanceCreditAmount": credit,
+            "paymentMethodCategory": method,
+            "marketplaceCheckoutFeeQuoteFingerprint": fingerprint,
+        });
+        self.write(self.request(Method::POST, ACCOUNT_PAYMENTS, PAYMENTS).json(&body)).await
     }
 
     async fn recover_payment(

@@ -622,7 +622,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = checkout_sessions(&method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = account_payments(&method, &uri, &headers) {
+    if let Some(answer) = account_payments(&method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = payment_methods(session, &method, uri.path(), &body) {
@@ -947,8 +947,23 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
 /// Intent's secret, `pay_cs` with a Checkout Session's; `pay_paid` is captured, `pay_failed`
 /// was declined, `pay_noemail`'s order has no email, `pay_slow` has not caught up with any
 /// write and `pay_broken` fails. Any other is not the account's. The orders: `ord_pay` ships to
-/// the checkout's address and is due 2026-10-29, `ord_noemail` has no email.
-fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+/// the checkout's address and is due 2026-10-29 and carries the seller's evidence, `ord_noemail` has
+/// no email, and `ord_gone` is not the account's. Payments quotes the card and a bank account, and
+/// refuses a wallet credit of $999.00 and withholds $25.00 until the terms are accepted; starting a
+/// payment (Continue to payment) starts `pay_new`.
+fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if *method == Method::POST && uri.path() == "/api/marketplace/account/payments" {
+        let sent: Value = serde_json::from_str(body).unwrap_or_default();
+        if sent["orderIds"] == json!(["ord_refused"]) {
+            return Some(refusal(StatusCode::CONFLICT, "payment_quote_stale", "The payment quote changed. Review it again."));
+        }
+        let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+        return Some(
+            (StatusCode::CREATED, headers, Json(json!({ "payment_id": "pay_new", "status": "pending-confirmation" })))
+                .into_response(),
+        );
+    }
     // Retry payment: a new payment for the orders, at the quote Payments gives for them again.
     if *method == Method::POST && uri.path() == "/api/marketplace/account/checkout/recover" {
         let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
@@ -962,11 +977,45 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
         return None;
     }
     if uri.path() == "/api/marketplace/account/checkout/status" {
-        let quote = json!({ "payment_method_category": "card", "total_amount": "638.83", "quote_fingerprint": "fp-retry" });
-        return Some(Json(json!({ "marketplace_checkout_fee": quote, "payment_method_quotes": [quote] })).into_response());
+        if uri.query().unwrap_or_default().contains("requestedBalanceCreditAmount=999.00") {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "validation_failed",
+                "Requested balance credit exceeds the available wallet balance.",
+            ));
+        }
+        let quote = json!({
+            "payment_method_category": "card", "marketplace_checkout_fee_amount": "18.83",
+            "marketplace_checkout_fee_reduction_amount": "0.00", "total_amount": "638.83",
+            "processor_amount": "613.83", "quote_fingerprint": "fp-retry",
+        });
+        let bank = json!({
+            "payment_method_category": "bank-account", "marketplace_checkout_fee_amount": "6.20",
+            "marketplace_checkout_fee_reduction_amount": "12.63", "total_amount": "626.20",
+            "processor_amount": "601.20", "quote_fingerprint": "fp-bank",
+        });
+        // The wallet's $25.00 is withheld until the buyer accepts the current terms, as Settlement does.
+        let reasons = if uri.query().unwrap_or_default().contains("requestedBalanceCreditAmount=25.00") {
+            json!([{
+                "code": "wallet-terms-not-accepted",
+                "message": "Accept the current Terms of Service to use wallet balance as payment.",
+            }])
+        } else {
+            json!([])
+        };
+        return Some(
+            Json(json!({
+                "marketplace_checkout_fee": quote, "payment_method_quotes": [quote, bank],
+                "unavailable_reason_details": reasons,
+            }))
+            .into_response(),
+        );
     }
     if uri.path() == "/api/marketplace/account/order-inputs" {
         let asked = uri.query().unwrap_or_default();
+        if asked.contains("ord_gone") {
+            return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Order ord_gone was not found."));
+        }
         let order = |id: &str, email: Option<&str>| {
             json!({
                 "order_id": id, "buyer_account_id": "acc_seller", "buyer_email": email,
@@ -974,8 +1023,16 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
                     "name": "Demo Collector", "line1": "42 Binder Lane", "line2": null, "city": "Evanston",
                     "state": "IL", "postalCode": "60201", "country": "US", "email": null,
                 },
-                "total_amount": "638.83", "status": "pending-payment",
+                "total_amount": "638.83", "marketplace_sales_fee_amount": "31.00",
+                "seller_payout_amount": "589.00", "sales_tax_amount": "0.00", "status": "pending-payment",
                 "payment_deadline_at": "2026-10-29T17:00:00.000Z",
+                "listing_evidence": if email.is_some() { json!([{
+                    "line_id": "line_1", "item_title": "Charizard Base Set",
+                    "gallery": [{ "photoId": "ph_1", "altText": null, "assets": [
+                        { "role": "thumbnail", "publicUrl": "https://img.test/ph_1-t.webp", "width": 120, "height": 160, "density": 1 },
+                        { "role": "catalog-detail", "publicUrl": "https://img.test/ph_1-d.webp", "width": 600, "height": 800, "density": 1 },
+                    ] }],
+                }]) } else { json!([]) },
             })
         };
         let mut orders = Vec::new();
@@ -5696,7 +5753,7 @@ async fn a_purchase_pending_payment_can_be_paid_or_cancelled() {
         shown.contains("Complete payment by deadline Complete payment by Oct 24, 2026, 4:55 AM UTC to keep this order."),
         "{shown}"
     );
-    assert!(html.contains(r#"href="http://localhost:7753/account/payments/new?orderIds=ord_open">Pay now</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/payments/new?orderIds=ord_open">Pay now</a>"#), "{html}");
     assert!(html.contains(r#"<form method="post" action="/account/purchases/ord_open/cancel"><button type="submit""#), "{html}");
     assert!(shown.contains("Cancel purchase"), "{shown}");
     // Nothing is fulfilled before it is paid.
@@ -11409,7 +11466,7 @@ async fn a_closed_or_paid_payment_has_no_secure_step_and_staff_see_the_providers
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("Payment issue Your card was declined."), "the provider's words: {page}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/payments/new?orderIds=ord_pay""#), "Retry payment: {html}");
+    assert!(html.contains(r#"href="/account/payments/new?orderIds=ord_pay""#), "Retry payment: {html}");
     assert!(!html.contains("data-payment-confirm") && !html.contains("payment-watch"), "{html}");
     assert!(!page.contains("Complete payment by deadline"), "{page}");
     assert!(page.contains("Payment failed"), "the timeline's last step: {page}");
@@ -11452,11 +11509,124 @@ async fn a_payment_that_is_not_the_accounts_or_not_ready_says_so() {
         (status, headers[header::LOCATION].to_str().unwrap()),
         (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Faccount%2Fpayments%2Fpay_1")
     );
-    // Starting a payment again is marketplace's, with its orders.
-    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("payer"))).await;
+}
+
+#[tokio::test]
+async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_starts_one_at_the_quote() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Secure Checkout Start payment"), "{page}");
+    assert!(page.contains("Payment covers 1 purchase created by checkout."), "{page}");
+    // The summary: the orders' fees and payout, Payments' card quote, and the wallet.
+    for shown in [
+        "Purchases 1",
+        "Marketplace Sales Fee $31.00",
+        "Seller payout $589.00",
+        "Sales tax $0.00",
+        "Marketplace Checkout Fee $18.83",
+        "Available balance 25.00 USD",
+        "Card charge $613.83",
+        "Total due $638.83",
+        "Seller evidence at acceptance Charizard Base Set",
+    ] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(
+        html.contains(r#"src="https://img.test/ph_1-d.webp""#) && html.contains(r#"alt="Charizard Base Set evidence""#),
+        "{html}"
+    );
+    // Every method's quote.
+    assert!(
+        page.contains("Bank account $6.20 Marketplace Checkout Fee $12.63 reduction from card Final payment: $626.20"),
+        "{page}"
+    );
+    assert!(page.contains("Card $18.83 Marketplace Checkout Fee Base card checkout fee Final payment: $638.83"), "{page}");
+    // The form: the wallet's most by default, credit only off while it does not cover the total.
+    assert!(html.contains(r#"<form id="#) && html.contains(r#"method="post" action="/account/payments/new""#), "{html}");
+    assert!(html.contains(r#"<option value="max" selected>Use up to $25.00</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="platform-credit" disabled>Platform credit only</option>"#), "{html}");
+    assert!(page.contains("Using the maximum leaves $613.83 for secure external payment."), "{page}");
+    // Payments withholds the wallet until the terms are accepted, and the page says so.
+    assert!(page.contains("Accept the current Terms of Service to use wallet balance as payment."), "{page}");
+    // The phone's bar submits the same form.
+    assert!(
+        html.contains(r#"<button type="submit" class="#) && html.matches("Continue to payment</button>").count() == 2,
+        "{html}"
+    );
+    // The Payments quote is read with the wallet's most, by card.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let quoted = calls.iter().find(|c| c.path.starts_with("/api/marketplace/account/checkout/status")).unwrap();
+    assert!(
+        quoted.path.contains("orderIds=ord_pay")
+            && quoted.path.contains("requestedBalanceCreditAmount=25.00")
+            && quoted.path.contains("paymentMethodCategory=card"),
+        "{}",
+        quoted.path
+    );
+
+    // Continue to payment: Payments quotes the choice again and starts a payment at it; the
+    // payment's page is read after it.
+    let form = "order_ids=ord_pay&payment_method_category=bank-account&balance_credit_mode=none&requested_balance_credit_amount=";
+    let (status, headers, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_new?afterWrite="), "{headers:?}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let quoted = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/checkout/status")).unwrap();
+    assert!(
+        quoted.path.contains("paymentMethodCategory=bank-account") && !quoted.path.contains("requestedBalanceCreditAmount"),
+        "{}",
+        quoted.path
+    );
+    let started = calls.iter().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    let sent: Value = serde_json::from_str(&started.body).unwrap();
+    assert_eq!(sent["orderIds"], json!(["ord_pay"]));
+    assert_eq!(sent["paymentMethodCategory"], "bank-account");
+    assert_eq!(sent["requestedBalanceCreditAmount"], Value::Null);
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
+
+    // The wallet's most is what covers the orders when the form is posted.
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
+    let (status, _, _) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let started = calls.iter().rev().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["requestedBalanceCreditAmount"], "25.00");
+
+    // A refusal is the page again with Payments' words and the choices kept.
+    let form = "order_ids=ord_pay&payment_method_category=bank-account&balance_credit_mode=custom&requested_balance_credit_amount=999.00";
+    let (status, _, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Requested balance credit exceeds the available wallet balance."), "{html}");
+    assert!(html.contains(r#"<option value="custom" selected>"#) && html.contains(r#"value="999.00""#), "{html}");
+    assert!(html.contains(r#"<option value="bank-account" selected>"#), "{html}");
+    let form = "order_ids=ord_refused&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
+    let (status, _, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The payment quote changed. Review it again."), "{html}");
+}
+
+#[tokio::test]
+async fn starting_a_payment_needs_orders_and_orders_manage() {
+    let pilot = Pilot::new().await;
+    // No orders: the purchases.
+    let (status, headers, _) = pilot.send(get("/account/payments/new", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/purchases"));
+    // Orders the account does not have.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_gone", Some("payer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(text(&html).contains("Purchase not found."), "{html}");
+    // Seeing payments is not enough to start one.
+    let (status, _, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
+    let (status, _, _) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payments/new?orderIds=ord_pay")
+        (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Faccount%2Fpayments%2Fnew%3ForderIds%3Dord_pay")
     );
 }
 

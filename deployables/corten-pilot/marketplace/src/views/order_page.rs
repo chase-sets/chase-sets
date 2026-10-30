@@ -518,8 +518,10 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
         _ => None,
     };
     let deadline = facts.payment_deadline().map(|at| t.detail_payment_deadline_description(&date_time(t, at)).to_string());
-    let pay = (facts.side == Side::Buyer && order.status == "pending-payment")
-        .then(|| market_href(&format!("/account/payments/new?orderIds={}", crate::api::segment(&order.order_id))));
+    let pay = (facts.side == Side::Buyer && order.status == "pending-payment").then(|| {
+        let place = crate::payment_start::StartPlace::of(std::slice::from_ref(&order.order_id));
+        crate::app::url::BuyerPaymentNew { place }.href()
+    });
     let support = !(facts.fully_delivered && facts.fulfillment_started());
     let support_label = if facts.fulfillment_started() { t.detail_ask_to_cancel() } else { t.detail_open_support() };
     let fulfillment = (!matches!(order.status.as_str(), "pending-payment" | "pending-reservation")).then(|| match facts.side {

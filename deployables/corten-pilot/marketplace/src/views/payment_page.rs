@@ -98,8 +98,7 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
     let closed = matches!(payment.status.as_str(), "failed" | "cancelled");
     let deadline = if screen.pending() { screen.deadline() } else { None };
     let watching = screen.watch.as_ref().map(crate::payment::Watching::route);
-    let retry =
-        on_marketplace(&format!("{}?orderIds={}", url::BuyerPaymentNew::PATH, crate::api::segment(&payment.order_ids.join(","))));
+    let retry = url::BuyerPaymentNew { place: crate::payment_start::StartPlace::of(&payment.order_ids) };
     let finished = if payment.captured_at.is_some() {
         (t.payment_captured(), "success", date_time(t, payment.captured_at.as_deref()))
     } else if payment.failed_at.is_some() {

@@ -34,8 +34,9 @@
 //! needs the browser's WebAuthn, which the pilot's sign-in leaves to marketplace too. A claim
 //! link's landing (`?claimContinuation=`) goes on to marketplace's page with it.
 //!
-//! Not ported: starting a payment again (`/account/payments/new`, marketplace's); restyling
-//! Stripe's fields when the color mode changes while the page is open.
+//! Starting a payment again (`/account/payments/new`, where Retry payment goes) is `payment_start`.
+//!
+//! Not ported: restyling Stripe's fields when the color mode changes while the page is open.
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
@@ -482,13 +483,6 @@ pub(crate) async fn guest_status(
     };
     let page = url::GuestPayment { id: &route.id, place: GuestPlace::default() };
     watch_part(&req, &viewer, Payer::Guest, &config, &headers, &route.id, route.watch, page).await
-}
-
-/// `/account/payments/new`: starting a payment again is marketplace's page (not ported), with the
-/// orders it is for.
-pub(crate) async fn start(req: Req, _: Caller<PaymentBuyer>, uri: Uri) -> HtmlResult {
-    let path = uri.path_and_query().map_or(url::BuyerPaymentNew::PATH, |p| p.as_str());
-    on_marketplace(&req, path)
 }
 
 /// Marketplace's own page at `path`.

@@ -1026,16 +1026,21 @@ pub mod url {
 
     /// A buyer's payment (Payments' `account-payment`, see `payment`): the page, its status part,
     /// which the page reads again while the payment waits for the buyer, and starting a payment
-    /// again, which is marketplace's. Every handler takes a `PaymentBuyer`.
+    /// for a buyer's orders (`account-payment-new`, see `payment_start`). Every handler takes a
+    /// `PaymentBuyer`.
     #[corten::routes(state = crate::app::Shared, area = PaymentsArea, caller = crate::auth::PaymentBuyer)]
     pub mod payments {
         /// The prefix, with no page: a payment is reached from its checkout or its purchase.
         #[route("/account/payments")]
         pub struct PaymentsArea;
 
-        /// Start a payment again (marketplace's `account-payment-new`, not ported).
-        #[route("/account/payments/new", get = crate::payment::start)]
-        pub struct BuyerPaymentNew;
+        /// Start a payment for the buyer's orders: the page, and Continue to payment, which posts to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/payments/new", get = crate::payment_start::page, post = crate::payment_start::start)]
+        pub struct BuyerPaymentNew {
+            #[route(query)]
+            pub place: crate::payment_start::StartPlace,
+        }
 
         /// The payment, read after the write whose receipt it carries.
         #[derive(Clone, Debug)]

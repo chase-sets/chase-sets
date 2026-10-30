@@ -129,6 +129,8 @@
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
 // - marketplace/locales/payment.en.json: a buyer's payment page's English catalog
 //   (payments.routes.marketplace.accountPayment.*, at the root).
+// - marketplace/locales/payment_start.en.json: starting a payment for a buyer's orders again
+//   (payments.routes.marketplace.accountPaymentNew.*, at the root).
 // - marketplace/locales/payment_methods.en.json: the saved payment methods page's English catalog
 //   (payments.routes.marketplace.accountPaymentMethods.*, at the root, and the secure step's words from
 //   payments.routes.marketplace.accountPayment.* as step.*).
@@ -1073,6 +1075,14 @@ const outputs = [
     json(
       await catalog("payments.ts", "paymentsEnglishTranslations", [
         ["payments.routes.marketplace.accountPayment.", ""],
+      ]),
+    ),
+  ],
+  [
+    "marketplace/locales/payment_start.en.json",
+    json(
+      await catalog("payments.ts", "paymentsEnglishTranslations", [
+        ["payments.routes.marketplace.accountPaymentNew.", ""],
       ]),
     ),
   ],
