@@ -383,7 +383,27 @@ jobs:
           fi
 
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
+        env:
+          AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
+          DB_WORKSPACE_GROUP: ${{ matrix.db-workspace-group }}
+          PROBE_ARTIFACT_DIR: ${{ runner.temp }}/db-profile-probe/${{ matrix.db-workspace-group }}
+        run: |
+          # hosted-db-profile-probe.mjs invokes this unchanged shipped command:
+          # node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
+          node ./scripts/hosted-db-profile-probe.mjs \
+            --leg="$DB_WORKSPACE_GROUP" \
+            --concurrency="$DB_WORKSPACE_CONCURRENCY" \
+            --workspace-list="$AFFECTED_WORKSPACES" \
+            --artifact-dir="$PROBE_ARTIFACT_DIR"
+
+      - name: Upload hosted DB-profile probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: db-profile-probe-${{ matrix.db-workspace-group }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/db-profile-probe/${{ matrix.db-workspace-group }}
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload bootstrap DB evidence including failures
         if: always() && steps.platform-api-selected.outputs.selected == 'true'
