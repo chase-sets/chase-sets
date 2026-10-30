@@ -49,6 +49,11 @@ import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import {
+  enumerateMarketplaceAttemptCallers,
+  readTrackedMarketplaceCallerSources,
+  unpartitionedMarketplaceOfferCallers,
+} from "./marketplace-attempt-callers.mjs";
 import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
@@ -3952,6 +3957,11 @@ export async function runStructureCheck(options = {}) {
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
   violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
+  violations.push(
+    ...unpartitionedMarketplaceOfferCallers(
+      enumerateMarketplaceAttemptCallers(readTrackedMarketplaceCallerSources(repoRoot)),
+    ).map(({ path, line, method }) => `${path}:${line}: Unpartitioned Marketplace attempt caller: ${method}`),
+  );
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

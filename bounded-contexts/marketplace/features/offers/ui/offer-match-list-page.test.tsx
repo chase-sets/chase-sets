@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { MarketplaceOfferMatchListPage } from "./offer-match-list-page";
+import { useState } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { MarketplaceOfferMatchListPage as OfferMatchListPage } from "./offer-match-list-page";
 import type { OfferMatchListItem } from "./contracts";
+
+function MarketplaceOfferMatchListPage(props: Parameters<typeof OfferMatchListPage>[0]) {
+  const router = createMemoryRouter([{ path: "*", element: <OfferMatchListPage {...props} /> }]);
+  return <RouterProvider router={router} />;
+}
 
 const offer: OfferMatchListItem = {
   offer_id: "off_1",
@@ -47,6 +54,50 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).not.toMatch(/Mute buyer|Muted buyers|mute-offer-buyer|unmute-offer-buyer/i);
     expect(markup).toContain("Add selected offer to Sell List");
     expect(markup).toContain("decline-offer");
+    expect(markup).toContain('name="attemptId"');
+  });
+  it("keeps a distinct decline attempt per row across re-renders and retries", async () => {
+    function RefreshablePage() {
+      const [items, setItems] = useState([offer, { ...offer, offer_id: "off_2" }]);
+      return (
+        <>
+          <button onClick={() => setItems(items.map((item) => ({ ...item, buyer_display_name: "Updated buyer" })))}>
+            Refresh
+          </button>
+          <OfferMatchListPage data={{ items }} />
+        </>
+      );
+    }
+    const sent: string[] = [];
+    const router = createMemoryRouter([
+      {
+        path: "*",
+        element: <RefreshablePage />,
+        action: async ({ request }) => {
+          sent.push(String((await request.formData()).get("attemptId")));
+          return null;
+        },
+      },
+    ]);
+    const { container } = render(<RouterProvider router={router} />);
+    const attempts = () =>
+      [...container.querySelectorAll<HTMLFormElement>('form[action^="/account/offers/matches/"]')].map((form) => ({
+        action: form.action,
+        attemptId: new FormData(form).get("attemptId"),
+      }));
+    const first = attempts();
+    expect(first.length).toBeGreaterThanOrEqual(2);
+    for (const entry of first) expect(entry.attemptId).toMatch(/^[A-Za-z0-9_-]{22,128}$/);
+    expect(new Set(first.map((entry) => entry.attemptId)).size).toBe(first.length);
+    expect(attempts()).toEqual(first);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(attempts()).toEqual(first);
+    const decline = screen.getAllByRole("button", { name: "Decline" })[0]!;
+    fireEvent.click(decline);
+    await waitFor(() => expect(sent).toEqual([first[0]!.attemptId]));
+    fireEvent.click(decline);
+    await waitFor(() => expect(sent).toEqual([first[0]!.attemptId, first[0]!.attemptId]));
+    expect(attempts()).toEqual(first);
   });
   it("renders the sell-list explanation as tinted furniture", () => {
     render(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
