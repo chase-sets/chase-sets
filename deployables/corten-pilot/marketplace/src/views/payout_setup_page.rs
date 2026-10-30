@@ -241,7 +241,7 @@ fn Panel<'a>(t: MoneyMsg, readiness: &'a PayoutReadiness, screen: &'a SetupScree
         } else {
             panel(t, r.description)
         };
-        (r.tone, panel(t, r.title), description, r.support || screen.offers_support)
+        (r.tone, panel(t, r.title), description, screen.offers_support)
     });
     let specs = [
         (t.setup_panel_onboarding(), &readiness.onboarding_status),

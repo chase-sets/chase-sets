@@ -10,12 +10,10 @@
 //! /account/desk/settings/session`, JSON), which asks Settlement, so Stripe's client secret is never
 //! in a page or an address. Leaving Stripe's form (Connect's `onExit`) sends Refresh.
 //!
-//! Three of the page's rules are Settlement's but live in marketplace's web layer: what the seller
-//! should do next (`recoveryGuidance`), whether to offer Stripe's form (`canRenderProviderComponent`)
-//! and whether to offer support (`showSupportEscalation`)
-//! ([chase-sets/chase-sets#10771](https://github.com/chase-sets/chase-sets/issues/10771)). The pilot
-//! copies them here as written; remove them once the API answers. The requirement groups and the
-//! steps are already Settlement's (`/payout-setup/progress`).
+//! What the seller should do next, whether to offer Stripe's form and whether to offer support are
+//! Settlement's answers on the readiness read (`next_step`, `provider_setup_available`,
+//! `provider_management_available`, `support_recommended`); the page only words them. The
+//! requirement groups and the steps are Settlement's too (`/payout-setup/progress`).
 //!
 //! Stripe's Connect sign-in needs `Cross-Origin-Opener-Policy: unsafe-none`, which the payout
 //! setup area allows for its pages only (`allow_cross_origin_opener`, todd-skelton/corten#318).
@@ -98,11 +96,11 @@ impl Mode {
 }
 
 fn has_provider(readiness: &PayoutReadiness) -> bool {
-    readiness.provider_reference.as_deref().is_some_and(|r| !r.is_empty())
+    readiness.provider_management_available
 }
 
-/// What the seller should do next (`recoveryGuidance`, chase-sets/chase-sets#10771): its words'
-/// keys in the panel's catalog, its tone, and whether support is recommended.
+/// What the seller should do next (`recoveryGuidance`): its words' keys in the panel's catalog
+/// and its tone, from Settlement's `next_step`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Recovery {
     pub tone: &'static str,
@@ -110,72 +108,46 @@ pub struct Recovery {
     pub description: &'static str,
     /// The groups' names, for `complete.requested.groups`.
     pub groups: Vec<String>,
-    pub support: bool,
 }
 
-/// `recoveryGuidance` as marketplace writes it (chase-sets/chase-sets#10771).
+/// `recoveryGuidance`: the words for Settlement's `next_step`.
 pub fn recovery(readiness: &PayoutReadiness, groups: &[RequirementGroup]) -> Option<Recovery> {
-    let guide = |tone, title, description, support| Recovery { tone, title, description, groups: Vec::new(), support };
-    if readiness.status == "ready" {
-        return None;
-    }
-    if readiness.status == "restricted" {
-        let reason = readiness.disabled_reason.as_deref().unwrap_or_default().to_lowercase();
-        let has = |words: &[&str]| words.iter().any(|w| reason.contains(w));
-        let description = if has(&["past_due"]) {
-            "restricted.past.due"
-        } else if has(&["review", "pending"]) {
-            "restricted.review"
-        } else if has(&["rejected", "fraud"]) {
-            "restricted.rejected"
-        } else if has(&["paused", "inactivity"]) {
-            "restricted.paused"
-        } else {
-            "setup.is.restricted.description"
-        };
-        return Some(guide("warning", "setup.is.restricted", description, true));
-    }
-    if !groups.is_empty() {
-        if groups.iter().all(|g| g.id == "platform-review") {
-            return Some(guide("warning", "platform.review", "platform.review.description", true));
-        }
-        return Some(Recovery {
+    let guide = |tone, title, description| Recovery { tone, title, description, groups: Vec::new() };
+    let restricted = |description| Some(guide("warning", "setup.is.restricted", description));
+    match readiness.next_step.as_str() {
+        "restricted_past_due" => restricted("restricted.past.due"),
+        "restricted_review" => restricted("restricted.review"),
+        "restricted_rejected" => restricted("restricted.rejected"),
+        "restricted_paused" => restricted("restricted.paused"),
+        "restricted" => restricted("setup.is.restricted.description"),
+        "platform_review" => Some(guide("warning", "platform.review", "platform.review.description")),
+        "complete_requirements" => Some(Recovery {
             groups: groups.iter().map(|g| g.id.clone()).collect(),
-            ..guide("warning", "setup.details.need.attention", "complete.requested.groups", false)
-        });
+            ..guide("warning", "setup.details.need.attention", "complete.requested.groups")
+        }),
+        "add_destination" => Some(guide("warning", "add.a.payout.destination", "add.a.payout.destination.description")),
+        "provider_review" => Some(guide("info", "provider.review.in.progress", "provider.review.in.progress.description")),
+        "none" if readiness.provider_setup_available => {
+            Some(guide("info", "setup.can.continue", "setup.can.continue.description"))
+        }
+        _ => None,
     }
-    if readiness.payout_destination_status == "missing" {
-        return Some(guide("warning", "add.a.payout.destination", "add.a.payout.destination.description", false));
-    }
-    let pending = [
-        &readiness.onboarding_status,
-        &readiness.transfer_capability_status,
-        &readiness.payout_capability_status,
-        &readiness.payout_destination_status,
-    ]
-    .iter()
-    .any(|s| s.as_str() == "pending");
-    if pending {
-        return Some(guide("info", "provider.review.in.progress", "provider.review.in.progress.description", false));
-    }
-    Some(guide("info", "setup.can.continue", "setup.can.continue.description", false))
 }
 
-/// Whether the page offers Stripe's form (`canRenderProviderComponent`, chase-sets/chase-sets#10771):
-/// in setup, until it is ready and while the seller has something to do (anything but platform
-/// review, or nothing named); in management, for an account with a provider account.
-pub fn offers_provider(mode: Mode, readiness: &PayoutReadiness, groups: &[RequirementGroup]) -> bool {
+/// Whether the page offers Stripe's form (`canRenderProviderComponent`): Settlement's
+/// `provider_setup_available` in setup, `provider_management_available` in management.
+pub fn offers_provider(mode: Mode, readiness: &PayoutReadiness) -> bool {
     match mode {
-        Mode::Setup => readiness.status != "ready" && (groups.is_empty() || groups.iter().any(|g| g.id != "platform-review")),
-        Mode::Management => has_provider(readiness),
+        Mode::Setup => readiness.provider_setup_available,
+        Mode::Management => readiness.provider_management_available,
     }
 }
 
-/// Whether the page offers support (`showSupportEscalation`, chase-sets/chase-sets#10771).
-pub fn offers_support(readiness: &PayoutReadiness, groups: &[RequirementGroup], failed: bool) -> bool {
-    readiness.status == "restricted" || failed || groups.iter().any(|g| g.count > 0)
+/// Whether the page offers support (`showSupportEscalation`): Settlement recommends it, or the
+/// last refresh failed.
+pub fn offers_support(readiness: &PayoutReadiness, failed: bool) -> bool {
+    readiness.support_recommended || failed
 }
-
 /// The page: what the API read and what the page works out from it.
 #[derive(Serialize, ToJson)]
 pub struct SetupScreen {
@@ -228,8 +200,8 @@ async fn render(
     let groups = &progress.missing_requirement_groups;
     let screen = SetupScreen {
         recovery: recovery(&readiness, groups),
-        offers_provider: offers_provider(mode, &readiness, groups),
-        offers_support: offers_support(&readiness, groups, error.is_some()),
+        offers_provider: offers_provider(mode, &readiness),
+        offers_support: offers_support(&readiness, error.is_some()),
         has_provider: has_provider(&readiness),
         refreshed: place.setup.as_deref() == Some("updated"),
         error,

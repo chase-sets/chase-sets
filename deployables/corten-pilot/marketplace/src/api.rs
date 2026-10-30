@@ -6821,6 +6821,15 @@ pub struct PayoutReadiness {
     /// `missing`, `pending` or `ready`.
     pub payout_destination_status: String,
     pub updated_at: Option<String>,
+    /// Settlement's payout setup decision (`PayoutSetupDecision`): what the seller does next
+    /// (`restricted_past_due`, `restricted_review`, `restricted_rejected`, `restricted_paused`,
+    /// `restricted`, `platform_review`, `complete_requirements`, `add_destination`,
+    /// `provider_review` or `none`), whether to recommend support, and which of Stripe's forms
+    /// the seller may open.
+    pub next_step: String,
+    pub support_recommended: bool,
+    pub provider_setup_available: bool,
+    pub provider_management_available: bool,
 }
 
 /// Payout setup's progress as Settlement works it out (`GET /payout-setup/progress`,

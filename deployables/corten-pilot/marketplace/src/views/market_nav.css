@@ -1,4 +1,5 @@
 .bar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
@@ -45,12 +46,10 @@
   background: var(--color-primary-soft);
   color: var(--color-primary);
 }
-.group {
-  position: relative;
-}
+/* An open menu flows under its entry on a narrow screen, so it never runs off the side. From
+   64rem it drops over the page from the bar's end edge: the entries wrap, so its own entry can
+   be at either end of a row, and a menu hung from it would leave the screen on one side. */
 .menu {
-  position: absolute;
-  z-index: 1;
   display: grid;
   min-width: 12rem;
   margin: var(--space-1) 0 0;
@@ -61,7 +60,14 @@
   background: var(--color-surface);
   box-shadow: var(--shadow-md);
 }
-
+@media (min-width: 64rem) {
+  .menu {
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 100%;
+    inset-inline-end: var(--space-6);
+  }
+}
 /* A printed page is its content: the top bar is for the screen. */
 @media print {
   .bar {

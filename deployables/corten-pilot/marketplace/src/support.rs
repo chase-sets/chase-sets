@@ -5,9 +5,8 @@
 //! the seller of the order see it; anyone else gets Not found, as marketplace's loader answers.
 //!
 //! Which party acts next, the deadline in effect, and which of the viewer's actions the page offers
-//! come from the detail read's `participantPolicy` (chase-sets/chase-sets#10715). The offer a
-//! seller's response makes (`offer_outcome`) is still worked out here, as marketplace's page does
-//! (chase-sets/chase-sets#10787 asks the API to derive it).
+//! come from the detail read's `participantPolicy` (chase-sets/chase-sets#10715), and the API
+//! derives the offer a seller's response makes from its type.
 //!
 //! Every write posts to the page and is a participant attempt (`participant-attempt.ts`): the form's
 //! `SubmitKey` is its `Idempotency-Key`, and the request's canonical form is hashed into
@@ -108,16 +107,6 @@ impl Role {
 /// Whether the case is over (`isTerminalStatus`).
 pub fn terminal(status: &str) -> bool {
     matches!(status, "resolved" | "closed" | "cancelled")
-}
-
-/// The offer a response makes (`responseResolutionType`, chase-sets/chase-sets#10787).
-pub fn offer_outcome(response_type: &str) -> Option<&'static str> {
-    match response_type {
-        "accept-return" => Some("return-for-refund"),
-        "offer-partial-refund" => Some("partial-refund"),
-        "offer-replacement" => Some("replacement"),
-        _ => None,
-    }
 }
 
 const REVIEW: &str = "request-support-review";
@@ -447,11 +436,7 @@ fn participant_write(
             } else {
                 None
             };
-            let outcome = offer_outcome(kind);
             let mut body = json!({ "submittedByRole": role, "responseType": kind, "summary": summary });
-            if let Some(outcome) = outcome {
-                body["offerResolutionType"] = json!(outcome);
-            }
             if let Some(refund) = &refund {
                 body["refundAmount"] = json!(refund);
             }
@@ -459,7 +444,7 @@ fn participant_write(
                 ("submittedByRole", json!(role)),
                 ("responseType", json!(kind)),
                 ("summary", json!(summary)),
-                ("offerResolutionType", json!(outcome)),
+                ("offerResolutionType", json!(null)),
                 ("refundAmount", json!(refund)),
                 ("affectedLineIds", json!(null)),
                 ("refundCurrencyCode", json!(null)),

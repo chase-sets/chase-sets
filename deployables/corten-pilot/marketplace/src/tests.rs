@@ -12166,7 +12166,8 @@ fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Re
         }
         ("GET", "/api/settlement/payout-readiness") => Json(json!({
             "account_id": "acc_seller", "status": "ready", "missing_requirements": [], "provider_reference": "acct_1",
-            "updated_at": "2026-10-01T00:00:00.000Z",
+            "updated_at": "2026-10-01T00:00:00.000Z", "next_step": "none", "support_recommended": false,
+            "provider_setup_available": false, "provider_management_available": true,
         }))
         .into_response(),
         ("GET", "/api/settlement/payouts/quick-amounts") => Json(json!({
@@ -12249,17 +12250,23 @@ fn payout_setup_api(session: &str, method: &Method, uri: &Uri) -> Option<Respons
     let readiness = if ready {
         json!({ "account_id": "acc_seller", "status": "ready", "missing_requirements": [], "provider_reference": "acct_1",
                 "onboarding_status": "complete", "transfer_capability_status": "active", "payout_capability_status": "active",
-                "payout_destination_status": "ready", "updated_at": "2026-10-01T00:00:00.000Z" })
+                "payout_destination_status": "ready", "updated_at": "2026-10-01T00:00:00.000Z",
+                "next_step": "none", "support_recommended": false, "provider_setup_available": false,
+                "provider_management_available": true })
     } else if restricted {
         json!({ "account_id": "acc_seller", "status": "restricted", "missing_requirements": ["external_account"],
                 "advisory_requirements": ["company.tax_id"], "disabled_reason": "requirements.past_due",
                 "requirements_deadline": "2026-11-05T00:00:00.000Z", "provider_reference": "acct_9",
                 "onboarding_status": "pending", "transfer_capability_status": "inactive", "payout_capability_status": "inactive",
-                "payout_destination_status": "missing", "updated_at": "2026-10-28T12:00:00.000Z" })
+                "payout_destination_status": "missing", "updated_at": "2026-10-28T12:00:00.000Z",
+                "next_step": "restricted_past_due", "support_recommended": true, "provider_setup_available": true,
+                "provider_management_available": true })
     } else {
         json!({ "account_id": "acc_seller", "status": "not-started", "missing_requirements": ["provider-onboarding", "seller-agreement"],
                 "provider_reference": null, "onboarding_status": "not-started", "transfer_capability_status": "inactive",
-                "payout_capability_status": "inactive", "payout_destination_status": "missing", "updated_at": null })
+                "payout_capability_status": "inactive", "payout_destination_status": "missing", "updated_at": null,
+                "next_step": "complete_requirements", "support_recommended": true, "provider_setup_available": true,
+                "provider_management_available": false })
     };
     let step = |id: &str, label: &str, status: &str| json!({ "id": id, "label": label, "status": status, "detail": format!("{label}: {status}.") });
     Some(match (method.as_str(), uri.path()) {
@@ -12307,7 +12314,7 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
     assert!(shown.contains("Settlement Payout setup Keep payout destination"), "{shown}");
     assert!(shown.contains("Not started Start payout setup Add the required account and payout destination details"), "{shown}");
     assert!(shown.contains("Set up payouts") && shown.contains("Last checked: Not checked yet"), "{shown}");
-    // Not ready and something to do: the groups' words, with no support (chase-sets/chase-sets#10771).
+    // Not ready and something to do (Settlement's `complete_requirements`): the groups' words.
     assert!(shown.contains("Payout setup details need attention Open payout setup to complete: Verification review."), "{shown}");
     assert!(
         shown.contains("Payout setup: not-started.") && shown.contains("Payout destination: needs-attention."),
@@ -13665,11 +13672,12 @@ async fn a_response_is_one_attempt_with_the_web_hosts_hash_and_the_page_reads_af
     assert_eq!(
         sent,
         json!({ "submittedByRole": "seller", "responseType": "offer-partial-refund", "summary": "Half back",
-                "offerResolutionType": "partial-refund", "refundAmount": "12.50" })
+                "refundAmount": "12.50" }),
+        "the API derives the offer the response makes"
     );
     assert_eq!(attempt, ATTEMPT, "the form's attempt is the Idempotency-Key");
     // hashParticipantRequest("record-response", ..) on the same input, run with tsx.
-    assert_eq!(hash, "5585563375f01e17908007c0cb41827ecdee3c74ced13947edeb3d1d4497db18");
+    assert_eq!(hash, "ce6b59afd4abd13dceb7c70dcf900db5e44674ad10af65d7c240e1986b6852c0");
     let (_, _, html) = pilot.send(get(&to, Some("case_seller"))).await;
     assert!(html.contains("Response sent."), "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();

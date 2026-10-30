@@ -75,7 +75,7 @@ pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render
                                     </a>
                                 }
                             } else {
-                                <details class={Group}>
+                                <details>
                                     <summary class={Item}>{&item.label}</summary>
                                     <ul class={Menu}>
                                         for child in children {
