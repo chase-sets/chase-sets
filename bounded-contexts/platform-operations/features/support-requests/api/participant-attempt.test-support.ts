@@ -10,8 +10,46 @@ import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportRequestRuntime } from "./runtime";
 import { buildSupportApi, type SupportApiEnv } from "./http";
 import type { SupportEvidenceAttachmentStorage } from "./attachments";
+import type { SupportResponseType } from "../domain/common";
 
 export const buyer = evidenceActor("viewer", ["support.view", "support.manage"], true);
+export const responseSeller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
+export const responseCases = [
+  { responseType: "accept-return", resolutionType: "return-for-refund", flowType: "product-not-as-described" },
+  { responseType: "offer-partial-refund", resolutionType: "partial-refund", flowType: "product-not-as-described" },
+  { responseType: "offer-replacement", resolutionType: "replacement", flowType: "product-not-as-described" },
+  { responseType: "provide-tracking", resolutionType: null, flowType: "product-not-received" },
+  { responseType: "issue-refund", resolutionType: null, flowType: "product-not-received" },
+  { responseType: "challenge-with-evidence", resolutionType: null, flowType: "product-not-as-described" },
+  { responseType: "confirm-cancellation", resolutionType: null, flowType: "buyer-cancel-request" },
+  { responseType: "confirm-cannot-fulfill", resolutionType: null, flowType: "seller-cannot-fulfill" },
+  { responseType: "request-support-review", resolutionType: null, flowType: "product-not-as-described" },
+] as const;
+export async function responseFixture(responseType: SupportResponseType, summary: string) {
+  const fixture = participantFixture();
+  const scenario = responseCases.find((entry) => entry.responseType === responseType)!;
+  const opener = scenario.flowType === "seller-cannot-fulfill" ? responseSeller : buyer;
+  const opened = await fixture.runtime.openSupportRequest(
+    { orderId: openBody.orderId, flowType: scenario.flowType, accountId: opener.accountId },
+    actorContext(opener),
+  );
+  return {
+    ...fixture,
+    id: opened.supportRequestId,
+    body: {
+      responseType,
+      summary,
+      ...(responseType === "offer-partial-refund" ? { refundAmount: "6.00" } : {}),
+    },
+  };
+}
+export async function operationsResponseFixture(responseType: SupportResponseType, summary: string) {
+  const fixture = await responseFixture(responseType, summary);
+  const operator = evidenceActor("owner", ["support.view", "support.manage"], true, "acc_operator");
+  fixture.setActor(operator);
+  fixture.db.query.mockResolvedValue({ rows: [{ support_request_id: fixture.id, resolution: null }] } as never);
+  return { ...fixture, operator };
+}
 export const attemptId = "7163_attempt_0123456789abcdef";
 export const openBody = { orderId: "ord_attempt", flowType: "product-not-received" };
 export function requestHash(action: ParticipantAction, body: unknown) {
@@ -67,7 +105,7 @@ export function participantFixture(store?: EventStore) {
     await next();
   });
   app.route("/", buildSupportApi(runtime));
-  const executeParticipant = (
+  const executeParticipant = async (
     actionKind: ParticipantAction,
     body: unknown,
     targetId?: string,

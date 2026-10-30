@@ -58,6 +58,7 @@ import {
   listImportBatches,
   type InventoryImportBatchRow,
   type InventoryImportBatchDetail,
+  type InventoryImportBatchResolution,
   type InventoryImportResolutionStatus,
   type InventoryImportRowStatus,
 } from "../read-model/queries";
@@ -156,7 +157,7 @@ export type InventoryImportBatchServices = Readonly<{
       storageLocationId: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<InventoryImportBatchDetail>;
+  ) => Promise<InventoryImportBatchResolution>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -1068,6 +1069,10 @@ export function indexInventoryImportCommitRows(
 }
 
 export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
+  const readBatch = (batchId: string, accountId: string, page?: Readonly<{ limit: number; offset?: number }>) =>
+    getImportBatch(deps.db, batchId, accountId, page, {
+      stockProgressionEnabled: deps.importProductRollout?.stockProgressionEnabled,
+    });
   const validateRow = createInventoryImportRowValidator(deps);
   const jobStore = createPostgresDurableJobStore<
     InventoryImportBatchJobPayload,
@@ -1228,8 +1233,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
   async function resolveBatchRow(
     params: Parameters<InventoryImportBatchServices["resolveRow"]>[0],
-  ): Promise<InventoryImportBatchDetail> {
-    const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
+  ): Promise<InventoryImportBatchResolution> {
+    const detail = await readBatch(params.batchId, params.accountId);
     if (!detail) {
       throw new InventoryDomainError("Import batch not found.");
     }
@@ -1316,11 +1321,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     );
     await refreshBatchCounts(deps.db, params.batchId);
 
-    const nextDetail = await getImportBatch(deps.db, params.batchId, params.accountId);
+    const nextDetail = await readBatch(params.batchId, params.accountId);
     if (!nextDetail) {
       throw new InventoryDomainError("Import batch not found.");
     }
-    return nextDetail;
+    return {
+      ...nextDetail,
+      next_needs_seller_row_id: nextDetail.rows.find((candidate) => candidate.needs_seller)?.row_id ?? null,
+    };
   }
 
   async function commitSingleRow(
@@ -2383,7 +2391,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
   }
 
   return {
-    getBatch: (batchId, accountId, page) => getImportBatch(deps.db, batchId, accountId, page ?? { limit: 100 }),
+    getBatch: (batchId, accountId, page) => readBatch(batchId, accountId, page ?? { limit: 100 }),
     listBatches: (params) => listImportBatches(deps.db, params),
     getNativeCsvTemplate: async (params) => {
       const locations = await listStorageLocations(deps.db, {
@@ -2425,7 +2433,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       };
     },
     enqueueCommitBatchJob: async (params, context) => {
-      const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
+      const detail = await readBatch(params.batchId, params.accountId);
       if (!detail) {
         throw new InventoryDomainError("Import batch not found.");
       }
@@ -2437,12 +2445,22 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         throw new InventoryDomainError("Import validation must finish before committing rows.");
       }
 
+      if (deps.importProductRollout?.stockProgressionEnabled === false) {
+        throw new InventoryDomainError("Import stock progression is disabled; Product review remains available.");
+      }
+      if (detail.status === "committing") {
+        throw new InventoryDomainError("Import commit is already running.");
+      }
+      if (!detail.can_commit) {
+        throw new InventoryDomainError("Import batch has no accepted rows waiting to commit.");
+      }
+
       const acceptedRows = detail.rows
         .filter((row) => row.status === "accepted" || row.status === "committed")
         .map(commitInputRow);
       const commitInput = await persistCommitInput(params, context, acceptedRows);
 
-      const remaining = Math.max(0, detail.accepted_count - detail.committed_count);
+      const remaining = detail.commit_ready_count;
       const job = await jobStore.enqueue({
         jobId: createId("job"),
         jobKind: IMPORT_BATCH_JOB_KIND_COMMIT,

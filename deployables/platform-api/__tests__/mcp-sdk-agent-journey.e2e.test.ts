@@ -295,6 +295,15 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       },
       payouts: {
         listPayouts: vi.fn(async () => ({ items: [payout], total: 1 })),
+        getPayoutSummary: vi.fn(async () => ({
+          items: [payout],
+          total: 1,
+          count: 1,
+          completeness: { kind: "complete", total: 1 },
+          next_payout: null,
+          blocked_payouts: [],
+          availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+        })),
         getPayout: vi.fn(async () => payout),
         requestPayout: vi.fn(async () => ({ payoutId: "payout_1", version: 1, payout })),
       },

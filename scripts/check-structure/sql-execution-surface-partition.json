@@ -461,7 +461,6 @@
     "bounded-contexts/settlement/features/payouts/api/payout-reconciliation-jobs.ts",
     "bounded-contexts/settlement/features/payouts/read-model/projection.ts",
     "bounded-contexts/settlement/features/payouts/read-model/queries.ts",
-    "bounded-contexts/settlement/features/payouts/read-model/seller-attention-source.ts",
     "bounded-contexts/settlement/features/payouts/read-model/support-lookup.ts",
     "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts",
     "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-queries.ts",

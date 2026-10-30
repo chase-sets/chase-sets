@@ -4,6 +4,7 @@ import type {
   InventoryImportQuantityMode,
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
+import { importBatchCommitReadiness, importRowNeedsSeller } from "../domain/import-batch-review";
 import { INVENTORY_IMPORT_CREATE_JOB_KINDS } from "../domain/job-kinds";
 
 export type InventoryImportBatchStatus =
@@ -51,6 +52,7 @@ export type InventoryImportBatchRow = Readonly<{
   committed_at: string | null;
   created_at: string;
   updated_at: string;
+  needs_seller: boolean;
 }>;
 
 export type InventoryImportBatch = Readonly<{
@@ -71,12 +73,17 @@ export type InventoryImportBatch = Readonly<{
 
 export type InventoryImportBatchDetail = InventoryImportBatch &
   Readonly<{
+    can_commit: boolean;
+    commit_ready_count: number;
     rows: readonly InventoryImportBatchRow[];
   }>;
 
+export type InventoryImportBatchResolution = InventoryImportBatchDetail &
+  Readonly<{ next_needs_seller_row_id: string | null }>;
+
 type RawImportBatchRow = Omit<
   InventoryImportBatchRow,
-  "raw_row" | "external_reference" | "selected_options" | "validation_errors"
+  "raw_row" | "external_reference" | "selected_options" | "validation_errors" | "needs_seller"
 > &
   Readonly<{
     raw_row: unknown;
@@ -115,9 +122,16 @@ const IMPORT_BATCH_STATUS_SQL = `CASE
   ELSE 'uploaded'
 END`;
 
-function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
+function normalizeRow(row: RawImportBatchRow, sourceKey: InventoryImportSourceKey): InventoryImportBatchRow {
   return {
     ...row,
+    needs_seller: importRowNeedsSeller({
+      sourceKey,
+      status: row.status,
+      resolutionStatus: row.resolution_status,
+      productId: row.product_id,
+      committedAt: row.committed_at,
+    }),
     acquisition_occurred_at:
       row.acquisition_occurred_at === null || row.acquisition_occurred_at === undefined
         ? null
@@ -148,6 +162,7 @@ export async function getImportBatch(
   batchId: string,
   accountId: string,
   page?: Readonly<{ limit: number; offset?: number }>,
+  options?: Readonly<{ stockProgressionEnabled?: boolean }>,
 ): Promise<InventoryImportBatchDetail | null> {
   const batchResult = await db.query<InventoryImportBatch>(
     `SELECT
@@ -216,9 +231,17 @@ export async function getImportBatch(
     page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
+  const readiness = importBatchCommitReadiness({
+    status: batch.status,
+    acceptedCount: batch.accepted_count,
+    committedCount: batch.committed_count,
+    stockProgressionEnabled: options?.stockProgressionEnabled,
+  });
   return {
     ...batch,
-    rows: rows.rows.map(normalizeRow),
+    can_commit: readiness.canCommit,
+    commit_ready_count: readiness.commitReadyCount,
+    rows: rows.rows.map((row) => normalizeRow(row, batch.source_key)),
   };
 }
 
