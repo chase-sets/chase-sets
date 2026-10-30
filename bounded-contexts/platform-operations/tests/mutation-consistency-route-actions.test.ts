@@ -792,7 +792,6 @@ describe("platform operations mutation consistency route actions", () => {
         submittedByRole: "seller",
         responseType: "offer-partial-refund",
         summary: "Offer five dollars",
-        offerResolutionType: "partial-refund",
         refundAmount: "5.00",
       },
       "response",
@@ -851,5 +850,133 @@ describe("platform operations mutation consistency route actions", () => {
     expect(location.pathname).toBe("/account/support/sup_1");
     expect(location.searchParams.get("action")).toBe(actionResult);
     expect(location.searchParams.get("afterWrite")).toBeTruthy();
+  });
+});
+
+describe("marketplace response removal", () => {
+  afterEach(() => {
+    vi.resetAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([null, "partial-refund", "replacement"])(
+    "response action ignores retired resolution field: %s",
+    async (retiredResolution) => {
+      mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", tenantId: "ten_1" });
+      const fetchMock = vi.fn<typeof fetch>(async () =>
+        commandJsonResponse({ id: "sup_1", version: 3, status: "response-recorded" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const form = new URLSearchParams({
+        intent: "response",
+        participantAttemptId: "10797_response_0123456789abcdef",
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        refundAmount: "5.00",
+      });
+      if (retiredResolution !== null) form.set("offerResolutionType", retiredResolution);
+      const response = await accountSupportDetailAction({
+        request: formRequest("http://localhost/account/support/sup_1", form),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never);
+      expect(response).toBeInstanceOf(Response);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        refundAmount: "5.00",
+      });
+      expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Idempotency-Key")).toBe(
+        form.get("participantAttemptId"),
+      );
+    },
+  );
+
+  it.each(["confirming", "committed"])(
+    "response removal preserves retained attempt recovery: old explicit %s lookup never redispatches",
+    async (outcome) => {
+      mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", tenantId: "ten_1" });
+      const descriptor = {
+        actionKind: "record-response",
+        targetId: "sup_1",
+        attemptId: "10797_response_0123456789abcdef",
+        requestHash: "3ba438568581f403087dcb003a79786b107e03b530c3d82b9e13318fe233bd69",
+      };
+      const fetchMock = vi.fn<typeof fetch>(async () =>
+        commandJsonResponse({
+          outcome,
+          actionKind: "record-response",
+          result: {
+            id: "sup_1",
+            version: 3,
+            status: "response-recorded",
+            evidenceId: null,
+            responseId: "srp_1",
+            offerId: "sof_1",
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const response = await accountSupportDetailAction({
+        request: formRequest(
+          "http://localhost/account/support/sup_1",
+          new URLSearchParams({
+            intent: "response",
+            responseType: "offer-partial-refund",
+            offerResolutionType: "partial-refund",
+            participantRecovery: JSON.stringify({
+              phase: "ambiguous",
+              descriptor,
+              accountId: "acc_seller",
+              tenantId: "ten_1",
+            }),
+          }),
+        ),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never);
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).headers.get("Location")).toContain("action=response");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        `http://localhost/api/marketplace/support-requests/sup_1/participant-attempts/${descriptor.attemptId}?requestHash=${descriptor.requestHash}&actionKind=record-response`,
+      );
+      expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+    },
+  );
+
+  it("response removal preserves retained attempt recovery: failed-safe no-descriptor retry sends omission", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", tenantId: "ten_1" });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ error: { code: "validation_failed" } }, 400))
+      .mockResolvedValueOnce(commandJsonResponse({ id: "sup_1", version: 3, status: "response-recorded" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({
+      intent: "response",
+      participantAttemptId: "10797_response_0123456789abcdef",
+      submittedByRole: "seller",
+      responseType: "offer-partial-refund",
+      summary: "Offer five dollars",
+      offerResolutionType: "partial-refund",
+      refundAmount: "5.00",
+    });
+    const submit = () =>
+      accountSupportDetailAction({
+        request: formRequest("http://localhost/account/support/sup_1", form),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never);
+    expect(await submit()).toMatchObject({ participantRecovery: { phase: "failed-safe", descriptor: null } });
+    expect(await submit()).toBeInstanceOf(Response);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).not.toHaveProperty("offerResolutionType");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(form.get("participantAttemptId"));
+    }
   });
 });
