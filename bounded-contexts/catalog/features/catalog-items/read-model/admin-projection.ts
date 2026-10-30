@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -14,6 +14,12 @@ import {
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import { resolveAndPersistCatalogItemDisplayIdentities, type PersistedDisplayIdentityResult } from "./display-identity";
+import {
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemEvent,
+  type CatalogItemState,
+} from "../domain/domain";
 import {
   enqueueAllCatalogItemDisplayIdentityRecomputeWork,
   enqueueCatalogItemDisplayIdentityRecomputeWork,
@@ -46,6 +52,25 @@ type BaseCatalogItemRow = Readonly<{
   product_asset_sets: unknown;
   image_fallback: unknown;
   updated_at: string;
+}>;
+
+type CatalogAdminPageTimestampRow = Readonly<{
+  catalog_item_id: string;
+  updated_at: string | Date;
+}>;
+
+type CatalogItemReferenceOverrides = Readonly<{
+  externalProductReferencesByItemId: ReadonlyMap<string, readonly ExternalProductReferenceRow[]>;
+  externalCatalogItemReferencesByItemId: ReadonlyMap<string, readonly ExternalCatalogItemReferenceRow[]>;
+}>;
+
+type CatalogItemSourceEvent = Readonly<{ type: string; data: unknown }>;
+
+type CatalogItemSourceEventRow = Readonly<{
+  event_id: string;
+  event_type: string;
+  payload: unknown;
+  stream_version: number;
 }>;
 
 type ExternalProductReferenceRow = Readonly<{
@@ -146,6 +171,107 @@ async function ensureCatalogItemParentForCreatedEvent(
   return itemId;
 }
 
+// Reads the item stream through its triggering event on the projection's own connection. The runtime's
+// source-history reader takes a second pool connection, which a one-connection seed pool cannot grant while
+// this application holds its only one.
+async function loadCatalogItemSourceHistory(
+  db: PgQueryable,
+  event: Readonly<{ id: string; streamId: string; streamVersion: number }>,
+): Promise<CatalogItemSourceEvent[]> {
+  const result = await db.query<CatalogItemSourceEventRow>(
+    `SELECT event_id, event_type, payload, stream_version::integer AS stream_version
+     FROM event_store_events
+     WHERE stream_id = $1
+       AND stream_version <= $2
+     ORDER BY stream_version ASC`,
+    [event.streamId, event.streamVersion],
+  );
+  const complete =
+    result.rows.length === event.streamVersion &&
+    result.rows.every((row, index) => row.stream_version === index + 1) &&
+    result.rows.at(-1)?.event_id === event.id;
+  if (!complete) {
+    throw new Error(`Source history for ${event.streamId} through event ${event.id} is incomplete.`);
+  }
+
+  return result.rows.map((row) => ({ type: row.event_type, data: row.payload }));
+}
+
+function catalogItemRowFromSourceHistory(
+  history: readonly CatalogItemSourceEvent[],
+  itemId: string,
+  updatedAt: string,
+): { item: BaseCatalogItemRow; references: CatalogItemReferenceOverrides } {
+  const state = history.reduce<CatalogItemState>(
+    (current, sourceEvent) => evolveCatalogItem(current, normalizeCatalogItemSourceEvent(sourceEvent)),
+    initialCatalogItemState,
+  );
+  if (state.id !== itemId || state.title === null) {
+    throw new Error(`Source history for Catalog Item ${itemId} did not produce a complete item state.`);
+  }
+
+  const externalProductReferences = state.externalProductReferences.map((reference) => ({
+    catalog_item_id: itemId,
+    provider_key: reference.providerKey,
+    external_key: reference.externalKey,
+    selected_options: reference.selectedOptions,
+    updated_at: updatedAt,
+  }));
+  const externalCatalogItemReferences = state.externalCatalogItemReferences.map((reference) => ({
+    catalog_item_id: itemId,
+    provider_key: reference.providerKey,
+    external_key: reference.externalKey,
+    updated_at: updatedAt,
+  }));
+
+  return {
+    item: {
+      catalog_item_id: itemId,
+      language_code: state.languageCode,
+      title_i18n: state.title,
+      title: resolveLocalizedTextMap(state.title),
+      subtitle_i18n: state.subtitle,
+      subtitle: state.subtitle ? resolveLocalizedTextMap(state.subtitle) : null,
+      description_i18n: state.description,
+      description: resolveLocalizedTextMap(state.description),
+      blueprint_id: state.blueprintId,
+      status: state.status,
+      field_values: state.fieldValues,
+      category_ids: state.categoryIds,
+      tags: state.tags,
+      image_urls: state.imageUrls,
+      product_asset_sets: state.productAssetSets,
+      image_fallback: state.imageFallback,
+      updated_at: updatedAt,
+    },
+    references: {
+      externalProductReferencesByItemId: new Map([[itemId, externalProductReferences]]),
+      externalCatalogItemReferencesByItemId: new Map([[itemId, externalCatalogItemReferences]]),
+    },
+  };
+}
+
+function normalizeCatalogItemSourceEvent(sourceEvent: CatalogItemSourceEvent): CatalogItemEvent {
+  if (
+    sourceEvent.type !== "catalog.catalog-item.created" &&
+    sourceEvent.type !== "catalog.catalog-item.metadata-revised"
+  ) {
+    return sourceEvent as unknown as CatalogItemEvent;
+  }
+
+  const data = sourceEvent.data as Record<string, unknown>;
+  return {
+    ...sourceEvent,
+    data: {
+      ...data,
+      title: typeof data.title === "string" ? localizedTextMapFromEnglish(data.title) : data.title,
+      subtitle: typeof data.subtitle === "string" ? localizedTextMapFromEnglish(data.subtitle) : data.subtitle,
+      description:
+        typeof data.description === "string" ? localizedTextMapFromEnglish(data.description) : data.description,
+    },
+  } as unknown as CatalogItemEvent;
+}
+
 async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
   const uniqueItemIds = [...new Set(itemIds)];
   if (uniqueItemIds.length === 0) {
@@ -165,7 +291,47 @@ async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, item
   const items = uniqueItemIds
     .map((itemId) => itemsById.get(itemId))
     .filter((item): item is BaseCatalogItemRow => Boolean(item));
+  if (items.length === 0) {
+    return;
+  }
 
+  const itemUpdatedAtById = new Map(items.map((item) => [item.catalog_item_id, new Date(item.updated_at).getTime()]));
+  const pageTimestampResult = await db.query<CatalogAdminPageTimestampRow>(
+    `
+    SELECT catalog_item_id, updated_at
+    FROM catalog_admin_catalog_item_list_pages
+    WHERE catalog_item_id = ANY($1)
+    UNION ALL
+    SELECT catalog_item_id, updated_at
+    FROM catalog_admin_catalog_item_detail_pages
+    WHERE catalog_item_id = ANY($1)
+  `,
+    [items.map((item) => item.catalog_item_id)],
+  );
+  const stalePageItemIds = [
+    ...new Set(
+      pageTimestampResult.rows
+        .filter((page) => {
+          const itemUpdatedAt = itemUpdatedAtById.get(page.catalog_item_id);
+          return itemUpdatedAt !== undefined && new Date(page.updated_at).getTime() > itemUpdatedAt;
+        })
+        .map((page) => page.catalog_item_id),
+    ),
+  ];
+  if (stalePageItemIds.length > 0) {
+    throw createTransientProjectionError(
+      `Catalog Item source projection is behind admin pages for: ${stalePageItemIds.join(", ")}.`,
+    );
+  }
+
+  await refreshCatalogAdminCatalogItemPagesForRows(db, items);
+}
+
+async function refreshCatalogAdminCatalogItemPagesForRows(
+  db: PgQueryable,
+  items: readonly BaseCatalogItemRow[],
+  referenceOverrides?: CatalogItemReferenceOverrides,
+): Promise<void> {
   if (items.length === 0) {
     return;
   }
@@ -217,8 +383,12 @@ async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, item
     db,
     items.flatMap((item) => referenceIdsByItemId.get(item.catalog_item_id) ?? []),
   );
-  const externalProductReferencesByItemId = await loadExternalProductReferencesByItemId(db, uniqueItemIds);
-  const externalCatalogItemReferencesByItemId = await loadExternalCatalogItemReferencesByItemId(db, uniqueItemIds);
+  const itemIds = items.map((item) => item.catalog_item_id);
+  const externalProductReferencesByItemId =
+    referenceOverrides?.externalProductReferencesByItemId ?? (await loadExternalProductReferencesByItemId(db, itemIds));
+  const externalCatalogItemReferencesByItemId =
+    referenceOverrides?.externalCatalogItemReferencesByItemId ??
+    (await loadExternalCatalogItemReferencesByItemId(db, itemIds));
 
   await upsertCatalogAdminCatalogItemListPages(db, items, displayIdentityResults, blueprintNames);
   await upsertCatalogAdminCatalogItemDetailPages(db, {
@@ -327,7 +497,8 @@ async function upsertCatalogAdminCatalogItemListPages(
       blueprint = EXCLUDED.blueprint,
       status = EXCLUDED.status,
       tags = EXCLUDED.tags,
-      updated_at = EXCLUDED.updated_at`,
+      updated_at = EXCLUDED.updated_at
+    WHERE catalog_admin_catalog_item_list_pages.updated_at <= EXCLUDED.updated_at`,
     [
       items.map((item) => item.catalog_item_id),
       items.map((item) => item.language_code),
@@ -497,7 +668,8 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
       image_fallback = EXCLUDED.image_fallback,
-      updated_at = EXCLUDED.updated_at`,
+      updated_at = EXCLUDED.updated_at
+    WHERE catalog_admin_catalog_item_detail_pages.updated_at <= EXCLUDED.updated_at`,
     [
       detailRows.map((row) => row.catalogItemId),
       detailRows.map((row) => row.languageCode),
@@ -778,6 +950,23 @@ async function enqueueItemAndRefresh(
   await refreshCatalogItemIds(db, [itemId], reason, source);
 }
 
+async function enqueueItemAndRefreshFromEvent(
+  db: PgQueryable,
+  event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0],
+  reason: DisplayIdentityRecomputeReason,
+  enqueue = true,
+): Promise<void> {
+  const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+  const source = sourceFromEvent(event);
+  if (enqueue) {
+    await enqueueCatalogItemDisplayIdentityRecomputeWork(db, [itemId], reason, source);
+  }
+
+  const history = await loadCatalogItemSourceHistory(db, event);
+  const authoritative = catalogItemRowFromSourceHistory(history, itemId, event.timing.recordedAt);
+  await refreshCatalogAdminCatalogItemPagesForRows(db, [authoritative.item], authoritative.references);
+}
+
 function sourceFromEvent(event: { type?: unknown; streamId?: unknown; timing?: { recordedAt?: unknown } }) {
   return {
     eventType: typeof event.type === "string" ? event.type : undefined,
@@ -819,93 +1008,58 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await enqueueItemAndRefresh(db, itemId, "catalog-item-changed", sourceFromEvent(event));
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.field-value-set": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.field-value-cleared": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.category-assigned": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.published": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.tags-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-urls-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.product-asset-sets-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-cleared": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.retired": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.archived": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
