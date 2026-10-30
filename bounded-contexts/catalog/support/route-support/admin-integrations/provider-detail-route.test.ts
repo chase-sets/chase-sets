@@ -212,7 +212,7 @@ function jobActionArgs(intent: string): Parameters<typeof providerDetailAction>[
     }),
     params: { providerKey: "tcgdex" },
     context: {},
-  } as Parameters<typeof providerDetailAction>[0];
+  } as unknown as Parameters<typeof providerDetailAction>[0];
 }
 
 function loaderArgs(providerKey: string): Parameters<typeof loadProviderDetail>[0] {

@@ -253,7 +253,7 @@ describe("CatalogAttentionQueuePanel", () => {
     const user = userEvent.setup();
     const sources = oneOfEachKindSources();
     const readModel = assembleCatalogAttentionQueue(
-      { ...sources, mergeCandidates: sources.mergeCandidates.map((row) => ({ ...row, scope_record_id: null })) },
+      { ...sources, mergeCandidates: sources.mergeCandidates.map((row) => ({ ...row, scope_record_id: undefined })) },
       { generatedAt: GENERATED_AT, dismissedItemKeys: new Set() },
     );
     render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
