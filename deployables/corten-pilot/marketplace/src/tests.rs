@@ -485,6 +485,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = support_api(session, &method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = ucp_oauth(&method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
         return answer;
     }
@@ -7150,6 +7153,459 @@ async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_t
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("This session is still updating."), "{}", text(&html));
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+}
+
+const UCP: &str = "/ucp/oauth";
+const AGENTS: &str = "/account/agents";
+/// Revoke attempts the stand-in answers each its own way.
+const DONE: &str = "11111111-1111-4111-8111-111111111111";
+const ANOTHER: &str = "22222222-2222-4222-8222-222222222222";
+const CONFLICTED: &str = "33333333-3333-4333-8333-333333333333";
+const UNANSWERED: &str = "44444444-4444-4444-8444-444444444444";
+
+fn grant(id: &str, status: &str, name: Option<&str>, mandate: bool) -> Value {
+    let mut grant = json!({
+        "id": id, "account_id": "acc_seller", "platform_profile_url": "https://assistant.example/profile", "client_id": "cli_1",
+        "client_name": name, "client_uri": "https://old.example", "scopes": ["catalog:read", "dev.ucp.shopping.order:read", "made:up"],
+        "status": status, "access_token_expires_at": "2026-11-01T00:00:00.000Z", "refresh_token_expires_at": null,
+        "granted_at": "2026-10-20T15:30:00.000Z", "last_refreshed_at": null, "revoked_at": null, "revocation_reason": null,
+        "updated_at": "2026-10-20T15:30:00.000Z",
+    });
+    if mandate {
+        grant["spending_mandate"] = json!({
+            "max_per_order_cents": 2500, "daily_cap_cents": 5000, "monthly_cap_cents": null, "human_present_required": true,
+            "allowed_rails": ["handoff-only"],
+        });
+        grant["spend"] = json!({ "daily_cents": 1250, "monthly_cents": 3000 });
+    }
+    grant
+}
+
+/// The stand-in UCP OAuth routes. Grants: `lpa_one` (active, with a mandate, a webhook and
+/// activity; revocation is an attempt), `lpa_old` (revoked, named by its address, cleanup done),
+/// `lpa_plain` (active; revocation is not an attempt, no activity or mandates are configured) and
+/// `lpa_gone` (not this account's). A revoke of `lpa_one` is done for `DONE`, answered for another
+/// attempt for `ANOTHER`, a conflict for `CONFLICTED`, not answered in JSON for `UNANSWERED` (its
+/// lookup says done), and not past its first phase otherwise. The consent `tok_ok` is the seller's
+/// session `ses_consent`, which may also act for `acc_two`; `tok_used` is gone and `tok_signin`
+/// needs a sign-in. The authorize redirects as the API does.
+fn ucp_oauth(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if uri.path() == "/api/auth/sessions/ses_consent/switch-account" {
+        return Some(committed(StatusCode::OK, "auth", "50", json!({ "id": "ses_consent", "version": 3, "status": "active" })));
+    }
+    let rest = uri.path().strip_prefix(UCP)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let error = |status: StatusCode, code: &str| (status, Json(json!({ "error": code }))).into_response();
+    let query = uri.query().unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "/authorizations") => Json(json!({ "authorizations": [
+            grant("lpa_one", "active", Some("Synthetic Assistant"), true),
+            grant("lpa_old", "revoked", None, false),
+        ] }))
+        .into_response(),
+        ("GET", "/authorizations/lpa_one") => Json(json!({
+            "authorization": grant("lpa_one", "active", Some("Synthetic Assistant"), true), "revocation_active": true, "revocation_available": true,
+        }))
+        .into_response(),
+        ("GET", "/authorizations/lpa_old") => Json(json!({
+            "authorization": grant("lpa_old", "revoked", None, false), "revocation_active": true, "revocation_available": false,
+        }))
+        .into_response(),
+        ("GET", "/authorizations/lpa_plain") => Json(json!({
+            "authorization": grant("lpa_plain", "active", Some("Plain Agent"), false), "revocation_active": false, "revocation_available": true,
+        }))
+        .into_response(),
+        ("GET", "/authorizations/lpa_one/activity") => {
+            assert_eq!(query, "limit=50&offset=0", "marketplace's page of activity");
+            Json(json!({ "total": 2, "activity": [
+                { "id": "act_1", "occurred_at": "2026-10-21T10:00:00.000Z", "outcome": "allowed", "method": "tools/call", "tool_name": "search_catalog",
+                  "resource_uri": null, "audit_event_name": null, "target_type": null, "reason": null, "limit_kind": null },
+                { "id": "act_2", "occurred_at": "2026-10-21T11:00:00.000Z", "outcome": "denied", "method": "tools/call", "tool_name": null,
+                  "resource_uri": "ucp://orders/ord_1", "audit_event_name": null, "target_type": null, "reason": "daily_cap_exceeded", "limit_kind": "daily" },
+            ] }))
+            .into_response()
+        }
+        ("GET", "/authorizations/lpa_plain/activity") => error(StatusCode::NOT_FOUND, "unsupported"),
+        ("GET", path) if path.starts_with("/authorizations/lpa_") && path.ends_with("/activity") => {
+            Json(json!({ "activity": [], "total": 0 })).into_response()
+        }
+        ("GET", "/authorizations/lpa_one/webhook") => Json(json!({ "webhook": {
+            "callback_url": "https://agent.example/hooks", "signing_secret_preview": "whsec_...abcd", "signing_secret_created_at": "2026-10-20T15:30:00.000Z",
+        } }))
+        .into_response(),
+        ("GET", path) if path.starts_with("/authorizations/lpa_") && path.ends_with("/webhook") => {
+            Json(json!({ "webhook": null })).into_response()
+        }
+        ("PUT", "/authorizations/lpa_old/webhook" | "/authorizations/lpa_old/mandate") => error(StatusCode::CONFLICT, "grant_revoked"),
+        ("PUT", "/authorizations/lpa_plain/mandate") => error(StatusCode::NOT_FOUND, "unsupported"),
+        ("PUT", path) if path.ends_with("/mandate") => Json(json!({ "spending_mandate": sent })).into_response(),
+        ("PUT", path) if path.ends_with("/webhook") => match sent["callback_url"].as_str() {
+            None => Json(json!({ "webhook": null })).into_response(),
+            Some(url) if url.starts_with("https://") => Json(json!({ "webhook": {
+                "callback_url": url, "signing_secret": "whsec_synthetic_new_secret", "signing_secret_preview": "whsec_...cret",
+            } }))
+            .into_response(),
+            Some(_) => error(StatusCode::BAD_REQUEST, "invalid_request"),
+        },
+        ("POST", "/authorizations/lpa_plain/revoke") => Json(json!({ "revoked": true })).into_response(),
+        ("POST", "/authorizations/lpa_one/revoke") => {
+            let attempt = sent["attempt_id"].as_str().unwrap_or_default().to_owned();
+            let key = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+            assert_eq!(key, attempt, "the attempt is the Idempotency-Key and the body's attempt_id");
+            let receipt = |attempt: &str, phase: &str, state: &str| {
+                Json(json!({ "revoked": true, "attempt_id": attempt, "operation_id": "op_1", "phase": phase, "state": state })).into_response()
+            };
+            match attempt.as_str() {
+                DONE => receipt(DONE, "completed", "succeeded"),
+                ANOTHER => receipt(DONE, "completed", "succeeded"),
+                CONFLICTED => (StatusCode::CONFLICT, Json(json!({ "state": "conflict" }))).into_response(),
+                UNANSWERED => (StatusCode::OK, "not json").into_response(),
+                other => receipt(other, "identity-terminal", "ambiguous"),
+            }
+        }
+        ("GET", path) if path.starts_with("/authorizations/lpa_one/revocation/") => {
+            let attempt = path.rsplit('/').next().unwrap();
+            Json(json!({ "attempt_id": attempt, "operation_id": "op_1", "phase": "completed", "state": "succeeded" })).into_response()
+        }
+        ("GET", path) if path.starts_with("/authorizations/") => error(StatusCode::NOT_FOUND, "not_found"),
+        ("GET", "/consent") => match query {
+            "consent_token=tok_ok" => Json(json!({ "consent": {
+                "clientName": "Synthetic Assistant", "redirectOrigin": "https://agent.example", "sessionId": "ses_consent",
+                "accountId": "acc_seller", "accountName": "Synthetic Shop", "scopes": ["catalog:read", "operations:read"],
+                "operatorGrantExpiresAt": "2026-11-05T12:00:00.000Z",
+                "memberships": [{ "accountId": "acc_seller", "accountName": "Synthetic Shop" }, { "accountId": "acc_two", "accountName": "Second Shop" }],
+                "authorizePath": "/ucp/oauth/authorize?response_type=code&client_id=cli_1&redirect_uri=https%3A%2F%2Fagent.example%2Fcb&scope=catalog%3Aread&code_challenge=abc&code_challenge_method=S256",
+            } }))
+            .into_response(),
+            "consent_token=tok_signin" => error(StatusCode::UNAUTHORIZED, "login_required"),
+            _ => error(StatusCode::BAD_REQUEST, "invalid_request"),
+        },
+        ("GET", "/authorize") => (
+            StatusCode::FOUND,
+            [(header::LOCATION, "/account/agents/consent?consent_token=tok_ok"), (header::CACHE_CONTROL, "no-store"), (header::REFERRER_POLICY, "no-referrer")],
+        )
+            .into_response(),
+        ("POST", "/authorize") => {
+            let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+            let forwarded = headers.get("x-forwarded-host").and_then(|v| v.to_str().ok());
+            if origin != Some("http://localhost:7791") || forwarded != Some("localhost:7791") || headers.get("sec-fetch-site").is_none() {
+                return Some(error(StatusCode::FORBIDDEN, "invalid_request"));
+            }
+            let to = if body.contains("decision=approve") && body.contains("consent_token=tok_ok") {
+                "https://agent.example/cb?state=s1&code=ucp_code_1"
+            } else {
+                "https://agent.example/cb?state=s1&error=access_denied"
+            };
+            (StatusCode::FOUND, [(header::LOCATION, to), (header::REFERRER_POLICY, "no-referrer")]).into_response()
+        }
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// The UCP OAuth writes the pilot sent: method, path and body.
+fn ucp_writes(pilot: &Pilot) -> Vec<(Method, String, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with(UCP) && c.method != Method::GET)
+        .map(|c| (c.method.clone(), c.path.clone(), serde_json::from_str(&c.body).unwrap_or(Value::String(c.body.clone()))))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_connected_agents_need_only_a_signed_in_account() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(AGENTS, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a visitor signs in");
+    assert!(headers["location"].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fagents"), "{headers:?}");
+    for session in ["guard", "buyer"] {
+        let (status, _, html) = pilot.send(get(AGENTS, Some(session))).await;
+        assert_eq!(status, StatusCode::OK, "marketplace's route asks for no permission: {session} {html}");
+    }
+}
+
+#[tokio::test]
+async fn the_list_shows_each_grant_and_how_to_connect_an_assistant() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(AGENTS, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(html.contains("<title>Connected agents"), "{html}");
+    assert!(shown.contains("Connector URL http://localhost:7791/mcp"), "this site's /mcp: {shown}");
+    assert!(shown.contains("Paste the connector URL: http://localhost:7791/mcp"), "{shown}");
+    assert!(html.contains(r#"href="https://ucp.dev/latest/specification/overview" target="_blank" rel="noreferrer""#), "{html}");
+    assert!(
+        shown.contains("Synthetic Assistant Active Scopes 3 scopes Spend $12.50 / $50.00 daily Connected Oct 20, 2026"),
+        "{shown}"
+    );
+    assert!(shown.contains("https://old.example Revoked Scopes 3 scopes Spend No spending mandate configured yet."), "{shown}");
+    assert!(html.contains(r#"href="/account/agents/lpa_one""#) && html.contains(r#"href="/account/agents/lpa_old""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_grant_shows_its_scopes_spend_mandate_webhook_and_activity() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(html.contains(r#"<a href="/account/agents">Connected agents</a>"#), "{html}");
+    assert!(shown.contains("You can revoke access or confirm interrupted cleanup."), "{shown}");
+    assert!(shown.contains("Catalog Read catalog - Find catalog items"), "{shown}");
+    assert!(shown.contains("Orders Read orders - Read order and purchase history"), "{shown}");
+    assert!(!shown.contains("made:up"), "a scope Auth does not know is not listed");
+    assert!(shown.contains("Today: $12.50 of $50.00 This month: $30.00 of No cap Per-order limit: $25.00"), "{shown}");
+    assert!(
+        html.contains(r#"name="max_per_order_amount" value="25.00""#)
+            && html.contains(r#"name="daily_cap_amount" value="50.00""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="monthly_cap_amount" value="""#), "no cap is an empty field: {html}");
+    assert!(html.contains(r#"name="human_present_required" value="true" checked"#), "{html}");
+    assert!(html.contains(r#"value="handoff-only" checked"#) && !html.contains(r#"value="stored-pm" checked"#), "{html}");
+    assert!(html.contains(r#"value="https://agent.example/hooks""#) && shown.contains("Signing secret whsec_...abcd"), "{shown}");
+    assert!(html.contains(r#"formaction="/account/agents/lpa_one/webhook/disable""#), "{html}");
+    assert!(shown.contains("Tool search_catalog Outcome Allowed Reason \u{2014}"), "{shown}");
+    assert!(shown.contains("Tool ucp://orders/ord_1 Outcome Denied Reason daily_cap_exceeded"), "{shown}");
+    assert!(html.contains(r#"action="/account/agents/lpa_one/revoke""#) && html.contains(r#"command="show-modal""#), "{html}");
+    assert!(shown.contains("Synthetic Assistant immediately loses access"), "{shown}");
+
+    let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_old"), Some("buyer"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Access was already revoked. Cleanup is complete."), "{shown}");
+    assert!(!html.contains("/revoke"), "nothing is left to revoke: {html}");
+    assert!(!html.contains("/webhook/disable"), "no webhook to disable");
+    let (status, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_plain"), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "Auth keeping no activity is not a failed page: {html}");
+    let shown = text(&html);
+    assert!(shown.contains("Activity is not available yet.") && shown.contains("No spending mandate configured yet."), "{shown}");
+    assert!(!shown.contains("You can revoke access"), "no revoke state while revocation is not an attempt");
+    let (status, _, _) = pilot.send(get(&format!("{AGENTS}/lpa_gone"), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The attempt a grant's Revoke access sends.
+fn revoke_attempt(html: &str) -> String {
+    let input = r#"name="attempt_id" value=""#;
+    let at = html.find(input).expect("a revoke form") + input.len();
+    html[at..].split('"').next().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn revoke_access_is_an_attempt_believed_only_from_its_own_receipt() {
+    let pilot = Pilot::new().await;
+    let revoke = format!("{AGENTS}/lpa_one/revoke");
+    let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
+    assert!(crate::recovery::valid_attempt(&revoke_attempt(&html)), "{html}");
+
+    let (status, headers, _) = pilot.send(post(&revoke, "buyer", &format!("attempt_id={DONE}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to).get("revocation").map(String::as_str), Some("succeeded"), "{to}");
+    assert!(!query(&to).contains_key("attempt"), "a settled revoke has nothing to send again: {to}");
+    let (_, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert!(text(&html).contains("Access revoked and cleanup complete."), "{}", text(&html));
+
+    let (_, headers, _) = pilot.send(post(&revoke, "buyer", &format!("attempt_id={ANOTHER}"), false)).await;
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["revocation"], "ambiguous", "a receipt for another attempt is not believed");
+    assert_eq!(query(&to)["attempt"], ANOTHER, "the page sends the same attempt again");
+    let (_, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert_eq!(revoke_attempt(&html), ANOTHER);
+    assert!(text(&html).contains("The result is not confirmed. Resume the same attempt"), "{}", text(&html));
+
+    let (_, headers, _) = pilot.send(post(&revoke, "buyer", &format!("attempt_id={CONFLICTED}"), false)).await;
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["revocation"], "conflict");
+    let (_, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert!(
+        html.contains(r#"commandfor="revoke-grant-dialog-id" disabled"#) || html.contains("disabled>"),
+        "a conflicted attempt is not sent again: {html}"
+    );
+
+    let (_, headers, _) = pilot.send(post(&revoke, "buyer", &format!("attempt_id={UNANSWERED}"), false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["revocation"], "succeeded", "an answer it cannot read is looked up");
+    assert!(
+        pilot
+            .stand
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.path == format!("{UCP}/authorizations/lpa_one/revocation/{UNANSWERED}")),
+        "the attempt's lookup"
+    );
+
+    let (_, headers, _) = pilot.send(post(&revoke, "buyer", "attempt_id=not-a-uuid", false)).await;
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["revocation"], "ambiguous", "not past its first phase");
+    assert!(crate::recovery::valid_attempt(&query(&to)["attempt"]), "an attempt that is not one is replaced: {to}");
+
+    let (_, headers, _) = pilot.send(post(&format!("{AGENTS}/lpa_plain/revoke"), "buyer", "attempt_id=", false)).await;
+    assert_eq!(headers["location"], "/account/agents/lpa_plain", "revocation that is not an attempt only reads the grant again");
+}
+
+#[tokio::test]
+async fn the_mandate_is_sent_as_cents_and_an_amount_that_is_not_one_is_refused() {
+    let pilot = Pilot::new().await;
+    let mandate = format!("{AGENTS}/lpa_one/mandate");
+    let body =
+        "max_per_order_amount=12.5&daily_cap_amount=&monthly_cap_amount=100&human_present_required=false&allowed_rails=stored-pm";
+    let (status, headers, _) = pilot.send(post(&mandate, "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "mandate-saved");
+    let (_, _, html) = pilot.send(get(headers["location"].to_str().unwrap(), Some("buyer"))).await;
+    assert!(text(&html).contains("The spending mandate was saved."), "{}", text(&html));
+    let writes = ucp_writes(&pilot);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].1, format!("{UCP}/authorizations/lpa_one/mandate"));
+    assert_eq!(
+        writes[0].2,
+        json!({ "max_per_order_cents": 1250, "daily_cap_cents": null, "monthly_cap_cents": 10000, "human_present_required": false, "allowed_rails": ["stored-pm"] })
+    );
+
+    let body = "max_per_order_amount=abc&daily_cap_amount=5&human_present_required=false&human_present_required=true";
+    let (status, _, html) = pilot.send(post(&mandate, "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Enter an amount such as 12.50"), "{}", text(&html));
+    assert!(html.contains(r#"name="max_per_order_amount" value="abc""#) && html.contains(r#"aria-invalid="true""#), "{html}");
+    assert_eq!(ucp_writes(&pilot).len(), 1, "an amount that is not one is not sent as no cap");
+
+    let (_, headers, _) = pilot.send(post(&mandate, "buyer", "max_per_order_amount=1", false)).await;
+    assert_eq!(ucp_writes(&pilot)[1].2["allowed_rails"], json!(["handoff-only"]), "no rail is the trusted handoff");
+    assert_eq!(ucp_writes(&pilot)[1].2["human_present_required"], json!(true), "none sent is a person present");
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "mandate-saved");
+    let (_, headers, _) = pilot.send(post(&format!("{AGENTS}/lpa_old/mandate"), "buyer", "max_per_order_amount=1", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "grant-revoked");
+    let (_, headers, _) =
+        pilot.send(post(&format!("{AGENTS}/lpa_plain/mandate"), "buyer", "max_per_order_amount=1", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "mandate-unsupported");
+}
+
+#[tokio::test]
+async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
+    let pilot = Pilot::new().await;
+    let webhook = format!("{AGENTS}/lpa_one/webhook");
+    let (status, headers, html) =
+        pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let shown = text(&html);
+    assert!(shown.contains("The webhook endpoint was saved."), "{shown}");
+    assert!(shown.contains("Copy this new signing secret now") && html.contains("whsec_synthetic_new_secret"), "{shown}");
+    assert!(html.contains(r#"value="https://agent.example/new""#), "{html}");
+    assert_eq!(ucp_writes(&pilot)[0].2, json!({ "callback_url": "https://agent.example/new" }));
+    let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
+    assert!(!html.contains("whsec_synthetic_new_secret"), "the page read again never has the secret");
+
+    let (status, _, html) = pilot.send(post(&webhook, "buyer", "callback_url=http%3A%2F%2Fagent.example", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter an HTTPS callback URL.") && html.contains(r#"value="http://agent.example""#), "{html}");
+    let (_, headers, _) = pilot.send(post(&webhook, "buyer", "callback_url=+", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled", "an empty address disables it");
+    let (_, headers, _) =
+        pilot.send(post(&format!("{webhook}/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled");
+    let writes = ucp_writes(&pilot);
+    assert_eq!((writes[2].2.clone(), writes[3].2.clone()), (json!({ "callback_url": null }), json!({ "callback_url": null })));
+    let (_, headers, _) =
+        pilot.send(post(&format!("{AGENTS}/lpa_old/webhook"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "grant-revoked");
+}
+
+#[tokio::test]
+async fn a_consent_keeps_its_token_to_this_site_and_lets_its_forms_reach_the_agent() {
+    let pilot = Pilot::new().await;
+    let consent = format!("{AGENTS}/consent?consent_token=tok_ok");
+    let (status, headers, html) = pilot.send(get(&consent, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert!(html.contains(r#"<meta name="referrer" content="strict-origin""#), "{html}");
+    let form_action = |headers: &HeaderMap| {
+        let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_owned();
+        assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
+        csp.split(';').map(str::trim).find(|d| d.starts_with("form-action")).unwrap().to_owned()
+    };
+    let consent_forms = form_action(&headers);
+    assert!(consent_forms.contains("'self'") && consent_forms.split(' ').any(|s| s == "https:"), "{consent_forms}");
+    let (_, list, _) = pilot.send(get(AGENTS, Some("buyer"))).await;
+    assert!(!form_action(&list).split(' ').any(|s| s == "https:"), "only the consent's forms go to another site");
+    let shown = text(&html);
+    assert!(shown.contains("Agent name Synthetic Assistant This name is provided by the client"), "{shown}");
+    assert!(shown.contains("Redirect destination https://agent.example Active account Synthetic Shop"), "{shown}");
+    assert!(shown.contains("Platform operations Read platform operations - Run read-only operator tools."), "{shown}");
+    assert!(shown.contains("Platform operations access expires on Nov 5, 2026"), "{shown}");
+    assert_eq!(html.matches(r#"action="/ucp/oauth/authorize""#).count(), 2, "Approve and Deny: {html}");
+    assert!(
+        html.contains(r#"name="decision" value="approve""#) && html.contains(r#"name="consent_token" value="tok_ok""#),
+        "{html}"
+    );
+    assert!(shown.contains("Use Second Shop") && !shown.contains("Use Synthetic Shop"), "only the other account: {shown}");
+
+    let (status, _, html) = pilot.send(get(&format!("{AGENTS}/consent?consent_token=tok_used"), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Consent request unavailable") && !html.contains("/ucp/oauth/authorize"), "{html}");
+    let (status, headers, _) = pilot.send(get(&format!("{AGENTS}/consent?consent_token=tok_signin"), Some("buyer"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/sign-in?") && query(to)["returnTo"] == "/account/agents/consent?consent_token=tok_signin", "{to}");
+}
+
+#[tokio::test]
+async fn use_another_account_switches_the_session_and_asks_the_agents_authorize_again() {
+    let pilot = Pilot::new().await;
+    let consent = format!("{AGENTS}/consent");
+    let (status, headers, _) = pilot.send(post(&consent, "buyer", "consent_token=tok_ok&account_id=acc_two", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers["location"].to_str().unwrap().starts_with("/ucp/oauth/authorize?response_type=code&client_id=cli_1"),
+        "{headers:?}"
+    );
+    let switch = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/switch-account")).cloned().unwrap();
+    assert_eq!(
+        (switch.path.as_str(), serde_json::from_str::<Value>(&switch.body).unwrap()),
+        ("/api/auth/sessions/ses_consent/switch-account", json!({ "accountId": "acc_two" }))
+    );
+    let (status, _, _) = pilot.send(post(&consent, "buyer", "consent_token=tok_ok&account_id=acc_else", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account that is not the user's");
+    let (status, headers, _) = pilot.send(post(&consent, "buyer", "consent_token=tok_used&account_id=acc_two", false)).await;
+    assert_eq!(
+        (status, headers["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/account/agents/consent?consent_token=tok_used")
+    );
+    let mut cross = post(&consent, "buyer", "consent_token=tok_ok&account_id=acc_two", false);
+    cross.headers_mut().insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+    cross.headers_mut().insert("sec-fetch-site", "cross-site".parse().unwrap());
+    let (status, _, _) = pilot.send(cross).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "another site's post");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/switch-account")).count(), 1);
+}
+
+#[tokio::test]
+async fn the_authorize_is_relayed_with_its_redirects_as_the_api_answers() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/ucp/oauth/authorize?response_type=code&client_id=cli_1", Some("buyer"))).await;
+    assert_eq!(
+        (status, headers["location"].to_str().unwrap()),
+        (StatusCode::FOUND, "/account/agents/consent?consent_token=tok_ok")
+    );
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/ucp/oauth/authorize")).cloned().unwrap();
+    assert_eq!(sent.path, "/ucp/oauth/authorize?response_type=code&client_id=cli_1", "the query as sent");
+
+    let mut decide = post("/ucp/oauth/authorize", "buyer", "consent_token=tok_ok&decision=approve", false);
+    decide.headers_mut().insert(header::ORIGIN, "http://localhost:7791".parse().unwrap());
+    decide.headers_mut().insert("sec-fetch-site", "same-origin".parse().unwrap());
+    let (status, headers, _) = pilot.send(decide).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    assert_eq!(headers["location"], "https://agent.example/cb?state=s1&code=ucp_code_1", "on to the agent");
+    let referrer = headers[header::REFERRER_POLICY].to_str().unwrap().to_owned();
+    // The API's `no-referrer` for the agent's redirect does not reach the browser: Corten sets every
+    // answer's policy (todd-skelton/corten#390).
+    assert_eq!(referrer, "strict-origin-when-cross-origin");
+    let (status, _, _) = pilot.send(post("/ucp/oauth/authorize", "buyer", "consent_token=tok_ok&decision=approve", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the API checks the browser's origin, which is passed on");
 }
 
 /// The address writes the pilot sent: method, path under the book, attempt and body.

@@ -102,6 +102,13 @@
 //   (auth.features.sessions.ui.sessionListPage.* as list.*, .sessionDetailPage.* as detail.*, Auth's
 //   session status family and unrecognized words as value.*, and Identity's authentication methods
 //   with their family as method.*, which `authenticationMethodLabel` reads).
+// - marketplace/locales/agents.en.json: the connected agents pages' English catalog
+//   (auth.features.agentGrants.ui.agentGrantListPage.* as list.*, .agentGrantDetailPage.* as detail.*,
+//   .agentConsentPage.* as consent.*, .agentGrantPresentation.* as presentation.*, and Auth's grant status
+//   and activity outcome words with their families and the unrecognized words as value.*).
+// - marketplace/agent-scopes.json: the scope families Auth recognizes (contracts/auth-context's
+//   AGENT_OAUTH_KNOWN_SCOPE_FAMILIES), each family's label and its scopes' labels and descriptions, which
+//   a grant's and a consent's scopes are listed by.
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -502,6 +509,14 @@ const { catalogScopeProductDomains } = await import(
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
+const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } = await import(
+  pathToFileURL(path.join(repo, "contracts/auth-context/index.ts")).href
+);
+const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scopes }) => ({
+  family,
+  label,
+  scopes: scopes.map(({ scope, label, description }) => ({ scope, label, description })),
+}));
 const { moneyStatusLabels } = await import(pathToFileURL(path.join(repo, "contracts/http/money-status.ts")).href);
 const outputs = [
   [
@@ -947,6 +962,25 @@ const outputs = [
       ])),
     }),
   ],
+  [
+    "marketplace/locales/agents.en.json",
+    json(
+      await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.features.agentGrants.ui.agentGrantListPage.", "list"],
+        ["auth.features.agentGrants.ui.agentGrantDetailPage.", "detail"],
+        ["auth.features.agentGrants.ui.agentConsentPage.", "consent"],
+        ["auth.features.agentGrants.ui.agentGrantPresentation.", "presentation"],
+        ["auth.values.agentGrantStatus.", "value.status"],
+        ["auth.values.agentGrantOutcome.", "value.outcome"],
+        ["auth.values.family.agentGrantStatus", "value.family_status"],
+        ["auth.values.family.agentGrantOutcome", "value.family_outcome"],
+        ["auth.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["auth.values.unrecognized", "value.unrecognized"],
+        ["auth.values.date.unavailable", "value.date_unavailable"],
+      ]),
+    ),
+  ],
+  ["marketplace/agent-scopes.json", json(agentScopes)],
   [
     "marketplace/locales/listing-new.en.json",
     json(

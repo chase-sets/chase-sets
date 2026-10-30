@@ -415,6 +415,24 @@ impl Identify<Shared> for ConsentHolder {
     }
 }
 
+/// A user on its connected agents (`/account/agents`) and an agent's consent: anyone signed in to
+/// an account, as marketplace's routes require (`authenticated`, no permission) and Auth's
+/// `/ucp/oauth` routes, which need only an interactive session and keep each grant to its
+/// account. The nav shows the entry to `security.manage` only. Anyone not signed in is sent to the
+/// sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct AgentHolder(pub Viewer);
+
+impl Identify<Shared> for AgentHolder {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) => Ok(AgentHolder(viewer)),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A buyer on its purchases: reading needs `orders.view`, cancelling `orders.manage`, as
 /// marketplace's loader and action require (the API checks both again). Anyone not signed in is
 /// sent to the sign-in, back to the page.

@@ -4801,6 +4801,221 @@ impl SessionCalls for Caller<'_> {
     }
 }
 
+/// Auth's UCP OAuth routes, which the connected agents pages call (marketplace's
+/// `createUcpOAuthRequestApiClient`). Each needs an interactive session and answers a refusal
+/// with `{ "error": .. }` or `{ "state": .. }`, so a refusal is read by its status.
+const UCP_OAUTH: &str = "/ucp/oauth";
+
+/// What a grant may spend (`AgentGrantSpendingMandate`): each cap in cents, none for no cap.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SpendingMandate {
+    pub max_per_order_cents: Option<i64>,
+    pub daily_cap_cents: Option<i64>,
+    pub monthly_cap_cents: Option<i64>,
+    pub human_present_required: bool,
+    pub allowed_rails: Vec<String>,
+}
+
+/// What a grant spent today and this month, in cents (`AgentGrantSpend`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GrantSpend {
+    pub daily_cents: i64,
+    pub monthly_cents: i64,
+}
+
+/// A connected agent (`AgentGrant`), the fields the pages show.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AgentGrant {
+    pub id: String,
+    pub account_id: Option<String>,
+    pub platform_profile_url: String,
+    pub client_id: String,
+    pub client_name: Option<String>,
+    pub client_uri: Option<String>,
+    pub scopes: Vec<String>,
+    pub status: String,
+    pub granted_at: String,
+    pub revoked_at: Option<String>,
+    pub spending_mandate: Option<SpendingMandate>,
+    pub spend: Option<GrantSpend>,
+}
+
+impl AgentGrant {
+    /// Its name, as marketplace's `clientLabel`: the client's name, else its address, else the
+    /// platform's profile.
+    pub fn name(&self) -> &str {
+        self.client_name.as_deref().or(self.client_uri.as_deref()).unwrap_or(&self.platform_profile_url)
+    }
+}
+
+#[derive(Deserialize)]
+struct GrantList {
+    #[serde(default)]
+    authorizations: Vec<AgentGrant>,
+}
+
+/// A grant's page read (`GET /authorizations/{id}`): the grant, whether it can be revoked now,
+/// and whether revocation runs as an attempt that is confirmed (`revocation_active`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GrantDetail {
+    pub authorization: AgentGrant,
+    pub revocation_available: bool,
+    pub revocation_active: bool,
+}
+
+/// One call an agent made with its grant (`AgentGrantActivityRecord`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GrantActivity {
+    pub id: String,
+    pub occurred_at: String,
+    pub outcome: String,
+    pub method: String,
+    pub tool_name: Option<String>,
+    pub resource_uri: Option<String>,
+    pub reason: Option<String>,
+}
+
+impl GrantActivity {
+    /// What was called: the tool, else the resource, else the method.
+    pub fn called(&self) -> &str {
+        self.tool_name.as_deref().or(self.resource_uri.as_deref()).unwrap_or(&self.method)
+    }
+}
+
+#[derive(Deserialize)]
+struct ActivityPage {
+    #[serde(default)]
+    activity: Vec<GrantActivity>,
+}
+
+/// A grant's order-update webhook (`AgentGrantWebhook`). `signing_secret` is only in the answer
+/// to the save that made it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GrantWebhook {
+    pub callback_url: String,
+    pub signing_secret_preview: Option<String>,
+    pub signing_secret: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WebhookBody {
+    webhook: Option<GrantWebhook>,
+}
+
+/// What a revoke answered: `{ "revoked": .. }` alone, while revocation is not an attempt, or the
+/// attempt's receipt as sent, which the page checks before believing it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RevokeAnswer {
+    Plain,
+    Receipt(serde_json::Value),
+}
+
+/// An OAuth consent request (`GET /consent`, `AgentOAuthConsent`): who asks, where the answer goes,
+/// the account it would act for and the user's other accounts, and the authorize address that
+/// asks again (after Use another account).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentConsent {
+    pub client_name: String,
+    pub redirect_origin: String,
+    #[serde(skip_serializing)]
+    pub session_id: String,
+    pub account_id: String,
+    pub account_name: String,
+    pub scopes: Vec<String>,
+    pub operator_grant_expires_at: Option<String>,
+    pub memberships: Vec<ConsentMembership>,
+    pub authorize_path: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ConsentMembership {
+    pub account_id: String,
+    pub account_name: String,
+}
+
+#[derive(Deserialize)]
+struct ConsentBody {
+    consent: AgentConsent,
+}
+
+/// The connected agents pages' calls (`/ucp/oauth`), as the signed-in user.
+pub trait AgentCalls {
+    async fn agent_grants(&self) -> Result<Vec<AgentGrant>, ApiError>;
+    async fn agent_grant(&self, id: &str) -> Result<GrantDetail, ApiError>;
+    /// The grant's newest 50 calls, as marketplace's loader reads them.
+    async fn agent_activity(&self, id: &str) -> Result<Vec<GrantActivity>, ApiError>;
+    async fn agent_webhook(&self, id: &str) -> Result<Option<GrantWebhook>, ApiError>;
+    /// Save the webhook's address, or disable it (`None`); the webhook as it now is.
+    async fn save_agent_webhook(&self, id: &str, callback_url: Option<&str>) -> Result<Option<GrantWebhook>, ApiError>;
+    async fn save_agent_mandate(&self, id: &str, mandate: &SpendingMandate) -> Result<(), ApiError>;
+    /// Revoke the grant as `attempt` (`Idempotency-Key` and `attempt_id`). A call with no answer
+    /// is `Err(ApiError::Transport)`.
+    async fn revoke_agent_grant(&self, id: &str, attempt: &str) -> Result<RevokeAnswer, ApiError>;
+    /// What came of the revoke `attempt`, as sent.
+    async fn agent_revocation(&self, id: &str, attempt: &str) -> Result<serde_json::Value, ApiError>;
+    async fn agent_consent(&self, token: &str) -> Result<AgentConsent, ApiError>;
+}
+
+impl AgentCalls for Caller<'_> {
+    async fn agent_grants(&self) -> Result<Vec<AgentGrant>, ApiError> {
+        let list: GrantList = self.read(&format!("{UCP_OAUTH}/authorizations"), AUTH).await?;
+        Ok(list.authorizations)
+    }
+
+    async fn agent_grant(&self, id: &str) -> Result<GrantDetail, ApiError> {
+        self.read(&format!("{UCP_OAUTH}/authorizations/{}", segment(id)), AUTH).await
+    }
+
+    async fn agent_activity(&self, id: &str) -> Result<Vec<GrantActivity>, ApiError> {
+        let path = format!("{UCP_OAUTH}/authorizations/{}/activity?limit=50&offset=0", segment(id));
+        let page: ActivityPage = self.read(&path, AUTH).await?;
+        Ok(page.activity)
+    }
+
+    async fn agent_webhook(&self, id: &str) -> Result<Option<GrantWebhook>, ApiError> {
+        let body: WebhookBody = self.read(&format!("{UCP_OAUTH}/authorizations/{}/webhook", segment(id)), AUTH).await?;
+        Ok(body.webhook)
+    }
+
+    async fn save_agent_webhook(&self, id: &str, callback_url: Option<&str>) -> Result<Option<GrantWebhook>, ApiError> {
+        let path = format!("{UCP_OAUTH}/authorizations/{}/webhook", segment(id));
+        let req = self.request(Method::PUT, &path, AUTH).json(&serde_json::json!({ "callback_url": callback_url }));
+        let (body, _): (WebhookBody, _) = self.write(req).await?;
+        Ok(body.webhook)
+    }
+
+    async fn save_agent_mandate(&self, id: &str, mandate: &SpendingMandate) -> Result<(), ApiError> {
+        let path = format!("{UCP_OAUTH}/authorizations/{}/mandate", segment(id));
+        let (_, _): (serde_json::Value, _) = self.write(self.request(Method::PUT, &path, AUTH).json(mandate)).await?;
+        Ok(())
+    }
+
+    async fn revoke_agent_grant(&self, id: &str, attempt: &str) -> Result<RevokeAnswer, ApiError> {
+        let path = format!("{UCP_OAUTH}/authorizations/{}/revoke", segment(id));
+        let req = self.request(Method::POST, &path, AUTH).header(IDEMPOTENCY_KEY, attempt);
+        let (body, _): (serde_json::Value, _) = self.write(req.json(&serde_json::json!({ "attempt_id": attempt }))).await?;
+        let plain = body.as_object().is_some_and(|o| o.len() == 1 && o.get("revoked").is_some_and(serde_json::Value::is_boolean));
+        Ok(if plain { RevokeAnswer::Plain } else { RevokeAnswer::Receipt(body) })
+    }
+
+    async fn agent_revocation(&self, id: &str, attempt: &str) -> Result<serde_json::Value, ApiError> {
+        self.read(&format!("{UCP_OAUTH}/authorizations/{}/revocation/{}", segment(id), segment(attempt)), AUTH).await
+    }
+
+    async fn agent_consent(&self, token: &str) -> Result<AgentConsent, ApiError> {
+        let body: ConsentBody = self.read(&format!("{UCP_OAUTH}/consent?consent_token={}", segment(token)), AUTH).await?;
+        Ok(body.consent)
+    }
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;

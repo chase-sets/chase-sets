@@ -260,5 +260,16 @@
     "refund_invalid": "Enter the partial refund amount as money, like 12.50.",
     "choice_invalid": "Choose one of the listed options.",
     "check_status_title": "Check status"
+  },
+  "agents": {
+    "mandate_saved": "The spending mandate was saved.",
+    "webhook_saved": "The webhook endpoint was saved.",
+    "webhook_disabled": "The webhook was disabled.",
+    "amount_invalid": "Enter an amount such as 12.50, or leave it empty for no cap.",
+    "webhook_invalid": "Enter an HTTPS callback URL.",
+    "grant_revoked": "This connection is revoked, so it cannot be changed.",
+    "mandate_unsupported": "Spending mandates are not available yet.",
+    "activity_unavailable": "Activity is not available yet.",
+    "failed": "The change could not be confirmed. The connection is shown as it is now."
   }
 }

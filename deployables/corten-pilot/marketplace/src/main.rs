@@ -9,6 +9,7 @@
 mod account_home;
 mod accounts;
 mod addresses;
+mod agents;
 mod api;
 mod app;
 mod auth;

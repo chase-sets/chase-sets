@@ -28,6 +28,7 @@
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
 //! | `GET /account?<place>`, `POST /account` | the account's own page and its profile's update (see `account_home`) |
 //! | `GET /account/sessions?<filters>`, `../{id}?<place>`, `POST ../{id}/revoke`, `../{id}/switch` | the user's sessions (see `sessions`) |
+//! | `GET /account/agents`, `../{id}?<place>`, `POST ../{id}/revoke`, `../mandate`, `../webhook`, `../webhook/disable`, `GET /account/agents/consent`, `POST ..`, `GET`, `POST /ucp/oauth/authorize` | the account's connected agents, their writes and an agent's consent (see `agents`) |
 //! | `GET /account/security?<place>`, `POST ..` | the user's names and API keys, and their writes (see `security`) |
 //! | `GET /account/team?<place>`, `POST ..` | the account's members and invitations, and their writes (see `team`) |
 //! | `GET /account/consents?<place>`, `POST ..` | the user's consent history, and withdrawing a consent (see `consents`) |
@@ -154,6 +155,8 @@ pub mod url {
     pub use account_select::AccountSelect;
     pub use accounts::{Account, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
+    pub use agent_consent::AgentConsent;
+    pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhook, AgentWebhookDisable, Agents};
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
@@ -173,6 +176,7 @@ pub mod url {
     pub use money::Money;
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
+    pub use oauth::OAuthAuthorize;
     pub use offer_matches::{OfferMatch, OfferMatches, OfferMatchesLive};
     pub use payment_methods::PaymentMethods;
     pub use payments::{BuyerPayment, BuyerPaymentNew, BuyerPaymentStatus};
@@ -661,6 +665,72 @@ pub mod url {
         pub struct SessionSwitch<'a> {
             pub id: &'a str,
         }
+    }
+
+    /// The account's connected agents (Auth's `account-agents` and `account-agents-detail`): the
+    /// list is the area's route, and every handler takes an `AgentHolder` (anyone signed in, as
+    /// marketplace's routes; Auth keeps each grant to its account).
+    #[corten::routes(state = crate::app::Shared, area = Agents, caller = crate::auth::AgentHolder)]
+    pub mod agents {
+        /// The account's grants, and how to connect an assistant.
+        #[route("/account/agents", get = crate::agents::list)]
+        pub struct Agents;
+
+        /// A grant, saying what the last write did.
+        #[derive(Clone, Debug)]
+        #[route("/account/agents/{id}", get = crate::agents::page)]
+        pub struct AgentPage<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::agents::Place,
+        }
+
+        /// Revoke access, as an attempt.
+        #[route("/account/agents/{id}/revoke", post = crate::agents::revoke)]
+        pub struct AgentRevoke<'a> {
+            pub id: &'a str,
+        }
+
+        /// Save the spending mandate.
+        #[route("/account/agents/{id}/mandate", post = crate::agents::mandate)]
+        pub struct AgentMandate<'a> {
+            pub id: &'a str,
+        }
+
+        /// Save the webhook's address; the answer shows its new signing secret.
+        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook)]
+        pub struct AgentWebhook<'a> {
+            pub id: &'a str,
+        }
+
+        /// Disable the webhook.
+        #[route("/account/agents/{id}/webhook/disable", post = crate::agents::disable_webhook)]
+        pub struct AgentWebhookDisable<'a> {
+            pub id: &'a str,
+        }
+    }
+
+    /// An agent's consent (Auth's `account-agents-consent`), its own area: its forms go to the agent's
+    /// address (the API's authorize redirects there), which its policy allows. Its handlers take an
+    /// `AgentHolder`.
+    #[corten::routes(state = crate::app::Shared, area = AgentConsent, caller = crate::auth::AgentHolder)]
+    pub mod agent_consent {
+        /// The consent request, and answering it as another of the user's accounts.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account)]
+        pub struct AgentConsent {
+            #[route(query)]
+            pub ask: crate::agents::ConsentAsk,
+        }
+    }
+
+    /// The platform API's OAuth authorize, relayed with its redirects as they are. The ingress sends
+    /// `/ucp` to the API before the pilot sees it; locally nothing else serves it. Public: the API
+    /// asks who it is for.
+    #[corten::routes(state = crate::app::Shared, area = OAuthAuthorize)]
+    pub mod oauth {
+        #[route("/ucp/oauth/authorize", get = crate::agents::authorize, post = crate::agents::decide)]
+        pub struct OAuthAuthorize;
     }
 
     /// The user's security page (Identity's `account-security`): its names and its API keys. Every
@@ -1589,6 +1659,16 @@ pub fn app(config: Config) -> App {
         .area(|area| url::consents::area(area, shared.clone()).components(views::CONSENTS))
         .area(|area| url::reviews::area(area, shared.clone()).components(views::REVIEWS))
         .area(|area| url::sessions::area(area, shared.clone()).components(views::SESSIONS))
+        .area(|area| url::agents::area(area, shared.clone()).components(views::AGENTS))
+        // Approve and Deny post to the API's authorize, which redirects to the agent's own address,
+        // any HTTPS origin or a developer's localhost (`isTrustedHttpUrl`): Chromium and WebKit apply
+        // `form-action` to that redirect.
+        .area(|area| {
+            url::agent_consent::area(area, shared.clone())
+                .components(views::AGENTS)
+                .policy(|p| p.form_action("https:").form_action("http://localhost:*").form_action("http://127.0.0.1:*"))
+        })
+        .area(|area| url::oauth::area(area, shared.clone()))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
         .area(|area| {

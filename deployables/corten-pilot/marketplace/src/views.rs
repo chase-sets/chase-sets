@@ -24,6 +24,7 @@ use crate::{
 mod account_home_page;
 mod account_page;
 mod address_page;
+mod agents_page;
 mod bulk_reprice_page;
 mod cart_item;
 mod channels_page;
@@ -73,6 +74,7 @@ mod team_page;
 pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
+pub use agents_page::{AgentConsentPage, AgentPage, AgentsPage};
 pub use bulk_reprice_page::{BulkRepricePage, bulk_reprice_part};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
@@ -189,6 +191,10 @@ pub const CONSENTS: &[Component] = &[ConsentsPage];
 /// their stylesheet.
 pub const REVIEWS: &[Component] = &[ReviewsPage];
 
+/// The account's connected agents (`/account/agents` and a grant's page) and an agent's consent:
+/// their stylesheet and corten-ui's Copy for the connector URL and a new signing secret. Revoke
+/// access's dialog opens with `command="show-modal"`, which needs no script.
+pub const AGENTS: &[Component] = &[AgentsPage, corten_ui::CopyButton];
 /// The user's sessions (`/account/sessions`): the list's and a session's stylesheet. Revoke's
 /// dialog opens with `command="show-modal"`, which needs no script.
 pub const SESSIONS: &[Component] = &[SessionsPage];

@@ -14,13 +14,18 @@ pub use reqwest::{Method, RequestBuilder};
 #[derive(Clone)]
 pub struct Platform {
     http: reqwest::Client,
+    /// The same, but a redirect the API answers is the answer: a relayed page passes it on to
+    /// the browser instead of following it here.
+    direct: reqwest::Client,
     origin: String,
 }
 
 impl Platform {
     pub fn new(origin: &str) -> Self {
-        let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("an HTTP client");
-        Platform { http, origin: origin.trim_end_matches('/').to_owned() }
+        let client = || reqwest::Client::builder().timeout(Duration::from_secs(10));
+        let http = client().build().expect("an HTTP client");
+        let direct = client().redirect(reqwest::redirect::Policy::none()).build().expect("an HTTP client");
+        Platform { http, direct, origin: origin.trim_end_matches('/').to_owned() }
     }
 
     /// The API's origin, `http://localhost:7762` locally.
@@ -59,9 +64,17 @@ pub struct Caller<'a> {
 impl Caller<'_> {
     /// A request to `path` that reads or writes the bounded context `context`.
     pub fn request(&self, method: Method, path: &str, context: &str) -> RequestBuilder {
-        let mut req = self
-            .platform
-            .http
+        self.prepare(&self.platform.http, method, path, context)
+    }
+
+    /// The same request, answered as the API answers it: a redirect is not followed, so a route
+    /// that relays the API's page passes it on (an OAuth authorize, which sends the browser on).
+    pub fn request_unfollowed(&self, method: Method, path: &str, context: &str) -> RequestBuilder {
+        self.prepare(&self.platform.direct, method, path, context)
+    }
+
+    fn prepare(&self, http: &reqwest::Client, method: Method, path: &str, context: &str) -> RequestBuilder {
+        let mut req = http
             .request(method, format!("{}{path}", self.platform.origin))
             .header("x-forwarded-host", &self.host)
             .header("x-forwarded-proto", self.proto)
