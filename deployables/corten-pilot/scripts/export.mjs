@@ -8,7 +8,8 @@
 //   controls, and the routes' titles).
 // - admin/locales/operations.en.json: the platform section's English catalog: the Operations
 //   Attention queue's (platformOperations.operationsAttention.*) and Projection Operations'
-//   (platformOperations.projectionOperations.* as projections.*).
+//   (platformOperations.projectionOperations.* as projections.*), and Support's Reported Content
+//   (platformOperations.reportedContent.* as reported.*).
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
 //   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
 //   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
@@ -18,6 +19,8 @@
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
+// - admin/reported-content-actions.json: each reported target type's moderation actions
+//   (`platformOperationsReportedContentActionsByTargetType`), the buttons a target's page offers.
 // - admin/scope-domains.json: the Catalog's scope product domains (`catalogScopeProductDomains`),
 //   the scopes list's domain filter.
 // - marketplace/locales/en.json: the storage-locations screen's English catalog
@@ -515,6 +518,9 @@ const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
+const { platformOperationsReportedContentActionsByTargetType } = await import(
+  pathToFileURL(path.join(repo, "contracts/event-core/public-event-payloads/platform-operations.ts")).href
+);
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
@@ -605,6 +611,7 @@ const outputs = [
       await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
         ["platformOperations.operationsAttention.", "attention"],
         ["platformOperations.projectionOperations.", "projections"],
+        ["platformOperations.reportedContent.", "reported"],
       ]),
     ),
   ],
@@ -658,6 +665,7 @@ const outputs = [
   ["admin/nav.json", json(adminNav())],
   ["admin/defaults.json", json(defaultPostagePolicy)],
   ["admin/scope-domains.json", json(catalogScopeProductDomains)],
+  ["admin/reported-content-actions.json", json(platformOperationsReportedContentActionsByTargetType)],
   [
     "marketplace/locales/en.json",
     json(

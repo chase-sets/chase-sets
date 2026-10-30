@@ -101,6 +101,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             ])
         } else if cookie.contains("chase_sets_session=ops") || cookie.contains("chase_sets_session=projections-") {
             actor(&["projection-operations.view"])
+        } else if cookie.contains("chase_sets_session=moderator") {
+            actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
         } else if cookie.contains("chase_sets_session=down") {
@@ -129,6 +131,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
         return auth_sessions(&method, rest, &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/experience/reported-content") {
+        if cookie.contains("moderator-lag") && headers.contains_key("chase-sets-read-after-write") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return reported_content(&method, rest, &body);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/identity/") {
         if rest == "access-hub/accounts/acc_1"
@@ -290,6 +302,51 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
             refusal(StatusCode::CONFLICT, "account_unavailable", "That account is not available to this session.")
         }
         (Method::POST, "/ses_1/switch-account" | "/ses_1/revoke") => written(StatusCode::OK, "ses_1"),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Platform Operations' reported content: a listing with two reports and a review in the queue
+/// (one page of 12), and a withdrawal without its note refused as the API refuses it.
+fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
+    let item = |kind: &str, id: &str, status: &str| {
+        json!({
+            "target_type": kind, "target_id": id, "target_owner_account_id": "acc_seller", "status": status,
+            "report_count": 2, "reasons": [{ "reason": "counterfeit", "count": 2 }],
+            "first_reported_at": "2026-10-28T12:00:00.000Z", "last_reported_at": "2026-10-29T12:00:00.000Z",
+            "auto_unlisted_at": null, "last_action": "contact-seller", "last_action_at": "2026-10-29T13:00:00.000Z",
+        })
+    };
+    let detail = |kind: &str, id: &str| {
+        let mut detail = item(kind, id, "needs-review");
+        detail["distinct_reporter_count"] = json!(2);
+        detail["reports"] = json!([
+            { "reportId": "rep_1", "reporterKind": "visitor", "reason": "counterfeit", "details": "Fake holo.", "submittedAt": "2026-10-28T12:00:00.000Z" },
+            { "reportId": "rep_2", "reporterKind": "account", "reason": "counterfeit", "submittedAt": "2026-10-29T12:00:00.000Z" },
+        ]);
+        Json(detail).into_response()
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({
+            "items": [item("listing", "lst_1", "needs-review"), item("review", "rev_1", "auto-unlisted")],
+            "total": 12, "count": 2,
+        }))
+        .into_response(),
+        (Method::GET, "/metrics") => {
+            Json(json!({ "total_count": 12, "needs_review_count": 7, "auto_unlisted_count": 3 })).into_response()
+        }
+        (Method::GET, "/listing/lst_1") => detail("listing", "lst_1"),
+        (Method::GET, "/review/rev_1") => detail("review", "rev_1"),
+        (Method::POST, "/review/rev_1/actions") if body.contains(r#""note":null"#) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "code": "validation_failed", "reason": "note_required", "message": "The moderation action was rejected." } })),
+        )
+            .into_response(),
+        // As the API answers today (chase-sets/chase-sets#10833): no receipt.
+        (Method::POST, "/review/rev_1/actions") if body.contains("dismiss") => {
+            Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
+        }
+        (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -3549,4 +3606,111 @@ async fn a_users_or_keys_page_opens_its_accounts_workspace() {
         assert_eq!(headers[header::LOCATION], to, "{path}");
     }
     assert_eq!(pilot.send(get("/access/users/usr_2", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
+}
+
+const REPORTED: &str = "/api/experience/reported-content";
+
+#[tokio::test]
+async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/support/reported-content?status=needs-review&targetType=bogus", Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let mut paths: Vec<String> = pilot.calls_to(REPORTED).into_iter().map(|c| c.path).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [format!("{REPORTED}/metrics"), format!("{REPORTED}?limit=100&offset=0&status=needs-review")],
+        "an unknown target type is all of them"
+    );
+    for text in ["<dd>12</dd>", "<dd>7</dd>", "<dd>3</dd>", "Listing lst_1", "counterfeit (2)", "Showing 2 of 12"] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="all" selected>All targets</option>"#), "{html}");
+    assert!(html.contains(r#"href="/support/reported-content/listing/lst_1""#), "{html}");
+    assert!(html.contains(r#"href="/support/reported-content" aria-current="page""#), "the nav serves it: {html}");
+    assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_reported_targets_page_offers_its_target_types_actions_and_its_reports() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/reported-content/listing/lst_1", Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for action in ["dismiss", "contact-seller", "unlist", "escalate-account-suspension"] {
+        assert!(html.contains(&format!(r#"value="{action}""#)), "{action}: {html}");
+    }
+    assert!(!html.contains(r#"value="withdraw-review""#), "{html}");
+    for text in
+        ["Fake holo.", "No details provided.", "Visitor at", "Signed-in account at", "Latest moderation action: contact seller"]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    let (_, _, html) = pilot.send(get("/support/reported-content/review/rev_1", Some("moderator"))).await;
+    assert!(html.contains(r#"value="withdraw-review""#) && html.contains(r#"value="withdraw-review-reply""#), "{html}");
+    let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_none", Some("moderator"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_moderation_action_is_sent_and_the_page_is_read_after_it() {
+    let pilot = Pilot::new().await;
+    let at = "/support/reported-content/listing/lst_1";
+    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=unlist&note=+Counterfeit+", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/support/reported-content/listing/lst_1?after_write="), "{to}");
+    let write = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert_eq!(
+        (write.method, write.path.as_str(), write.body.as_str()),
+        (Method::POST, &*format!("{REPORTED}/listing/lst_1/actions"), r#"{"action":"unlist","note":"Counterfeit"}"#)
+    );
+    let (status, _, html) = pilot.send(get(to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the action");
+
+    let (status, _, _) = pilot.send(post_as("moderator", at, "action=bogus", false)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = pilot.send(post_as("staff", at, "action=dismiss", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let review = "/support/reported-content/review/rev_1";
+    let (status, headers, html) = pilot.send(post_as("moderator", review, "action=withdraw-review&note=+", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("The moderation action was rejected.") && html.contains(r#"role="alert""#), "{html}");
+    let writes: Vec<String> = pilot.calls_to(REPORTED).into_iter().filter(|c| c.method == Method::POST).map(|c| c.body).collect();
+    assert_eq!(writes.len(), 2, "the unknown action and the forbidden one write nothing: {writes:?}");
+    assert_eq!(writes[1], r#"{"action":"withdraw-review","note":null}"#);
+}
+
+#[tokio::test]
+async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_it_and_says_so() {
+    let pilot = Pilot::new().await;
+    let at = format!("/support/reported-content/listing/lst_1?after_write={}", fresh_receipt());
+    let (status, _, html) = pilot.send(get(&at, Some("moderator-lag"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    let reads = pilot.calls_to(REPORTED);
+    assert_eq!(reads.len(), 2, "with the receipt, then without it");
+    assert!(!reads[1].headers.contains_key("chase-sets-read-after-write"));
+}
+
+#[tokio::test]
+async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says_it_is_being_applied() {
+    let pilot = Pilot::new().await;
+    let at = "/support/reported-content/review/rev_1";
+    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=dismiss&note=Not+abusive", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/support/reported-content/review/rev_1?recorded=2026-10-30T12%3A00%3A00.000Z");
+    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
+    let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
+    let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
+    assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
 }
