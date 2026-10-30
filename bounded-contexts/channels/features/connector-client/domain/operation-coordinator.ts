@@ -4,7 +4,11 @@ import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../..
 import { browserCheckpointDigest } from "./order-pull-handoff";
 import { createOrderPullExecution } from "./order-pull-execution";
 import { createLiveExportExecution, liveExportOutcome } from "./live-export-execution";
-import { prepareStagedImportDispatch } from "./staged-import-dispatch";
+import {
+  assertStagedImportTimingTransition,
+  prepareStagedImportDispatch,
+  type StagedImportTiming,
+} from "./staged-import-dispatch";
 import { StagedImportDispatchError } from "../../connector-feed/domain/staged-import-dispatch-policy";
 import { orderPullFitsLease, orderPullProviderReady } from "../../outbound-sync/domain/order-pull-codec";
 import type { ConnectorReport } from "../../connector-feed/domain/transport";
@@ -203,6 +207,18 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               },
       ),
     };
+  }
+  // A paused staged unit leaves only through an executor-defined reconciliation, and only while the existing
+  // transition can release its timing; an acked row never keeps unreleased timing.
+  function reconciledTiming(reservation: OperationReservation): StagedImportTiming | undefined {
+    if (!reservation.stagedImport || !executors.get(reservation.executorKey)?.reconcileAmbiguous) return undefined;
+    const released: StagedImportTiming = { ...reservation.stagedImport, state: "released" };
+    try {
+      assertStagedImportTimingTransition(reservation.stagedImport, released);
+      return released;
+    } catch {
+      return undefined;
+    }
   }
   function receiptFor(member: OperationAttempt, result: ExecutorResult): ExecutorResult {
     return { ...result, outcomes: result.outcomes.filter((outcome) => outcome.operationId === member.operationId) };
@@ -410,7 +426,11 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   ): Promise<CoordinatorResult> {
     if (reservation.phase === "acked") return { outcome: "ok" };
     if (reservation.phase === "reported") return report(input, state, reservation);
-    if (reservation.stagedImport && (reservation.phase === "dispatched" || reservation.phase === "outcome-unknown"))
+    if (
+      reservation.stagedImport &&
+      (reservation.phase === "dispatched" || reservation.phase === "outcome-unknown") &&
+      !reconciledTiming(reservation)
+    )
       return { outcome: "unknown", refusal: "staged-import-outcome-unknown" };
     let exact = unit(state, reservation);
     const execution = (operationId: string, signal: AbortSignal) => {
@@ -461,7 +481,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     const executor = executors.get(reservation.executorKey);
     if (
       executor?.providerRequests === "tcgplayer-staged-import" &&
-      exact.members.some((member) => member.state === "dispatched" || member.state === "outcome-unknown")
+      exact.members.some((member) => member.state === "dispatched" || member.state === "outcome-unknown") &&
+      !reconciledTiming(reservation)
     )
       return { outcome: "unknown", refusal: "staged-import-outcome-unknown" };
     if (executor?.unit !== "reservation" && ports.clock.now() >= Date.parse(reservation.leaseExpiresAt))
@@ -505,7 +526,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       state = await write(
         input,
         state,
-        revise(reservation, { phase: "receipt-captured" }),
+        revise(reservation, {
+          phase: "receipt-captured",
+          ...(reservation.stagedImport ? { stagedImport: reconciledTiming(reservation) } : {}),
+        }),
         exact.members.map((member) =>
           revise(member, { state: "receipt-captured", receipt: receiptFor(member, result) }),
         ),
@@ -697,7 +721,15 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         assertTotalResult(result, dispatched);
         if (executor.unit === "reservation" && !result.runSettlement) refuse();
         if (signal.aborted) throw new OperationProtocolError("incomplete-authority");
-        await stagedImport?.finish();
+        const settlement = result.runSettlement;
+        if (
+          stagedImport &&
+          settlement?.fromState === "claimed" &&
+          settlement.toState === "validation-rejected" &&
+          settlement.uploadAttemptedAt === null
+        )
+          await stagedImport.refuseBeforeMutation();
+        else await stagedImport?.finish();
       } catch (error) {
         dispatched = unit(state, reservation).members.filter((member) =>
           members.some((original) => original.operationId === member.operationId),

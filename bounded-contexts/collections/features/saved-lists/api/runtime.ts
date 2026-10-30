@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { EventStreamTooLongError } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
@@ -294,6 +295,7 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
         events,
         metadata: { savedListCommandReceipt: storedReceipt as unknown as JsonValue },
       });
+      recordCommittedEvents(storedEvents, "collections");
       const state = applyEvents(loaded.state, evolveSavedList, events);
       const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
       return commandResult(state, version, input.listId, storedReceipt, false);

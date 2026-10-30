@@ -4,8 +4,53 @@ import type { StorageLocationServices } from "../../features/storage-locations/a
 import type { InventoryHoldCollisionServices } from "../../features/hold-collisions/api/runtime";
 import type { RestockDecisionServices } from "../../features/restock-decisions/api/runtime";
 import type { createInventoryMutationRuntime } from "./mutation-attempt";
+import { withInventoryMutationAttempt } from "./mutation-attempt";
+import type { InventoryImportBatchServices } from "../../features/import-batches/api/runtime";
+import { prepareInventoryImportSnapshot } from "../../features/import-batches/api/safe-snapshot";
+import { prepareInventorySavedListImportBatch } from "../../features/import-batches/api/saved-list-import";
 
 type MutationRuntime = ReturnType<typeof createInventoryMutationRuntime>;
+
+export function recoverInventoryImportCreates(
+  raw: InventoryImportBatchServices,
+  mutations: MutationRuntime,
+): InventoryImportBatchServices {
+  return {
+    ...raw,
+    enqueueCreateBatchJob: (params, context) => {
+      const snapshot = prepareInventoryImportSnapshot(params);
+      return mutations.execute(
+        "import-create",
+        "draft",
+        params.accountId,
+        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash },
+        context,
+        () => raw.enqueueCreateBatchJob(params, context),
+      );
+    },
+    createSavedListImportBatch: (params, context) => {
+      const prepared = prepareInventorySavedListImportBatch(params);
+      const snapshot = prepareInventoryImportSnapshot({
+        accountId: params.accountId,
+        sourceKey: "saved-list",
+        parsedRows: prepared.parsedRows,
+      });
+      const attempted = withInventoryMutationAttempt(context, params.requestId);
+      return mutations.execute(
+        "import-create",
+        "draft",
+        params.accountId,
+        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash },
+        attempted,
+        () => raw.createSavedListImportBatch(params, attempted),
+      );
+    },
+    enqueueCommitBatchJob: (params, context) =>
+      mutations.execute("import-commit", params.batchId, params.accountId, params, context, () =>
+        raw.enqueueCommitBatchJob(params, context),
+      ),
+  };
+}
 
 export function recoverRestockDecisions(
   raw: RestockDecisionServices,

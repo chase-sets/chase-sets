@@ -3,8 +3,13 @@ import { appendFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
-export const RELEASE_LOCK_CHECK_VERSION = "release-lock-check/v1";
+export const RELEASE_LOCK_CHECK_VERSION = "release-lock-check/v2";
+export const RELEASE_LOCK_ARTIFACT_VERSION = "production-release-lock/v2";
+export const LOCK_EXIT_ROUTE_MAX_BYTES = 2048;
+export const LOCK_EXIT_ROUTE_REFERENCE_PATTERN = /^https:\/\/github\.com\/chase-sets\/chase-sets\/issues\/[1-9][0-9]*$/;
+const RFC3339_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export function parseReleaseLockOptions(argv, env = process.env) {
   return {
@@ -16,6 +21,8 @@ export function parseReleaseLockOptions(argv, env = process.env) {
     ),
     lockReason: readOption(argv, "--lock-reason") ?? readEnv("PRODUCTION_RELEASE_LOCK_REASON", env) ?? "",
     lockReference: readOption(argv, "--lock-reference") ?? readEnv("PRODUCTION_RELEASE_LOCK_REFERENCE", env) ?? "",
+    lockExitRoute: readOption(argv, "--exit-route") ?? env.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE ?? "",
+    lockDeadline: readOption(argv, "--deadline") ?? readEnv("PRODUCTION_RELEASE_LOCK_DEADLINE", env) ?? "",
     emergencyBypass: normalizeBooleanString(
       readOption(argv, "--emergency-bypass") ?? readEnv("EMERGENCY_RELEASE_BYPASS", env) ?? "false",
       "EMERGENCY_RELEASE_BYPASS",
@@ -25,6 +32,7 @@ export function parseReleaseLockOptions(argv, env = process.env) {
     githubToken: readOption(argv, "--github-token") ?? readEnv("GITHUB_TOKEN", env) ?? readEnv("GH_TOKEN", env) ?? "",
     githubApiUrl: readOption(argv, "--github-api-url") ?? readEnv("GITHUB_API_URL", env) ?? "https://api.github.com",
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env) ?? "",
+    outPath: readOption(argv, "--out") ?? "",
   };
 }
 
@@ -32,9 +40,24 @@ export function evaluateReleaseLock(options) {
   const errors = [];
   const locked = options.releaseLocked === "true";
   const emergencyBypass = options.emergencyBypass === "true";
+  const routeValidation = locked ? validateLockExitRoute(options.lockExitRoute) : { value: null, errors: [] };
+  const deadlineValidation = locked ? validateLockDeadline(options.lockDeadline) : { value: null, errors: [] };
 
   if (locked && !isNonEmptyString(options.lockReason)) {
     errors.push("PRODUCTION_RELEASE_LOCK_REASON is required when PRODUCTION_RELEASE_LOCKED=true.");
+  }
+  errors.push(...routeValidation.errors);
+  errors.push(...deadlineValidation.errors);
+  const invalidLock = locked && errors.length > 0;
+
+  const deadlineOverdue = Boolean(
+    deadlineValidation.value &&
+    Date.parse(deadlineValidation.value) <= Date.parse(options.checkedAt ?? new Date().toISOString()),
+  );
+  if (locked && deadlineOverdue && errors.length === 0 && !emergencyBypass) {
+    errors.push(
+      `Production release lock deadline ${deadlineValidation.value} has passed; host escalation via ${formatExitRoute(routeValidation.value)} is required before unlock.`,
+    );
   }
 
   if (emergencyBypass && !isNonEmptyString(options.emergencyReference)) {
@@ -56,10 +79,15 @@ export function evaluateReleaseLock(options) {
     environmentName: options.environmentName,
     releaseCommit: options.releaseCommit,
     releaseLocked: locked,
+    locked,
+    lockState: !locked ? "unlocked" : invalidLock ? "invalid" : deadlineOverdue ? "overdue" : "pending",
     deploymentAllowed,
     releaseMode,
-    ...(isNonEmptyString(options.lockReason) ? { lockReason: options.lockReason.trim() } : {}),
-    ...(isNonEmptyString(options.lockReference) ? { lockReference: options.lockReference.trim() } : {}),
+    lockExitRoute: routeValidation.value,
+    lockDeadline: deadlineValidation.value,
+    lockDeadlineOverdue: deadlineOverdue,
+    lockReason: locked && isNonEmptyString(options.lockReason) ? options.lockReason.trim() : null,
+    lockReference: locked && isNonEmptyString(options.lockReference) ? options.lockReference.trim() : null,
     ...(isNonEmptyString(options.emergencyReference) ? { emergencyReference: options.emergencyReference.trim() } : {}),
     ...(emergencyReference
       ? { validatedEmergencyReference: emergencyReference.reference, emergencyReferenceKind: emergencyReference.kind }
@@ -68,8 +96,103 @@ export function evaluateReleaseLock(options) {
   };
 }
 
+export function validateLockExitRoute(value) {
+  if (!isNonEmptyString(value)) {
+    return {
+      value: null,
+      errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE is required when PRODUCTION_RELEASE_LOCKED=true."],
+    };
+  }
+  const raw = value.trim();
+  if (Buffer.byteLength(value, "utf8") > LOCK_EXIT_ROUTE_MAX_BYTES) {
+    return {
+      value: null,
+      errors: [`PRODUCTION_RELEASE_LOCK_EXIT_ROUTE must be at most ${LOCK_EXIT_ROUTE_MAX_BYTES} bytes.`],
+    };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE must be a JSON object."] };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE must be a JSON object."] };
+  }
+  const keys = Object.keys(parsed);
+  const allowed = parsed.kind === "staging-workflow" ? ["kind", "reference", "workflow"] : ["kind", "reference"];
+  if (keys.some((key) => !allowed.includes(key)) || keys.length !== allowed.length) {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE contains unknown or missing keys."] };
+  }
+  if (!["staging-workflow", "host-revert"].includes(parsed.kind)) {
+    return {
+      value: null,
+      errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE.kind must be staging-workflow or host-revert."],
+    };
+  }
+  if (parsed.kind === "staging-workflow" && parsed.workflow !== "platform-staging-cluster-addons.yml") {
+    return {
+      value: null,
+      errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE.workflow must be platform-staging-cluster-addons.yml."],
+    };
+  }
+  if (typeof parsed.reference !== "string" || !LOCK_EXIT_ROUTE_REFERENCE_PATTERN.test(parsed.reference)) {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_EXIT_ROUTE.reference must be a Chase Sets issue URL."] };
+  }
+  return { value: parsed, errors: [] };
+}
+
+export function validateLockDeadline(value) {
+  if (!isNonEmptyString(value)) {
+    return {
+      value: null,
+      errors: ["PRODUCTION_RELEASE_LOCK_DEADLINE is required when PRODUCTION_RELEASE_LOCKED=true."],
+    };
+  }
+  const trimmed = value.trim();
+  const [year, month, day, hour, minute, second] = trimmed.slice(0, 19).split(/[-T:]/).map(Number);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    !RFC3339_INSTANT_PATTERN.test(trimmed) ||
+    Number.isNaN(Date.parse(trimmed)) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > monthDays[month - 1] ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_DEADLINE must be an RFC3339 timestamp with timezone."] };
+  }
+  return { value: trimmed, errors: [] };
+}
+
+export function validateLockCreationDeadline(value, { now = new Date() } = {}) {
+  const result = validateLockDeadline(value);
+  if (result.errors.length > 0) return result;
+  const deadline = Date.parse(result.value);
+  const nowMs = new Date(now).getTime();
+  if (!Number.isFinite(nowMs) || deadline <= nowMs) {
+    return { value: null, errors: ["PRODUCTION_RELEASE_LOCK_DEADLINE must be in the future when creating a lock."] };
+  }
+  if (deadline > nowMs + 7 * 24 * 60 * 60 * 1000) {
+    return {
+      value: null,
+      errors: ["PRODUCTION_RELEASE_LOCK_DEADLINE must be no more than 7 days ahead when creating a lock."],
+    };
+  }
+  return result;
+}
+
+function formatExitRoute(route) {
+  return route?.kind === "staging-workflow" ? `staging workflow ${route.workflow}` : "host revert";
+}
+
 export async function runReleaseLockCheck(options) {
   const result = await evaluateReleaseLockWithResolution(options);
+  if (isNonEmptyString(options.outPath)) await writeJsonRecord(options.outPath, result);
   if (isNonEmptyString(options.githubOutputPath)) {
     await appendGitHubOutputs(options.githubOutputPath, {
       deployment_allowed: String(result.deploymentAllowed),
@@ -213,24 +336,27 @@ async function main(argv, env = process.env) {
     for (const error of result.errors) {
       console.error(error);
     }
+    if (result.releaseLocked) console.error(releaseLockRefusal(result));
     return 1;
   }
 
   if (!result.deploymentAllowed) {
-    console.error(
-      [
-        "Production release is locked.",
-        result.lockReason ? `Reason: ${result.lockReason}` : "",
-        result.lockReference ? `Reference: ${result.lockReference}` : "",
-        "Set EMERGENCY_RELEASE_BYPASS=true and provide EMERGENCY_RELEASE_REFERENCE only for an audited fix-forward or revert.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
+    console.error(releaseLockRefusal(result));
     return 1;
   }
 
   return 0;
+}
+
+export function releaseLockRefusal(result) {
+  return [
+    `Production release is locked (${result.lockState}).`,
+    `Reason: ${result.lockReason ?? "missing"}`,
+    `Reference: ${result.lockReference ?? "not supplied"}`,
+    `Exit route: ${result.lockExitRoute ? JSON.stringify(result.lockExitRoute) : "invalid or missing"}`,
+    `Deadline: ${result.lockDeadline ?? "invalid or missing"}`,
+    "Host/orchestrator must triage the Production release lock incident (notify-production-deploy-incident); only the host may clear the lock. No bypass is authorized by this refusal.",
+  ].join("\n");
 }
 
 async function appendGitHubOutputs(path, outputs) {

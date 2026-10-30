@@ -1,7 +1,8 @@
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type AppendToStreamInput, type GlobalPosition } from "@chase-sets/event-core/storage";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
 import { CHECKOUT_ANONYMOUS_CART_COOKIE_NAME } from "../../../support/request-support/guest-checkout";
@@ -202,6 +203,7 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
     order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
+    handoff_expires_at: null,
     created_at: "2026-04-29T00:00:00.000Z",
     updated_at: "2026-04-29T00:00:00.000Z",
     ...overrides,
@@ -275,6 +277,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
+    getLastRecordedQuote: vi.fn(async () => null),
     getPaymentSummary: vi.fn(async () => null),
     getPaymentConfirmation: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
@@ -811,6 +814,123 @@ describe("checkout session routes", () => {
       },
     });
     expect(services.setShippingAddress).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["shipping-address", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "shipping-address",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "shipping-address",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+    ["confirm", "shipping_address_required", "Confirm the shipping address before creating orders."],
+    [
+      "confirm",
+      "shipping_address_unsupported",
+      "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    ],
+    [
+      "confirm",
+      "shipping_address_restricted",
+      "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    ],
+  ] as const)("maps %s serviceability error %s to HTTP 400", async (endpoint, code, message) => {
+    const services = createServices({
+      setShippingAddress: vi.fn(async () => {
+        throw new CheckoutDomainError(message, code);
+      }),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request(`http://checkout.test/account/checkout-sessions/chk_1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code, message } });
+    expect(services.setShippingAddress).toHaveBeenCalledTimes(1);
+    expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(services.recordCheckoutReservations).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(services.recordOfferSubmitted).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(mockSubmitPurchaseIntentThroughMarketplace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["payment", { payment_id: "pay_existing" }, 200, "confirmed"],
+    ["cancelled", { cancelled_at: "2026-10-25T00:00:00.000Z" }, 200, "cancelled"],
+    ["offer", { submitted_offer_id: "off_existing" }, 200, "purchase-intent-submitted"],
+    ["stale-preview", { fulfillment_preview_revision: "current-preview" }, 409, undefined],
+  ] as const)(
+    "preserves the %s confirm early return before address verification",
+    async (_name, overrides, status, expectedStatus) => {
+      const services = createServices({ getSession: vi.fn(async () => createSession(overrides)) });
+      const response = await buildApp(services).request("/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: { ...shippingAddress, line1: "PO Box 100" },
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      });
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (expectedStatus) expect(body.status).toBe(expectedStatus);
+      else expect(body.error.code).toBe("fulfillment_preview_stale");
+      expect(services.verifyShippingAddress).not.toHaveBeenCalled();
+      expect(services.setShippingAddress).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns the address choice response from confirm before mutating checkout", async () => {
+    const suggestedAddress = { ...shippingAddress, line1: "100 W Market St" };
+    const services = createServices({
+      verifyShippingAddress: vi.fn(
+        async () =>
+          ({
+            status: "choice-required",
+            suggestedAddress,
+            verification: {
+              status: "corrected",
+              source: "verification-test",
+              checkedAt: "2026-10-25T00:00:00.000Z",
+              suggestedAddress,
+            },
+            messages: ["Address was standardized."],
+          }) as const,
+      ),
+    });
+    const app = buildApp(services);
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "address_standardization_suggested" } });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
   it("uses checkout entry attempt keys as idempotent cart session overrides", async () => {
@@ -3373,6 +3493,7 @@ describe("checkout session routes", () => {
     expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
     expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(services.verifyShippingAddress).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
       expect.any(Request),
       "chk_1",
@@ -3507,7 +3628,7 @@ async function unionCleanupHarness() {
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -3681,30 +3802,40 @@ describe("HTTP union cleanup caller closure", () => {
         });
         mockCreateCheckoutInventoryReservations.mockClear();
         const original = h.eventStore.appendToStream.bind(h.eventStore);
+        const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
         let removals = 0;
-        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-          const type = input.events[0]?.eventType;
-          const at =
-            type === "checkout.session.orders-created"
-              ? "orders"
-              : type === "checkout.cart.line-removed"
-                ? `remove-${++removals}`
-                : type === "checkout.session.cart-cleanup-completed"
-                  ? "complete"
-                  : "other";
+        // Session events append one stream at a time; a cart removal commits with
+        // its attempt record in one atomic batch, so each batch is one boundary.
+        const crashAt = async <T>(inputs: readonly AppendToStreamInput[], append: () => Promise<T>) => {
+          const types = inputs.flatMap((input) => input.events.map((event) => event.eventType));
+          const at = types.includes("checkout.session.orders-created")
+            ? "orders"
+            : types.includes("checkout.cart.line-removed")
+              ? `remove-${++removals}`
+              : types.includes("checkout.session.cart-cleanup-completed")
+                ? "complete"
+                : "other";
           if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
-            if (boundary !== "complete") await original(input);
+            if (boundary !== "complete") await append();
             throw new CheckoutDomainError(`stream ${h.anonymous} unavailable`);
           }
-          return original(input);
-        });
+          return append();
+        };
+        const faults = [
+          vi
+            .spyOn(h.eventStore, "appendToStream")
+            .mockImplementation((input) => crashAt([input], () => original(input))),
+          vi
+            .spyOn(h.eventStore, "appendToStreams")
+            .mockImplementation((inputs) => crashAt(inputs, () => originalBatch(inputs))),
+        ];
         const failed = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
         const failedBody = await failed.json();
         expect(failed.status, boundary).toBe(400);
         expect(failedBody.error.message).toBe("Cart cleanup could not finish. Retry checkout.");
         expect(JSON.stringify(failedBody)).not.toContain(h.anonymous);
         expect(failedBody.commitPositions).toContainEqual(h.record.orderWriteCommitPositions[0]);
-        fault.mockRestore();
+        for (const fault of faults) fault.mockRestore();
         h.setProjected(
           projection === "absent"
             ? null
@@ -3743,7 +3874,7 @@ describe("HTTP union cleanup caller closure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const fault = vi.spyOn(h.realCart, "removeLine").mockRejectedValue(new Error(`store ${h.anonymous}`));
+      const fault = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValue(new Error(`store ${h.anonymous}`));
       const denied = await buildApp(h.runtime(), createBuyerActor({ accountId: "acc_foreign" as never })).fetch(
         requestFor(h.params.sessionId),
       );

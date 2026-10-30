@@ -1,4 +1,5 @@
 import type { ConnectorBackgroundPorts } from "@chase-sets/channels/client";
+import { chromeListener } from "./chrome-listener";
 
 export function chromeAlarms(): ConnectorBackgroundPorts["alarms"] {
   return {
@@ -8,7 +9,7 @@ export function chromeAlarms(): ConnectorBackgroundPorts["alarms"] {
       await chrome.alarms.clear(name);
     },
     onAlarm: (listener) => {
-      chrome.alarms.onAlarm.addListener(listener);
+      chrome.alarms.onAlarm.addListener(chromeListener(listener));
     },
   };
 }

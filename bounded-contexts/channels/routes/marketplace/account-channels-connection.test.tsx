@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -22,7 +22,7 @@ describe("Channels account connection route contribution", () => {
         "fetch",
         auxiliaryFetch({ operation: () => Response.json(operationLogBody()), manualSync: () => pending }),
       );
-      renderRoute();
+      const router = renderRoute();
       expect(screen.queryByText("Inbound sales visibility is live")).toBeNull();
       expect(screen.queryByText("Inbound sales visibility is dark")).toBeNull();
       complete(
@@ -34,8 +34,9 @@ describe("Channels account connection route contribution", () => {
                 state === "live" ? { state: "live", reason: null } : { state: "dark", reason: "no-inbound-authority" },
             }),
       );
+      await settleRouter(router);
       expect(
-        await screen.findByText(
+        screen.getByText(
           state === "error" ? "Manual TCGplayer sync is unavailable" : `Inbound sales visibility is ${state}`,
         ),
       ).toBeTruthy();
@@ -161,10 +162,10 @@ describe("Channels account connection route contribution", () => {
       }),
     );
 
-    renderRoute();
+    await settleRouter(renderRoute());
 
-    expect(await screen.findByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
-    expect(await screen.findByText("Publication activity is unavailable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
+    expect(screen.getByText("Publication activity is unavailable")).toBeTruthy();
   });
 
   it("renders exactly one Manual TCGplayer sync panel heading", async () => {
@@ -175,8 +176,8 @@ describe("Channels account connection route contribution", () => {
         manualSync: () => Response.json(manualSyncPanel()),
       }),
     );
-    renderRoute();
-    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
+    await settleRouter(renderRoute());
+    expect(screen.getAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
   });
 
   it("preserves a loaded operation log when Manual Sync returns 503", async () => {
@@ -204,10 +205,10 @@ describe("Channels account connection route contribution", () => {
       }),
     );
 
-    renderRoute();
+    await settleRouter(renderRoute());
 
-    expect(await screen.findByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
-    expect(await screen.findByText("No publication activity")).toBeTruthy();
+    expect(screen.getByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
+    expect(screen.getByText("No publication activity")).toBeTruthy();
   });
 
   it("preserves manual, operation-log and attention children when drift alone fails", async () => {
@@ -236,10 +237,10 @@ describe("Channels account connection route contribution", () => {
         attention: () => new Response(null, { status: 503 }),
       }),
     );
-    renderRoute();
-    expect(await screen.findByText("Channel health and attention is unavailable")).toBeTruthy();
-    expect(await screen.findByText("No publication activity")).toBeTruthy();
-    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
+    await settleRouter(renderRoute());
+    expect(screen.getByText("Channel health and attention is unavailable")).toBeTruthy();
+    expect(screen.getByText("No publication activity")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
   });
 
   it("contains auxiliary status and JSON decoding failures without losing the successful sibling", async () => {
@@ -448,30 +449,49 @@ describe("Channels account connection route contribution", () => {
   it("connector-pairing-surface: a refused form shows a connector error, not a manual-sync error", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.endsWith("/connector-pairing/code")) return new Response(null, { status: 503 });
-        if (url.endsWith("/connector-pairing"))
-          return Response.json({
-            state: "unpaired",
-            pairingId: null,
-            revision: null,
-            codeExpiresAt: null,
-            lastSeenAt: null,
-          });
-        if (url.includes("/outbound-operations")) return Response.json(operationLogBody());
-        if (url.endsWith("/manual-sync")) return Response.json(manualSyncPanel());
-        if (url.endsWith("/attention"))
-          return Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null });
-        if (url.endsWith("/drift")) return Response.json({ kind: "not-yet-observed" });
-        if (url.endsWith("/connections/connection-a")) return Response.json(actorConnection());
-        return Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } });
-      }),
+      connectorPairingFetch(() => new Response(null, { status: 503 })),
     );
-    renderRoute();
-    fireEvent.click(await screen.findByRole("button", { name: "Generate pairing code" }));
-    expect(await screen.findByText("Connector pairing unavailable")).toBeTruthy();
+    const router = renderRoute();
+    await settleRouter(router);
+    const actionNavigation = waitForActionNavigation(router);
+    fireEvent.click(screen.getByRole("button", { name: "Generate pairing code" }));
+    await act(async () => {
+      await actionNavigation;
+    });
+    expect(screen.getByText("Connector pairing unavailable")).toBeTruthy();
     expect(screen.queryByText("Manual sync action failed")).toBeNull();
+  });
+
+  it("connector-pairing-surface: refused-form error waits for the held pairing action past any async-util budget", async () => {
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      connectorPairingFetch(() => held),
+    );
+    const router = renderRoute();
+    await settleRouter(router);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    try {
+      let settled = false;
+      const actionNavigation = waitForActionNavigation(router).then(() => {
+        settled = true;
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Generate pairing code" }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      expect(screen.queryByText("Connector pairing unavailable")).toBeNull();
+      release(new Response(null, { status: 503 }));
+      await act(async () => {
+        await actionNavigation;
+      });
+      expect(screen.getByText("Connector pairing unavailable")).toBeTruthy();
+      expect(screen.queryByText("Manual sync action failed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -548,6 +568,28 @@ function auxiliaryFetch(
     .mockImplementationOnce(responses.drift ?? (() => Response.json({ kind: "not-yet-observed" })));
 }
 
+function connectorPairingFetch(code: () => Response | Promise<Response>) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.endsWith("/connector-pairing/code")) return code();
+    if (url.endsWith("/connector-pairing"))
+      return Response.json({
+        state: "unpaired",
+        pairingId: null,
+        revision: null,
+        codeExpiresAt: null,
+        lastSeenAt: null,
+      });
+    if (url.includes("/outbound-operations")) return Response.json(operationLogBody());
+    if (url.endsWith("/manual-sync")) return Response.json(manualSyncPanel());
+    if (url.endsWith("/attention"))
+      return Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null });
+    if (url.endsWith("/drift")) return Response.json({ kind: "not-yet-observed" });
+    if (url.endsWith("/connections/connection-a")) return Response.json(actorConnection());
+    return Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } });
+  });
+}
+
 function renderRoute() {
   const router = createMemoryRouter(
     [
@@ -565,6 +607,34 @@ function renderRoute() {
       <RouterProvider router={router} />
     </ChaseRoot>,
   );
+  return router;
+}
+
+async function settleRouter(router: ReturnType<typeof createMemoryRouter>) {
+  await act(async () => {
+    if (router.state.initialized && router.state.navigation.state === "idle") return;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = router.subscribe((state) => {
+        if (state.initialized && state.navigation.state === "idle") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  });
+}
+
+function waitForActionNavigation(router: ReturnType<typeof createMemoryRouter>) {
+  return new Promise<void>((resolve) => {
+    let started = false;
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state !== "idle") started = true;
+      else if (started) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 function routeRequest() {

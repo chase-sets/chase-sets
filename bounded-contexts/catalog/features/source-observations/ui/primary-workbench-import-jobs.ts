@@ -98,13 +98,18 @@ export function importJobsFor(
 ): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"] {
   const providerTransport = providerTransportFor(overview, routeContext.providerKey);
   const seenJobIds = new Set<string>();
-  const rows = (overview?.unitActivity.units ?? [])
-    .flatMap((unit) =>
-      unit.recentJobs.map((job) => ({
-        unitKey: unit.unitKey,
-        job,
-      })),
-    )
+  const hasActiveSnapshot = Boolean(overview?.activeJobs);
+  const rows = [
+    ...(overview?.activeJobs?.items ?? []).map((job) => ({ unitKey: job.unitKey ?? "", job })),
+    ...(overview?.unitActivity.units ?? []).flatMap((unit) =>
+      unit.recentJobs
+        .filter((job) => !hasActiveSnapshot || (job.operatorStatus !== "queued" && job.operatorStatus !== "running"))
+        .map((job) => ({
+          unitKey: unit.unitKey,
+          job,
+        })),
+    ),
+  ]
     .filter(({ unitKey, job }) => {
       if (routeContext.unitKey && unitKey !== routeContext.unitKey) {
         return false;

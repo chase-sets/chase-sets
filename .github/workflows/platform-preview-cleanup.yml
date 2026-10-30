@@ -17,6 +17,13 @@ on:
         description: Preview pull request number to destroy
         required: true
         type: number
+      # #9964: set by retire-idle-draft-previews. Destroys only if the PR is
+      # still an idle draft when this run re-checks it.
+      idle_draft_recheck:
+        description: Destroy only if the PR is still an idle draft (open draft, preview namespace at least 24h old)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,7 +66,7 @@ jobs:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.idle_draft_recheck
         with:
           terraform_wrapper: false
         env:
@@ -88,13 +95,15 @@ jobs:
       # that outlived all three. This is best-effort (continue-on-error): if
       # kubeconfig setup fails, the sweep still runs on state/cluster/DNS
       # candidates and the script degrades the missing namespace listing to a
-      # warning rather than failing the whole discovery run.
+      # warning rather than failing the whole discovery run. An idle-draft
+      # re-check (#9964) reuses this step; without a context its namespace
+      # listing fails, so the re-check fails closed and destroys nothing.
       - name: Configure staging Kubernetes context for preview sweep
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.idle_draft_recheck
         continue-on-error: true
         working-directory: infrastructure/digitalocean/doks
         run: |
@@ -153,6 +162,7 @@ jobs:
           PULL_REQUEST_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
+          IDLE_DRAFT_RECHECK: ${{ inputs.idle_draft_recheck && 'true' || 'false' }}
           CHECKOUT_REF: ${{ github.ref }}
           IMAGE_SHA: ${{ github.sha }}
         run: |
@@ -164,6 +174,18 @@ jobs:
               --checkout-ref "${CHECKOUT_REF}" \
               --image-sha "${IMAGE_SHA}" \
               --out artifacts/release-health/platform-preview-cleanup-sweep.json \
+              --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # #9964: emits the single-PR matrix only if the PR is still an idle
+          # draft; otherwise target_count=0 with the reason. Never dispatches.
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${IDLE_DRAFT_RECHECK}" = "true" ]; then
+            node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover-idle-drafts \
+              --pr-number "${DISPATCH_PR_NUMBER}" \
+              --checkout-ref "${CHECKOUT_REF}" \
+              --image-sha "${IMAGE_SHA}" \
+              --out artifacts/release-health/platform-preview-idle-drafts.json \
               --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -221,6 +243,7 @@ jobs:
           console.log(`- Candidate preview database clusters: ${record.databaseClusterCandidates?.length ?? 0}`);
           console.log(`- Candidate preview namespaces: ${record.namespaceCandidates?.length ?? 0}`);
           console.log(`- Closed PR cleanup targets: ${record.targets?.length ?? 0}`);
+          console.log(`- Cleanup batches: ${record.batchCount ?? 0} (batch size ${record.batchSize ?? "unknown"})`);
           if (record.targets?.length) {
             console.log("");
             console.log("### Targets");
@@ -252,6 +275,15 @@ jobs:
           name: platform-preview-cleanup-sweep-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release-health/platform-preview-cleanup-sweep.json
           if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload idle draft re-check record
+        if: ${{ always() && inputs.idle_draft_recheck }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-idle-drafts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/platform-preview-idle-drafts.json
+          if-no-files-found: error
           retention-days: 14
 
   discover-stale-verification:
@@ -351,17 +383,16 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}
     concurrency:
-      group: platform-preview-pr-${{ matrix.pr_number }}
+      group: ${{ matrix.batch_index != null && format('platform-preview-batch-{0}', matrix.batch_index) || format('platform-preview-pr-{0}', matrix.pr_number) }}
       cancel-in-progress: false
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: preview
-      TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}
       TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
@@ -401,6 +432,7 @@ jobs:
         # PRs fall back to the base branch, and manual/scheduled runs use the selected ref.
         with:
           ref: ${{ matrix.checkout_ref }}
+          persist-credentials: false
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -445,6 +477,47 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: pnpm install --frozen-lockfile
 
+      - name: Download scheduled cleanup discovery artifact
+        if: github.event_name == 'schedule'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: platform-preview-cleanup-sweep-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health
+
+      - name: Resolve scheduled cleanup batch
+        if: github.event_name == 'schedule'
+        env:
+          BATCH_INDEX: ${{ matrix.batch_index }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const batchIndex = Number(process.env.BATCH_INDEX);
+          const record = JSON.parse(fs.readFileSync("artifacts/release-health/platform-preview-cleanup-sweep.json", "utf8"));
+          const batch = record.batches?.find((candidate) => candidate.index === batchIndex);
+          if (!batch || !Array.isArray(batch.targets) || batch.targets.length === 0) {
+            throw new Error(`Discovery artifact has no targets for batch ${batchIndex}.`);
+          }
+          for (const target of batch.targets) {
+            if (!Number.isSafeInteger(target.prNumber) || target.prNumber <= 0) {
+              throw new Error(`Discovery artifact has an invalid PR number in batch ${batchIndex}.`);
+            }
+          }
+          fs.writeFileSync("artifacts/release-health/platform-preview-cleanup-batch.json", JSON.stringify(batch));
+          NODE
+
+      - name: Resolve cleanup target numbers
+        id: batch-targets
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            node -e 'const fs=require("node:fs"); const batch=JSON.parse(fs.readFileSync("artifacts/release-health/platform-preview-cleanup-batch.json","utf8")); console.log(batch.targets.map((target)=>target.prNumber).join("\n"));' > "$RUNNER_TEMP/preview-cleanup-targets"
+          else
+            printf '%s\n' '${{ matrix.pr_number }}' > "$RUNNER_TEMP/preview-cleanup-targets"
+          fi
+          test -s "$RUNNER_TEMP/preview-cleanup-targets"
+          echo "target_file=$RUNNER_TEMP/preview-cleanup-targets" >> "$GITHUB_OUTPUT"
+
       # #4857 replaced per-preview DNS (the `pr-<n>.preview` apex +
       # `*.pr-<n>.preview` wildcard) with a single shared `*.preview.chasesets.com`
       # record, so no PR closing today creates new records here to delete. This
@@ -461,8 +534,21 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always()
         run: |
-          node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns \
-            --pr-number "${{ matrix.pr_number }}"
+          failed=0
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            while IFS= read -r pr_number; do
+              node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns --pr-number "$pr_number" || { failed=1; echo "$pr_number" >> "$incomplete_targets"; }
+            done < "${{ steps.batch-targets.outputs.target_file }}"
+          else
+            node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns \
+              --pr-number "${{ matrix.pr_number }}" || { failed=1; echo "${{ matrix.pr_number }}" >> "$incomplete_targets"; }
+          fi
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
       # The Kubernetes preview path creates the preview's namespace with Helm
       # (`--create-namespace`), so Terraform never manages it and Terraform
@@ -471,6 +557,7 @@ jobs:
       # resources and reported success while the namespace, its workloads,
       # and its in-cluster Postgres persisted on the staging node forever.
       - name: Configure preview Kubernetes context
+        id: preview-context
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -541,11 +628,27 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: always()
         run: |
-          set -euo pipefail
-          pnpm run platform:kubernetes-deployment -- teardown \
-            --namespace "chase-sets-pr-${{ matrix.pr_number }}" \
-            --release "chase-sets-pr-${{ matrix.pr_number }}" \
-            --timeout 5m
+          set -uo pipefail
+          failed=0
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            while IFS= read -r pr_number; do
+              pnpm run platform:kubernetes-deployment -- teardown \
+                --namespace "chase-sets-pr-${pr_number}" \
+                --release "chase-sets-pr-${pr_number}" \
+                --timeout 5m || { failed=1; echo "$pr_number" >> "$incomplete_targets"; }
+            done < "${{ steps.batch-targets.outputs.target_file }}"
+          else
+            pnpm run platform:kubernetes-deployment -- teardown \
+              --namespace "chase-sets-pr-${{ matrix.pr_number }}" \
+              --release "chase-sets-pr-${{ matrix.pr_number }}" \
+              --timeout 5m || { failed=1; echo "${{ matrix.pr_number }}" >> "$incomplete_targets"; }
+          fi
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
       - name: Terraform init
         env:
@@ -555,19 +658,30 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        working-directory: infrastructure/digitalocean/platform
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
-          terraform init \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
+          set -uo pipefail
+          failed=0
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          : > "$failed_targets"
+          while IFS= read -r pr_number; do
+            terraform -chdir=infrastructure/digitalocean/platform init \
+              -reconfigure \
+              -backend-config=bucket=chase-sets-terraform-state \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
+              -backend-config=region=us-east-1 \
+              -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+              -backend-config=skip_credentials_validation=true \
+              -backend-config=skip_metadata_api_check=true \
+              -backend-config=skip_region_validation=true \
+              -backend-config=skip_requesting_account_id=true \
+              -backend-config=use_path_style=true \
+              -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; }
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
       - name: Disable stateful destroy guard for approved preview cleanup
         env:
@@ -577,7 +691,13 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        run: node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
+        run: |
+          node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            while IFS= read -r pr_number; do echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-incomplete-targets"; done < "${{ steps.batch-targets.outputs.target_file }}"
+            exit 1
+          }
 
       - name: Import live preview database cluster into cleanup state
         env:
@@ -587,11 +707,37 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
-          node scripts/digitalocean-preview-cleanup-sweep.mjs import-database \
-            --pr-number "${{ matrix.pr_number }}" \
-            --cluster-name "${{ matrix.expected_database_cluster_name }}" \
-            --terraform-directory infrastructure/digitalocean/platform
+          set -uo pipefail
+          failed="${PREVIEW_BATCH_FAILED:-0}"
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          test -f "$failed_targets" || : > "$failed_targets"
+          while IFS= read -r pr_number; do
+            terraform -chdir=infrastructure/digitalocean/platform init \
+              -reconfigure \
+              -backend-config=bucket=chase-sets-terraform-state \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
+              -backend-config=region=us-east-1 \
+              -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+              -backend-config=skip_credentials_validation=true \
+              -backend-config=skip_metadata_api_check=true \
+              -backend-config=skip_region_validation=true \
+              -backend-config=skip_requesting_account_id=true \
+              -backend-config=use_path_style=true \
+              -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; continue; }
+            if ! TF_VAR_preview_identifier="pr-${pr_number}" node scripts/digitalocean-preview-cleanup-sweep.mjs import-database \
+              --pr-number "$pr_number" \
+              --cluster-name "chase-sets-pr-${pr_number}-postgres" \
+              --terraform-directory infrastructure/digitalocean/platform; then
+              failed=1
+              echo "$pr_number" >> "$failed_targets"
+            fi
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
       - name: Terraform destroy
         env:
@@ -602,7 +748,82 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         working-directory: infrastructure/digitalocean/platform
-        run: terraform destroy -auto-approve
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
+        run: |
+          set -uo pipefail
+          failed="${PREVIEW_BATCH_FAILED:-0}"
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          test -f "$failed_targets" || : > "$failed_targets"
+          while IFS= read -r pr_number; do
+            if grep -Fxq "$pr_number" "$failed_targets"; then
+              continue
+            fi
+            terraform init \
+              -reconfigure \
+              -backend-config=bucket=chase-sets-terraform-state \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
+              -backend-config=region=us-east-1 \
+              -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+              -backend-config=skip_credentials_validation=true \
+              -backend-config=skip_metadata_api_check=true \
+              -backend-config=skip_region_validation=true \
+              -backend-config=skip_requesting_account_id=true \
+              -backend-config=use_path_style=true \
+              -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; continue; }
+            TF_VAR_preview_identifier="pr-${pr_number}" \
+            TF_VAR_platform_image_tag="pr-${pr_number}-${{ matrix.image_sha }}" \
+              terraform destroy -auto-approve || { failed=1; echo "$pr_number" >> "$failed_targets"; }
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Retire empty preview Terraform state
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' }}
+        run: |
+          set -uo pipefail
+          failed="${PREVIEW_BATCH_FAILED:-0}"
+          context_outcome="${{ steps.preview-context.outcome }}"
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          incomplete_targets="$RUNNER_TEMP/preview-cleanup-incomplete-targets"
+          test -f "$failed_targets" || : > "$failed_targets"
+          test -f "$incomplete_targets" || : > "$incomplete_targets"
+          retirement_dir="$RUNNER_TEMP/preview-state-retirement"
+          mkdir -p "$retirement_dir"
+          while IFS= read -r pr_number; do
+            record_path="$retirement_dir/platform-preview-state-retirement-${pr_number}.json"
+            cleanup_succeeded=true
+            if [ "$context_outcome" != "success" ] || grep -Fxq "$pr_number" "$failed_targets" || grep -Fxq "$pr_number" "$incomplete_targets"; then
+              cleanup_succeeded=false
+            fi
+            if ! node scripts/digitalocean-preview-cleanup-sweep.mjs retire-state \
+              --pr-number "$pr_number" \
+              --cleanup-succeeded "$cleanup_succeeded" \
+              --out "$record_path"; then
+              failed=1
+              echo "$pr_number" >> "$failed_targets"
+            fi
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - name: Upload preview state retirement record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-state-retirement-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.batch_index != null && format('batch-{0}', matrix.batch_index) || format('pr-{0}', matrix.pr_number) }}
+          path: ${{ runner.temp }}/preview-state-retirement
+          retention-days: 14
+          if-no-files-found: warn
 
   destroy-stale-verification:
     name: Destroy Stale Verification Namespace
@@ -740,7 +961,7 @@ jobs:
             echo "The bounded stale-webhook window contains at least 100 runs; refusing a truncated cleanup set." >&2
             exit 1
           fi
-          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
+          matrix="$(jq -c '{include: [.workflow_runs[] | select((.id | type) == "number" and (.run_attempt | type) == "number" and .id > 0 and .run_attempt > 0) | {slug: ("gate-" + (.id | tostring) + "-" + (.run_attempt | tostring))}]}' <<< "$response")"
           {
             echo "matrix=${matrix}"
             echo "target_count=$(jq '.include | length' <<< "$matrix")"
@@ -1029,6 +1250,160 @@ jobs:
             echo "Refused gate-named namespaces detected; inspect the merge-gate-stale-sweep artifact — a foreign chase-sets-gate-* namespace should not exist." >&2
           fi
 
+  # #9964: an idle draft preview (open draft PR whose chase-sets-pr-<n>
+  # namespace was last deployed at least 24h ago) holds a reserved
+  # preview-pool slot. This job only selects and dispatches: each dispatched
+  # workflow_dispatch run re-checks the rule and drives the unchanged
+  # destroy-preview job. Dispatched runs are never schedule events, so they
+  # can never dispatch again. It must not depend on discover-preview-cleanup,
+  # whose daily straggler discovery times out.
+  retire-idle-draft-previews:
+    name: Retire Idle Draft Previews
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Configure staging Kubernetes context for idle draft retirement
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-idle-draft-retirement.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context for idle draft retirement." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context for idle draft retirement: ${current_context}"
+
+      - name: Select idle draft previews
+        id: idle-drafts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover-idle-drafts \
+            --out artifacts/release-health/platform-preview-idle-drafts.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      # GITHUB_TOKEN may create workflow_dispatch runs. Each run re-checks
+      # its PR before destroy-preview tears anything down.
+      - name: Dispatch idle draft retirements
+        if: steps.idle-drafts.outputs.target_count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBERS: ${{ steps.idle-drafts.outputs.pr_numbers }}
+        run: |
+          set -euo pipefail
+          for pr_number in ${PR_NUMBERS}; do
+            if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
+              echo "Refusing to dispatch a non-numeric PR number: ${pr_number}" >&2
+              exit 1
+            fi
+            gh workflow run platform-preview-cleanup.yml --repo "${GITHUB_REPOSITORY}" --ref main \
+              -f pr_number="${pr_number}" -f idle_draft_recheck=true
+            echo "Dispatched idle draft re-check and retirement for PR #${pr_number}."
+          done
+
+      - name: Summarize idle draft retirement
+        if: always()
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/platform-preview-idle-drafts.json"
+          if [ ! -f "$record" ]; then
+            echo "No idle draft retirement record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Idle Draft Preview Retirement");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Live preview namespaces: ${record.namespaces?.length ?? 0}`);
+          console.log(`- Selected for retirement: ${record.selected?.length ?? 0}`);
+          console.log(`- Deferred past the ${record.maxSelections}-per-run cap: ${record.deferred?.length ?? 0}`);
+          if (record.namespaces?.length) {
+            console.log("");
+            console.log("### Decisions");
+            for (const namespace of record.namespaces) {
+              console.log(`- ${namespace.namespace} (${namespace.ageHours}h): ${namespace.decision}: ${namespace.reason}`);
+            }
+          }
+          if (record.errors?.length) {
+            console.log("");
+            console.log("### Errors");
+            for (const error of record.errors) {
+              console.log(`- ${error}`);
+            }
+          }
+          NODE
+
+      - name: Upload idle draft retirement record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-idle-drafts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/platform-preview-idle-drafts.json
+          if-no-files-found: error
+          retention-days: 14
+
   reporter:
     name: Report Preview Cleanup Failure
     needs:
@@ -1041,6 +1416,7 @@ jobs:
       - discover-stale-gate
       - destroy-stale-gate
       - report-stale-gate-sweep
+      - retire-idle-draft-previews
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

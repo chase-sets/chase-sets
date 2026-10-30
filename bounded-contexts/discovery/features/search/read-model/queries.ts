@@ -20,6 +20,7 @@ import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
+  buyerVisibleOfferPredicateSql,
 } from "../../../support/market-support/listing-visibility";
 import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValueOrderSql } from "./facet-ordering";
 
@@ -48,6 +49,7 @@ export type DiscoverySearchCursorState = "fresh" | "cursor" | "restarted";
 export type DiscoverySearchParams = {
   search?: string;
   category?: string;
+  categories?: readonly string[];
   tag?: string;
   blueprintId?: string;
   language?: string;
@@ -55,6 +57,7 @@ export type DiscoverySearchParams = {
   marketActivity?: DiscoveryMarketActivityFilter;
   priceMin?: string;
   priceMax?: string;
+  priceCurrency?: string;
   inStock?: boolean;
   fieldFilters?: readonly DiscoveryFieldFilter[];
   referenceFilters?: readonly DiscoveryReferenceFilter[];
@@ -246,6 +249,10 @@ type BuiltSearchFilter = Readonly<{
   queryFunction: "plainto_tsquery" | "to_tsquery";
 }>;
 
+export function normalizeCategorySet(categories: DiscoverySearchParams["categories"]): string[] {
+  return [...new Set((categories ?? []).map((category) => category.trim()).filter(Boolean))].sort();
+}
+
 function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterBuildOptions = {}): BuiltSearchFilter {
   const queryFunction = options.searchQueries?.expanded ? "to_tsquery" : "plainto_tsquery";
   const conditions: string[] = [];
@@ -267,6 +274,8 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
       : "";
   const marketColumn = (name: string) =>
     marketAlias ? `${marketAlias}${name === "visible_quantity" ? "total_visible_quantity" : name}` : itemColumn(name);
+  const normalizedCategories = normalizeCategorySet(params.categories);
+  const hasPriceBounds = params.priceMin !== undefined || params.priceMax !== undefined;
 
   conditions.push(`${itemColumn("status")} = $${paramIndex}`);
   values.push(params.status ?? "active");
@@ -292,7 +301,13 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
   }
 
-  if (params.category && options.excludeFacet?.kind !== "category") {
+  if (normalizedCategories.length > 0 && options.excludeFacet?.kind !== "category") {
+    conditions.push(
+      `(${itemColumn("category_names")} ?| $${paramIndex}::text[] OR ${itemColumn("category_slugs")} ?| $${paramIndex}::text[])`,
+    );
+    values.push(normalizedCategories);
+    paramIndex++;
+  } else if (params.category && options.excludeFacet?.kind !== "category") {
     conditions.push(
       `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
     );
@@ -318,14 +333,29 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
   }
 
+  const priceCurrencyParamIndex = params.priceCurrency !== undefined && hasPriceBounds ? paramIndex++ : null;
+  if (priceCurrencyParamIndex !== null) {
+    values.push(params.priceCurrency);
+  }
+
   if (params.priceMin !== undefined) {
-    conditions.push(`${marketColumn("lowest_price_amount")} >= $${paramIndex}::numeric`);
+    const amount = marketColumn("lowest_price_amount");
+    conditions.push(
+      priceCurrencyParamIndex === null
+        ? `${amount} >= $${paramIndex}::numeric`
+        : `(${marketColumn("lowest_price_currency_code")} IS DISTINCT FROM $${priceCurrencyParamIndex} OR ${amount} IS NULL OR ${amount} >= $${paramIndex}::numeric)`,
+    );
     values.push(params.priceMin);
     paramIndex++;
   }
 
   if (params.priceMax !== undefined) {
-    conditions.push(`${marketColumn("lowest_price_amount")} <= $${paramIndex}::numeric`);
+    const amount = marketColumn("lowest_price_amount");
+    conditions.push(
+      priceCurrencyParamIndex === null
+        ? `${amount} <= $${paramIndex}::numeric`
+        : `(${marketColumn("lowest_price_currency_code")} IS DISTINCT FROM $${priceCurrencyParamIndex} OR ${amount} IS NULL OR ${amount} <= $${paramIndex}::numeric)`,
+    );
     values.push(params.priceMax);
     paramIndex++;
   }
@@ -474,8 +504,10 @@ function buildMarketActivityFilter(
   const offerExists = `EXISTS (
          SELECT 1
          FROM discovery_offer_demand_matches AS offer
+         INNER JOIN discovery_market_accounts AS account
+           ON account.account_id = offer.buyer_account_id
          WHERE offer.catalog_catalog_item_id = ${itemIdColumn}
-           AND offer.status = 'submitted'
+           AND ${buyerVisibleOfferPredicateSql("offer", "account")}
            ${selectedOptionSqlForOffers}
        )`;
 
@@ -518,7 +550,9 @@ function buildMarketActivityFacetSource(
          NULL::text AS price_currency_code,
          0::integer AS visible_quantity
        FROM discovery_offer_demand_matches AS offer
-       WHERE offer.status = 'submitted'
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = offer.buyer_account_id
+       WHERE ${buyerVisibleOfferPredicateSql("offer", "account")}
          ${selectedOptionSqlForOffers}`;
 
   switch (marketActivity) {
@@ -1752,13 +1786,23 @@ async function loadDimensionFacetValues(
     const values: unknown[] = [...filter.values, dimensionId, selectedOptionIds, ...activitySource.values];
     const qualifications: string[] = [];
     if (params.inStock) qualifications.push("market.visible_quantity > 0");
+    const priceCurrencyParamIndex =
+      params.priceCurrency !== undefined && (params.priceMin !== undefined || params.priceMax !== undefined)
+        ? values.length + 1
+        : null;
+    if (priceCurrencyParamIndex !== null) values.push(params.priceCurrency);
     for (const [price, comparison] of [
       [params.priceMin, ">="],
       [params.priceMax, "<="],
     ] as const) {
       if (price !== undefined) {
         values.push(price);
-        qualifications.push(`market.lowest_price_amount ${comparison} $${values.length}::numeric`);
+        const amount = "market.lowest_price_amount";
+        qualifications.push(
+          priceCurrencyParamIndex === null
+            ? `${amount} ${comparison} $${values.length}::numeric`
+            : `(market.lowest_price_currency_code IS DISTINCT FROM $${priceCurrencyParamIndex} OR ${amount} IS NULL OR ${amount} ${comparison} $${values.length}::numeric)`,
+        );
       }
     }
     if (params.marketActivity === "listings") qualifications.push("market.listing_count > 0");
@@ -1772,6 +1816,10 @@ async function loadDimensionFacetValues(
           : params.marketActivity === "any"
             ? "market.listing_count + market.offer_count"
             : "1";
+    const lowestPriceCurrencyColumn =
+      priceCurrencyParamIndex === null
+        ? ""
+        : "\n         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,";
     const result = await db.query<{
       option_id: string;
       label: string;
@@ -1811,7 +1859,7 @@ async function loadDimensionFacetValues(
        SELECT catalog_catalog_item_id, option_id,
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count,
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NULL)::integer AS offer_count,
-         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,${lowestPriceCurrencyColumn}
          SUM(visible_quantity) AS visible_quantity
        FROM option_activity GROUP BY catalog_catalog_item_id, option_id
      ), market_counts AS (

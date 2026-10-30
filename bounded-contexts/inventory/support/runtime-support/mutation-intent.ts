@@ -12,6 +12,9 @@ export const inventoryMutationFamilies = [
   "location-update",
   "location-archive",
   "restock-record",
+  "import-create",
+  "import-commit",
+  "import-commit-row",
 ] as const;
 export type InventoryMutationFamily = (typeof inventoryMutationFamilies)[number];
 export type InventoryMutationIntent = Readonly<Record<string, unknown>>;
@@ -187,6 +190,29 @@ export function normalizeInventoryMutationIntent(
   value: unknown,
 ): InventoryMutationIntent {
   switch (family) {
+    case "import-create": {
+      const input = object(value, ["accountId", "snapshotVersion", "snapshotHash"]);
+      assert(
+        input.snapshotVersion === 1 &&
+          typeof input.snapshotHash === "string" &&
+          /^[a-f0-9]{64}$/.test(input.snapshotHash),
+        "Invalid Inventory import snapshot intent.",
+      );
+      return { accountId: text(input.accountId), snapshotVersion: 1, snapshotHash: input.snapshotHash };
+    }
+    case "import-commit": {
+      const input = object(value, ["accountId", "batchId"]);
+      return { accountId: text(input.accountId), batchId: text(input.batchId) };
+    }
+    case "import-commit-row": {
+      const input = object(value, ["accountId", "batchId", "rowId", "claimToken"]);
+      return {
+        accountId: text(input.accountId),
+        batchId: text(input.batchId),
+        rowId: text(input.rowId),
+        claimToken: text(input.claimToken),
+      };
+    }
     case "restock-record": {
       const input = object(value, ["accountId", "decisionId", "expectedVersion", "outcome", "damageNote"]);
       assert(input.outcome === "restocked" || input.outcome === "written-off", "Unsupported restock outcome.");

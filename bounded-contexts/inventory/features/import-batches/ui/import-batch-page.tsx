@@ -1,5 +1,5 @@
 import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   Card,
+  Combobox,
   DataTable,
   Inline,
   LinkButton,
@@ -23,6 +24,7 @@ import {
   Text,
   TextInput,
   Textarea,
+  type SelectItem,
 } from "@chase-sets/design-system";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import type { InventoryImportBatchJobStatus } from "../api/runtime";
@@ -30,19 +32,354 @@ import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integra
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
-import { activeResolutionRow, rowNeedsResolution, unresolvedResolutionRowIds } from "./resolution-flow";
+import { InventoryMutationForm } from "../../../support/ui-support/mutation-recovery";
 import {
   normalizeSelectedOptionsForSchema,
   recordToSelectionEntries,
   selectionEntriesToRecord,
   toInventoryProductSelectionFields,
+  validateSelectedOptions,
 } from "../../inventory-items/integrations/catalog/versioning";
 
-const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const CATALOG_ITEM_SUGGESTIONS_URL = "/api/marketplace/items/suggest";
+const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const CATALOG_ITEM_SUGGESTION_SETTLE_MS = 250;
+const CATALOG_ITEM_SUGGESTION_MIN_LENGTH = 2;
+const CATALOG_ITEM_ID_PATTERN = /^cat_\S+$/;
 
-type CatalogItemSearchResponse = Readonly<{
-  items?: readonly InventoryCatalogItemSnapshot[];
+type CatalogItemSuggestion = Readonly<{
+  catalogItemId: string;
+  title: string;
+  subtitle: string | null;
 }>;
+
+// "row" restores the Import row's catalog item; "candidate" loads a pasted ID that stays unselected;
+// "choice" loads an explicitly chosen catalog item before its Options render.
+type CatalogItemLookup =
+  | Readonly<{ kind: "suggestions"; query: string }>
+  | Readonly<{ kind: "row" | "candidate" | "choice"; catalogItemId: string }>;
+
+type CatalogItemPickerStatus =
+  | "idle"
+  | "loading"
+  | "populated"
+  | "empty"
+  | "candidate"
+  | "hydrating"
+  | "selected"
+  | "error";
+
+type CatalogItemPickerState = Readonly<{
+  query: string;
+  status: CatalogItemPickerStatus;
+  errorMessage: string | null;
+  suggestions: readonly CatalogItemSuggestion[];
+  candidate: InventoryCatalogItemSnapshot | null;
+  choice: Readonly<{ catalogItemId: string; label: string }> | null;
+  catalogItem: InventoryCatalogItemSnapshot | null;
+  selectedOptions: Record<string, string>;
+  rowSelectedOptions: Record<string, string>;
+  lookup: CatalogItemLookup | null;
+}>;
+
+type CatalogItemPickerAction =
+  | Readonly<{ type: "input-changed"; text: string }>
+  | Readonly<{ type: "catalog-item-chosen"; catalogItemId: string; label: string }>
+  | Readonly<{ type: "suggestions-loaded"; lookup: CatalogItemLookup; items: readonly CatalogItemSuggestion[] }>
+  | Readonly<{ type: "catalog-item-loaded"; lookup: CatalogItemLookup; item: InventoryCatalogItemSnapshot }>
+  | Readonly<{ type: "lookup-failed"; lookup: CatalogItemLookup; message: string }>
+  | Readonly<{ type: "option-changed"; dimensionId: string; optionId: string }>;
+
+// A row's Catalog item ID outranks its source text; otherwise the platform display name, then the row
+// note, seed an editable query that stays request-free until the seller edits it.
+function initialCatalogItemPickerState(row: InventoryImportBatchRow): CatalogItemPickerState {
+  return {
+    query: row.catalog_item_id ? "" : row.external_reference?.displayName?.trim() || row.row_note?.trim() || "",
+    status: row.catalog_item_id ? "hydrating" : "idle",
+    errorMessage: null,
+    suggestions: [],
+    candidate: null,
+    choice: null,
+    catalogItem: null,
+    selectedOptions: {},
+    rowSelectedOptions: selectionEntriesToRecord(row.selected_options),
+    lookup: row.catalog_item_id ? { kind: "row", catalogItemId: row.catalog_item_id } : null,
+  };
+}
+
+function selectCatalogItem(state: CatalogItemPickerState, item: InventoryCatalogItemSnapshot): CatalogItemPickerState {
+  const label = catalogItemOptionLabel(item);
+  return {
+    ...state,
+    query: label,
+    status: "selected",
+    errorMessage: null,
+    candidate: null,
+    choice: { catalogItemId: item.catalog_item_id, label },
+    catalogItem: item,
+    selectedOptions: item.product_schema
+      ? normalizeSelectedOptionsForSchema(item.product_schema, state.rowSelectedOptions)
+      : {},
+  };
+}
+
+function failCatalogItemLookup(
+  state: CatalogItemPickerState,
+  lookup: CatalogItemLookup,
+  message: string,
+): CatalogItemPickerState {
+  const failed = { ...state, status: "error" as const, errorMessage: message, candidate: null };
+  if (lookup.kind === "suggestions" || lookup.kind === "candidate") {
+    return failed;
+  }
+  return {
+    ...failed,
+    query: lookup.kind === "row" ? "" : state.query,
+    choice: null,
+    catalogItem: null,
+    selectedOptions: {},
+  };
+}
+
+function hasStaleSelectedOptions(item: InventoryCatalogItemSnapshot, savedOptions: Record<string, string>) {
+  const saved = Object.entries(savedOptions);
+  if (saved.length === 0) {
+    return false;
+  }
+  if (!item.product_schema) {
+    return true;
+  }
+  const normalized = normalizeSelectedOptionsForSchema(item.product_schema, savedOptions);
+  return (
+    Object.keys(normalized).length !== saved.length ||
+    saved.some(([dimensionId, optionId]) => normalized[dimensionId] !== optionId)
+  );
+}
+
+function catalogItemPickerReducer(
+  state: CatalogItemPickerState,
+  action: CatalogItemPickerAction,
+): CatalogItemPickerState {
+  switch (action.type) {
+    case "input-changed": {
+      // The combobox echoes the chosen label into the input; only a different text is an edit.
+      if (state.choice && action.text === state.choice.label) {
+        return state.query === action.text ? state : { ...state, query: action.text };
+      }
+      const text = action.text.trim();
+      const lookup: CatalogItemLookup | null = CATALOG_ITEM_ID_PATTERN.test(text)
+        ? { kind: "candidate", catalogItemId: text }
+        : text.length >= CATALOG_ITEM_SUGGESTION_MIN_LENGTH
+          ? { kind: "suggestions", query: text }
+          : null;
+      // An edit also drops the row's saved Options, so only the initial restore reuses them.
+      return {
+        ...state,
+        query: action.text,
+        status: lookup ? "loading" : "idle",
+        errorMessage: null,
+        suggestions: [],
+        candidate: null,
+        choice: null,
+        catalogItem: null,
+        selectedOptions: {},
+        rowSelectedOptions: {},
+        lookup,
+      };
+    }
+    case "catalog-item-chosen":
+      if (state.choice?.catalogItemId === action.catalogItemId) {
+        return state;
+      }
+      if (state.candidate?.catalog_item_id === action.catalogItemId) {
+        return selectCatalogItem(state, state.candidate);
+      }
+      return {
+        ...state,
+        query: action.label,
+        status: "hydrating",
+        errorMessage: null,
+        choice: { catalogItemId: action.catalogItemId, label: action.label },
+        catalogItem: null,
+        selectedOptions: {},
+        lookup: { kind: "choice", catalogItemId: action.catalogItemId },
+      };
+    case "suggestions-loaded":
+      if (action.lookup !== state.lookup) {
+        return state;
+      }
+      return { ...state, suggestions: action.items, status: action.items.length > 0 ? "populated" : "empty" };
+    case "catalog-item-loaded": {
+      const { lookup, item } = action;
+      if (lookup !== state.lookup || lookup.kind === "suggestions") {
+        return state;
+      }
+      if (item.status !== "active") {
+        return failCatalogItemLookup(
+          state,
+          lookup,
+          t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.not.active"),
+        );
+      }
+      if (lookup.kind === "candidate") {
+        return { ...state, status: "candidate", candidate: item };
+      }
+      if (lookup.kind === "row" && hasStaleSelectedOptions(item, state.rowSelectedOptions)) {
+        return {
+          ...state,
+          query: catalogItemOptionLabel(item),
+          status: "error",
+          errorMessage: t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.options.stale"),
+          candidate: item,
+          rowSelectedOptions: {},
+        };
+      }
+      return selectCatalogItem(state, item);
+    }
+    case "lookup-failed":
+      return action.lookup === state.lookup ? failCatalogItemLookup(state, action.lookup, action.message) : state;
+    case "option-changed":
+      if (!state.catalogItem?.product_schema) {
+        return state;
+      }
+      return {
+        ...state,
+        selectedOptions: normalizeSelectedOptionsForSchema(state.catalogItem.product_schema, {
+          ...state.selectedOptions,
+          [action.dimensionId]: action.optionId,
+        }),
+      };
+  }
+}
+
+async function catalogItemLookupError(response: Response) {
+  const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+  const message = typeof body?.error === "string" ? body.error : body?.error?.message;
+  return new Error(
+    message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+  );
+}
+
+async function fetchCatalogItemSuggestions(query: string, signal: AbortSignal) {
+  const response = await fetch(`${CATALOG_ITEM_SUGGESTIONS_URL}?${new URLSearchParams({ q: query }).toString()}`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw await catalogItemLookupError(response);
+  }
+  const body = (await response.json()) as { items?: readonly CatalogItemSuggestion[] };
+  return body.items ?? [];
+}
+
+async function fetchCatalogItem(catalogItemId: string, signal: AbortSignal) {
+  const response = await fetch(`${CATALOG_ITEM_API_BASE_URL}/${encodeURIComponent(catalogItemId)}`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw await catalogItemLookupError(response);
+  }
+  return (await response.json()) as InventoryCatalogItemSnapshot;
+}
+
+function useCatalogItemPicker(row: InventoryImportBatchRow) {
+  const [state, dispatch] = useReducer(catalogItemPickerReducer, row, initialCatalogItemPickerState);
+
+  useEffect(() => {
+    const lookup = state.lookup;
+    if (!lookup) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const run = () => {
+      const request: Promise<CatalogItemPickerAction> =
+        lookup.kind === "suggestions"
+          ? fetchCatalogItemSuggestions(lookup.query, controller.signal).then((items) => ({
+              type: "suggestions-loaded",
+              lookup,
+              items,
+            }))
+          : fetchCatalogItem(lookup.catalogItemId, controller.signal).then((item) => ({
+              type: "catalog-item-loaded",
+              lookup,
+              item,
+            }));
+      request.then(dispatch, (error: unknown) => {
+        if (!controller.signal.aborted) {
+          dispatch({
+            type: "lookup-failed",
+            lookup,
+            message:
+              error instanceof Error
+                ? error.message
+                : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+          });
+        }
+      });
+    };
+
+    // Typed text settles before it requests; restored and chosen IDs load at once.
+    if (lookup.kind === "row" || lookup.kind === "choice") {
+      run();
+      return () => controller.abort();
+    }
+    const timer = window.setTimeout(run, CATALOG_ITEM_SUGGESTION_SETTLE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [state.lookup]);
+
+  return [state, dispatch] as const;
+}
+
+function catalogItemPickerEntries(state: CatalogItemPickerState): SelectItem[] {
+  const suggestions = state.suggestions.map((suggestion) => ({
+    value: suggestion.catalogItemId,
+    label:
+      state.choice?.catalogItemId === suggestion.catalogItemId
+        ? state.choice.label
+        : [suggestion.title, suggestion.subtitle].filter(Boolean).join(" - "),
+  }));
+  const pinned = [
+    state.choice ? { value: state.choice.catalogItemId, label: state.choice.label } : null,
+    state.candidate ? { value: state.candidate.catalog_item_id, label: catalogItemOptionLabel(state.candidate) } : null,
+  ].filter(
+    (entry): entry is SelectItem =>
+      entry !== null && !suggestions.some((suggestion) => suggestion.value === entry.value),
+  );
+  return [...pinned, ...suggestions];
+}
+
+function catalogItemPickerStatusMessage(status: CatalogItemPickerStatus) {
+  switch (status) {
+    case "loading":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items");
+    case "hydrating":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item");
+    case "populated":
+    case "candidate":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item");
+    case "empty":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched");
+    default:
+      return undefined;
+  }
+}
+
+function hasCompleteSelectedOptions(item: InventoryCatalogItemSnapshot, selectedOptions: Record<string, string>) {
+  try {
+    validateSelectedOptions(
+      item.product_schema,
+      item.product_schema ? recordToSelectionEntries(item.product_schema, selectedOptions) : [],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function statusTone(status: string) {
   switch (status) {
@@ -160,118 +497,21 @@ const importSourceOptions = listInventoryImportSources()
 function ImportRowResolutionForm({
   row,
   storageLocations,
-  catalogItemApiBaseUrl,
 }: {
   row: InventoryImportBatchRow;
   storageLocations: readonly InventoryStorageLocation[];
-  catalogItemApiBaseUrl: string;
 }) {
-  const [initialSelectedOptions] = useState(() => selectionEntriesToRecord(row.selected_options));
-  const [catalogItemSearch, setCatalogItemSearch] = useState(row.catalog_item_id ?? "");
-  const [catalogSearchResults, setCatalogSearchResults] = useState<readonly InventoryCatalogItemSnapshot[]>([]);
-  const [catalogItemId, setCatalogItemId] = useState(row.catalog_item_id ?? "");
-  const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
-  const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
-  const [catalogLookupPending, setCatalogLookupPending] = useState(false);
-  const [selectedOptionsByDimension, setSelectedOptionsByDimension] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    const search = catalogItemSearch.trim();
-    if (search.length < 2) {
-      setCatalogSearchResults([]);
-      setCatalogLookupError(null);
-      setCatalogLookupPending(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setCatalogLookupPending(true);
-    const query = new URLSearchParams({ search, status: "active", limit: "10" });
-
-    void fetch(`${catalogItemApiBaseUrl}?${query.toString()}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-          const message = typeof body?.error === "string" ? body.error : body?.error?.message;
-          throw new Error(
-            message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
-          );
-        }
-
-        return response.json() as Promise<CatalogItemSearchResponse>;
-      })
-      .then((result) => {
-        const items = result.items ?? [];
-        setCatalogSearchResults(items);
-        setCatalogLookupError(
-          items.length === 0
-            ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched")
-            : null,
-        );
-
-        if (catalogItemId) {
-          const selectedItem = items.find((item) => item.catalog_item_id === catalogItemId);
-          if (selectedItem) {
-            setCatalogItem(selectedItem);
-            if (catalogItemSearch.trim() === catalogItemId) {
-              setCatalogItemSearch(selectedItem.title);
-              setSelectedOptionsByDimension(
-                selectedItem.product_schema
-                  ? normalizeSelectedOptionsForSchema(selectedItem.product_schema, initialSelectedOptions)
-                  : {},
-              );
-            }
-          }
-        }
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setCatalogSearchResults([]);
-        setCatalogLookupError(
-          error instanceof Error
-            ? error.message
-            : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
-        );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setCatalogLookupPending(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialSelectedOptions]);
-
-  function resetCatalogItemSelection(nextSearch: string) {
-    setCatalogItemSearch(nextSearch);
-    setCatalogItemId("");
-    setCatalogItem(null);
-    setSelectedOptionsByDimension({});
-  }
-
-  function selectCatalogItem(nextCatalogItemId: string) {
-    const item = catalogSearchResults.find((candidate) => candidate.catalog_item_id === nextCatalogItemId);
-    setCatalogItemId(nextCatalogItemId);
-    setCatalogItem(item ?? null);
-    setCatalogLookupError(null);
-    setCatalogItemSearch(item?.title ?? catalogItemSearch);
-    setSelectedOptionsByDimension(
-      item?.product_schema ? normalizeSelectedOptionsForSchema(item.product_schema, initialSelectedOptions) : {},
-    );
-  }
-
+  const [picker, dispatchPicker] = useCatalogItemPicker(row);
+  const { catalogItem } = picker;
+  const catalogItemEntries = catalogItemPickerEntries(picker);
+  const pickerStatusMessage = catalogItemPickerStatusMessage(picker.status);
+  const canApplyRowFix = catalogItem !== null && hasCompleteSelectedOptions(catalogItem, picker.selectedOptions);
   const productSelectionFields = toInventoryProductSelectionFields(
     catalogItem?.product_schema ?? null,
-    selectedOptionsByDimension,
+    picker.selectedOptions,
   );
   const selectedOptions = catalogItem?.product_schema
-    ? recordToSelectionEntries(catalogItem.product_schema, selectedOptionsByDimension)
+    ? recordToSelectionEntries(catalogItem.product_schema, picker.selectedOptions)
     : [];
 
   return (
@@ -280,47 +520,38 @@ function ImportRowResolutionForm({
         <HiddenInput type="hidden" name="intent" value="resolve-row" />
         <HiddenInput type="hidden" name="batchId" value={row.batch_id} />
         <HiddenInput type="hidden" name="rowId" value={row.row_id} />
+        <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-        <TextInput
-          label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog")}
-          placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item")}
-          value={catalogItemSearch}
-          onChange={(event) => resetCatalogItemSelection(event.target.value)}
-        />
-        <NativeSelect
+        <Combobox
           label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item")}
-          name="catalogItemId"
           required
-          value={catalogItemId}
-          onChange={(event) => selectCatalogItem(event.target.value)}
-          disabled={catalogSearchResults.length === 0}
-          placeholder={
-            catalogLookupPending
-              ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")
-              : t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item")
+          placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item")}
+          description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog")}
+          items={catalogItemEntries}
+          value={picker.choice?.catalogItemId ?? ""}
+          onValueChange={(catalogItemId) =>
+            dispatchPicker({
+              type: "catalog-item-chosen",
+              catalogItemId,
+              label: catalogItemEntries.find((entry) => entry.value === catalogItemId)?.label ?? catalogItemId,
+            })
           }
-          items={catalogSearchResults.map((item) => ({
-            value: item.catalog_item_id,
-            label: catalogItemOptionLabel(item),
-          }))}
+          inputValue={picker.query}
+          onInputValueChange={(text) => dispatchPicker({ type: "input-changed", text })}
+          filterItems={false}
+          openOnInputClick
+          noMatchesLabel={
+            pickerStatusMessage ??
+            picker.errorMessage ??
+            t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog")
+          }
+          status={pickerStatusMessage}
+          error={picker.status === "error" ? picker.errorMessage : undefined}
         />
-        {catalogLookupPending ? (
-          <Text size="sm" tone="secondary">
-            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")}
-          </Text>
-        ) : null}
-        {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
         {catalogItem?.product_schema && catalogItem.product_schema.dimensions.length > 0 ? (
           <ProductSelectionFields
             fields={productSelectionFields}
-            onFieldChange={(dimensionId, optionId) =>
-              setSelectedOptionsByDimension((current) =>
-                normalizeSelectedOptionsForSchema(catalogItem.product_schema!, {
-                  ...current,
-                  [dimensionId]: optionId,
-                }),
-              )
-            }
+            onFieldChange={(dimensionId, optionId) => dispatchPicker({ type: "option-changed", dimensionId, optionId })}
           />
         ) : catalogItem ? (
           <Text size="sm" tone="secondary">
@@ -338,7 +569,7 @@ function ImportRowResolutionForm({
             label: location.name,
           }))}
         />
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={!canApplyRowFix}>
           {t("inventory.features.importBatches.ui.importBatchPage.apply.row.fix")}
         </Button>
       </Stack>
@@ -354,7 +585,6 @@ export function InventoryImportBatchPage({
   currentPath,
   errorMessage,
   detailLoadMessage,
-  catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
@@ -363,14 +593,16 @@ export function InventoryImportBatchPage({
   currentPath?: string | null;
   errorMessage?: string | null;
   detailLoadMessage?: string | null;
-  catalogItemApiBaseUrl?: string;
 }) {
-  const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
+  const canCommit = detail?.can_commit === true;
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
   const activeJob = useInventoryImportBatchJob(activeJobId);
-  const unresolvedRowIds = detail ? unresolvedResolutionRowIds(detail) : [];
-  const resolveRow = activeResolutionRow(detail, selectedResolveRowId(currentPath));
+  const unresolvedRowIds = detail ? detail.rows.filter((row) => row.needs_seller).map((row) => row.row_id) : [];
+  const selectedRowId = selectedResolveRowId(currentPath);
+  const resolveRow = detail?.rows.find((row) => row.row_id === selectedRowId && row.needs_seller) ?? null;
   const resolveRowPosition = resolveRow ? unresolvedRowIds.indexOf(resolveRow.row_id) + 1 : 0;
+  const rawOffset = Number(new URLSearchParams(currentPath?.split("?")[1] ?? "").get("offset") ?? 0);
+  const rowOffset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
   return (
     <Page>
@@ -421,54 +653,77 @@ export function InventoryImportBatchPage({
         />
       ) : null}
 
-      <MarketplaceDashboardPanel
-        title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
-        description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
-        metrics={[
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
-            value: detail?.total_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
-            value: detail?.accepted_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
-            value: detail?.rejected_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
-            value: detail?.committed_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.source"),
-            value: detail
-              ? localizedImportSourceLabel(detail.source_key)
-              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
-            detail: detail
-              ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
-                  version: detail.adapter_version,
-                })
-              : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
-            value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
-            detail:
-              detail?.default_storage_location_id ??
-              t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
-          },
-        ]}
+      <MarketplaceNotice
+        tone="info"
+        title={t("inventory.import.resume.title")}
+        description={t("inventory.import.resume.description")}
       />
+      {detail?.status === "expired" ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("inventory.import.expired.title")}
+          description={t("inventory.import.expired.description")}
+        />
+      ) : null}
+
+      {detail ? (
+        <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}>
+          <MarketplaceDashboardPanel
+            title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
+            description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
+            metrics={[
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
+                value: detail?.total_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
+                value: detail?.accepted_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
+                value: detail?.rejected_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
+                value: detail?.committed_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.source"),
+                value: detail
+                  ? localizedImportSourceLabel(detail.source_key)
+                  : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+                detail: detail
+                  ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
+                      version: detail.adapter_version,
+                    })
+                  : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
+                value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
+                detail:
+                  detail?.default_storage_location_id ??
+                  t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
+              },
+            ]}
+          />
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form spacing="none" method="post" encType="multipart/form-data">
+          <InventoryMutationForm
+            family="import-create"
+            targetId="draft"
+            spacing="none"
+            method="post"
+            encType="multipart/form-data"
+          >
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-batch" />
               <Inline>
@@ -504,11 +759,6 @@ export function InventoryImportBatchPage({
                 }))}
               />
               <TextInput
-                label={t("inventory.features.importBatches.ui.importBatchPage.source.filename")}
-                name="sourceFilename"
-                placeholder={t("inventory.features.importBatches.ui.importBatchPage.source.filename.placeholder")}
-              />
-              <TextInput
                 label={t("inventory.features.importBatches.ui.importBatchPage.csv.file")}
                 name="file"
                 type="file"
@@ -537,7 +787,7 @@ export function InventoryImportBatchPage({
                 </LinkButton>
               </Inline>
             </Stack>
-          </Form>
+          </InventoryMutationForm>
         </Card>
       </PageSection>
 
@@ -566,7 +816,7 @@ export function InventoryImportBatchPage({
                   <Inline>
                     <Text>
                       {t("inventory.features.importBatches.ui.importBatchPage.accepted.rows.ready", {
-                        count: detail.accepted_count - detail.committed_count,
+                        count: detail.commit_ready_count,
                       })}
                     </Text>
                     <Button type="submit">
@@ -671,7 +921,7 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      {rowNeedsResolution(row, detail.source_key) ? (
+                      {row.needs_seller ? (
                         <LinkButton href={resolveRowHref(currentPath, row.row_id)} size="sm">
                           {t("inventory.features.importBatches.ui.importBatchPage.resolve.row")}
                         </LinkButton>
@@ -690,6 +940,22 @@ export function InventoryImportBatchPage({
               emptyTitle={t("inventory.features.importBatches.ui.importBatchPage.no.rows")}
               emptyDescription={t("inventory.features.importBatches.ui.importBatchPage.upload.csv.to.review.rows")}
             />
+            <Inline>
+              {rowOffset > 0 ? (
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${Math.max(0, rowOffset - 100)}`}
+                >
+                  {t("inventory.import.rows.previous")}
+                </LinkButton>
+              ) : null}
+              {rowOffset + detail.rows.length < detail.total_count ? (
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${rowOffset + 100}`}
+                >
+                  {t("inventory.import.rows.next")}
+                </LinkButton>
+              ) : null}
+            </Inline>
           </Stack>
         </PageSection>
       ) : (
@@ -703,7 +969,7 @@ export function InventoryImportBatchPage({
                 header: t("inventory.features.importBatches.ui.importBatchPage.batch"),
                 cell: (row) => (
                   <Stack gap={1}>
-                    <Text weight="semibold">{row.source_filename ?? row.batch_id}</Text>
+                    <Text weight="semibold">{row.batch_id}</Text>
                     <Text size="sm" tone="secondary">
                       {formatDateTime(row.updated_at)}
                     </Text>
@@ -776,11 +1042,7 @@ export function InventoryImportBatchPage({
                 ))}
               </Stack>
             ) : null}
-            <ImportRowResolutionForm
-              row={resolveRow}
-              storageLocations={storageLocations}
-              catalogItemApiBaseUrl={catalogItemApiBaseUrl}
-            />
+            <ImportRowResolutionForm key={resolveRow.row_id} row={resolveRow} storageLocations={storageLocations} />
           </Stack>
         </SideSheet>
       ) : null}

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { fileURLToPath } from "node:url";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 // This is deliberately a derivation, rather than the route-smoke checker that
 // will consume it.  Its input is the Git index's tracked files: gitignored
@@ -18,7 +19,11 @@ function failure(source, detail) {
 
 function trackedFiles(rootDir) {
   try {
-    return execFileSync("git", ["ls-files", "-z"], { cwd: rootDir, encoding: "utf8" })
+    return execFileSync("git", ["ls-files", "-z"], {
+      cwd: rootDir,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split("\0")
       .filter(Boolean)
       .sort((left, right) => left.localeCompare(right, "en"));

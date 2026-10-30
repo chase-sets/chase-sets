@@ -49,7 +49,6 @@ function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
   }
   return false;
 }
-
 function helperUsageIsCovered(usedHelper, coveredHelpers) {
   if (coveredHelpers.has(usedHelper)) return true;
   if (usedHelper === "defineResourceRoute" && coveredHelpers.has("loadAfterWrite")) return true;
@@ -296,6 +295,167 @@ function joinRoutePaths(prefix, routePath) {
   return hostRoutePath(`${prefix}/${routePath}`);
 }
 
+const honoAppRootPattern = /(?<![\w$.])app\b/g;
+const honoNewRootPattern = /(?<![\w$.])new\s+Hono\b/g;
+const honoRouteMethods = new Set(["route", "get", "head", "post", "put", "patch", "delete"]);
+const honoPassThroughMethods = new Set(["use", "all", "on", "options", "onError", "notFound"]);
+
+function skipJavaScriptTrivia(content, start) {
+  let index = start;
+  while (index < content.length) {
+    if (/\s/.test(content[index])) {
+      index += 1;
+      continue;
+    }
+    if (content.startsWith("//", index)) {
+      const lineEnd = content.indexOf("\n", index + 2);
+      index = lineEnd === -1 ? content.length : lineEnd + 1;
+      continue;
+    }
+    if (content.startsWith("/*", index)) {
+      const commentEnd = content.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? content.length : commentEnd + 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function readJavaScriptString(content, start) {
+  const quote = content[start];
+  if (quote !== '"' && quote !== "'") {
+    return null;
+  }
+
+  let value = "";
+  for (let index = start + 1; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === "\\") {
+      value += content[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+    if (character === quote) {
+      return { end: index + 1, value };
+    }
+    if (character === "\n" || character === "\r") {
+      return null;
+    }
+    value += character;
+  }
+  return null;
+}
+
+function findCallEnd(content, openParen) {
+  let depth = 0;
+  let quote = null;
+  let template = false;
+  for (let index = openParen; index < content.length; index += 1) {
+    const character = content[index];
+    const next = content[index + 1];
+    if (quote) {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (template) {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === "`") {
+        template = false;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "`") {
+      template = true;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      const lineEnd = content.indexOf("\n", index + 2);
+      index = lineEnd === -1 ? content.length : lineEnd;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      const commentEnd = content.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? content.length : commentEnd + 1;
+      continue;
+    }
+    if (character === "(") depth += 1;
+    if (character === ")") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return null;
+}
+
+function skipTypeArguments(content, start) {
+  if (content[start] !== "<") return start;
+  let depth = 0;
+  for (let index = start; index < content.length; index += 1) {
+    if (content[index] === "<") depth += 1;
+    if (content[index] === ">" && content[index - 1] !== "=") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return null;
+}
+
+function honoChainStart(content, rootMatch) {
+  const afterRoot = rootMatch.index + rootMatch[0].length;
+  if (!rootMatch[0].startsWith("new")) return afterRoot;
+  const afterTypeArguments = skipTypeArguments(content, skipJavaScriptTrivia(content, afterRoot));
+  if (afterTypeArguments === null) return null;
+  const openParen = skipJavaScriptTrivia(content, afterTypeArguments);
+  return content[openParen] === "(" ? findCallEnd(content, openParen) : null;
+}
+
+function collectHonoRouteCalls(content, { includeNewHono = true } = {}) {
+  const calls = [];
+  const rootMatches = [
+    ...content.matchAll(honoAppRootPattern),
+    ...(includeNewHono ? [...content.matchAll(honoNewRootPattern)] : []),
+  ].sort((left, right) => left.index - right.index);
+  for (const rootMatch of rootMatches) {
+    let cursor = honoChainStart(content, rootMatch);
+    if (cursor === null) continue;
+    while (true) {
+      cursor = skipJavaScriptTrivia(content, cursor);
+      if (content[cursor] !== ".") break;
+      const methodMatch = content.slice(cursor + 1).match(/^([A-Za-z_$][\w$]*)/);
+      if (!methodMatch || !(honoRouteMethods.has(methodMatch[1]) || honoPassThroughMethods.has(methodMatch[1]))) break;
+      const method = methodMatch[1];
+      const methodStart = cursor;
+      cursor += 1 + method.length;
+      cursor = skipJavaScriptTrivia(content, cursor);
+      if (content[cursor] !== "(") break;
+      const openParen = cursor;
+      if (honoRouteMethods.has(method)) {
+        const pathStart = skipJavaScriptTrivia(content, openParen + 1);
+        const path = readJavaScriptString(content, pathStart);
+        calls.push({ method, methodStart, path: path?.value ?? null });
+      }
+      const end = findCallEnd(content, openParen);
+      if (end === null) break;
+      cursor = end;
+    }
+  }
+  return calls;
+}
+
+function isTestSourceFile(file) {
+  return /(?:^|[\\/])(?:tests|__tests__)[\\/]/.test(file) || /\.(?:test|spec)\.[^.]+$/.test(file);
+}
+
 function collectApiRoutePathsForContext(context) {
   const routePaths = new Set();
   const routeFiles = [];
@@ -319,18 +479,22 @@ function collectApiRoutePathsForContext(context) {
 
   collectFiles(context.rootAbs);
   const routeFileContents = routeFiles.map((file) => [file, readFileSync(file, "utf8")]);
-  const prefixes = routeFileContents
-    .flatMap(([, content]) => [...content.matchAll(/\bapp\.route\(\s*["']([^"']+)["']/g)])
-    .map((match) => match[1])
+  const routeCalls = routeFileContents.flatMap(([file, content]) =>
+    collectHonoRouteCalls(content, { includeNewHono: !isTestSourceFile(file) }).map((call) => ({ ...call, file })),
+  );
+  const prefixes = routeCalls
+    .filter((call) => call.method === "route" && isNonEmptyString(call.path))
+    .map((call) => call.path)
     .filter(isNonEmptyString);
 
-  for (const [, content] of routeFileContents) {
-    for (const match of content.matchAll(/\bapp\.(?:get|head)\(\s*["']([^"']+)["']/g)) {
-      const routePath = match[1];
-      routePaths.add(hostRoutePath(routePath));
-      for (const prefix of prefixes) {
-        routePaths.add(joinRoutePaths(prefix, routePath));
-      }
+  for (const call of routeCalls) {
+    if ((call.method !== "get" && call.method !== "head") || !isNonEmptyString(call.path)) {
+      continue;
+    }
+    const routePath = call.path;
+    routePaths.add(hostRoutePath(routePath));
+    for (const prefix of prefixes) {
+      routePaths.add(joinRoutePaths(prefix, routePath));
     }
   }
 
@@ -617,17 +781,19 @@ export async function collectMutationConsistencySurfaces(options) {
       });
     }
 
-    const apiRoutePattern = /\bapp\.(post|put|patch|delete)\(\s*["']([^"']+)["']/gi;
-    for (const match of content.matchAll(apiRoutePattern)) {
-      const method = match[1].toUpperCase();
-      const routePath = hostRoutePath(match[2]);
+    for (const call of collectHonoRouteCalls(content)) {
+      if (!mutatingHttpMethods.has(call.method.toUpperCase()) || !isNonEmptyString(call.path)) {
+        continue;
+      }
+      const method = call.method.toUpperCase();
+      const routePath = hostRoutePath(call.path);
       addMutationSurface(surfaces, {
         id: buildMutationSurfaceId("api-route", relativeFile, `${method} ${routePath}`),
         contextName: contextName ?? "deployable",
         file: relativeFile,
         kind: "api-route",
         routeIds: [],
-        location: `${relativeFile}:${lineNumberAt(content, match.index ?? 0)}`,
+        location: `${relativeFile}:${lineNumberAt(content, call.methodStart)}`,
         mutationSurface: `${method} API route ${routePath}`,
       });
     }

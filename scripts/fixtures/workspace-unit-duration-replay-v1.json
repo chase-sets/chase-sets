@@ -2,6 +2,33 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 40231214159,
+      "runAttempt": 1,
+      "jobId": 121283260152,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/google-merchant",
+      "script": "test",
+      "observedDurationMs": 1210
+    },
+    {
+      "runId": 39337555863,
+      "runAttempt": 1,
+      "jobId": 118356396584,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/inventory-draft-listing",
+      "script": "test",
+      "observedDurationMs": 1450
+    },
+    {
+      "runId": 39088384468,
+      "runAttempt": 1,
+      "jobId": 117562140399,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/tcgplayer-market-observations",
+      "script": "test",
+      "observedDurationMs": 2562
+    },
+    {
       "runId": 37457120754,
       "runAttempt": 1,
       "jobId": 112247581049,

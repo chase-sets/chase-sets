@@ -76,7 +76,7 @@ function discoverBoth(files, module = { deriveChangedSqlExecutionFiles, listNonT
       changedFilesJson: JSON.stringify(files),
     }),
     inventory: module.listNonTestTypeScriptModules(repoRoot, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         expect(args).toEqual(["ls-files", "-z", "--cached"]);
         return `${files.join("\0")}\0`;
       },
@@ -269,9 +269,11 @@ function inspectGovernedProductionOwnership(source) {
 async function loadSqlExecutionModuleFromSource(source) {
   const compilerApiUrl = import.meta.resolve("@chase-sets/typescript-compiler-api");
   const moduleResolutionUrl = new URL("./module-resolution.mjs", import.meta.url).href;
+  const gitListingUrl = new URL("../lib/git-listing.mjs", import.meta.url).href;
   const runnableSource = source
     .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))
-    .replace('"./module-resolution.mjs"', JSON.stringify(moduleResolutionUrl));
+    .replace('"./module-resolution.mjs"', JSON.stringify(moduleResolutionUrl))
+    .replace('"../lib/git-listing.mjs"', JSON.stringify(gitListingUrl));
   return import(`data:text/javascript;base64,${Buffer.from(runnableSource).toString("base64")}`);
 }
 
@@ -332,7 +334,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
-      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 307, "options.auth.db"],
+      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 367, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
@@ -367,7 +369,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const file of files.slice(0, -1)) {
       expect(result.modules.find((module) => module.file === file)?.outcome, file).toBe("sql-executing");
     }
-    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 125)).toMatchObject({
+    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 130)).toMatchObject({
       receiver: "client",
       outcome: "not-sql",
     });
@@ -437,12 +439,12 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       [fixtureFile, 85, "unprovable-form"],
       [fixtureFile, 90, "not-sql"],
       [fixtureFile, 94, "not-sql"],
-      ["infrastructure/event-core-postgres/pool.ts", 125, "not-sql"],
+      ["infrastructure/event-core-postgres/pool.ts", 130, "not-sql"],
     ];
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
-    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 782)?.outcome).toBe("not-sql");
+    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 867)?.outcome).toBe("not-sql");
     expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
       "not-sql",
     );
@@ -853,7 +855,7 @@ describe("repository-wide SQL execution partition", () => {
   it("enumerates only cached Git index entries", () => {
     const calls = [];
     const files = listNonTestTypeScriptModules(repoRoot, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         calls.push(args);
         return [
           "src/tracked.ts",
@@ -880,7 +882,7 @@ describe("repository-wide SQL execution partition", () => {
     }
     const calls = [];
     const partition = partitionFromTrackedInventory(root, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         calls.push(args);
         return `${trackedFile}\0`;
       },

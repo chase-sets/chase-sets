@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPaymentsApi } from "../../../api";
@@ -440,6 +441,122 @@ describe("payments routes", () => {
     });
   });
 
+  it("keeps the status, body and headers of every guard reply", async () => {
+    const wire = async (response: Response) => ({
+      status: response.status,
+      headers: [...response.headers.entries()],
+      body: await response.json(),
+    });
+    const post = (path: string, forwardedFor: string) =>
+      new Request(`http://payments.test/account${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": forwardedFor },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      });
+    const owner: NonNullable<PaymentsApiEnv["Variables"]["actor"]> = {
+      sessionId: "ses_guard",
+      tenantId: "tnt_identity",
+      userId: "usr_guard",
+      accountId: "acc_guard_replies",
+      membershipId: "mbr_guard",
+      roleKey: "owner",
+      permissions: ["orders.view", "orders.manage"],
+    };
+    const json = [["content-type", "application/json"]];
+    const authenticationRequired = {
+      status: 401,
+      headers: json,
+      body: {
+        error: {
+          code: "authentication_required",
+          message: t("payments.features.payments.api.route.authentication.required"),
+        },
+      },
+    };
+    const forbidden = {
+      status: 403,
+      headers: json,
+      body: {
+        error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") },
+      },
+    };
+
+    const anonymous = buildAccountApp({ actor: null, services: createServices() });
+    expect(await wire(await anonymous.fetch(new Request("http://payments.test/account/checkout/status")))).toEqual(
+      authenticationRequired,
+    );
+    expect(await wire(await anonymous.fetch(post("/payments", "198.51.100.1")))).toEqual(authenticationRequired);
+
+    const unpermitted = buildAccountApp({ actor: { ...owner, permissions: [] }, services: createServices() });
+    expect(await wire(await unpermitted.fetch(new Request("http://payments.test/account/payment-methods")))).toEqual(
+      forbidden,
+    );
+    expect(await wire(await unpermitted.fetch(post("/checkout/recover", "198.51.100.2")))).toEqual(forbidden);
+
+    const services = createServices();
+    const app = buildAccountApp({ actor: owner, services });
+    vi.mocked(services.createAccountPayment).mockRejectedValueOnce(new PaymentDeclineLimitUnavailableError());
+    expect(await wire(await app.fetch(post("/payments", "198.51.100.3")))).toEqual({
+      status: 503,
+      headers: json,
+      body: {
+        error: {
+          code: "payment_decline_limit_unavailable",
+          message: "Payment attempts are temporarily unavailable. Please retry later.",
+        },
+      },
+    });
+    const declined = new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", 42);
+    vi.mocked(services.recoverCheckoutPayment).mockRejectedValueOnce(declined);
+    expect(await wire(await app.fetch(post("/checkout/recover", "198.51.100.4")))).toEqual({
+      status: 429,
+      headers: [...json, ["retry-after", "42"]],
+      body: {
+        error: {
+          code: "rate_limited",
+          message: declined.message,
+          surface: "payments.card-decline.fingerprint",
+          retryAfterSeconds: 42,
+        },
+      },
+    });
+    vi.mocked(services.createAccountPayment).mockRejectedValueOnce(
+      new Error(`fee_quote_stale:${JSON.stringify(checkoutFeeQuote)}`),
+    );
+    expect(await wire(await app.fetch(post("/payments", "198.51.100.5")))).toEqual({
+      status: 409,
+      headers: json,
+      body: {
+        error: {
+          code: "fee_quote_stale",
+          message: t("payments.features.payments.api.route.marketplace.checkout.fee.quote.stale"),
+        },
+        marketplace_checkout_fee: checkoutFeeQuote,
+      },
+    });
+
+    const limitedApp = buildAccountApp({
+      actor: { ...owner, accountId: "acc_guard_creation_limit" },
+      services: createServices(),
+    });
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      expect((await limitedApp.fetch(post("/payments", `198.51.100.${10 + attempt}`))).status).toBe(201);
+    }
+    const limited = await wire(await limitedApp.fetch(post("/payments", "198.51.100.30")));
+    expect(limited).toEqual({
+      status: 429,
+      headers: [...json, ["retry-after", String(limited.body.error.retryAfterSeconds)]],
+      body: {
+        error: {
+          code: "rate_limited",
+          message: "Too many requests. Please retry after the rate-limit window.",
+          surface: "payments.payment.create.account",
+          retryAfterSeconds: expect.any(Number),
+        },
+      },
+    });
+  });
+
   it("rate limits repeated account payment creation", async () => {
     const services = createServices();
     const app = buildAccountApp({
@@ -708,7 +825,11 @@ describe("payments routes", () => {
       new Request("http://payments.test/account/payment-methods/setup-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnUrlPath: "/account/payment-methods" }),
+        body: JSON.stringify({
+          accountId: "acc_buyer",
+          attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e31",
+          returnUrlPath: "/account/payment-methods",
+        }),
       }),
     );
 
@@ -722,7 +843,12 @@ describe("payments routes", () => {
       processor_status: "open",
     });
     expect(services.createSavedCheckoutSetupSession).toHaveBeenCalledWith(
-      expect.objectContaining({ uiMode: "embedded" }),
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e31",
+        uiMode: "embedded",
+      }),
+      expect.objectContaining({ tenantId: "tnt_identity" }),
     );
     expect(JSON.stringify(body)).not.toContain("provider_customer_reference");
     expect(JSON.stringify(body)).not.toContain("consent_text");
@@ -831,10 +957,18 @@ describe("payments routes", () => {
     });
 
     const defaultResponse = await app.fetch(
-      new Request("http://payments.test/account/payment-methods/sci_card_1/default", { method: "POST" }),
+      new Request("http://payments.test/account/payment-methods/sci_card_1/default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: "acc_buyer", attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e32" }),
+      }),
     );
     const removeResponse = await app.fetch(
-      new Request("http://payments.test/account/payment-methods/sci_card_1/remove", { method: "POST" }),
+      new Request("http://payments.test/account/payment-methods/sci_card_1/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: "acc_buyer", attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e33" }),
+      }),
     );
 
     expect(defaultResponse.status).toBe(200);
@@ -853,6 +987,65 @@ describe("payments routes", () => {
     });
     expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_reference");
     expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_customer_reference");
+  });
+
+  it("refuses a changed account before any service call and maps attempt outcomes to closed codes", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+    const post = (path: string, body: Record<string, unknown>) =>
+      app.fetch(
+        new Request(`http://payments.test/account/payment-methods/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const attemptId = "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e34";
+
+    for (const path of ["setup-sessions", "sci_card_1/default", "sci_card_1/remove"]) {
+      const response = await post(path, { accountId: "acc_previous", attemptId });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("account_changed");
+    }
+    expect(services.createSavedCheckoutSetupSession).not.toHaveBeenCalled();
+    expect(services.setSavedCheckoutInstrumentDefault).not.toHaveBeenCalled();
+    expect(services.removeSavedCheckoutInstrument).not.toHaveBeenCalled();
+
+    vi.mocked(services.removeSavedCheckoutInstrument)
+      .mockRejectedValueOnce(Object.assign(new Error("SYNTHETIC_PRIVATE_DETAIL"), { code: "attempt_unconfirmed" }))
+      .mockRejectedValueOnce(Object.assign(new Error("SYNTHETIC_PRIVATE_DETAIL"), { code: "attempt_conflict" }));
+    const unconfirmed = await post("sci_card_1/remove", { accountId: "acc_buyer", attemptId });
+    const conflict = await post("sci_card_1/remove", { accountId: "acc_buyer", attemptId });
+    expect([unconfirmed.status, conflict.status]).toEqual([503, 409]);
+    const bodies = [await unconfirmed.json(), await conflict.json()];
+    expect(bodies.map((body) => body.error.code)).toEqual(["attempt_unconfirmed", "attempt_conflict"]);
+    expect(JSON.stringify(bodies)).not.toContain("SYNTHETIC_PRIVATE_DETAIL");
+
+    // Only a pre-send refusal may answer 400 (the caller then mints a fresh id); an unknown
+    // failure after `started` must never look refused, echo its text, or reach the framework.
+    const unknownFailure = () => Object.assign(new Error("SYNTHETIC_DB_FAILURE"), { code: "23505" });
+    vi.mocked(services.createSavedCheckoutSetupSession).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.setSavedCheckoutInstrumentDefault).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.removeSavedCheckoutInstrument).mockRejectedValueOnce(unknownFailure());
+    for (const path of ["setup-sessions", "sci_card_1/default", "sci_card_1/remove"]) {
+      const unknown = await post(path, { accountId: "acc_buyer", attemptId });
+      expect(unknown.status).toBe(503);
+      const body = await unknown.text();
+      expect(JSON.parse(body).error.code).toBe("attempt_unconfirmed");
+      expect(body).not.toContain("SYNTHETIC_DB_FAILURE");
+      expect(body).not.toContain("23505");
+    }
   });
 
   it("returns payment method reconciliation with the authoritative list snapshot", async () => {

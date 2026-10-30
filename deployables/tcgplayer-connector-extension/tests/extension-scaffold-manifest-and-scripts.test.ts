@@ -7,11 +7,14 @@ const read = (file: string) => readFileSync(resolve(import.meta.dirname, "..", f
 describe("extension-scaffold-manifest-and-scripts", () => {
   it("retains the registered scripts without a DB-profile-only unit alias", () => {
     expect(JSON.parse(read("package.json")).scripts).toEqual({
-      build: "vite build --configLoader runner",
+      build: "vite build --mode connector-local --configLoader runner",
+      "build:handoff": "node ../../scripts/build-connector-extension-handoff.mjs",
       typecheck: "tsc -p ./tsconfig.json --noEmit",
       test: "vitest run --config ./vitest.config.ts",
       "test:watch": "vitest --config ./vitest.config.ts",
-      "test:chromium": "vite build --configLoader runner && playwright test --config ./playwright.config.ts",
+      "test:chromium":
+        "vite build --mode connector-local --configLoader runner && playwright test --config ./playwright.config.ts",
+      "pairing-drill:staging": "node --import tsx ../../scripts/connector-pairing-drill-staging.mjs",
     });
   });
   it("retains workspace aliases and both restart and product selectors", () => {

@@ -1,4 +1,4 @@
-import type { BcApiModule, BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import {
   eventCorePostgresSchemaSql,
   eventStoreEventsReadIndexStatements,
@@ -27,6 +27,7 @@ export const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revision
 export const PROJECTION_GROUP_GENERATIONS_TABLE = "event_projection_group_generations";
 export const SCHEMA_MIGRATIONS_TABLE = "bounded_context_schema_migrations";
 export const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CONCURRENTLY_KEYWORD_RE = /\bconcurrently\b/i;
 const DISCARD_SCHEMA_BOOTSTRAP_CLIENT = true;
 
 export type SchemaBootstrapOptions = Readonly<{
@@ -114,11 +115,29 @@ const projectionRecoveryMarkerBackfillMigration = {
   ],
 };
 
+const configurationEpochMigration = {
+  migrationId: "20261022_configuration_epoch_closure",
+  description: "Create acknowledged configuration epoch guard, topology and CLOSED-THROUGH receipt tables.",
+  statements: [
+    eventCorePostgresSchemaSql
+      .split("-- configuration-epoch-schema:start")[1]
+      ?.split("-- configuration-epoch-schema:end")[0] ?? "",
+  ],
+};
+
 const contextSchemaMigrations = [
   contextBackfillMigration,
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
   projectionRecoveryMarkerBackfillMigration,
+  configurationEpochMigration,
+  {
+    migrationId: "20261015_subscription_reaction_output_positions",
+    description: "Record reaction output positions atomically with completed applications.",
+    statements: [
+      "ALTER TABLE event_subscription_applications ADD COLUMN IF NOT EXISTS output_global_positions bigint[] NULL;",
+    ],
+  },
 ] as const;
 const eventCoreBootstrapSchemaSql = removeEventCoreMigrationStatements(eventCorePostgresSchemaSql.trim());
 
@@ -179,6 +198,7 @@ CREATE TABLE IF NOT EXISTS event_subscription_applications (
   event_type text NOT NULL,
   status text NOT NULL CHECK (status IN ('started', 'applied', 'poison', 'transient')),
   error_message text NULL,
+  output_global_positions bigint[] NULL,
   lease_owner_id text NULL,
   lease_fencing_token bigint NULL,
   started_at timestamptz NOT NULL,
@@ -188,7 +208,8 @@ CREATE TABLE IF NOT EXISTS event_subscription_applications (
 
 ALTER TABLE event_subscription_applications
   ADD COLUMN IF NOT EXISTS lease_owner_id text NULL,
-  ADD COLUMN IF NOT EXISTS lease_fencing_token bigint NULL;
+  ADD COLUMN IF NOT EXISTS lease_fencing_token bigint NULL,
+  ADD COLUMN IF NOT EXISTS output_global_positions bigint[] NULL;
 
 CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_position_idx
   ON event_subscription_applications (projection_key, global_position);
@@ -591,14 +612,14 @@ function createSchemaMigrationsTableSql(): string {
 )`;
 }
 
-async function applySchemaMigration(
-  client: PgPoolClient,
-  migration: Readonly<{
-    migrationId: string;
-    description: string;
-    statements: readonly string[];
-  }>,
-): Promise<void> {
+async function applySchemaMigration(client: PgPoolClient, migration: BcSchemaMigration): Promise<void> {
+  const { dataStep } = migration;
+  if (dataStep && migration.statements.some((statement) => CONCURRENTLY_KEYWORD_RE.test(statement))) {
+    throw new Error(
+      `Schema migration ${migration.migrationId} has a data step, so its statements run in a transaction and cannot use CONCURRENTLY.`,
+    );
+  }
+
   const existing = await client.query(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`, [
     migration.migrationId,
   ]);
@@ -606,6 +627,24 @@ async function applySchemaMigration(
     return;
   }
 
+  if (!dataStep) {
+    await applyStatementsAndLedgerRow(client, migration);
+    return;
+  }
+
+  await client.query("BEGIN");
+  try {
+    await dataStep(concurrentlyRefusingMigrationClient(client, migration.migrationId));
+    await applyStatementsAndLedgerRow(client, migration);
+    await client.query("COMMIT");
+  } catch (error) {
+    // The bootstrap client is discarded with this error, which also ends the transaction if ROLLBACK fails.
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+}
+
+async function applyStatementsAndLedgerRow(client: PgPoolClient, migration: BcSchemaMigration): Promise<void> {
   for (const statement of migration.statements) {
     await client.query(statement);
   }
@@ -615,6 +654,20 @@ async function applySchemaMigration(
      VALUES ($1, $2, now())`,
     [migration.migrationId, migration.description],
   );
+}
+
+function concurrentlyRefusingMigrationClient(client: PgPoolClient, migrationId: string): BcSchemaMigrationClient {
+  return {
+    async query<Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) {
+      if (CONCURRENTLY_KEYWORD_RE.test(text)) {
+        throw new Error(
+          `Schema migration ${migrationId} data step SQL cannot use CONCURRENTLY inside the migration transaction.`,
+        );
+      }
+
+      return client.query<Row>(text, values);
+    },
+  };
 }
 
 function removeEventCoreMigrationStatements(schemaSql: string): string {

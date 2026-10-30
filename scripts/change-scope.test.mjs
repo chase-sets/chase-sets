@@ -1,13 +1,411 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
+import {
+  classifyChanges,
+  listChangedFiles,
+  resolveChangeScope,
+  toGithubOutputMap,
+  toOutputMap,
+} from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
+import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
+import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
+
+it("uses the synthetic merge commit first parent for a PR's own changed files", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-scope-pr-merge-"));
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-c", "core.autocrlf=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args],
+      { cwd: directory, encoding: "utf8", windowsHide: true },
+    ).trim();
+  const write = (filename, content) => writeFileSync(path.join(directory, filename), `${content}\n`, "utf8");
+
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    write("base.txt", "base");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base");
+    const eventBase = git("rev-parse", "HEAD");
+
+    write("main-advance-one.txt", "main one");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "main advances one");
+    write("main-advance-two.txt", "main two");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "main advances two");
+
+    git("switch", "--create", "pr");
+    write("pr-change-one.txt", "PR one");
+    write("pr-change-two.txt", "PR two");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "PR changes");
+    git("switch", "main");
+    git("merge", "--no-ff", "--quiet", "--no-edit", "pr");
+    const syntheticMergeHead = git("rev-parse", "HEAD");
+
+    expect(listChangedFiles(eventBase, syntheticMergeHead, { cwd: directory, firstParent: true })).toEqual([
+      "pr-change-one.txt",
+      "pr-change-two.txt",
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  [
+    "synthetic-parent-lookup-failed",
+    {
+      firstParent: true,
+      exec: () => {
+        throw new Error("rev-list unavailable");
+      },
+    },
+  ],
+  ["synthetic-parent-lookup-empty", { firstParent: true, exec: () => "" }],
+  [
+    "merge-base-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") throw new Error("merge-base unavailable");
+        return "";
+      },
+    },
+  ],
+  ["merge-base-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") }],
+  [
+    "diff-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+    },
+  ],
+  ["diff-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") }],
+])("widens to full scope when %s prevents PR-owned change derivation", (reason, fixture) => {
+  const result = resolveChangeScope("base", "head", {
+    ...fixture,
+    execFileSync: fixture.exec,
+    workspaces: [],
+    baseDir: process.cwd(),
+  });
+
+  expect(result.fallbackReason).toBe(reason);
+  expect(result.scope).toMatchObject({
+    changedFiles: [],
+    localChecksRequired: true,
+    unitTestsRequired: true,
+    dbTestsRequired: true,
+    e2eTestsRequired: true,
+    integrationRiskRequired: true,
+    buildRequired: true,
+    dockerImageRequired: true,
+    terraformRequired: true,
+    workflowLintRequired: true,
+    deployRequired: true,
+    clusterPreviewRequired: true,
+    composeSmokeRequired: true,
+  });
+  expect(toOutputMap(result.scope).integration_risk_reason).toContain(reason);
+});
+
+it("enables first-parent scope for both hosted PR merge events", () => {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
+  expect(workflow).toContain(
+    'if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then',
+  );
+  expect(workflow).toContain('first_parent="--first-parent"');
+  expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
+});
+
+async function importChangeScopeVariant(source) {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-scope-mutant-"));
+  for (const specifier of ["./e2e-suites.mjs", "./lib/repo.mjs", "./lib/risk-policy-v1.mjs"]) {
+    const quoted = JSON.stringify(specifier);
+    if (!source.includes(quoted)) throw new Error(`Mutant source no longer imports ${specifier}`);
+    source = source.replace(quoted, JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href));
+  }
+  const file = path.join(directory, "change-scope.mjs");
+  writeFileSync(file, source);
+  try {
+    return await import(`${pathToFileURL(file).href}?mutant=${Date.now()}-${Math.random()}`);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+it("kills a source mutant that removes unavailable-scope widening", async () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason),";
+  const mutatedSource = source.replace(mutation, "scope: classifyChanges({ changedFiles: [], workspaces, baseDir }),");
+  expect(mutatedSource).not.toBe(source);
+  const mutant = await importChangeScopeVariant(mutatedSource);
+  const result = mutant.resolveChangeScope("base", "head", {
+    execFileSync: (_command, args) => {
+      if (args[0] === "merge-base") return "abc123\n";
+      throw new Error("diff unavailable");
+    },
+    workspaces: [],
+    baseDir: process.cwd(),
+  });
+
+  expect(result.fallbackReason).toBe("diff-failed");
+  expect(result.scope.unitTestsRequired).toBe(false);
+  expect(
+    resolveChangeScope("base", "head", {
+      execFileSync: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+      workspaces: [],
+      baseDir: process.cwd(),
+    }).scope.unitTestsRequired,
+  ).toBe(true);
+});
+
+it("kills a source mutant that lets an empty diff narrow the PR scope", async () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutation = "if (changedFiles.length === 0)";
+  const mutatedSource = source.replace(mutation, "if (changedFiles.length < 0)");
+  expect(mutatedSource).not.toBe(source);
+  const mutant = await importChangeScopeVariant(mutatedSource);
+  const emptyDiff = {
+    execFileSync: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : ""),
+    workspaces: [],
+    baseDir: process.cwd(),
+  };
+
+  expect(mutant.resolveChangeScope("base", "head", emptyDiff).fallbackReason).toBe(null);
+  expect(resolveChangeScope("base", "head", emptyDiff).fallbackReason).toBe("diff-empty");
+});
+
+it("keeps fallback notices off json stdout", () => {
+  const args = ["scripts/change-scope.mjs", "json", "--base=HEAD", "--head=HEAD"];
+  const result = spawnSync(process.execPath, args, { cwd: repoRoot, encoding: "utf8" });
+
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).integrationRiskReason).toContain("diff-empty");
+  expect(result.stderr).toContain("Change-scope derivation fallback: diff-empty");
+});
+
+it("kills a source mutant that sends the fallback notice to json stdout", () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutatedSource = source.replace(
+    "console.error(`Change-scope derivation fallback:",
+    "console.log(`Change-scope derivation fallback:",
+  );
+  expect(mutatedSource).not.toBe(source);
+  const mutantPath = path.join(repoRoot, "scripts", `.change-scope-mutant-${process.pid}-${Date.now()}.mjs`);
+  writeFileSync(mutantPath, mutatedSource, "utf8");
+  try {
+    const result = spawnSync(process.execPath, [mutantPath, "json", "--base=HEAD", "--head=HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(() => JSON.parse(result.stdout)).toThrow();
+  } finally {
+    rmSync(mutantPath, { force: true });
+  }
+});
+
+describe("rendered-copy real-provider selection corpus", () => {
+  it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
+    const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8")).renderedCopy;
+    const directory = mkdtempSync(path.join(tmpdir(), "rendered-copy-selection-"));
+    const git = (args) =>
+      execFileSync("git", args, {
+        cwd: directory,
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    const priorSource = execFileSync("git", ["show", `${fixture.baseSha}:scripts/e2e-suites.mjs`], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).replace(
+      '"./lib/risk-policy-v1.mjs"',
+      JSON.stringify(pathToFileURL(path.resolve("scripts/lib/risk-policy-v1.mjs")).href),
+    );
+    const priorFile = path.join(directory, "prior.mjs");
+    writeFileSync(priorFile, priorSource);
+    const prior = await import(pathToFileURL(priorFile).href);
+    const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+    const write = (filename, content) => {
+      const target = path.join(directory, filename);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, content);
+    };
+    const commit = () => {
+      git(["add", "."]);
+      git([
+        "-c",
+        "user.name=Synthetic selection",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic path operation",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    const check = (base, head, paths) => {
+      const changed = listChangedFiles(base, head, { cwd: directory });
+      expect(changed).toEqual([...paths].sort());
+      for (const entry of fixture.cases) {
+        const relevant = changed.filter((filename) => filename === entry.path);
+        if (!relevant.length) continue;
+        const old = prior.e2eSuiteIdsForChangedFile(entry.path).some((id) => owners.has(id));
+        const scope = classifyChanges({ changedFiles: relevant });
+        const selected = JSON.parse(toOutputMap(scope).e2e_suite_batches_json).includes("rendered_copy");
+        expect(selected, `${entry.path}: ${entry.reason}`).toBe(entry.selected);
+        expect(!old || selected, `never narrower: ${entry.path}`).toBe(true);
+        expect(entry.reason.length).toBeGreaterThan(20);
+        if (selected !== old) expect(entry.reason).toMatch(/^intentional delta:/);
+      }
+    };
+    try {
+      git(["init", "--quiet"]);
+      for (const entry of fixture.cases) {
+        if (!entry.reason.startsWith("intentional delta: the new"))
+          expect(existsSync(entry.path), entry.path).toBe(true);
+        write(entry.path, "Synthetic baseline\n");
+      }
+      let base = commit();
+      for (const entry of fixture.cases) write(entry.path, "Synthetic modified\n");
+      let head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      for (const entry of fixture.cases) rmSync(path.join(directory, entry.path));
+      head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      for (const entry of fixture.cases) write(entry.path, "Synthetic added\n");
+      head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      const from = "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts";
+      const to = "infrastructure/stripe-payments/index.ts";
+      rmSync(path.join(directory, to));
+      base = commit();
+      git(["mv", from, to]);
+      head = commit();
+      check(base, head, [from, to]);
+      console.log(
+        `RENDERED_COPY_PROVIDER_CORPUS base=${fixture.baseSha} cases=${fixture.cases.length} operations=modified,added,deleted,renamed--no-renames`,
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+const googleMerchantProviderChangeCorpus = [
+  {
+    operation: "modified",
+    changedFiles: ["infrastructure/google-merchant/index.ts"],
+    reason: "provider workspace remains selected for a modified adapter path",
+  },
+  {
+    operation: "added",
+    changedFiles: ["infrastructure/google-merchant/config.ts"],
+    reason: "provider workspace remains selected for an added adapter path",
+  },
+  {
+    operation: "deleted",
+    changedFiles: ["infrastructure/google-merchant/auth.ts"],
+    reason: "provider workspace remains selected for a deleted adapter path",
+  },
+  {
+    operation: "renamed",
+    changedFiles: [
+      "deployables/platform-worker/src/google-merchant-client.ts",
+      "infrastructure/google-merchant/index.ts",
+    ],
+    reason: "both sides of the provider move remain in the selected scope",
+  },
+];
+
+it.each(googleMerchantProviderChangeCorpus)(
+  "keeps Google Merchant scope for $operation changes",
+  ({ changedFiles, reason }) => {
+    const scope = classifyChanges({ changedFiles });
+    expect(scope.affectedWorkspaces, reason).toContain("@chase-sets/google-merchant");
+    expect(scope.affectedWorkspaces, reason).toContain("@chase-sets/app-platform-worker");
+    expect(scope.unitTestsRequired, reason).toBe(true);
+    expect(scope.dbTestsRequired, reason).toBe(true);
+  },
+);
+
+it("does not select the Google Merchant workspace for an infrastructure path lookalike", () => {
+  const scope = classifyChanges({ changedFiles: ["infrastructure/google-merchant-notes/index.ts"] });
+  expect(scope.affectedWorkspaces).not.toContain("@chase-sets/google-merchant");
+});
+
+it.each(["sidecar-only", "renamed-source", "removed-source"])(
+  "lost-update selection survives real Git %s changes",
+  (kind) => {
+    const directory = mkdtempSync(path.join(tmpdir(), "lost-update-selection-"));
+    const source = "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts";
+    const sidecar = `${source}.lost-update-exceptions.json`;
+    const git = (...args) =>
+      execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], {
+        cwd: directory,
+        encoding: "utf8",
+        timeout: 10000,
+      });
+    try {
+      git("init", "--quiet", "--initial-branch=main");
+      mkdirSync(path.dirname(path.join(directory, source)), { recursive: true });
+      writeFileSync(path.join(directory, source), "const sql = `DELETE FROM rows WHERE id = $1`;\n");
+      writeFileSync(path.join(directory, sidecar), "[]\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "seed owner pair");
+      const base = git("rev-parse", "HEAD").trim();
+      if (kind === "sidecar-only") writeFileSync(path.join(directory, sidecar), "[{}]\n");
+      else if (kind === "removed-source") git("rm", source, sidecar);
+      else {
+        mkdirSync(path.join(directory, "archive"));
+        git("mv", source, "archive/queries.ts");
+        git("mv", sidecar, "archive/queries.ts.lost-update-exceptions.json");
+      }
+      git("add", ".");
+      git("commit", "--quiet", "-m", kind);
+      const changedFiles = listChangedFiles(base, "HEAD", { cwd: directory });
+      expect(changedFiles).toContain(sidecar);
+      if (kind !== "sidecar-only") expect(changedFiles).toContain(source);
+      expect(selectVerifyStaticGuardTests({ changedFiles })).toContain(
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+      );
+      expect(classifyChanges({ changedFiles }).changedFiles).toContain(sidecar);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 const priorProductionIntegrationRules = [
   {
@@ -99,6 +497,8 @@ const schedulerVocabularyLookalikePaths = [
 // into Auth. Ordering changes now also reach Auth and its downstream consumers.
 // Accepted dependency delta: #7274 declares Notifications' owner-builder imports,
 // adding Notifications to the Ordering and Pricing cases' affected sets.
+// Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
+// Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -113,6 +513,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/bounded-context-module",
   "@chase-sets/bounded-context-runtime",
   "@chase-sets/catalog",
+  "@chase-sets/catalog-product-line",
   "@chase-sets/catalog-seed",
   "@chase-sets/channels",
   "@chase-sets/checkout",
@@ -128,10 +529,13 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/event-core-postgres",
   "@chase-sets/evidence-window-provider-write",
   "@chase-sets/fulfillment",
+  "@chase-sets/google-merchant",
+  "@chase-sets/google-shopping-export",
   "@chase-sets/http",
   "@chase-sets/identity",
   "@chase-sets/identity-seed",
   "@chase-sets/inventory",
+  "@chase-sets/inventory-draft-listing",
   "@chase-sets/local-email-capture",
   "@chase-sets/localization",
   "@chase-sets/market-estimate-display",
@@ -170,6 +574,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/stripe-config",
   "@chase-sets/stripe-connect",
   "@chase-sets/stripe-payments",
+  "@chase-sets/tcgplayer-market-observations",
   "@chase-sets/twilio-messaging",
   "@chase-sets/typescript-compiler-api",
   "@chase-sets/web-notifications",
@@ -719,7 +1124,20 @@ function withPublicPresenceAffected(names) {
 // Public Presence joins the affected and direct lists once and the unit gate
 // turns on. An empty diff, and an empty list that requires DB tests (the
 // all-DB sweep), keep their captured outputs.
+function withRenderedCopyOutput(output) {
+  const batches = JSON.parse(output.e2e_suite_batches_json);
+  const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+  return {
+    ...output,
+    e2e_suite_batches_json: JSON.stringify([
+      ...batches,
+      ...(batches.some((batch) => batch.split(",").some((id) => owners.has(id))) ? ["rendered_copy"] : []),
+    ]),
+  };
+}
+
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
+  baseOutputMap = withRenderedCopyOutput(baseOutputMap);
   const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
   if (
     JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
@@ -767,7 +1185,7 @@ function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
   const expected = expectedPublicPresenceEnrollment(base, workspaces);
   const label = JSON.stringify(changedFiles);
   expect(head, label).toEqual(expected);
-  expect(toGithubOutputMap(head), label).toEqual(baseChangeScope.toGithubOutputMap(expected));
+  expect(toGithubOutputMap(head), label).toEqual(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected)));
   return { base, head };
 }
 
@@ -2316,14 +2734,14 @@ describe("change-scope", () => {
     });
   });
 
-  it("requires deployment for the exact production stale Helm recovery workflow", () => {
+  it("keeps the exact production stale Helm recovery workflow out of cluster preview", () => {
     const scope = classifyChanges({
       changedFiles: [".github/workflows/platform-production-stale-helm-recovery.yml"],
     });
 
     expect(scope).toMatchObject({
       deployRequired: true,
-      clusterPreviewRequired: true,
+      clusterPreviewRequired: false,
       dockerImageRequired: false,
       buildRequired: false,
     });
@@ -2378,7 +2796,9 @@ describe("change-scope", () => {
       changedFiles: ["package.json"],
       workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
     });
-    const suiteBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+    const allBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+    expect(allBatches.filter((batch) => batch.includes("rendered_copy"))).toEqual(["rendered_copy"]);
+    const suiteBatches = allBatches.filter((batch) => batch !== "rendered_copy");
     const oldStaticBatches = [
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
@@ -2405,6 +2825,36 @@ describe("change-scope", () => {
     expect(toOutputMap(scope)).not.toHaveProperty("coverage_fast");
     expect(toOutputMap(scope)).not.toHaveProperty("coverage_summary");
     expect(toOutputMap(scope).exposure_posture_changed).toBe("false");
+  });
+
+  it.each([
+    {
+      // Suite-selecting paths of the settlement change whose account/extension job hit the 25-minute limit.
+      changedFiles: [
+        "bounded-contexts/channels/features/connector-client/tests/coordinator-test-support.ts",
+        "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
+        "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
+        "deployables/tcgplayer-connector-extension/__tests__/harness/executors.harness.ts",
+      ],
+      suites: ["marketplace_account", "marketplace_seller", "tcgplayer_connector_extension"],
+      batches: ["marketplace_account,marketplace_seller", "tcgplayer_connector_extension", "rendered_copy"],
+    },
+    {
+      changedFiles: [
+        "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+        "deployables/tcgplayer-connector-extension/src/background.ts",
+      ],
+      suites: ["marketplace_account", "tcgplayer_connector_extension"],
+      batches: ["marketplace_account", "tcgplayer_connector_extension", "rendered_copy"],
+    },
+  ])("emits the connector extension as its own matrix batch for $suites", ({ changedFiles, suites, batches }) => {
+    const scope = classifyChanges({ changedFiles });
+    const output = toOutputMap(scope);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(suites);
+    expect(output.e2e_tests).toBe("true");
+    expect(output.e2e_suites).toBe(suites.join(","));
+    expect(JSON.parse(output.e2e_suite_batches_json)).toEqual(batches);
   });
 
   it("routes context UI and API slices to owned E2E suites", () => {
@@ -2612,6 +3062,99 @@ describe("change-scope", () => {
     expect(scope.composeSmokeRequired).toBe(false);
   });
 
+  it.each([
+    [".github/workflows/platform-pr.yml", true],
+    [".github/workflows/platform-ephemeral-verification.yml", false],
+    [".github/workflows/platform-production.yml", false],
+    [".github/workflows/platform-production-memory-probe.yml", false],
+    [".github/workflows/platform-production-stale-helm-recovery.yml", false],
+    [".github/workflows/platform-compose-boot-smoke.yml", false],
+    [".github/workflows/platform-pr-scope.yml", false],
+  ])("limits platform workflow cluster-preview admission to preview caller %s", (file, expected) => {
+    expect(classifyChanges({ changedFiles: [file] }).clusterPreviewRequired, file).toBe(expected);
+  });
+
+  it.each([
+    ["scripts/digitalocean-platform-config.mjs", true],
+    ["scripts/digitalocean-platform-config.test.mjs", false],
+    ["scripts/platform-smoke.mjs", true],
+    ["scripts/platform-smoke.test.mjs", false],
+    ["scripts/platform-smoke.spec.mjs", false],
+  ])("keeps test-only DigitalOcean and platform-smoke paths off cluster preview: %s", (file, expected) => {
+    expect(classifyChanges({ changedFiles: [file] }).clusterPreviewRequired, file).toBe(expected);
+  });
+
+  const clusterPreviewSafetyFixtures = [
+    ["Helm", "infrastructure/helm/platform/values.yaml"],
+    ["preview Terraform", "infrastructure/digitalocean/platform/main.tf"],
+    ["Dockerfile", "Dockerfile"],
+    ["deploy script", "scripts/platform-kubernetes-deployment.mjs"],
+    ["secret script", "scripts/platform-kubernetes-secret.mjs"],
+    ["ingress script", "scripts/platform-ingress-wait.mjs"],
+    ["platform PR preview workflow", ".github/workflows/platform-pr.yml"],
+  ];
+
+  it("kills one recorded source safety mutant per deploy guard", async () => {
+    const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+    const predicateMutations = [
+      ["helmChanged", "false ||"],
+      ["previewDeployTerraformChanged", "false ||"],
+      ["dockerChanged", "false ||"],
+      ["clusterPreviewScriptChanged", "false ||"],
+      ["clusterPreviewWorkflowChanged", "false;"],
+    ];
+    const mutantTable = [];
+    const clusterBlockStart = source.indexOf("const clusterPreviewRequired =");
+    const clusterBlockEnd = source.indexOf("const composeSmokeRequired", clusterBlockStart);
+    const clusterBlock = source.slice(clusterBlockStart, clusterBlockEnd);
+    for (const [guard, replacement] of predicateMutations) {
+      const search = guard === "clusterPreviewWorkflowChanged" ? `${guard};` : `${guard} ||`;
+      const mutatedBlock = clusterBlock.replace(search, replacement);
+      const mutatedSource = `${source.slice(0, clusterBlockStart)}${mutatedBlock}${source.slice(clusterBlockEnd)}`;
+      expect(mutatedSource, guard).not.toBe(source);
+      const mutantClassifier = await importChangeScopeVariant(mutatedSource);
+      const file = clusterPreviewSafetyFixtures.find(
+        ([fixtureGuard]) =>
+          fixtureGuard ===
+          {
+            helmChanged: "Helm",
+            previewDeployTerraformChanged: "preview Terraform",
+            dockerChanged: "Dockerfile",
+            clusterPreviewScriptChanged: "deploy script",
+            clusterPreviewWorkflowChanged: "platform PR preview workflow",
+          }[guard],
+      )?.[1];
+      const baseline = classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
+      const mutant = mutantClassifier.classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
+      mutantTable.push({ guard, file, baseline, mutant, killed: baseline && !mutant });
+    }
+
+    expect(mutantTable.every(({ killed }) => killed)).toBe(true);
+    console.info("cluster-preview safety mutant table", mutantTable);
+  });
+
+  it("preserves a compose-or-cluster gate for every runtime fixture", () => {
+    const runtimeFixtures = [
+      "deployables/platform-api/src/main.ts",
+      "infrastructure/helm/platform/values.yaml",
+      "infrastructure/digitalocean/platform/main.tf",
+      "Dockerfile",
+      "scripts/platform-kubernetes-deployment.mjs",
+    ];
+    const results = runtimeFixtures.map((file) => {
+      const scope = classifyChanges({ changedFiles: [file] });
+      return {
+        file,
+        composeSmoke: scope.composeSmokeRequired,
+        clusterPreview: scope.clusterPreviewRequired,
+        covered: scope.composeSmokeRequired || scope.clusterPreviewRequired,
+      };
+    });
+
+    expect(results.every(({ covered }) => covered)).toBe(true);
+    console.info("runtime gate coverage table", results);
+  });
+
   it("treats Terraform and deployment helper changes as deployable infrastructure needing a cluster preview", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
@@ -2740,5 +3283,13 @@ describe("change-scope", () => {
       "ucp-signed-write",
     ]);
     expect(JSON.parse(toOutputMap(scope).exposure_posture_categories_json)).toEqual(scope.exposurePostureCategories);
+  });
+
+  it.each([
+    "scripts/release-lock-monitor.mjs",
+    "scripts/release-lock-monitor.test.mjs",
+    ".github/workflows/platform-production-lock-monitor.yml",
+  ])("classifies %s as rollout policy", (file) => {
+    expect(classifyChanges({ changedFiles: [file] }).exposurePostureCategories).toContain("rollout-policy");
   });
 });

@@ -1,4 +1,4 @@
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME, type ResolvedActor } from "@chase-sets/auth-context";
 import {
   createAccountUserTestActor,
   createAdminTestActor,
@@ -8,7 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createAuthServicesFake } from "../auth-support/test-support";
-import { AUTH_GUEST_CHECKOUT_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
+import { AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSessionApiRoutes } from "./session-routes";
 import type { AuthApiEnv } from "./support";

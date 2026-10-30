@@ -1,5 +1,8 @@
 import { checkoutCatalogProjectionSchemaSql } from "../../features/cart/integrations/catalog/catalog-schema";
-import { checkoutSellerAccountsSchemaSql } from "../../features/cart/integrations/identity/identity-schema";
+import {
+  checkoutSellerAccountsSchemaMigrations,
+  checkoutSellerAccountsSchemaSql,
+} from "../../features/cart/integrations/identity/identity-schema";
 import { checkoutInventorySupplySchemaSql } from "../../features/cart/integrations/inventory/inventory-schema";
 import {
   checkoutMarketplaceSellerOptionsSchemaMigrations,
@@ -19,7 +22,11 @@ import {
   checkoutPaymentSummarySchemaMigrations,
   checkoutPaymentSummarySchemaSql,
 } from "../../features/sessions/integrations/payments/payment-summary-schema";
-import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
+import {
+  checkoutSessionRetainedSchemaSql,
+  checkoutSessionSchemaMigrations,
+  checkoutSessionSchemaSql,
+} from "../../features/sessions/read-model/schema";
 
 export const checkoutSchemaSql = [
   checkoutCatalogProjectionSchemaSql,
@@ -32,9 +39,11 @@ export const checkoutSchemaSql = [
   checkoutPaymentAffordanceSchemaSql,
   checkoutPaymentSummarySchemaSql,
   checkoutSessionSchemaSql,
+  checkoutSessionRetainedSchemaSql,
 ].join("\n");
 
 export const checkoutSchemaMigrations = [
+  ...checkoutSellerAccountsSchemaMigrations,
   ...checkoutCartSchemaMigrations,
   ...checkoutMarketplaceSellerOptionsSchemaMigrations,
   ...checkoutSessionSchemaMigrations,

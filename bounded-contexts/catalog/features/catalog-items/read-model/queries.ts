@@ -320,6 +320,18 @@ export async function listCatalogItemsForBulkPublish(
   return result.rows;
 }
 
+export async function getCatalogItemPublicationBlueprint(db: PgQueryable, blueprintId: string) {
+  const result = await db.query<Pick<BulkPublishCatalogItemRow, "blueprint_status" | "blueprint_field_rules">>(
+    `SELECT blueprint.status AS blueprint_status,
+       blueprint.field_rules AS blueprint_field_rules
+     FROM catalog_blueprints AS blueprint
+     WHERE blueprint.blueprint_id = $1`,
+    [blueprintId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function loadCatalogItemPublicationIdentityRows(
   db: PgQueryable,
   itemIds: readonly string[],

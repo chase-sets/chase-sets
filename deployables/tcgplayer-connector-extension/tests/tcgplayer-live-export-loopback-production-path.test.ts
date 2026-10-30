@@ -3,7 +3,7 @@ import { buildConnectorManifest } from "@chase-sets/channels";
 import { exportSentinel, startLoopback, syntheticExportCsv } from "../__tests__/harness/loopback";
 import { syntheticLiveExportClaim } from "../__tests__/harness/claim";
 import { portalOrigin } from "../__tests__/harness/origins";
-import { manifestInput } from "../vite.config";
+import { connectorManifestInput } from "../vite.config";
 import { compose, composeProduct, journal } from "./connector-composition-support";
 
 type Composition = ReturnType<typeof compose>;
@@ -173,6 +173,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     },
   );
   it("custody: permissions stay identity, storage, alarms and hosts equal the registry plus the platform", () => {
+    const manifestInput = connectorManifestInput("connector-local");
     const manifest = buildConnectorManifest(manifestInput);
     expect(manifest.permissions).toEqual(["identity", "storage", "alarms"]);
     expect(manifest.host_permissions).toEqual(

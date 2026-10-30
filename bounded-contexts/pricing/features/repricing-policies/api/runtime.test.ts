@@ -201,6 +201,7 @@ describe("createRepricingPolicyRuntime", () => {
     const policies = await services.listAccountRepricingPolicies({ accountId: "acc_seller" });
     expect(policies).toEqual([
       {
+        authoringIntent: null,
         policyId: "rpp_1",
         sellerAccountId: "acc_seller",
         name: "Base policy",

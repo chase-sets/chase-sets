@@ -24,6 +24,7 @@ import type { RecordExternalChannelSale } from "../../features/channel-sales/api
 import {
   createInventoryImportBatchRuntime,
   type InventoryDraftListingCreator,
+  type InventoryDraftListingDelivery,
 } from "../../features/import-batches/api/runtime";
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
@@ -38,6 +39,7 @@ import {
   recoverInventoryReductions,
   recoverStorageLocations,
   recoverRestockDecisions,
+  recoverInventoryImportCreates,
 } from "./recovery-services";
 
 export type InventoryServices = Readonly<{
@@ -69,6 +71,7 @@ export type InventoryServices = Readonly<{
 export type InventoryHostPorts = Readonly<{
   checkoutReservationAuthority?: InventoryCheckoutReservationAuthority;
   draftListingCreator?: InventoryDraftListingCreator;
+  draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
 
@@ -130,14 +133,20 @@ export function createInventoryServices(
   const pendingStorageLocations = createStorageLocationRuntime(deps);
   const pendingItems = createInventoryItemRuntime(deps, catalogItems, pendingStorageLocations);
   const items = recoverInventoryItems(createInventoryItemRuntime(deps, catalogItems, storageLocations), mutations);
-  const importBatches = createInventoryImportBatchRuntime({
-    db,
-    notificationWaiterPool: options.notificationWaiterPool,
-    items: pendingItems,
-    catalogItems,
-    draftListingCreator: ports.draftListingCreator,
-    importProductRollout: ports.importProductRollout,
-  });
+  const importBatches = recoverInventoryImportCreates(
+    createInventoryImportBatchRuntime({
+      db,
+      notificationWaiterPool: options.notificationWaiterPool,
+      items: pendingItems,
+      rowItems: items,
+      catalogItems,
+      draftListingCreator: ports.draftListingCreator,
+      draftListingDelivery: ports.draftListingDelivery,
+      importProductRollout: ports.importProductRollout,
+      executeMutation: mutations.execute,
+    }),
+    mutations,
+  );
   const holds = recoverInventoryHolds(createInventoryHoldRuntime(deps), mutations);
   const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
   const reservations = createInventoryReservationRuntime(deps);

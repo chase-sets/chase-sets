@@ -61,7 +61,7 @@ const ITEM_KEYS = [
   "secondaryResolutions",
 ] as const;
 const RESOLUTION_REQUIRED_KEYS = ["intent", "mode", "labelKey", "fields"] as const;
-const RESOLUTION_OPTIONAL_KEYS = ["requiresReason"] as const;
+const RESOLUTION_OPTIONAL_KEYS = ["requiresReason", "href", "unavailable"] as const;
 const SEVERITIES = ["critical", "warning", "info"] as const satisfies readonly CatalogAttentionSeverity[];
 const RESOLUTION_MODES = ["command", "drawer"] as const;
 
@@ -165,13 +165,22 @@ function parseResolution(value: unknown): CatalogAttentionResolution | null {
     labelKey === null ||
     fields === null ||
     !isOneOf(value.mode, RESOLUTION_MODES) ||
-    !("requiresReason" in value ? typeof value.requiresReason === "boolean" : true)
+    !("requiresReason" in value ? typeof value.requiresReason === "boolean" : true) ||
+    !("href" in value ? typeof value.href === "string" && value.href.startsWith("/catalog/") : true) ||
+    !("unavailable" in value ? value.unavailable === true : true) ||
+    ("href" in value && "unavailable" in value)
   ) {
     return null;
   }
-  return "requiresReason" in value
-    ? { intent, mode: value.mode, labelKey, fields, requiresReason: value.requiresReason === true }
-    : { intent, mode: value.mode, labelKey, fields };
+  return {
+    intent,
+    mode: value.mode,
+    labelKey,
+    fields,
+    ...(value.requiresReason !== undefined ? { requiresReason: value.requiresReason === true } : {}),
+    ...(typeof value.href === "string" ? { href: value.href } : {}),
+    ...(value.unavailable === true ? { unavailable: true } : {}),
+  };
 }
 
 // Counts are re-derived from the accepted items; the response's own counts must

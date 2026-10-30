@@ -47,6 +47,27 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 export const RELEASE_QUALIFICATION_SCOPE_SCHEMA_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_CLASSES = Object.freeze(["not_applicable", "isolated", "persistent_required"]);
+// Stable classifier reason-code vocabulary consumed by the advisory lifecycle
+// producer. Keep the map explicit so terminal validation cannot accept a
+// reason from an unrelated classifier or silently widen on a future version.
+export const RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS = Object.freeze({
+  not_applicable: Object.freeze(["ci_only_workflow", "docs_or_test_only", "repo_tooling_only", "empty_diff"]),
+  isolated: Object.freeze(["application_image", "application_runtime"]),
+  persistent_required: Object.freeze([
+    "migration_schema",
+    "seed_bootstrap_import_reconciliation",
+    "money_movement_contract",
+    "terraform_infrastructure",
+    "helm_doks_ingress_dns_spaces",
+    "live_provider_contract",
+    "deployment_release_workflow",
+    "unregistered_workflow_semantics",
+    "unrecognized_migration_mechanism",
+    "destructive_data",
+    "unreadable_file",
+    "unknown_surface",
+  ]),
+});
 export const RELEASE_QUALIFICATION_APPLICABILITY_KINDS = Object.freeze(["path-scope/v0", "pure-module/v1"]);
 export const RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS = Object.freeze(["type-only", "value"]);
 
@@ -100,6 +121,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "bounded-context-runtime": "runtime-library",
     digitalocean: "terraform",
     "easypost-postage": "live-provider",
+    "google-merchant": "live-provider",
     "event-core-postgres": "event-store-persistence",
     helm: "helm",
     "local-email-capture": "test-mode-provider",
@@ -131,13 +153,17 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   contracts: Object.freeze({
     "auth-context": "runtime-library",
     "bounded-context-module": "runtime-library",
+    "catalog-product-line": "runtime-library",
     "catalog-seed": "seed-machinery",
     "checkout-order-source": "money-movement-contract",
     "embedded-surface-theme": "runtime-library",
     "event-core": "event-store-persistence",
+    "google-shopping-export": "live-provider",
     "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
     "identity-seed": "seed-machinery",
+    // Versioned receipt/message facts are validated at bootstrap and must preserve replay semantics.
+    "inventory-draft-listing": "event-store-persistence",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
@@ -155,6 +181,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
+    "tcgplayer-market-observations": "event-store-persistence",
   }),
 
   // Migration mechanisms (historical paths). Renamed copies are caught by the
@@ -224,6 +251,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "scripts/promoted-release.mjs",
     "scripts/release-deployment-scope.mjs",
     "scripts/release-qualification-record.mjs",
+    "scripts/merge-qualification-policy.json",
+    "scripts/merge-qualification.mjs",
     "scripts/release-qualification-scope.mjs",
     "scripts/run-catalog-integration-reset.mjs",
     "scripts/staging-bootstrap-hook-drill.mjs",
@@ -240,12 +269,15 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
+    "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
     "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "collections-anonymous-owner-redaction.yml": "release",
+    "collections-cutover-authority-capture.yml": "ci",
     "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
@@ -259,14 +291,17 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
     "platform-db-duration-drift.yml": "ci",
+    "platform-dependency-audit.yml": "ci",
     "platform-delivery-health.yml": "ci",
+    "platform-credential-health.yml": "ci",
     "platform-digitalocean-drift-digest.yml": "ci",
-    "platform-digitalocean-token-rotation-reminder.yml": "ci",
     "platform-doks-foundation.yml": "release",
     "platform-emergency-recovery.yml": "release",
     "platform-ephemeral-verification.yml": "release",
     "platform-merge-gate-verification.yml": "release",
     "platform-merge-group-failure-signatures.yml": "ci",
+    "platform-merge-qualification-observer.yml": "release",
+    "platform-merge-qualification.yml": "release",
     "platform-merge-queue-posture.yml": "ci",
     "platform-observability-state-migration.yml": "release",
     "platform-postgres-growth-evidence.yml": "ci",
@@ -274,8 +309,12 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
+    "platform-preview-cleanup-observer.yml": "ci",
+    "platform-preview-pool-census.yml": "ci",
     "platform-preview-wildcard-tls.yml": "release",
+    "platform-production-memory-probe.yml": "ci",
     "platform-production-restore-point-cleanup.yml": "release",
+    "platform-production-lock-monitor.yml": "ci",
     "platform-production-stale-helm-recovery.yml": "release",
     "platform-production-stripe-webhook-endpoint-create.yml": "release",
     "platform-production-stripe-webhook-endpoint-verify.yml": "release",
@@ -289,6 +328,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-admin-smoke.yml": "release",
     "platform-staging-advisory-evidence.yml": "release",
     "platform-staging-bootstrap-hook-drill.yml": "release",
+    "platform-staging-cluster-addons.yml": "release",
+    "platform-staging-evidence-window-cleanup.yml": "release",
+    "platform-staging-evidence-window.yml": "release",
     "platform-staging-helm-recovery.yml": "release",
     "platform-staging-mixed-version-wake-drills.yml": "release",
     "platform-staging-projection-operations.yml": "release",
@@ -307,6 +349,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   actions: Object.freeze({
     "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
+    "production-marker-recovery-context": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
   }),

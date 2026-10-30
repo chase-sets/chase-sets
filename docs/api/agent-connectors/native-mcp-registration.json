@@ -946,7 +946,7 @@
     {
       "name": "inventory.create-import-batch",
       "title": "Create Inventory Import Batch",
-      "description": "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+      "description": "Accept a recoverable import validation job from CSV text or pre-parsed provider rows. Read the exact attempt receipt after a possible send; acceptance is not validation or stock commit.",
       "service_id": "inventory",
       "risk": "sensitive",
       "access_scope": "account",
@@ -993,7 +993,22 @@
             "items": {
               "type": "object",
               "description": "Parsed row with rowNumber and string values.",
-              "additionalProperties": true
+              "additionalProperties": false,
+              "required": [
+                "rowNumber",
+                "values"
+              ],
+              "properties": {
+                "rowNumber": {
+                  "type": "integer",
+                  "description": "Distinct positive source row identity."
+                },
+                "values": {
+                  "type": "object",
+                  "description": "Text cells normalized by the selected source adapter; unknown upload fields are not retained.",
+                  "additionalProperties": true
+                }
+              }
             }
           },
           "defaultStorageLocationId": {
@@ -1006,7 +1021,7 @@
           },
           "sourceFilename": {
             "type": "string",
-            "description": "Original file or connector source name."
+            "description": "Optional display hint, discarded and never retained with the import."
           },
           "idempotencyKey": {
             "type": "string",
@@ -1024,160 +1039,38 @@
       },
       "output_schema": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": [
+          "receiptVersion",
+          "jobId",
+          "batchId",
+          "status"
+        ],
         "properties": {
-          "batch_id": {
-            "type": "string",
-            "description": "Import batch identifier."
+          "receiptVersion": {
+            "type": "integer",
+            "description": "Durable import acceptance receipt version (1)."
           },
-          "account_id": {
+          "jobId": {
             "type": "string",
-            "description": "Account that owns the import batch."
+            "description": "Durable validation job identity."
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Recoverable import batch identity."
           },
           "status": {
             "type": "string",
-            "description": "Import batch status.",
+            "description": "Acceptance does not assert validation or stock commit.",
             "enum": [
-              "uploaded",
-              "committed"
+              "accepted"
             ]
-          },
-          "source_key": {
-            "type": "string",
-            "description": "Configured import source key."
-          },
-          "adapter_version": {
-            "type": "integer",
-            "description": "Version of the import adapter contract."
-          },
-          "quantity_mode": {
-            "type": "string",
-            "description": "How row quantities affect stock.",
-            "enum": [
-              "add",
-              "replace"
-            ]
-          },
-          "total_count": {
-            "type": "integer",
-            "description": "Total row count."
-          },
-          "accepted_count": {
-            "type": "integer",
-            "description": "Accepted row count."
-          },
-          "rejected_count": {
-            "type": "integer",
-            "description": "Rejected row count."
-          },
-          "committed_count": {
-            "type": "integer",
-            "description": "Committed row count."
-          },
-          "created_at": {
-            "type": "string",
-            "description": "Creation timestamp."
-          },
-          "updated_at": {
-            "type": "string",
-            "description": "Last update timestamp."
-          },
-          "rows": {
-            "type": "array",
-            "description": "Import batch rows.",
-            "items": {
-              "type": "object",
-              "description": "Inventory import batch row.",
-              "additionalProperties": true,
-              "required": [
-                "row_id",
-                "batch_id",
-                "row_number",
-                "status",
-                "quantity_mode",
-                "resolution_status",
-                "validation_errors",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "row_id": {
-                  "type": "string",
-                  "description": "Import batch row identifier."
-                },
-                "batch_id": {
-                  "type": "string",
-                  "description": "Import batch identifier."
-                },
-                "row_number": {
-                  "type": "integer",
-                  "description": "Source row number."
-                },
-                "status": {
-                  "type": "string",
-                  "description": "Import row status.",
-                  "enum": [
-                    "accepted",
-                    "rejected",
-                    "committed"
-                  ]
-                },
-                "quantity_mode": {
-                  "type": "string",
-                  "description": "How row quantities affect stock.",
-                  "enum": [
-                    "add",
-                    "replace"
-                  ]
-                },
-                "resolution_status": {
-                  "type": "string",
-                  "description": "Catalog resolution status.",
-                  "enum": [
-                    "native",
-                    "resolved",
-                    "unresolved"
-                  ]
-                },
-                "validation_errors": {
-                  "type": "array",
-                  "description": "Validation errors for the row.",
-                  "items": {
-                    "type": "string",
-                    "description": "Validation error."
-                  }
-                },
-                "created_at": {
-                  "type": "string",
-                  "description": "Creation timestamp."
-                },
-                "updated_at": {
-                  "type": "string",
-                  "description": "Last update timestamp."
-                }
-              }
-            }
           }
-        },
-        "required": [
-          "batch_id",
-          "account_id",
-          "status",
-          "source_key",
-          "adapter_version",
-          "quantity_mode",
-          "total_count",
-          "accepted_count",
-          "rejected_count",
-          "committed_count",
-          "created_at",
-          "updated_at",
-          "rows"
-        ]
+        }
       },
       "confirmation_required": true,
       "idempotency_key": "required",
-      "dry_run_supported": true,
+      "dry_run_supported": false,
       "expected_usage": [
         "Use after source rows are fetched and before committing stock or draft listings."
       ]
@@ -1376,7 +1269,7 @@
     {
       "name": "inventory.commit-import-batch",
       "title": "Commit Inventory Import Batch",
-      "description": "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+      "description": "Accept a durable job to commit reviewed import rows into Inventory Items and draft Listings; read the job for its outcome.",
       "service_id": "inventory",
       "risk": "sensitive",
       "access_scope": "account",
@@ -1425,156 +1318,31 @@
       },
       "output_schema": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": [
+          "receiptVersion",
+          "jobId",
+          "batchId",
+          "status"
+        ],
         "properties": {
-          "batch_id": {
-            "type": "string",
-            "description": "Import batch identifier."
+          "receiptVersion": {
+            "type": "integer",
+            "description": "Durable import acceptance receipt version (1)."
           },
-          "account_id": {
+          "jobId": {
             "type": "string",
-            "description": "Account that owns the import batch."
+            "description": "Durable commit job identity."
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Inventory import batch identity."
           },
           "status": {
             "type": "string",
-            "description": "Import batch status.",
-            "enum": [
-              "uploaded",
-              "committed"
-            ]
-          },
-          "source_key": {
-            "type": "string",
-            "description": "Configured import source key."
-          },
-          "adapter_version": {
-            "type": "integer",
-            "description": "Version of the import adapter contract."
-          },
-          "quantity_mode": {
-            "type": "string",
-            "description": "How row quantities affect stock.",
-            "enum": [
-              "add",
-              "replace"
-            ]
-          },
-          "total_count": {
-            "type": "integer",
-            "description": "Total row count."
-          },
-          "accepted_count": {
-            "type": "integer",
-            "description": "Accepted row count."
-          },
-          "rejected_count": {
-            "type": "integer",
-            "description": "Rejected row count."
-          },
-          "committed_count": {
-            "type": "integer",
-            "description": "Committed row count."
-          },
-          "created_at": {
-            "type": "string",
-            "description": "Creation timestamp."
-          },
-          "updated_at": {
-            "type": "string",
-            "description": "Last update timestamp."
-          },
-          "rows": {
-            "type": "array",
-            "description": "Import batch rows.",
-            "items": {
-              "type": "object",
-              "description": "Inventory import batch row.",
-              "additionalProperties": true,
-              "required": [
-                "row_id",
-                "batch_id",
-                "row_number",
-                "status",
-                "quantity_mode",
-                "resolution_status",
-                "validation_errors",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "row_id": {
-                  "type": "string",
-                  "description": "Import batch row identifier."
-                },
-                "batch_id": {
-                  "type": "string",
-                  "description": "Import batch identifier."
-                },
-                "row_number": {
-                  "type": "integer",
-                  "description": "Source row number."
-                },
-                "status": {
-                  "type": "string",
-                  "description": "Import row status.",
-                  "enum": [
-                    "accepted",
-                    "rejected",
-                    "committed"
-                  ]
-                },
-                "quantity_mode": {
-                  "type": "string",
-                  "description": "How row quantities affect stock.",
-                  "enum": [
-                    "add",
-                    "replace"
-                  ]
-                },
-                "resolution_status": {
-                  "type": "string",
-                  "description": "Catalog resolution status.",
-                  "enum": [
-                    "native",
-                    "resolved",
-                    "unresolved"
-                  ]
-                },
-                "validation_errors": {
-                  "type": "array",
-                  "description": "Validation errors for the row.",
-                  "items": {
-                    "type": "string",
-                    "description": "Validation error."
-                  }
-                },
-                "created_at": {
-                  "type": "string",
-                  "description": "Creation timestamp."
-                },
-                "updated_at": {
-                  "type": "string",
-                  "description": "Last update timestamp."
-                }
-              }
-            }
+            "description": "accepted; read the durable job for its terminal outcome."
           }
-        },
-        "required": [
-          "batch_id",
-          "account_id",
-          "status",
-          "source_key",
-          "adapter_version",
-          "quantity_mode",
-          "total_count",
-          "accepted_count",
-          "rejected_count",
-          "committed_count",
-          "created_at",
-          "updated_at",
-          "rows"
-        ]
+        }
       },
       "confirmation_required": true,
       "idempotency_key": "required",
@@ -4637,7 +4405,7 @@
           },
           "dryRun": {
             "type": "boolean",
-            "description": "Validate without creating a hosted setup session."
+            "description": "Dry runs are not supported; omit or pass false. True is refused before any setup work."
           }
         }
       },
@@ -4681,7 +4449,7 @@
       },
       "confirmation_required": true,
       "idempotency_key": "required",
-      "dry_run_supported": true,
+      "dry_run_supported": false,
       "expected_usage": [
         "Use once, before in-chat checkout completion, when the account has no stored payment method.",
         "Return the hosted URL to the user for a one-time card-entry hop; then poll confirm-payment-method-setup."
@@ -6312,7 +6080,11 @@
           "accountId",
           "items",
           "total",
-          "count"
+          "count",
+          "completeness",
+          "next_payout",
+          "blocked_payouts",
+          "availability"
         ],
         "properties": {
           "accountId": {
@@ -6374,6 +6146,170 @@
           "count": {
             "type": "integer",
             "description": "Returned payout count."
+          },
+          "completeness": {
+            "type": "object",
+            "description": "Whether the payout summary is complete or capped.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "total"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "Summary completeness state."
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total actionable payout count."
+              },
+              "cap": {
+                "type": "integer",
+                "description": "Summary hard cap when bounded."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Reason the summary is bounded."
+              }
+            }
+          },
+          "next_payout": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Next requested or in-transit payout.",
+            "additionalProperties": false,
+            "required": [
+              "payout_id",
+              "amount",
+              "requested_amount",
+              "fee_amount",
+              "currency_code",
+              "estimated_arrival_at"
+            ],
+            "properties": {
+              "payout_id": {
+                "type": "string",
+                "description": "Payout identifier."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Net payout amount."
+              },
+              "requested_amount": {
+                "type": "string",
+                "description": "Requested payout amount."
+              },
+              "fee_amount": {
+                "type": "string",
+                "description": "Payout fee amount."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Payout currency code."
+              },
+              "estimated_arrival_at": {
+                "type": "string",
+                "description": "Estimated arrival timestamp."
+              }
+            }
+          },
+          "blocked_payouts": {
+            "type": "array",
+            "description": "Payouts requiring retry or reconciliation.",
+            "items": {
+              "type": "object",
+              "description": "Blocked payout summary row.",
+              "additionalProperties": false,
+              "required": [
+                "payout_id",
+                "account_id",
+                "reference",
+                "block_reason",
+                "kind",
+                "next_action",
+                "observed_at"
+              ],
+              "properties": {
+                "payout_id": {
+                  "type": "string",
+                  "description": "Payout identifier."
+                },
+                "account_id": {
+                  "type": "string",
+                  "description": "Account that owns the payout."
+                },
+                "reference": {
+                  "type": "string",
+                  "description": "Human payout reference."
+                },
+                "block_reason": {
+                  "type": "string",
+                  "description": "Provider-neutral blocked reason."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Blocked payout kind."
+                },
+                "next_action": {
+                  "type": "string",
+                  "description": "Recommended next action."
+                },
+                "observed_at": {
+                  "type": "string",
+                  "description": "Timestamp the block was observed."
+                }
+              }
+            }
+          },
+          "availability": {
+            "type": "object",
+            "description": "Settlement payout availability.",
+            "additionalProperties": false,
+            "required": [
+              "can_request",
+              "unavailable_reasons",
+              "unavailable_reason_details"
+            ],
+            "properties": {
+              "can_request": {
+                "type": "boolean",
+                "description": "Whether the actor may request a payout."
+              },
+              "unavailable_reasons": {
+                "type": "array",
+                "description": "Availability reason codes.",
+                "items": {
+                  "type": "string",
+                  "description": "Reason code."
+                }
+              },
+              "unavailable_reason_details": {
+                "type": "array",
+                "description": "Availability reason details.",
+                "items": {
+                  "type": "object",
+                  "description": "Availability reason detail.",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "Reason code."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human reason message."
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },

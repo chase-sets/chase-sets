@@ -1,8 +1,7 @@
-import {
-  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
-  AUTH_GUEST_CHECKOUT_COOKIE_NAME,
-  AUTH_SESSION_COOKIE_NAME,
-} from "../request-support/cookies";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "@chase-sets/auth-context";
+import { serializeCookie } from "@chase-sets/http/cookies";
+import { getSafeSameSitePath } from "./same-site-path";
+import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
 const DOCUMENT_REDIRECT_HEADER = "X-Remix-Reload-Document";
 
@@ -29,29 +28,6 @@ export function parseCookieHeader(cookieHeader: string | null) {
 
 export function readCookie(request: Request, name: string) {
   return parseCookieHeader(request.headers.get("cookie")).get(name) ?? null;
-}
-
-export function serializeCookie(
-  name: string,
-  value: string,
-  options: Readonly<{
-    request?: Request;
-    maxAgeSeconds?: number;
-  }> = {},
-) {
-  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax"];
-
-  if (typeof options.maxAgeSeconds === "number") {
-    parts.push(`Max-Age=${options.maxAgeSeconds}`);
-  }
-
-  const protocol = options.request ? new URL(options.request.url).protocol : "http:";
-
-  if (protocol === "https:") {
-    parts.push("Secure");
-  }
-
-  return parts.join("; ");
 }
 
 export function createRedirectResponse(location: string, headers?: HeadersInit) {
@@ -124,7 +100,7 @@ export function clearGuestCheckoutCookie(headers: Headers, request?: Request) {
 }
 
 function isSafeReturnTo(value: string | null): value is string {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
+  return value !== null && getSafeSameSitePath(value) === value;
 }
 
 export function getSafeReturnTo(request: Request, fallback: string) {

@@ -4,8 +4,19 @@ import type {
   InventoryImportQuantityMode,
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
+import { importBatchCommitReadiness, importRowNeedsSeller } from "../domain/import-batch-review";
+import { INVENTORY_IMPORT_CREATE_JOB_KINDS } from "../domain/job-kinds";
 
-export type InventoryImportBatchStatus = "uploaded" | "committed";
+export type InventoryImportBatchStatus =
+  | "uploaded"
+  | "validating"
+  | "ready-to-commit"
+  | "committing"
+  | "committed"
+  | "partial"
+  | "failed-safe"
+  | "ambiguous"
+  | "expired";
 export type InventoryImportRowStatus = "accepted" | "rejected" | "committed";
 export type InventoryImportResolutionStatus = "native" | "resolved" | "unresolved";
 
@@ -41,6 +52,7 @@ export type InventoryImportBatchRow = Readonly<{
   committed_at: string | null;
   created_at: string;
   updated_at: string;
+  needs_seller: boolean;
 }>;
 
 export type InventoryImportBatch = Readonly<{
@@ -51,7 +63,6 @@ export type InventoryImportBatch = Readonly<{
   adapter_version: number;
   quantity_mode: InventoryImportQuantityMode;
   default_storage_location_id: string | null;
-  source_filename: string | null;
   total_count: number;
   accepted_count: number;
   rejected_count: number;
@@ -62,12 +73,17 @@ export type InventoryImportBatch = Readonly<{
 
 export type InventoryImportBatchDetail = InventoryImportBatch &
   Readonly<{
+    can_commit: boolean;
+    commit_ready_count: number;
     rows: readonly InventoryImportBatchRow[];
   }>;
 
+export type InventoryImportBatchResolution = InventoryImportBatchDetail &
+  Readonly<{ next_needs_seller_row_id: string | null }>;
+
 type RawImportBatchRow = Omit<
   InventoryImportBatchRow,
-  "raw_row" | "external_reference" | "selected_options" | "validation_errors"
+  "raw_row" | "external_reference" | "selected_options" | "validation_errors" | "needs_seller"
 > &
   Readonly<{
     raw_row: unknown;
@@ -76,21 +92,52 @@ type RawImportBatchRow = Omit<
     validation_errors: unknown;
   }>;
 
+const IMPORT_BATCH_CREATE_JOB_KINDS_SQL = INVENTORY_IMPORT_CREATE_JOB_KINDS.map((kind) => `'${kind}'`).join(", ");
+
 const IMPORT_BATCH_STATUS_SQL = `CASE
+  WHEN status = 'expired' THEN 'expired'
   WHEN total_count > 0
    AND accepted_count > 0
    AND committed_count = accepted_count
     THEN 'committed'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'failed') THEN 'failed-safe'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status IN ('queued', 'running')) THEN 'validating'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'commit' AND job.status IN ('queued', 'running')) THEN 'committing'
+  WHEN committed_count > 0 THEN 'partial'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'completed'
+      AND (job.progress->>'total')::integer <> inventory_import_batches.total_count) THEN 'ambiguous'
+  WHEN total_count > 0 THEN 'ready-to-commit'
   ELSE 'uploaded'
 END`;
 
-function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
+function normalizeRow(row: RawImportBatchRow, sourceKey: InventoryImportSourceKey): InventoryImportBatchRow {
   return {
     ...row,
+    needs_seller: importRowNeedsSeller({
+      sourceKey,
+      status: row.status,
+      resolutionStatus: row.resolution_status,
+      productId: row.product_id,
+      committedAt: row.committed_at,
+    }),
     acquisition_occurred_at:
       row.acquisition_occurred_at === null || row.acquisition_occurred_at === undefined
         ? null
         : new Date(row.acquisition_occurred_at).toISOString(),
+    committed_at:
+      row.committed_at === null || row.committed_at === undefined ? null : new Date(row.committed_at).toISOString(),
     raw_row:
       typeof row.raw_row === "object" && row.raw_row !== null && !Array.isArray(row.raw_row)
         ? (row.raw_row as Record<string, string>)
@@ -114,6 +161,8 @@ export async function getImportBatch(
   db: PgQueryable,
   batchId: string,
   accountId: string,
+  page?: Readonly<{ limit: number; offset?: number }>,
+  options?: Readonly<{ stockProgressionEnabled?: boolean }>,
 ): Promise<InventoryImportBatchDetail | null> {
   const batchResult = await db.query<InventoryImportBatch>(
     `SELECT
@@ -124,7 +173,6 @@ export async function getImportBatch(
        adapter_version,
        quantity_mode,
        default_storage_location_id,
-       source_filename,
        total_count,
        accepted_count,
        rejected_count,
@@ -170,19 +218,30 @@ export async function getImportBatch(
        row_note,
        validation_errors,
        committed_inventory_item_id,
-       committed_listing_id,
+       CASE WHEN outbox.state = 'failed' THEN NULL
+            ELSE import_row.committed_listing_id END AS committed_listing_id,
        committed_at,
-       created_at,
-       updated_at
-     FROM inventory_import_batch_rows
-     WHERE batch_id = $1
-     ORDER BY row_number ASC`,
-    [batchId],
+       import_row.created_at,
+       import_row.updated_at
+     FROM inventory_import_batch_rows AS import_row
+     LEFT JOIN inventory_import_draft_listing_outbox AS outbox
+       ON outbox.message_id = import_row.row_id
+     WHERE import_row.batch_id = $1
+     ORDER BY import_row.row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
+    page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
+  const readiness = importBatchCommitReadiness({
+    status: batch.status,
+    acceptedCount: batch.accepted_count,
+    committedCount: batch.committed_count,
+    stockProgressionEnabled: options?.stockProgressionEnabled,
+  });
   return {
     ...batch,
-    rows: rows.rows.map(normalizeRow),
+    can_commit: readiness.canCommit,
+    commit_ready_count: readiness.commitReadyCount,
+    rows: rows.rows.map((row) => normalizeRow(row, batch.source_key)),
   };
 }
 
@@ -208,7 +267,6 @@ export async function listImportBatches(
          adapter_version,
          quantity_mode,
          default_storage_location_id,
-         source_filename,
          total_count,
          accepted_count,
          rejected_count,

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
+import { resolveRecentAuthenticationStatus, ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
-import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
 import type { AuthServices } from "./services";
 import { resolveActorFromSessionId } from "./services";
 
@@ -151,6 +151,30 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
       if (roleKey === "synthetic-no-grants") expect(actor?.permissions).toEqual([]);
     }
   });
+  it.each(["platform-admin", "owner", "manager", "fulfillment", "viewer"] as const)(
+    "resolves the canonical role permissions at sign-in from empty, pre-move Identity and current snapshots: %s",
+    async (roleKey) => {
+      // Identity's pre-move table withheld projection-operations.* from owner;
+      // rows it projected before the move still carry that snapshot.
+      const preMoveIdentitySnapshot = ROLE_PERMISSIONS[roleKey].filter(
+        (permission) => roleKey !== "owner" || !permission.startsWith("projection-operations."),
+      );
+      for (const stored of [[], preMoveIdentitySnapshot, [...ROLE_PERMISSIONS[roleKey]]]) {
+        const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+        vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+          membership_id: SYNTHETIC_MEMBERSHIP_ID,
+          user_id: SYNTHETIC_USER_ID,
+          account_id: SYNTHETIC_ACCOUNT_ID,
+          role_key: roleKey,
+          role_permissions: stored,
+          status: "active",
+          updated_at: SYNTHETIC_FRESH_RECORDED_AT,
+        });
+        const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+        expect([...(actor?.permissions ?? [])].sort()).toEqual([...ROLE_PERMISSIONS[roleKey]].sort());
+      }
+    },
+  );
   it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
     const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const membership = await services.identity.getActiveMembershipForUserAccount(
@@ -376,7 +400,7 @@ describe("Projected Capability Grants on Session-backed actors", () => {
 
   it("keeps the any-case key and its administration out of every Auth role preset", () => {
     expect(
-      Object.entries(AUTH_ROLE_PERMISSIONS).flatMap(([roleKey, permissions]) =>
+      Object.entries(ROLE_PERMISSIONS).flatMap(([roleKey, permissions]) =>
         [roleKey, ...permissions].filter((value) => /support\.evidence|any-case|capabilit/i.test(value)),
       ),
     ).toEqual([]);

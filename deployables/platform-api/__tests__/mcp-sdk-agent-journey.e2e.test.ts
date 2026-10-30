@@ -295,6 +295,15 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       },
       payouts: {
         listPayouts: vi.fn(async () => ({ items: [payout], total: 1 })),
+        getPayoutSummary: vi.fn(async () => ({
+          items: [payout],
+          total: 1,
+          count: 1,
+          completeness: { kind: "complete", total: 1 },
+          next_payout: null,
+          blocked_payouts: [],
+          availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+        })),
         getPayout: vi.fn(async () => payout),
         requestPayout: vi.fn(async () => ({ payoutId: "payout_1", version: 1, payout })),
       },
@@ -475,13 +484,13 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     expect(settlementServices.payouts.requestPayout).toHaveBeenCalledTimes(1);
   });
 
-  it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
+  it("asserts native MCP rate-limit rejection and read-only UCP payment handoff", async () => {
     type CheckoutSession = Awaited<
       ReturnType<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>
     >["session"];
 
     const buyNowSession: CheckoutSession = {
-      session_id: "chk_1",
+      session_id: "chk_0123456789abcdefghijklmnop",
       buyer_account_id: "acc_1",
       source_type: "buy-now",
       optimization_goal: "lowest-total",
@@ -517,6 +526,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       payment_id: null,
       submitted_offer_id: null,
       cancelled_at: null,
+      handoff_expires_at: null,
       created_at: "2026-07-08T00:00:00.000Z",
       updated_at: "2026-07-08T00:00:00.000Z",
     };
@@ -524,6 +534,18 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createOfferIntent: vi.fn(),
       createBuyNowSession: vi.fn(),
       getSession: vi.fn(),
+      getLastRecordedQuote: vi.fn(
+        async () =>
+          ({
+            totals: {
+              itemSubtotalAmount: "20.00",
+              shippingAmount: "0.00",
+              salesTaxAmount: "0.00",
+              totalAmount: "20.00",
+            },
+            sellerGroups: [{ lines: [{ listingId: "listing_1", estimatedUnitPriceAmount: "20.00" }] }],
+          }) as never,
+      ),
       resumeOrderCartCleanup: vi.fn<
         Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]
       >(async () => ({ sessionId: "chk_1", session: buyNowSession })),
@@ -701,7 +723,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
 
     checkoutSessions.getSession = vi.fn(async () => buyNowSession);
     const checkoutBody = JSON.stringify(
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
         payment_data: {
@@ -712,7 +734,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     );
     const paymentsFetch = stubPaymentsCheckoutStatusFetch(paymentServices.getCheckoutStatus);
     try {
-      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
+      // Brief M1 complete replaces the retired stored-PM spend path with a read-only handoff.
+      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop/complete", {
         method: "POST",
         body: checkoutBody,
         headers: signedUcpHeaders(checkoutBody),
@@ -721,33 +744,94 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       expect(spendCapResponse.status).toBe(200);
       await expect(spendCapResponse.json()).resolves.toMatchObject({
         ucp: {
-          status: "requires_action",
+          status: "success",
         },
+        status: "requires_escalation",
         messages: [
           {
-            code: "agent_grant_spending_mandate_blocked",
-            message: "This agent grant exceeded its platform spend cap.",
+            code: "payment_required",
           },
         ],
       });
-      expect(paymentsFetch).toHaveBeenCalledTimes(1);
-      expect(grantOwner.isActiveGrant).toHaveBeenCalledWith("acc_1", "grant_full_journey");
-      expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orderIds: ["order_1"],
-        }),
-      );
-      expect(spendPolicy.authorize).toHaveBeenCalledWith(
-        expect.objectContaining({
-          operation: "complete_checkout",
-          amountCents: 2_605,
-          rail: "stored-pm",
-          humanPresent: false,
-          humanNotPresentAuthorized: true,
-        }),
-      );
+      expect(paymentsFetch).not.toHaveBeenCalled();
+      // The synthetic legacy actor has no agentGrant; no spend reservation is requested.
+      expect(grantOwner.isActiveGrant).not.toHaveBeenCalled();
+      expect(paymentServices.getCheckoutStatus).not.toHaveBeenCalled();
+      expect(spendPolicy.authorize).not.toHaveBeenCalled();
+      expect(checkoutSessions.resumeOrderCartCleanup).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("runs the operator grant journey through tools/list and offer economics", async () => {
+    const snapshot = {
+      from: "2026-10-01",
+      to: "2026-10-25",
+      listingCount: 4,
+      realizedGmvShare: "0.25",
+      foregoneFeeAmount: "12.00",
+      sellThroughRate: "0.40",
+    };
+    const platformOperationsServices = {
+      offerEconomics: {
+        getOfferEconomicsSnapshot: vi.fn(async (_params: Readonly<Record<string, unknown>>) => snapshot),
+      },
+    };
+    const operator = {
+      ...agentActor(["insights-dashboards.view"]),
+      roleKey: "platform-admin",
+      agentGrant: {
+        grantId: "grant_operator_journey",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
+        scopes: ["operations:write"] as const,
+        rolePermissions: ["insights-dashboards.view"],
+      },
+    };
+    const app = buildPlatformApiApp(
+      createRuntime(
+        {
+          "platform-operations": platformOperationsServices,
+          identity: { agentGrantRevocations: { isActiveGrant: vi.fn(async () => true) } },
+        },
+        [],
+      ),
+      {
+        resolveActor: vi.fn(async () => operator),
+        mcp: {
+          operatorAuthority: vi.fn(async () => ({
+            kind: "granted" as const,
+            membershipId: "member_1",
+            roleKey: "platform-admin" as const,
+            rolePermissions: ["insights-dashboards.view"],
+          })),
+          toolHandlers: {
+            "platform-operations.get-offer-economics-summary": async ({ arguments: args }) => ({
+              snapshot: await platformOperationsServices.offerEconomics.getOfferEconomicsSnapshot({
+                from: String(args.from),
+                to: String(args.to),
+                accountType: undefined,
+              }),
+            }),
+          },
+        },
+      },
+    );
+
+    await withMcpClient(app, async (client) => {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name)).toContain("platform-operations.get-offer-economics-summary");
+      const result = await client.callTool({
+        name: "platform-operations.get-offer-economics-summary",
+        arguments: { from: "2026-10-01", to: "2026-10-25" },
+      });
+      expect(expectStructured(result)).toEqual({ snapshot });
+    });
+
+    expect(platformOperationsServices.offerEconomics.getOfferEconomicsSnapshot).toHaveBeenCalledWith({
+      from: "2026-10-01",
+      to: "2026-10-25",
+      accountType: undefined,
+    });
   });
 });

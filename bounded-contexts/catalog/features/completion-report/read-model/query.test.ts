@@ -21,17 +21,42 @@ import { defaultScopeSyncBatchBudget, type ScopeSyncBatchPlannedScope } from "..
 import { createScopeSyncBatchStore } from "../../scope-sync-batches/read-model/store";
 import { upsertCatalogScopeSyncUnitState } from "../../scope-sync-state/read-model/queries";
 import { pokemonObservation } from "../../source-observations/api/seeding/runtime-test-harness";
+import { catalogMergeCandidatePromotionApplicationJobKind } from "../../source-observations/api/source-observation-merge-candidate-bulk-job-runtime";
 import {
+  parseCatalogAuditSampleRequest,
   parseProductionCatalogCompletionManifest,
   productionCatalogCompletionManifestVersion,
   reconcileProductionCatalogCompletion,
   type ProductionCatalogCompletionManifest,
 } from "../domain/index";
+import { findSupportSafetyViolations } from "../domain/redaction";
 import {
   classifyProviderProductionClass,
   queryProductionCatalogCompletionFacts,
   withCatalogCompletionReadSnapshot,
 } from "./query";
+
+describe("queryProductionCatalogCompletionFacts sample envelope", () => {
+  it("refuses a sample over the 275-item audit envelope before opening a connection", async () => {
+    const fixed = parseCatalogAuditSampleRequest({ strata: "magic=200/75", seed: "s1" });
+    const oversized = { ...fixed, strata: [{ ...fixed.strata[0]!, sealed: 76 }] };
+    let connections = 0;
+    const pool = {
+      connect: async () => {
+        connections += 1;
+        throw new Error("the envelope check must run before any connection");
+      },
+    } as unknown as PgTransactionalPool;
+    await expect(
+      queryProductionCatalogCompletionFacts(pool, {
+        batchId: "batch-1",
+        observedAt: "2026-10-18T00:00:00.000Z",
+        sample: oversized,
+      }),
+    ).rejects.toThrow("at most 275");
+    expect(connections).toBe(0);
+  });
+});
 
 describe("classifyProviderProductionClass", () => {
   it("classifies active production, validation lifecycles, and retired units", () => {
@@ -59,6 +84,18 @@ const context: EventStoreContext = {
 // SYNTHETIC provider coordinates; unit keys are opaque to the report.
 const tcgdexUnit = { providerKey: "tcgdex", unitKey: "tcgdex:pokemon-card:en" } as const;
 const scrydexUnit = { providerKey: "scrydex", unitKey: "scrydex:pokemon-card:en" } as const;
+
+function expectNonNegativeIntegerLeaves(value: unknown): void {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) {
+      expectNonNegativeIntegerLeaves(child);
+    }
+    return;
+  }
+  expect(typeof value).toBe("number");
+  expect(Number.isInteger(value)).toBe(true);
+  expect(value as number).toBeGreaterThanOrEqual(0);
+}
 
 describeDb("Production Catalog completion facts from the database (db)", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
@@ -347,8 +384,211 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       legacyProfileMarkerCount: 2,
       nonTerminalIntegrationJobCount: 1,
       publicationCountsByStatus: { active: 1, archived: 1, draft: 1 },
+      providerAgreement: expect.objectContaining({ pokemon: expect.objectContaining({ candidateCount: 0 }) }),
     });
     expect(facts.manifest.catalogItems).toEqual({ draft: 1, published: 1 });
+  });
+
+  it("AC1-AC3: reports support-safe provider agreement from current candidate membership", async () => {
+    await projectScope(db, "scope_agreement");
+    await createBatch(db, "batch_agreement", [plan("scope_agreement", [tcgdexUnit])]);
+    const identity = {
+      scopeRecordId: "scope_agreement",
+      collectorNumber: "fallback-1",
+      languageCode: "en",
+      productForm: "fallback-form",
+      variantKey: null,
+      barcode: null,
+    };
+    await insertObservation(db, {
+      observationId: "obs_agreement_old",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Old", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_a",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Same", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_b",
+      syncRunId: null,
+      providerKey: "scrydex",
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Same", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_c",
+      syncRunId: null,
+      providerKey: "third-provider",
+      normalized: pokemonObservation({
+        expansionName: "Set",
+        seriesName: "Series",
+        name: "Different",
+        cardNumber: "",
+      }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_conflict",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Conflict", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_conflict_b",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({
+        expansionName: "Set",
+        seriesName: "Series",
+        name: "Conflict",
+        rarity: "Ultra Rare",
+        cardNumber: "",
+      }),
+    });
+    await insertMergeCandidate(db, "candidate_agreement", identity, [
+      ["obs_agreement_a", "tcgdex"],
+      ["obs_agreement_b", "scrydex"],
+      ["obs_agreement_c", "third-provider"],
+    ]);
+    await insertMergeCandidate(db, "candidate_conflict", identity, [
+      ["obs_agreement_conflict", "tcgdex"],
+      ["obs_agreement_conflict_b", "tcgdex"],
+    ]);
+    await insertMergeCandidate(db, "candidate_empty", identity, []);
+
+    const facts = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_agreement",
+      observedAt: new Date().toISOString(),
+    });
+    const agreement = facts.reportedFacts.providerAgreement.pokemon;
+    expect(findSupportSafetyViolations(agreement)).toEqual([]);
+    expectNonNegativeIntegerLeaves(JSON.parse(JSON.stringify(agreement)));
+    expect(agreement.candidateCount).toBe(3);
+    expect(agreement.fields.name).toMatchObject({ agreed: 0, "single-source": 1, mismatch: 1, absent: 1 });
+    expect(agreement.fields.name.mismatchPairs).toEqual({
+      "scrydex|third-provider": 1,
+      "tcgdex|third-provider": 1,
+    });
+    expect(agreement.fields.collectorNumber.absent).toBe(3);
+    expect(agreement.fields.productForm).toMatchObject({ agreed: 1, absent: 1 });
+    expect(agreement.fields.rarity["intra-provider-conflict"]).toBe(1);
+    expect(
+      Object.values(agreement.fields).every(
+        (field) =>
+          field.agreed + field["single-source"] + field.mismatch + field.absent + field["intra-provider-conflict"] ===
+          3,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(agreement)).not.toMatch(/candidate_|obs_agreement|fallback-1|Same|Different/);
+  });
+
+  it("AC2 sample: samples only active items the batch applied and reports each shortfall", async () => {
+    await projectScope(db, "scope_sample_magic", "magic");
+    await projectScope(db, "scope_sample_pokemon", "pokemon");
+    await projectScope(db, "scope_sample_outside", "magic");
+    await createBatch(db, "batch_sample", [
+      plan("scope_sample_magic", [tcgdexUnit]),
+      plan("scope_sample_pokemon", [tcgdexUnit]),
+    ]);
+    // [item, scope, identity form, publication]
+    const fixtures = [
+      ["cat_sample_single_a", "scope_sample_magic", "magic-card-print", "active"],
+      ["cat_sample_single_b", "scope_sample_magic", "magic-card-print", "active"],
+      ["cat_sample_single_c", "scope_sample_magic", "magic-card-print", "active"],
+      ["cat_sample_sealed", "scope_sample_magic", "booster-box", "active"],
+      ["cat_sample_set_reference", "scope_sample_magic", "magic-set-reference", "active"],
+      ["cat_sample_draft", "scope_sample_magic", "magic-card-print", "draft"],
+      ["cat_sample_archived", "scope_sample_magic", "booster-box", "archived"],
+      ["cat_sample_pokemon_ja", "scope_sample_pokemon", "pokemon-sealed-product", "active"],
+      ["cat_sample_outside", "scope_sample_outside", "magic-card-print", "active"],
+    ] as const;
+    for (const [itemId, scopeRecordId, productForm, publication] of fixtures) {
+      await projectItem(db, itemId, {
+        languageCode: itemId === "cat_sample_pokemon_ja" ? "ja" : "en",
+        publish: publication !== "draft",
+        archive: publication === "archived",
+      });
+      await insertMergeCandidate(
+        db,
+        `candidate_${itemId}`,
+        { scopeRecordId, collectorNumber: null, languageCode: "en", productForm, variantKey: null, barcode: null },
+        [],
+        "promoted",
+      );
+    }
+    // Published but never applied by a batch candidate.
+    await projectItem(db, "cat_sample_unlinked", { publish: true });
+    const applications = (scopeRecordId: string) =>
+      fixtures
+        .filter((fixture) => fixture[1] === scopeRecordId)
+        .map(([itemId]) => [`candidate_${itemId}`, itemId] as const);
+    await recordPromotionApplications(db, "job_sample_magic", "scope_sample_magic", applications("scope_sample_magic"));
+    await recordPromotionApplications(
+      db,
+      "job_sample_pokemon",
+      "scope_sample_pokemon",
+      applications("scope_sample_pokemon"),
+    );
+    await recordPromotionApplications(
+      db,
+      "job_sample_outside",
+      "scope_sample_outside",
+      applications("scope_sample_outside"),
+    );
+
+    const unsampled = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_sample",
+      observedAt: new Date().toISOString(),
+    });
+    expect(unsampled.sample).toBeNull();
+    expect(unsampled.unknownFacts).toEqual([]);
+
+    const request = parseCatalogAuditSampleRequest({ strata: "magic=2/2,pokemon:ja=1/1", seed: "db-sample-1" });
+    const facts = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_sample",
+      observedAt: new Date().toISOString(),
+      sample: request,
+    });
+    const sample = facts.sample!;
+    expect(sample.seed).toBe("db-sample-1");
+    expect(sample.strata.map((stratum) => [stratum.productDomain, stratum.languageCode, stratum.productForm])).toEqual([
+      ["magic", null, "singles"],
+      ["magic", null, "sealed"],
+      ["pokemon", "ja", "singles"],
+      ["pokemon", "ja", "sealed"],
+    ]);
+    expect(
+      sample.strata.map(({ allocated, available, sampled, shortfall }) => [allocated, available, sampled, shortfall]),
+    ).toEqual([
+      [2, 3, 2, 0],
+      [2, 1, 1, 1],
+      [1, 0, 0, 1],
+      [1, 1, 1, 0],
+    ]);
+    expect(sample.unclassifiedItemCount).toBe(1);
+    const sampledIds = sample.items.map((item) => item.catalogItemId);
+    expect(sampledIds).toHaveLength(4);
+    expect(sampledIds).toEqual(expect.arrayContaining(["cat_sample_sealed", "cat_sample_pokemon_ja"]));
+    for (const excluded of ["cat_sample_draft", "cat_sample_archived", "cat_sample_outside", "cat_sample_unlinked"]) {
+      expect(sampledIds).not.toContain(excluded);
+    }
+    expect(sample.items.find((item) => item.catalogItemId === "cat_sample_pokemon_ja")).toEqual({
+      catalogItemId: "cat_sample_pokemon_ja",
+      productDomain: "pokemon",
+      languageCode: "ja",
+      productForm: "sealed",
+      publicPath: "/items/cat_sample_pokemon_ja",
+    });
+    // The same seed over the same snapshot state reproduces the sample.
+    const repeat = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_sample",
+      observedAt: new Date().toISOString(),
+      sample: request,
+    });
+    expect(repeat.sample).toEqual(sample);
+    expect(findSupportSafetyViolations(sample)).toEqual([]);
   });
 
   it("AC4: refuses a write inside the report session", async () => {
@@ -572,6 +812,56 @@ function integrationJobs(db: PgTransactionalPool) {
   };
 }
 
+// A completed version-1 promotion application job for one scope, written
+// through the bulk review job store; each pair is [candidate, applied item].
+async function recordPromotionApplications(
+  db: PgTransactionalPool,
+  jobId: string,
+  scopeRecordId: string,
+  applications: readonly (readonly [string, string])[],
+) {
+  const store = createPostgresDurableJobStore<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    Record<string, unknown>
+  >(db, {
+    jobsTable: "catalog_source_observation_bulk_review_jobs",
+    eventsTable: "catalog_source_observation_bulk_review_job_events",
+    notifyChannel: "catalog_source_observation_durable_job_events",
+  });
+  await store.enqueue({
+    jobId,
+    jobKind: catalogMergeCandidatePromotionApplicationJobKind,
+    payload: { scopeRecordId, reason: "Synthetic application", promotionApplicationVersion: 1 },
+    progress: { phase: "queued" },
+  });
+  const claimed = await store.claimNext({ claimOwnerId: "completion-report-test", claimTtlMs: 60_000 });
+  expect(claimed?.jobId).toBe(jobId);
+  const finished = await store.complete({
+    jobId,
+    claimOwnerId: "completion-report-test",
+    progress: { phase: "completed" },
+    result: {
+      requested: applications.length,
+      promoted: applications.length,
+      deferred: 0,
+      skippedNotEligible: 0,
+      failed: 0,
+      outcomes: applications.map(([candidateId, catalogItemId]) => ({
+        candidateId,
+        status: "promoted",
+        catalogItemId: null,
+        reason: null,
+        appliedCatalogItemId: catalogItemId,
+        appliedMode: "create",
+        approvalVersion: 1,
+        planFingerprint: `synthetic_plan_${candidateId}`,
+      })),
+    },
+  });
+  expect(finished).toBe(true);
+}
+
 function importOutcome(providerKey: string, usageCheckState: string | null) {
   return {
     providerKey,
@@ -703,16 +993,17 @@ async function recordSyncState(
   });
 }
 
-async function projectScope(db: PgQueryable, scopeRecordId: string) {
+async function projectScope(db: PgQueryable, scopeRecordId: string, productDomain = "pokemon") {
   const handlers = buildCatalogScopeRegistryProjectionHandlers(db);
   const streamId = `catalog.reference-record-${scopeRecordId}`;
   await handlers["catalog.reference-record.created"]!(
     projectionEvent(streamId, {
       referenceRecordId: scopeRecordId,
-      typeKey: "expansion",
+      // Each domain's leaf scope kind: pokemon expansions, other games' sets.
+      typeKey: productDomain === "pokemon" ? "expansion" : "set",
       key: scopeRecordId,
       name: `Scope ${scopeRecordId}`,
-      attributes: { "product-domain": "pokemon" },
+      attributes: { "product-domain": productDomain },
       relationships: [],
     }),
   );
@@ -741,6 +1032,7 @@ async function projectItem(
   db: PgQueryable,
   itemId: string,
   options: Readonly<{
+    languageCode?: string;
     publish?: boolean;
     archive?: boolean;
     assets?: boolean;
@@ -752,7 +1044,13 @@ async function projectItem(
   const streamId = `catalog.item-${itemId}`;
   const project = (eventType: string, data: Record<string, unknown>) =>
     handlers[eventType]!(projectionEvent(streamId, data), undefined as never);
-  await project("catalog.catalog-item.created", { itemId, title: itemId, subtitle: null, description: "" });
+  await project("catalog.catalog-item.created", {
+    itemId,
+    languageCode: options.languageCode,
+    title: itemId,
+    subtitle: null,
+    description: "",
+  });
   if (options.assets) {
     await project("catalog.catalog-item.product-asset-sets-set", {
       productAssetSets: [{ sourceProviderKey: "tcgdex", variants: [] }],
@@ -815,4 +1113,28 @@ async function insertObservation(
       JSON.stringify(input.normalized),
     ],
   );
+}
+
+async function insertMergeCandidate(
+  db: PgQueryable,
+  candidateId: string,
+  identity: Record<string, unknown>,
+  members: readonly [string, string][],
+  status = "ready",
+) {
+  await db.query(
+    `INSERT INTO catalog_merge_candidates (
+       candidate_id, scope_record_id, identity_fingerprint, status, identity_json, promotion_intent
+     ) VALUES ($1, $2, $3, $5, $4::jsonb, 'create-catalog-item')`,
+    [candidateId, identity.scopeRecordId, `sha256:${candidateId}`, JSON.stringify(identity), status],
+  );
+  for (const [observationId, providerKey] of members) {
+    await db.query(
+      `INSERT INTO catalog_merge_candidate_observations (
+         candidate_id, observation_id, provider_key, external_key, source_record_hash,
+         source_profile_key, source_profile_version, source_mapping_fingerprint, observed_at, added_at
+       ) VALUES ($1, $2, $3, $2, $2, 'synthetic', 'v1', 'synthetic', now(), now())`,
+      [candidateId, observationId, providerKey],
+    );
+  }
 }

@@ -284,7 +284,18 @@
       { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" },
       { "name": "inventory.list-items", "ownerSlice": "inventory-items" },
       { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" },
-      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" }
+      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" },
+      { "name": "inventory.list-recovered-items", "ownerSlice": "recovered-items" },
+      { "name": "inventory.get-recovered-item-metrics", "ownerSlice": "recovered-items" },
+      { "name": "inventory.identify-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.inspect-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.require-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.complete-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-disposition-authority", "ownerSlice": "recovered-items" },
+      { "name": "inventory.decide-recovered-item-disposition", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-value", "ownerSlice": "recovered-items" },
+      { "name": "inventory.correct-recovered-item-source", "ownerSlice": "recovered-items" },
+      { "name": "inventory.merge-recovered-item", "ownerSlice": "recovered-items" }
     ],
     "resources": [
       {
@@ -493,7 +504,6 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
       ],
@@ -517,7 +527,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#3"
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-import",
@@ -710,7 +720,21 @@
     }
   ],
   "agentCoverage": {
-    "inventory-recovered-items": { "pending": "#9238" }
+    "inventory-recovered-items": {
+      "tools": [
+        "inventory.list-recovered-items",
+        "inventory.get-recovered-item-metrics",
+        "inventory.identify-recovered-item",
+        "inventory.inspect-recovered-item",
+        "inventory.require-recovered-item-authenticity-review",
+        "inventory.complete-recovered-item-authenticity-review",
+        "inventory.record-recovered-item-disposition-authority",
+        "inventory.decide-recovered-item-disposition",
+        "inventory.record-recovered-item-value",
+        "inventory.correct-recovered-item-source",
+        "inventory.merge-recovered-item"
+      ]
+    }
   },
   "deployableContributions": [
     {
@@ -1016,7 +1040,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["inventory-items", "restock-decisions", "storage-locations"],
+      "expectedConsumers": ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -1044,7 +1068,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
-      "expectedConsumers": ["Deployable composition for inventory"]
+      "expectedConsumers": ["import-batches"]
     },
     "routes": {
       "classification": "routes",

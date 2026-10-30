@@ -14,6 +14,7 @@ import type { InventoryImportQuantityMode } from "../domain/import-source-adapte
 import type { ImportCsvRow } from "../domain/csv";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import type { InventoryImportBatchServices } from "./runtime";
+import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
 
 export type InventoryImportBatchMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -46,19 +47,29 @@ function parseParsedRows(value: unknown): readonly ImportCsvRow[] | undefined {
     throw new Error("parsedRows must be an array.");
   }
 
-  return value.map((row, index) => {
+  return value.map((row) => {
     if (typeof row !== "object" || row === null || Array.isArray(row)) {
       throw new Error("Each parsedRows entry must be an object.");
     }
 
     const record = row as ParsedImportRowInput;
+    if (
+      Object.keys(record).some((key) => !["rowNumber", "values"].includes(key)) ||
+      typeof record.rowNumber !== "number" ||
+      !Number.isSafeInteger(record.rowNumber) ||
+      record.rowNumber < 1
+    ) {
+      throw new Error("Invalid parsed import row.");
+    }
     if (typeof record.values !== "object" || record.values === null || Array.isArray(record.values)) {
       throw new Error("Each parsedRows entry requires a values object.");
     }
+    if (Object.values(record.values).some((value) => typeof value !== "string"))
+      throw new Error("Import cells must be text.");
 
     return {
-      rowNumber: Number(record.rowNumber ?? index + 1),
-      values: Object.fromEntries(Object.entries(record.values).map(([key, rawValue]) => [key, String(rawValue ?? "")])),
+      rowNumber: record.rowNumber,
+      values: record.values as Readonly<Record<string, string>>,
     };
   });
 }
@@ -137,9 +148,29 @@ export function createInventoryImportBatchMcpHandlers(
 
   const createImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
+    if (
+      Object.keys(args).some(
+        (key) =>
+          ![
+            "accountId",
+            "csvText",
+            "parsedRows",
+            "sourceKey",
+            "quantityMode",
+            "defaultStorageLocationId",
+            "defaultStorageLocationName",
+            "sourceFilename",
+            "idempotencyKey",
+            "confirmationText",
+            "dryRun",
+          ].includes(key),
+      )
+    ) {
+      throw new Error("Invalid Inventory import request.");
+    }
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const detail = await services.createBatch(
+    const job = await services.enqueueCreateBatchJob(
       {
         accountId: scopedActor.accountId as AccountId,
         csvText: readMcpStringArgument(args, "csvText") ?? undefined,
@@ -149,10 +180,13 @@ export function createInventoryImportBatchMcpHandlers(
         defaultStorageLocationId: await resolveDefaultStorageLocationId(storageLocations, scopedActor.accountId, args),
         sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
-      createActorEventStoreContext(scopedActor),
+      withInventoryMutationAttempt(
+        createActorEventStoreContext(scopedActor),
+        readMcpStringArgument(args, "idempotencyKey") ?? "",
+      ),
     );
 
-    return detail;
+    return { receiptVersion: 1, jobId: job.jobId, batchId: job.payload.batchId, status: "accepted" };
   };
 
   const getImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
@@ -173,14 +207,16 @@ export function createInventoryImportBatchMcpHandlers(
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const batchId = readMcpTypedIdArgument(args, "batchId", "imb");
+    const idempotencyKey = readMcpStringArgument(args, "idempotencyKey");
 
-    return services.commitBatch(
+    const job = await services.enqueueCommitBatchJob(
       {
         accountId: scopedActor.accountId as AccountId,
         batchId,
       },
-      createActorEventStoreContext(scopedActor),
+      withInventoryMutationAttempt(createActorEventStoreContext(scopedActor), idempotencyKey ?? ""),
     );
+    return { receiptVersion: 1, jobId: job.jobId, batchId: job.payload.batchId, status: "accepted" };
   };
 
   const readImportBatchResource: McpResourceHandler = async ({ actor, uri }) => {

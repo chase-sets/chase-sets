@@ -24,6 +24,7 @@ import { createMarketplaceListingMcpHandlers } from "./features/listings/api/mcp
 import { createMarketplaceOfferMcpHandlers } from "./features/offers/api/mcp";
 import { createMarketplaceReviewMcpHandlers } from "./features/reviews/api/mcp";
 import { createSellerDeskMcpHandlers } from "./features/seller-desk/api/mcp";
+import { createListingEvidencePolicyMcpHandlers } from "./features/listing-evidence-policy/api/mcp";
 import {
   buildReviewAccountProjectionHandlers,
   buildReviewOrderSourceProjectionHandlers,
@@ -58,7 +59,9 @@ import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./s
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
 import { marketplaceManagedOfferSchemaMigrations } from "./features/offers/read-model/managed-schema";
+import { inventoryDraftReceiptMigrations } from "./features/listings/read-model/inventory-draft-receipt-schema";
 import { buildManagedOfferMarketPriceReactions } from "./features/offers/integrations/managed-work";
+import { emitBuyerAccountOfferMatchPatches } from "./features/offers/read-model/projection";
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
@@ -66,6 +69,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   manifest: marketplaceContextManifest,
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
+    ...inventoryDraftReceiptMigrations,
     ...marketplaceUnloggedProjectionSchemaMigrations,
     ...marketplaceSupplyProjectionSchemaMigrations,
     ...marketplaceListingSchemaMigrations,
@@ -96,6 +100,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
     const offers = createMarketplaceOfferMcpHandlers(services.offers);
     const reviews = createMarketplaceReviewMcpHandlers(services.reviews);
     const sellerDesk = createSellerDeskMcpHandlers(services.sellerAttentionQueue);
+    const listingEvidencePolicy = createListingEvidencePolicyMcpHandlers(services.listingEvidencePolicies);
 
     return {
       toolHandlers: {
@@ -103,6 +108,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
         ...offers.toolHandlers,
         ...reviews.toolHandlers,
         ...sellerDesk.toolHandlers,
+        ...listingEvidencePolicy.toolHandlers,
       },
       resourceHandlers: {
         ...listings.resourceHandlers,
@@ -113,7 +119,9 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);
+    const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db, {
+      onAccountStatusChanged: (db, event, accountId) => emitBuyerAccountOfferMatchPatches(db, event, accountId),
+    });
 
     return [
       ...buildEventSubscriptionsFromManifest({

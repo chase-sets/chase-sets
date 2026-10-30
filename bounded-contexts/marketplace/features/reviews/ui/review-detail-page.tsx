@@ -17,8 +17,12 @@ import {
   HiddenInput,
 } from "@chase-sets/design-system";
 import type { ReviewDetail } from "./contracts";
+import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "./authored-text-guidance";
+import type { AuthoredTextRecovery } from "./authored-text-recovery";
 import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
 import { ReviewScoringContext } from "./review-scoring-context";
+
+const REPLY_FEEDBACK_FIELD_ID = "review-response-feedback";
 
 function isPending(review: ReviewDetail) {
   return review.status !== "withdrawn" && review.revealed_at === null;
@@ -55,6 +59,7 @@ export function ReviewDetailPage({
   review,
   viewerAccountId,
   replyErrorMessage,
+  replyRecovery,
   isSubmittingReply = false,
   defaultReplyFeedback = "",
   reportResult,
@@ -66,6 +71,8 @@ export function ReviewDetailPage({
   review: ReviewDetail;
   viewerAccountId?: string | null;
   replyErrorMessage?: string | null;
+  /** A closed Review Response rejection; replaces the generic error notice. */
+  replyRecovery?: AuthoredTextRecovery | null;
   isSubmittingReply?: boolean;
   defaultReplyFeedback?: string;
   reportResult?: ReviewReportResult | null;
@@ -184,17 +191,24 @@ export function ReviewDetailPage({
               <Text size="sm" tone="secondary">
                 {t("reputation.features.reviews.ui.reviewDetailPage.reply.description")}
               </Text>
-              {replyErrorMessage ? (
+              {replyRecovery ? (
+                <AuthoredTextRecoverySummary
+                  recovery={replyRecovery}
+                  fieldId={REPLY_FEEDBACK_FIELD_ID}
+                  fieldName={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}
+                />
+              ) : replyErrorMessage ? (
                 <MarketplaceNotice
                   tone="danger"
                   title={t("reputation.features.reviews.ui.reviewDetailPage.reply.title")}
                   description={replyErrorMessage}
                 />
               ) : null}
-              <Form spacing="none" method="post">
+              <Form spacing="none" method="post" errorAnnouncement="summary">
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="reply" readOnly />
                   <Textarea
+                    id={REPLY_FEEDBACK_FIELD_ID}
                     name="feedback"
                     label={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}
                     defaultValue={defaultReplyFeedback}
@@ -202,7 +216,9 @@ export function ReviewDetailPage({
                     required
                     maxLength={1000}
                     description={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback.description")}
+                    error={replyRecovery?.fieldLevel ? replyRecovery.message : undefined}
                   />
+                  <AuthoredTextGuidance />
                   <Button type="submit">
                     {isSubmittingReply
                       ? t("reputation.features.reviews.ui.reviewDetailPage.reply.submitting")

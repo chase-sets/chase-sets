@@ -35,7 +35,6 @@ The deploy step "Validate production configuration" checks the inputs whenever t
 
 - `SCRYDEX_API_KEY`
 - `SCRYDEX_TEAM_ID`
-- `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
 - either required Magic or One Piece signoff reference
 
 Missing Pokemon, Yu-Gi-Oh!, or Lorcana references do not fail deployment: their signoff gate stays blocked at runtime. A configured blank, whitespace-only, `false`, `none`, or `open` optional reference fails preflight in open and closed modes with `Invalid production Catalog integration signoff reference: <names>`. Only three per-name presence booleans and targeted reference values reach validation, never the aggregate variable map. Messages print names only, never values.
@@ -50,7 +49,7 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 - Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
-- TCGplayer uses stored operator session primary, env cookie fallback (`TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only when custody is absent or cleared). API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
+- TCGplayer uses the stored operator session; the environment cookie is retired. API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
 ### Shared-transport handling (TCGplayer and Scrydex)
 
@@ -102,6 +101,8 @@ Before starting a Scrydex import from the shared Catalog importer, confirm:
 Integration health shows the cached Scrydex usage snapshot: credits as remaining of total, budget readiness, usage freshness with the last observed-at, and provider usage lag. Health reads at most one `/account/v1/usage` request per 15-minute window; Scrydex itself refreshes usage every 20-30 minutes and reports no update time, so lag is always `documented-window`. Scrydex reports credits consumed, overage credits consumed, and credits remaining for the current billing period, but no allowance: the allowance shown is consumed plus remaining while no overage was consumed, and is not reported otherwise. A response whose billing period does not cover the read is treated as not reported. A fresh balance without a reported allowance is shown but leaves budget readiness unknown, and Integration health shows the usage diagnostic for every budget that is not fresh and ready. Credit counts are non-negative safe integers; any other count, including a derived allowance past that range, is not reported. A stale snapshot keeps its last observed values and marks budget readiness degraded; after an hour without a successful read the balance is withheld as not reported. Not reported never means zero credits. Import preflight reads usage live and shows the estimate count or `estimate-unavailable` with its reason, the usage-check state, and any degraded diagnostic.
 
 #### Scrydex usage launch gate
+
+The bounded `scrydex-force-refresh-bounded` staging journey is the only route for refreshing the five accepted Scrydex option caches before cache capture. It reads the daily Integration health projection, requires fresh ready usage with a non-null allowance and at least 1,000 remaining credits, then makes one typed `sets` force-read per declared unit. The hosted runner records `scrydex-option-refresh/v1`; a refused or stopped run is diagnostic and must not be treated as a zero-credit result. It never refreshes cursors, provider-wide targets, TCGplayer, imports, previews, or confirmations.
 
 The launch gate never authorizes a paid import. It refuses when the usage read is unchecked, older than 15 minutes, missing the remaining balance or the total allowance, or exhausted (a reported remaining balance of zero refuses whatever credit state accompanies it); otherwise it requires explicit operator confirmation. Launch evidence has two stages. Before merge, the committed fixture, derived unchanged through the production sanitizer from a real usage read, proves parser and gate behavior only. After staging deployment, the host dispatches an attributed verifier that binds the deployed Integration health `usageBudget` and a selected-scope Import preflight to a recorded no-launch decision; a standalone usage read or a replay is not a substitute. To derive the fixture:
 

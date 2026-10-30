@@ -2,7 +2,10 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import { compareMoneyAmounts } from "@chase-sets/primitives/money";
 import type { AccountId, RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { worstCaseRepricingFloorAmount } from "./floor-resolution";
+import { bindAuthoringIntent, recognizeAuthoringIntent, type RepricingAuthoringIntent } from "./authoring-intent";
+import { cashTargetGoal } from "./goals/cash-target";
 import { fixedPercentileGoal } from "./goals/fixed-percentile";
+import { holdValueGoal } from "./goals/hold-value";
 import { targetHorizonGoal } from "./goals/target-horizon";
 import { profitPerDayGoal } from "./goals/profit-per-day";
 import { createPricingGoalRegistry, validateParameters } from "./goals/registry";
@@ -24,7 +27,13 @@ export class RepricingPolicyValidationError extends Error {}
 
 export type { RepricingGuardrail } from "./guardrails/registry";
 
-const pricingGoals = createPricingGoalRegistry([fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal]);
+const pricingGoals = createPricingGoalRegistry([
+  fixedPercentileGoal,
+  targetHorizonGoal,
+  profitPerDayGoal,
+  holdValueGoal,
+  cashTargetGoal,
+]);
 export const pricingGoalDefinitions = () => pricingGoals.definitions();
 /** Null when the authored goal version is no longer registered (retired). */
 export const resolvePricingGoal = (goalId: string, goalVersion: number) => pricingGoals.resolve(goalId, goalVersion);
@@ -513,6 +522,7 @@ function normalizeMaxChangesPerDay(maxChangesPerDay: number): number {
 export type RepricingPolicyStatus = "active" | "paused" | "deleted";
 
 export type RepricingPolicyState = Readonly<{
+  authoringIntent?: RepricingAuthoringIntent | null;
   policyId: RepricingPolicyId | null;
   accountId: AccountId | null;
   name: string | null;
@@ -539,6 +549,7 @@ export const initialRepricingPolicyState: RepricingPolicyState = {
 };
 
 type RepricingPolicyBodyFields = Readonly<{
+  authoringIntent?: RepricingAuthoringIntent | null;
   name: string;
   scope: RepricingPolicyScope;
   excludedListingIds: readonly string[];
@@ -548,6 +559,7 @@ type RepricingPolicyBodyFields = Readonly<{
 
 function isPolicyBodyUnchanged(state: RepricingPolicyState, next: RepricingPolicyBodyFields): boolean {
   return (
+    JSON.stringify(state.authoringIntent ?? null) === JSON.stringify(next.authoringIntent ?? null) &&
     state.name === next.name &&
     state.maxChangesPerDay === next.maxChangesPerDay &&
     JSON.stringify(state.scope) === JSON.stringify(next.scope) &&
@@ -559,6 +571,7 @@ function isPolicyBodyUnchanged(state: RepricingPolicyState, next: RepricingPolic
 // -- Commands ---------------------------------------------------------
 
 export type CreateRepricingPolicyCommand = Readonly<{
+  authoringIntent?: RepricingAuthoringIntent | null;
   type: "CreateRepricingPolicy";
   policyId: RepricingPolicyId;
   accountId: AccountId;
@@ -571,6 +584,7 @@ export type CreateRepricingPolicyCommand = Readonly<{
 }>;
 
 export type ReviseRepricingPolicyCommand = Readonly<{
+  authoringIntent?: RepricingAuthoringIntent | null;
   type: "ReviseRepricingPolicy";
   name: string;
   scope: RepricingPolicyScope;
@@ -596,6 +610,7 @@ export type RepricingPolicyCommand =
 export type RepricingPolicyCreatedEvent = DomainEvent<
   "pricing.repricing-policy.created",
   Readonly<{
+    authoringIntent?: RepricingAuthoringIntent | null;
     policyId: RepricingPolicyId;
     accountId: AccountId;
     name: string;
@@ -610,6 +625,7 @@ export type RepricingPolicyCreatedEvent = DomainEvent<
 export type RepricingPolicyRevisedEvent = DomainEvent<
   "pricing.repricing-policy.revised",
   Readonly<{
+    authoringIntent?: RepricingAuthoringIntent | null;
     name: string;
     scope: RepricingPolicyScope;
     excludedListingIds: readonly string[];
@@ -647,17 +663,21 @@ export const decideRepricingPolicy: AggregateDecider<
     case "CreateRepricingPolicy": {
       assert(state.policyId === null, "Repricing policy has already been created.");
       const rules = normalizeRules(command.rules);
+      const next = {
+        name: normalizeName(command.name),
+        scope: normalizeScope(command.scope),
+        excludedListingIds: normalizeIdList(command.excludedListingIds, "Excluded listing id"),
+        rules,
+        maxChangesPerDay: normalizeMaxChangesPerDay(command.maxChangesPerDay),
+      };
+      const intent = recognizeAuthoringIntent(command, resolvePricingGoal);
       return [
         {
           type: "pricing.repricing-policy.created",
           data: {
             policyId: command.policyId,
             accountId: command.accountId,
-            name: normalizeName(command.name),
-            scope: normalizeScope(command.scope),
-            excludedListingIds: normalizeIdList(command.excludedListingIds, "Excluded listing id"),
-            rules,
-            maxChangesPerDay: normalizeMaxChangesPerDay(command.maxChangesPerDay),
+            ...(intent ? bindAuthoringIntent(next, intent.source) : next),
             createdAt: command.createdAt,
           },
         },
@@ -673,13 +693,20 @@ export const decideRepricingPolicy: AggregateDecider<
         rules: normalizeRules(command.rules),
         maxChangesPerDay: normalizeMaxChangesPerDay(command.maxChangesPerDay),
       };
-      if (isPolicyBodyUnchanged(state, next)) {
+      const intent = recognizeAuthoringIntent(command, resolvePricingGoal);
+      const authored = intent
+        ? bindAuthoringIntent(next, intent.source)
+        : {
+            ...next,
+            ...(state.authoringIntent || command.authoringIntent !== undefined ? { authoringIntent: null } : {}),
+          };
+      if (isPolicyBodyUnchanged(state, authored)) {
         return [];
       }
       return [
         {
           type: "pricing.repricing-policy.revised",
-          data: { ...next, revisedAt: command.revisedAt },
+          data: { ...authored, revisedAt: command.revisedAt },
         },
       ];
     }
@@ -722,6 +749,7 @@ export const evolveRepricingPolicy: AggregateEvolver<RepricingPolicyState, Repri
         scope: event.data.scope,
         excludedListingIds: event.data.excludedListingIds,
         rules: event.data.rules,
+        ...(event.data.authoringIntent === undefined ? {} : { authoringIntent: event.data.authoringIntent }),
         maxChangesPerDay: event.data.maxChangesPerDay,
         status: "active",
         createdAt: event.data.createdAt,
@@ -734,6 +762,7 @@ export const evolveRepricingPolicy: AggregateEvolver<RepricingPolicyState, Repri
         scope: event.data.scope,
         excludedListingIds: event.data.excludedListingIds,
         rules: event.data.rules,
+        authoringIntent: event.data.authoringIntent ?? null,
         maxChangesPerDay: event.data.maxChangesPerDay,
         updatedAt: event.data.revisedAt,
       };

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -46,12 +46,13 @@ export async function validateResponsiveEvidenceArtifacts({
     return true;
   });
   const outputRoot = path.resolve(repoRoot, artifactRoot);
-  const runtimeFiles = (
+  const collectedFiles = (
     await collectFiles(outputRoot, {
       extensions: new Set([".json"]),
       skippedDirectories: defaultSkippedDirectories,
     })
   ).filter((file) => file.endsWith(".manifest.json"));
+  const runtimeFiles = await finalAttemptFiles(outputRoot, collectedFiles);
   const manifests = [];
 
   for (const runtimeFile of runtimeFiles) {
@@ -108,7 +109,16 @@ export async function validateResponsiveEvidenceArtifacts({
     seenAssociations.add(association);
 
     requireEqual(runtime.route.name, claim.route.name, relativeFile, "route.name", violations);
-    requireEqual(runtime.route.observed, claim.route.path, relativeFile, "route.observed", violations);
+    if (runtime.route.path !== runtime.route.observed) {
+      violations.push(
+        `${relativeFile}: route.path must equal route.observed (expected ${JSON.stringify(runtime.route.path)}, got ${JSON.stringify(runtime.route.observed)}).`,
+      );
+    }
+    if (runtime.route.path !== claim.route.path && !runtime.route.path.startsWith(`${claim.route.path}?`)) {
+      violations.push(
+        `${relativeFile}: route.path is stale or substituted (expected ${JSON.stringify(claim.route.path)} or its query, got ${JSON.stringify(runtime.route.path)}).`,
+      );
+    }
     requireEqual(runtime.fixture.identity, claim.fixture.identity, relativeFile, "fixture.identity", violations);
     requireEqual(runtime.viewport.width, claim.viewport.width, relativeFile, "viewport.width", violations);
     requireEqual(runtime.viewport.height, claim.viewport.height, relativeFile, "viewport.height", violations);
@@ -223,7 +233,38 @@ export async function validateResponsiveEvidenceArtifacts({
     }
   }
 
-  return { violations, manifests: manifests.map((entry) => entry.relativeFile), expectedClaimIds: [...expectedIds] };
+  return {
+    violations,
+    manifests: manifests.map((entry) => entry.relativeFile),
+    ignoredManifests: collectedFiles
+      .filter((file) => !runtimeFiles.includes(file))
+      .map((file) => relative(repoRoot, file)),
+    expectedClaimIds: [...expectedIds],
+  };
+}
+
+// Playwright retries only a failed attempt and gives each retry its own output
+// directory, the test's directory plus `-retry<N>`, as the retried-capture probe
+// in validate-responsive-evidence-artifacts.test.mjs observes. A test's highest
+// attempt directory is its final attempt, whether or not that attempt captured,
+// and only manifests inside it are evidence: a failed attempt's capture never
+// counts. Distinct tests, and manifests within one attempt, are never merged.
+async function finalAttemptFiles(outputRoot, files) {
+  const finalRetry = new Map();
+  const entries = existsSync(outputRoot) ? await readdir(outputRoot, { withFileTypes: true }) : [];
+  for (const entry of entries.filter((candidate) => candidate.isDirectory())) {
+    const { testDirectory, retry } = playwrightAttempt(entry.name);
+    finalRetry.set(testDirectory, Math.max(finalRetry.get(testDirectory) ?? 0, retry));
+  }
+  return files.filter((file) => {
+    const { testDirectory, retry } = playwrightAttempt(path.relative(outputRoot, file).split(path.sep)[0]);
+    return retry === (finalRetry.get(testDirectory) ?? retry);
+  });
+}
+
+function playwrightAttempt(directory) {
+  const match = /^(.+)-retry([1-9]\d*)$/.exec(directory);
+  return match ? { testDirectory: match[1], retry: Number(match[2]) } : { testDirectory: directory, retry: 0 };
 }
 
 export async function prepareHostedResponsiveEvidenceArtifact({

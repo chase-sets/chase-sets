@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import type { request } from "node:https";
+import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -6,7 +9,9 @@ import {
   authUcpOAuthConsentSchemaMigrations,
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  CIMD_RESPONSE_MAX_BYTES,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  type UcpOAuthRoutesOptions,
   resolveUcpScopedPermissions,
 } from "./oauth";
 import { authRetentionSweeps } from "../runtime-support/retention-policy";
@@ -981,13 +986,22 @@ describe("UCP OAuth routes", () => {
     const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     const challenge = pkceChallenge(verifier);
 
-    const wrongRedirect = await app.request(
-      authorizeUrl({
-        clientId: registrationBody.client_id,
-        redirectUri: "https://evil.example/callback",
-        scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
-        challenge,
-      }),
+    const wrongRedirects = await Promise.all(
+      [
+        "https://evil.example/callback",
+        "https://agent.example/callbackX",
+        "https://agent.example/other",
+        "https://agent.example/callback?x=1",
+      ].map((redirectUri) =>
+        app.request(
+          authorizeUrl({
+            clientId: registrationBody.client_id,
+            redirectUri,
+            scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
+            challenge,
+          }),
+        ),
+      ),
     );
     const wrongScope = await app.request(
       authorizeUrl({
@@ -1010,8 +1024,10 @@ describe("UCP OAuth routes", () => {
     const redirect = new URL(authorize.headers.get("location") ?? "");
     const code = redirect.searchParams.get("code") ?? "";
 
-    expect(wrongRedirect.status).toBe(400);
-    await expect(wrongRedirect.json()).resolves.toMatchObject({ error: "invalid_request" });
+    for (const wrongRedirect of wrongRedirects) {
+      expect(wrongRedirect.status).toBe(400);
+      await expect(wrongRedirect.json()).resolves.toMatchObject({ error: "invalid_request" });
+    }
     expect(wrongScope.status).toBe(400);
     await expect(wrongScope.json()).resolves.toMatchObject({ error: "invalid_scope" });
     expect(authorize.status).toBe(302);
@@ -1035,6 +1051,19 @@ describe("UCP OAuth routes", () => {
 
     expect(token.status).toBe(200);
     expect(tokenBody.scope).toBe("dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read");
+
+    const replay = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://agent.example/callback",
+        code_verifier: verifier,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(replay.status).toBe(400);
+    await expect(replay.json()).resolves.toMatchObject({ error: "invalid_grant" });
 
     const introspection = await app.request("/ucp/oauth/introspect", {
       method: "POST",
@@ -1131,6 +1160,53 @@ describe("UCP OAuth routes", () => {
     expect(tokenBody.access_token).toMatch(/^ucp_at_/);
   });
 
+  it("rejects an unknown opaque client before creating consent or authorization code state", async () => {
+    const db = createAuthorizationCodeDb();
+    const base = createOAuthOptions();
+    const options = createOAuthOptions({ auth: { ...base.auth, db } });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "ocl_never_registered",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("synthetic-verifier"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(response.headers.get("location")).toBeNull();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("rejects a Client ID Metadata Document that cannot be fetched before creating consent or authorization code state", async () => {
+    const db = createAuthorizationCodeDb();
+    const base = createOAuthOptions();
+    const options = createOAuthOptions({
+      auth: { ...base.auth, db },
+      fetchClientIdMetadata: async () => null,
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/missing-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("synthetic-verifier"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(response.headers.get("location")).toBeNull();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
   it("supports HTTPS Client ID Metadata Documents for public agent clients", async () => {
     const options = createOAuthOptions({
       fetchClientIdMetadata: async (url) => {
@@ -1216,6 +1292,368 @@ describe("UCP OAuth routes", () => {
     expect(authorize.status).toBe(400);
     await expect(authorize.json()).resolves.toMatchObject({ error: "invalid_client" });
   });
+
+  it.each([
+    ["https://127.0.0.1/oauth-client.json", undefined],
+    ["https://[::1]/oauth-client.json", undefined],
+    ["http://localhost/oauth-client.json", undefined],
+    ["https://localhost/oauth-client.json", undefined],
+    ["https://agent.localhost/oauth-client.json", undefined],
+    ["https://private.example/oauth-client.json", [{ address: "10.0.0.8", family: 4 }]],
+    ["https://link-local.example/oauth-client.json", [{ address: "169.254.10.8", family: 4 }]],
+    ["https://multicast.example/oauth-client.json", [{ address: "224.0.0.8", family: 4 }]],
+    ["https://unspecified.example/oauth-client.json", [{ address: "0.0.0.0", family: 4 }]],
+    ["https://unique-local-v6.example/oauth-client.json", [{ address: "fc00::1", family: 6 }]],
+    ["https://link-local-v6.example/oauth-client.json", [{ address: "fe80::1", family: 6 }]],
+    ["https://multicast-v6.example/oauth-client.json", [{ address: "ff02::1", family: 6 }]],
+    ["https://unspecified-v6.example/oauth-client.json", [{ address: "::", family: 6 }]],
+    ["https://mapped-private-v6.example/oauth-client.json", [{ address: "::ffff:10.0.0.1", family: 6 }]],
+    ["https://nat64-private-v6.example/oauth-client.json", [{ address: "64:ff9b::a00:1", family: 6 }]],
+    [
+      "https://mixed-answers.example/oauth-client.json",
+      [
+        { address: "8.8.8.8", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    ],
+  ] as const)("refuses a non-public CIMD destination before connecting: %s", async (clientId, answers) => {
+    const lookupClientIdMetadata = vi.fn(async () => answers ?? []);
+    const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(() => {
+      throw new Error("the refused destination must not connect");
+    });
+    const options = createOAuthOptions({ lookupClientIdMetadata, requestClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId,
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(requestClientIdMetadata).not.toHaveBeenCalled();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+    if (answers) expect(lookupClientIdMetadata).toHaveBeenCalledTimes(1);
+    else expect(lookupClientIdMetadata).not.toHaveBeenCalled();
+  });
+
+  it("pins the first public DNS answer and does not follow a rebinding answer", async () => {
+    const lookupClientIdMetadata = vi
+      .fn<NonNullable<UcpOAuthRoutesOptions["lookupClientIdMetadata"]>>()
+      .mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }])
+      .mockResolvedValueOnce([{ address: "10.0.0.8", family: 4 }]);
+    const contacted: string[] = [];
+    const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+      (url, requestOptions, callback) => {
+        expect(String(url)).toBe("https://agent.example/oauth-client.json");
+        expect(requestOptions.servername).toBe("agent.example");
+        expect(requestOptions.headers).toMatchObject({ Host: "agent.example" });
+        const client = new EventEmitter() as ReturnType<typeof request>;
+        client.destroy = vi.fn(() => client);
+        client.end = vi.fn(() => {
+          requestOptions.lookup?.("agent.example", { all: false }, (_error, address) => {
+            contacted.push(String(address));
+          });
+          const response = Readable.from([
+            Buffer.from(
+              JSON.stringify({
+                client_id: "https://agent.example/oauth-client.json",
+                client_name: "Pinned Metadata Client",
+                client_uri: "https://agent.example/.well-known/ucp",
+                redirect_uris: ["https://agent.example/callback"],
+                scope: "catalog:read",
+                grant_types: ["authorization_code", "refresh_token"],
+                response_types: ["code"],
+                token_endpoint_auth_method: "none",
+              }),
+            ),
+          ]);
+          callback?.(Object.assign(response, { statusCode: 200, headers: {} }) as never);
+          return client;
+        });
+        return client;
+      },
+    );
+    const options = createOAuthOptions({ lookupClientIdMetadata, requestClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(lookupClientIdMetadata).toHaveBeenCalledTimes(1);
+    expect(requestClientIdMetadata).toHaveBeenCalledTimes(1);
+    expect(contacted).toEqual(["8.8.8.8"]);
+    expect(db.consents.size).toBe(1);
+  });
+
+  it("refuses production redirects without contacting the redirect target", async () => {
+    let requests = 0;
+    const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+      (_url, _requestOptions, callback) => {
+        requests += 1;
+        const client = new EventEmitter() as ReturnType<typeof request>;
+        client.destroy = vi.fn(() => client);
+        client.end = vi.fn(() => {
+          const response = Readable.from([]);
+          callback?.(
+            Object.assign(response, { statusCode: 302, headers: { location: "https://other.example" } }) as never,
+          );
+          return client;
+        });
+        return client;
+      },
+    );
+    const options = createOAuthOptions({
+      lookupClientIdMetadata: async () => [{ address: "8.8.8.8", family: 4 }],
+      requestClientIdMetadata,
+    });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(requests).toBe(1);
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("collapses injected transport errors and malformed bodies without exposing the error", async () => {
+    const secret = "synthetic-secret-marker";
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const fetchClientIdMetadata = vi
+        .fn<(url: string) => Promise<unknown>>()
+        .mockRejectedValueOnce(new Error(secret))
+        .mockResolvedValueOnce("{");
+      const options = createOAuthOptions({ fetchClientIdMetadata });
+      const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      for (let index = 0; index < 2; index += 1) {
+        const response = await app.request(
+          authorizeUrl({
+            clientId: "https://agent.example/oauth-client.json",
+            redirectUri: "https://agent.example/callback",
+            scope: "catalog:read",
+            challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+          }),
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+      }
+      expect(JSON.stringify(error.mock.calls)).not.toContain(secret);
+      expect(db.consents.size).toBe(0);
+      expect(db.codes.size).toBe(0);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("enforces the response cap on injected CIMD fixtures without retaining a body", async () => {
+    const fetchClientIdMetadata = vi.fn(async (url: string) => ({
+      client_id: url,
+      client_name: "Synthetic Metadata Client",
+      client_uri: "https://agent.example/.well-known/ucp",
+      redirect_uris: ["https://agent.example/callback"],
+      scope: "catalog:read",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      harmless: "x".repeat(CIMD_RESPONSE_MAX_BYTES),
+    }));
+    const options = createOAuthOptions({ fetchClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("derives and accepts the 27,303-byte largest-valid CIMD, then refuses cap+1", async () => {
+    const { clientId, redirectUris, body } = largestValidClientIdMetadata();
+    expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBe(27_303);
+    const capPlusOnePadding = 32_769 - Buffer.byteLength(JSON.stringify({ ...body, padding: "" }), "utf8");
+    const capPlusOne = { ...body, padding: " ".repeat(capPlusOnePadding) };
+    expect(Buffer.byteLength(JSON.stringify(capPlusOne), "utf8")).toBe(CIMD_RESPONSE_MAX_BYTES + 1);
+
+    const run = async (metadata: unknown) => {
+      const options = createOAuthOptions({ fetchClientIdMetadata: async () => metadata });
+      const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const response = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri: redirectUris[0]!,
+          scope: "catalog:read",
+          challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+        }),
+      );
+      return { response, db };
+    };
+
+    const accepted = await run(body);
+    expect(accepted.response.status).toBe(302);
+    expect(accepted.db.consents.size).toBe(1);
+    const refused = await run(capPlusOne);
+    expect(refused.response.status).toBe(400);
+    await expect(refused.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(refused.db.consents.size).toBe(0);
+    expect(refused.db.codes.size).toBe(0);
+  });
+
+  it("enforces the response cap on the production CIMD byte stream", async () => {
+    const { clientId, redirectUris, body } = largestValidClientIdMetadata();
+    const document = Buffer.from(JSON.stringify(body), "utf8");
+    const paddedTo = (total: number) => Buffer.concat([document, Buffer.alloc(total - document.byteLength, " ")]);
+    function* inChunks(bytes: Buffer) {
+      for (let offset = 0; offset < bytes.byteLength; offset += 1024) yield bytes.subarray(offset, offset + 1024);
+    }
+    const run = async (chunks: () => Iterable<Buffer>) => {
+      const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+        (_url, _requestOptions, callback) => {
+          const client = new EventEmitter() as ReturnType<typeof request>;
+          client.destroy = vi.fn(() => client);
+          client.end = vi.fn(() => {
+            const response = Readable.from(chunks(), { highWaterMark: 1 });
+            callback?.(Object.assign(response, { statusCode: 200, headers: {} }) as never);
+            return client;
+          });
+          return client;
+        },
+      );
+      const options = createOAuthOptions({
+        lookupClientIdMetadata: async () => [{ address: "8.8.8.8", family: 4 }],
+        requestClientIdMetadata,
+      });
+      const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const response = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri: redirectUris[0]!,
+          scope: "catalog:read",
+          challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+        }),
+      );
+      return { response, db };
+    };
+
+    const accepted = await run(() => inChunks(paddedTo(CIMD_RESPONSE_MAX_BYTES)));
+    expect(accepted.response.status).toBe(302);
+    expect(accepted.db.consents.size).toBe(1);
+
+    const refused = await run(() => inChunks(paddedTo(CIMD_RESPONSE_MAX_BYTES + 1)));
+    expect(refused.response.status).toBe(400);
+    await expect(refused.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(refused.db.consents.size).toBe(0);
+    expect(refused.db.codes.size).toBe(0);
+
+    // The stream stops at 64 times the cap only so a missing cap fails here instead of exhausting the worker.
+    let pulled = 0;
+    const endless = await run(function* () {
+      while (pulled < CIMD_RESPONSE_MAX_BYTES * 64) {
+        pulled += 1024;
+        yield Buffer.alloc(1024, " ");
+      }
+    });
+    expect(endless.response.status).toBe(400);
+    await expect(endless.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(endless.db.consents.size).toBe(0);
+    expect(endless.db.codes.size).toBe(0);
+    expect(pulled).toBeLessThanOrEqual(CIMD_RESPONSE_MAX_BYTES + 2 * 1024);
+  });
+
+  it.each(["delayed headers", "never-ending body"] as const)(
+    "aborts the production CIMD transport at the same deadline for %s",
+    async (mode) => {
+      vi.useFakeTimers();
+      try {
+        let stream: Readable | undefined;
+        const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+          (_url, _requestOptions, callback) => {
+            const client = new EventEmitter() as ReturnType<typeof request>;
+            client.destroy = vi.fn(() => {
+              stream?.destroy();
+              return client;
+            });
+            client.end = vi.fn(() => {
+              if (mode === "never-ending body") {
+                let sent = false;
+                stream = new Readable({
+                  read() {
+                    if (!sent) {
+                      sent = true;
+                      this.push(Buffer.from("{"));
+                    }
+                  },
+                });
+                callback?.(Object.assign(stream, { statusCode: 200, headers: {} }) as never);
+              }
+              return client;
+            });
+            return client;
+          },
+        );
+        const options = createOAuthOptions({
+          lookupClientIdMetadata: async () => [{ address: "8.8.8.8", family: 4 }],
+          requestClientIdMetadata,
+        });
+        const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+        const pending = app.request(
+          authorizeUrl({
+            clientId: "https://agent.example/oauth-client.json",
+            redirectUri: "https://agent.example/callback",
+            scope: "catalog:read",
+            challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+          }),
+        );
+        let settled = false;
+        void Promise.resolve(pending).then(() => {
+          settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const response = await pending;
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+        expect(requestClientIdMetadata.mock.results[0]?.value.destroy).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
     const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => ({
@@ -1465,9 +1903,15 @@ describe("UCP OAuth routes", () => {
 describe("operator scopes refused until the sign-in gate", () => {
   const redirectUri = "https://agent.example/callback";
   const challenge = pkceChallenge("synthetic-verifier");
-  const operatorFixture = (requestActor: typeof actor) => {
+  const operatorFixture = (
+    requestActor: typeof actor,
+    operatorAuthority?: (requestActor: typeof actor) => Promise<unknown>,
+  ) => {
     const resolveActor = vi.fn(async () => requestActor);
     const options = createOAuthOptions({ resolveActor });
+    if (operatorAuthority) {
+      (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority };
+    }
     const db = options.auth.db as unknown as ReturnType<typeof createAuthorizationCodeDb>;
     return { resolveActor, db, app: new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options)) };
   };
@@ -1560,6 +2004,242 @@ describe("operator scopes refused until the sign-in gate", () => {
     const { app } = operatorFixture(actor);
     const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:read" });
     expect(registration.status).toBe(201);
+  });
+
+  it("admits a recently authenticated platform-admin through consent and issues an operator code", async () => {
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    const options = createOAuthOptions({ resolveActor: async () => freshActor });
+    (options.auth as unknown as { identity: unknown }).identity = {
+      operatorAuthority: async () => ({
+        kind: "granted" as const,
+        membershipId: "member_1",
+        roleKey: "platform-admin" as const,
+        rolePermissions: [],
+      }),
+    };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await registerClient(app, {
+      redirect_uris: [redirectUri],
+      scope: "operations:write",
+    });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const started = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(started.status).toBe(302);
+    const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+      "consent_token",
+    )!;
+    const consent = await app.request(`/ucp/oauth/consent?consent_token=${consentToken}`);
+    expect(consent.status).toBe(200);
+    await expect(consent.json()).resolves.toMatchObject({
+      consent: { scopes: ["operations:write"], operatorGrantExpiresAt: expect.any(String) },
+    });
+
+    const approved = await app.request("/ucp/oauth/authorize", {
+      method: "POST",
+      body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+      headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(approved.status).toBe(302);
+    const code = new URL(approved.headers.get("location")!, "http://localhost").searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code!,
+        redirect_uri: redirectUri,
+        code_verifier: "synthetic-verifier",
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(token.status).toBe(200);
+    await expect(token.json()).resolves.toMatchObject({
+      token_type: "Bearer",
+      scope: "operations:write",
+      access_token: expect.stringMatching(/^ucp_at_/),
+      refresh_token: expect.stringMatching(/^ucp_rt_/),
+    });
+  });
+
+  it("rechecks a configured authority denial at authorize, consent read, and consent POST", async () => {
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    let state: "granted" | "denied" = "denied";
+    const authority = vi.fn(async () =>
+      state === "granted"
+        ? {
+            kind: "granted" as const,
+            membershipId: "member_1",
+            roleKey: "platform-admin" as const,
+            rolePermissions: [],
+          }
+        : { kind: "denied" as const, reason: "inactive" as const },
+    );
+    const options = createOAuthOptions({ resolveActor: async () => freshActor });
+    (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority: authority };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+
+    const refusedAtAuthorize = await app.request(
+      authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }),
+    );
+    expect(refusedAtAuthorize.status).toBe(400);
+    await expect(refusedAtAuthorize.json()).resolves.toMatchObject({ error: "invalid_scope" });
+
+    state = "granted";
+    const started = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(started.status).toBe(302);
+    const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+      "consent_token",
+    )!;
+
+    state = "denied";
+    const read = await app.request(`/ucp/oauth/consent?consent_token=${consentToken}`);
+    expect(read.status).toBe(400);
+    await expect(read.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    const approved = await app.request("/ucp/oauth/authorize", {
+      method: "POST",
+      body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+      headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(approved.status).toBe(400);
+    await expect(approved.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    expect(authority.mock.calls.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("fails closed when a configured operator authority throws", async () => {
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    const authority = vi.fn(async () => {
+      throw new Error("synthetic authority failure");
+    });
+    const { app, db } = operatorFixture(freshActor, authority);
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const response = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_scope" });
+    expect(db.consents.size).toBe(0);
+    expect(authority).toHaveBeenCalledOnce();
+  });
+
+  it("requires recent interactive authentication for configured operator authority", async () => {
+    const staleActor = {
+      ...actor,
+      roleKey: "platform-admin",
+      authenticatedAt: new Date(Date.now() - 11 * 60 * 1_000).toISOString(),
+    };
+    const authority = vi.fn(async () => ({
+      kind: "granted" as const,
+      membershipId: "member_1",
+      roleKey: "platform-admin" as const,
+      rolePermissions: [],
+    }));
+    const { app, db } = operatorFixture(staleActor, authority);
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const response = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(response.status).toBe(302);
+    expect(new URL(response.headers.get("location")!, "http://localhost").pathname).toBe("/sign-in");
+    expect(db.consents.size).toBe(0);
+    expect(authority).toHaveBeenCalledOnce();
+  });
+
+  it("caps mixed-scope refresh lifetime and rejects rotation and bearer use at the seven-day boundary", async () => {
+    vi.useFakeTimers();
+    try {
+      const baseline = new Date("2026-01-01T00:00:00.000Z");
+      vi.setSystemTime(baseline);
+      const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: baseline.toISOString() };
+      const authority = async () => ({
+        kind: "granted" as const,
+        membershipId: "member_1",
+        roleKey: "platform-admin" as const,
+        rolePermissions: [],
+      });
+      const linkedPlatformAuthorizations = createLinkedStore({ enforceExpiry: true });
+      const options = createOAuthOptions({
+        linkedPlatformAuthorizations: linkedPlatformAuthorizations as unknown as Parameters<
+          typeof createUcpOAuthRoutes
+        >[0]["linkedPlatformAuthorizations"],
+        resolveActor: async () => freshActor,
+      });
+      (options.auth as unknown as { identity: unknown }).identity = { operatorAuthority: authority };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const registration = await registerClient(app, {
+        redirect_uris: [redirectUri],
+        scope: "catalog:read operations:write",
+      });
+      const { client_id: clientId } = (await registration.json()) as { client_id: string };
+      const started = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri,
+          scope: "catalog:read operations:write",
+          challenge,
+        }),
+      );
+      const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+        "consent_token",
+      )!;
+      const approved = await app.request("/ucp/oauth/authorize", {
+        method: "POST",
+        body: new URLSearchParams({ consent_token: consentToken, decision: "approve" }),
+        headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+      });
+      const code = new URL(approved.headers.get("location")!, "http://localhost").searchParams.get("code")!;
+      const tokenResponse = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: "synthetic-verifier",
+        }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const tokenBody = (await tokenResponse.json()) as { access_token: string; refresh_token: string };
+      expect(tokenResponse.status).toBe(200);
+      const [initial] = await linkedPlatformAuthorizations.listForAccount(actor.accountId);
+      expect(initial).toMatchObject({
+        scopes: ["catalog:read", "operations:write"],
+        access_token_expires_at: "2026-01-01T01:00:00.000Z",
+        refresh_token_expires_at: "2026-01-08T00:00:00.000Z",
+        absolute_expires_at: "2026-01-08T00:00:00.000Z",
+      });
+
+      vi.setSystemTime(new Date("2026-01-07T00:00:00.000Z"));
+      const rotatedResponse = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokenBody.refresh_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const rotatedBody = (await rotatedResponse.json()) as { access_token: string; refresh_token: string };
+      expect(rotatedResponse.status).toBe(200);
+      expect(rotatedBody.refresh_token).not.toBe(tokenBody.refresh_token);
+      const [rotated] = await linkedPlatformAuthorizations.listForAccount(actor.accountId);
+      expect(rotated).toMatchObject({
+        access_token_expires_at: "2026-01-07T01:00:00.000Z",
+        refresh_token_expires_at: "2026-01-08T00:00:00.000Z",
+      });
+
+      vi.setSystemTime(new Date("2026-01-08T00:00:00.001Z"));
+      const expiredRefresh = await app.request("/ucp/oauth/token", {
+        method: "POST",
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rotatedBody.refresh_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      expect(expiredRefresh.status).toBe(400);
+      await expect(expiredRefresh.json()).resolves.toMatchObject({ error: "invalid_grant" });
+      const introspection = await app.request("/ucp/oauth/introspect", {
+        method: "POST",
+        body: new URLSearchParams({ token: rotatedBody.access_token }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      await expect(introspection.json()).resolves.toEqual({ active: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1881,8 +2561,14 @@ function createAuthorizationCodeDb() {
   };
 }
 
-function createLinkedStore() {
+function createLinkedStore({ enforceExpiry = false }: { enforceExpiry?: boolean } = {}) {
   const rows = new Map<string, Record<string, unknown>>();
+  const capAtAbsoluteExpiry = (candidate: string, absolute: unknown) => {
+    if (typeof absolute !== "string") return candidate;
+    return Date.parse(candidate) <= Date.parse(absolute) ? candidate : absolute;
+  };
+  const isUsable = (row: Record<string, unknown>, field: "access_token_expires_at" | "refresh_token_expires_at") =>
+    !enforceExpiry || (typeof row[field] === "string" && Date.parse(row[field] as string) > Date.now());
   return {
     grant: async (params: {
       authorizationId: string;
@@ -1895,8 +2581,10 @@ function createLinkedStore() {
       refreshTokenHash?: string | null;
       accessTokenExpiresAt: string;
       refreshTokenExpiresAt?: string | null;
+      absoluteExpiresAt?: string | null;
       grantedAt: string;
     }) => {
+      const absoluteExpiresAt = params.absoluteExpiresAt ?? null;
       const row = {
         authorization_id: params.authorizationId,
         platform_profile_url: params.platformProfileUrl,
@@ -1907,8 +2595,11 @@ function createLinkedStore() {
         status: "active",
         access_token_hash: params.accessTokenHash,
         refresh_token_hash: params.refreshTokenHash ?? null,
-        access_token_expires_at: params.accessTokenExpiresAt,
-        refresh_token_expires_at: params.refreshTokenExpiresAt ?? null,
+        access_token_expires_at: capAtAbsoluteExpiry(params.accessTokenExpiresAt, absoluteExpiresAt),
+        refresh_token_expires_at: params.refreshTokenExpiresAt
+          ? capAtAbsoluteExpiry(params.refreshTokenExpiresAt, absoluteExpiresAt)
+          : null,
+        absolute_expires_at: absoluteExpiresAt,
         granted_at: params.grantedAt,
         last_refreshed_at: null,
         refresh_token_rotated_at: null,
@@ -1922,7 +2613,14 @@ function createLinkedStore() {
     resolveToken: async (tokenHash: string) =>
       [...rows.values()].find(
         (row) =>
-          row.status === "active" && (row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash),
+          row.status === "active" &&
+          ((row.access_token_hash === tokenHash && isUsable(row, "access_token_expires_at")) ||
+            (row.refresh_token_hash === tokenHash && isUsable(row, "refresh_token_expires_at"))),
+      ) ?? null,
+    resolveAccessToken: async (tokenHash: string) =>
+      [...rows.values()].find(
+        (row) =>
+          row.status === "active" && row.access_token_hash === tokenHash && isUsable(row, "access_token_expires_at"),
       ) ?? null,
     resolveRevocationToken: async (tokenHash: string) =>
       [...rows.values()].find((row) => row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash) ??
@@ -1936,15 +2634,18 @@ function createLinkedStore() {
       refreshedAt: string;
     }) => {
       const row = [...rows.values()].find(
-        (entry) => entry.status === "active" && entry.refresh_token_hash === params.refreshTokenHash,
+        (entry) =>
+          entry.status === "active" &&
+          entry.refresh_token_hash === params.refreshTokenHash &&
+          isUsable(entry, "refresh_token_expires_at"),
       );
       if (!row) {
         return null;
       }
       row.access_token_hash = params.newAccessTokenHash;
       row.refresh_token_hash = params.newRefreshTokenHash;
-      row.access_token_expires_at = params.accessTokenExpiresAt;
-      row.refresh_token_expires_at = params.refreshTokenExpiresAt;
+      row.access_token_expires_at = capAtAbsoluteExpiry(params.accessTokenExpiresAt, row.absolute_expires_at);
+      row.refresh_token_expires_at = capAtAbsoluteExpiry(params.refreshTokenExpiresAt, row.absolute_expires_at);
       row.last_refreshed_at = params.refreshedAt;
       row.refresh_token_rotated_at = params.refreshedAt;
       row.updated_at = params.refreshedAt;
@@ -1980,6 +2681,27 @@ function createLinkedStore() {
 
 function pkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
+}
+
+function largestValidClientIdMetadata() {
+  const paddedUrl = (suffix: string) => {
+    const prefix = "https://a.example/";
+    return `${prefix}${"x".repeat(2048 - prefix.length - suffix.length)}${suffix}`;
+  };
+  const clientId = paddedUrl("client-id");
+  const redirectUris = Array.from({ length: 10 }, (_, index) => paddedUrl(`redirect-${index}`));
+  const body = {
+    client_id: clientId,
+    client_name: "x".repeat(120),
+    client_uri: paddedUrl("client-uri"),
+    platform_profile_url: paddedUrl("profile-url"),
+    redirect_uris: redirectUris,
+    scope: [...UCP_OAUTH_SUPPORTED_SCOPES, "operations:read", "operations:write"].join(" "),
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+  return { clientId, redirectUris, body };
 }
 
 async function consentFixture(redirectUri = "https://agent.example/callback") {

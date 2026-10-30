@@ -222,7 +222,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
     }
 
     hasAutoSubmittedRef.current = true;
-    submit(formRef.current, { method: "post" });
+    void submit(formRef.current, { method: "post" });
   }, [actionData?.error, data.autostart, navigation.state, submit]);
 
   const totalAmount = sumOrderAmounts(data.orders.map((order) => order.total_amount));

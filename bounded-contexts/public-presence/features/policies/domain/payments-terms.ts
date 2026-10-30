@@ -124,7 +124,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           ...paymentChargeTimingAndCaptureProductTruthRefs,
-          "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+          "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
         ],
         openQuestions: [
           "What, if anything, may the policy say about the descriptor a card or bank statement will display? Sending a suffix does not establish issuer display.",
@@ -143,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2099-2106",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376; bounded-contexts/payments/features/payments/api/runtime.ts:2477-2484",
           },
         ],
         canonicalClaims: [
@@ -212,8 +212,8 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [7818, 7819],
         productTruthRefs: [
           "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:854-906 (commitPayoutRequest monthly fee determination)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:883-918 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:302-354 (commitPayoutRequest monthly fee determination)",
           "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
         ],
         openQuestions: [

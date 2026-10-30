@@ -26,6 +26,7 @@ export function createDiscoveryListingPatch(
     active_held_quantity?: unknown;
     visible_quantity?: number | null;
     seller_listing_availability_status?: string | null;
+    seller_account_status?: string | null;
   }>,
   summary: unknown,
 ): RealtimeProjectionPatch {
@@ -43,11 +44,15 @@ export function createDiscoveryListingPatch(
   // buy rail get the softer treatment).
   const isStructurallyReal =
     listing.status === "active" &&
+    (listing.seller_account_status ?? "active") === "active" &&
     typeof product_measure_snapshot === "object" &&
     product_measure_snapshot !== null &&
     Number(listing.visible_quantity ?? 0) > 0;
 
-  const isPubliclyBuyable = isStructurallyReal && listing.seller_listing_availability_status === "available";
+  const isPubliclyBuyable =
+    isStructurallyReal &&
+    listing.seller_listing_availability_status === "available" &&
+    (listing.seller_account_status ?? "active") === "active";
 
   return createDiscoveryProjectionPatch(topics, [
     isPubliclyBuyable
@@ -88,10 +93,11 @@ export function createDiscoveryOfferPatch(
   offer: Readonly<{
     offer_id: string;
     status: string;
+    buyer_account_status?: string | null;
   }>,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    offer.status === "submitted"
+    offer.status === "submitted" && (offer.buyer_account_status ?? "active") === "active"
       ? {
           op: "upsert",
           entity: "discovery.buyerOffer",

@@ -69,6 +69,9 @@
       "@chase-sets/catalog": [
         "./bounded-contexts/catalog/index.ts"
       ],
+      "@chase-sets/catalog-product-line": [
+        "./contracts/catalog-product-line/index.ts"
+      ],
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
@@ -423,6 +426,9 @@
       "@chase-sets/event-core/complete-stream": [
         "./contracts/event-core/complete-stream.ts"
       ],
+      "@chase-sets/event-core/configuration-epoch": [
+        "./contracts/event-core/configuration-epoch.ts"
+      ],
       "@chase-sets/event-core/consistency": [
         "./contracts/event-core/consistency.ts"
       ],
@@ -440,6 +446,9 @@
       ],
       "@chase-sets/event-core/public-event-payloads": [
         "./contracts/event-core/public-event-payloads/index.ts"
+      ],
+      "@chase-sets/event-core/public-event-payloads/collections": [
+        "./contracts/event-core/public-event-payloads/collections.ts"
       ],
       "@chase-sets/event-core/public-event-payloads/inventory": [
         "./contracts/event-core/public-event-payloads/inventory.ts"
@@ -486,6 +495,18 @@
       "@chase-sets/fulfillment/server": [
         "./bounded-contexts/fulfillment/server.ts"
       ],
+      "@chase-sets/google-merchant": [
+        "./infrastructure/google-merchant/index.ts"
+      ],
+      "@chase-sets/google-merchant/auth": [
+        "./infrastructure/google-merchant/auth.ts"
+      ],
+      "@chase-sets/google-merchant/config": [
+        "./infrastructure/google-merchant/config.ts"
+      ],
+      "@chase-sets/google-shopping-export": [
+        "./contracts/google-shopping-export/index.ts"
+      ],
       "@chase-sets/http/*": [
         "./contracts/http/*.ts"
       ],
@@ -512,6 +533,9 @@
       ],
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
+      ],
+      "@chase-sets/inventory-draft-listing": [
+        "./contracts/inventory-draft-listing/index.ts"
       ],
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
@@ -747,6 +771,9 @@
       "@chase-sets/platform-runtime/evidence-window-provider-write-executor": [
         "./infrastructure/platform-runtime/evidence-window-provider-write-executor.ts"
       ],
+      "@chase-sets/platform-runtime/feature-flags/contract": [
+        "./infrastructure/platform-runtime/feature-flags/contract.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],
@@ -852,14 +879,26 @@
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],
+      "@chase-sets/platform-runtime/ucp-schema-test-support": [
+        "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
+      ],
+      "@chase-sets/platform-runtime/ucp-tool-schemas": [
+        "./infrastructure/platform-runtime/ucp-tool-schemas.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],
       "@chase-sets/platform-runtime/web-assets": [
         "./infrastructure/platform-runtime/web-assets.ts"
       ],
+      "@chase-sets/platform-runtime/web-entry-server": [
+        "./infrastructure/platform-runtime/web-entry-server.ts"
+      ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
+      ],
+      "@chase-sets/platform-runtime/web-server": [
+        "./infrastructure/platform-runtime/web-server.ts"
       ],
       "@chase-sets/platform-runtime/work-signal-store": [
         "./infrastructure/platform-runtime/work-signal-store.ts"
@@ -878,6 +917,9 @@
       ],
       "@chase-sets/playwright-evidence": [
         "./infrastructure/playwright-evidence/index.ts"
+      ],
+      "@chase-sets/playwright-evidence/rendered-copy": [
+        "./infrastructure/playwright-evidence/rendered-copy.ts"
       ],
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"
@@ -983,6 +1025,9 @@
       ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
+      ],
+      "@chase-sets/tcgplayer-market-observations": [
+        "./contracts/tcgplayer-market-observations/index.ts"
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"

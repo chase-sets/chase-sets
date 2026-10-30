@@ -44,7 +44,7 @@
     "ui-support"
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [
     {
@@ -320,6 +320,130 @@
       {
         "name": "identity.get-account",
         "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.list-accounts",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.update-account-profile",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.suspend-account",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.reactivate-account",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.close-account",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.assign-account-badge",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.remove-account-badge",
+        "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.add-user-contact-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.disable-user-auth-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.enable-user-auth-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.get-user-account-link",
+        "ownerSlice": "access-hub"
+      },
+      {
+        "name": "identity.list-users",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.reactivate-user",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.suspend-user",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.update-user-profile",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.verify-user-contact-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.get-account-access-hub",
+        "ownerSlice": "access-hub"
+      },
+      {
+        "name": "identity.create-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.cancel-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.decline-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.resend-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.create-and-send-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.get-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.list-invitations",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.resend-and-send-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.change-membership-role",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.get-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.list-memberships",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.revoke-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.reinstate-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.revoke-api-key",
+        "ownerSlice": "api-keys"
       }
     ],
     "resources": [
@@ -1608,16 +1732,79 @@
     }
   ],
   "agentCoverage": {
-    "accounts": { "pending": "#9238" },
-    "accounts-detail": { "pending": "#9238" },
+    "accounts": {
+      "tools": [
+        "identity.list-accounts"
+      ]
+    },
+    "accounts-detail": {
+      "tools": [
+        "identity.get-account-access-hub",
+        "identity.update-account-profile",
+        "identity.suspend-account",
+        "identity.reactivate-account",
+        "identity.close-account",
+        "identity.assign-account-badge",
+        "identity.remove-account-badge",
+        "identity.create-invitation",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership",
+        "identity.resend-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation",
+        "identity.update-user-profile",
+        "identity.suspend-user",
+        "identity.reactivate-user",
+        "identity.add-user-contact-method",
+        "identity.verify-user-contact-method",
+        "identity.enable-user-auth-method",
+        "identity.disable-user-auth-method"
+      ]
+    },
     "api-keys": { "pending": "#9238" },
     "api-keys-detail": { "pending": "#9238" },
-    "invitations": { "pending": "#9238" },
-    "invitations-detail": { "pending": "#9238" },
-    "memberships": { "pending": "#9238" },
-    "memberships-detail": { "pending": "#9238" },
-    "users": { "pending": "#9238" },
-    "users-detail": { "pending": "#9238" }
+    "invitations": {
+      "tools": [
+        "identity.create-and-send-invitation",
+        "identity.list-invitations",
+        "identity.list-accounts"
+      ]
+    },
+    "invitations-detail": {
+      "tools": [
+        "identity.get-invitation",
+        "identity.resend-and-send-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "memberships": {
+      "tools": [
+        "identity.list-memberships"
+      ]
+    },
+    "memberships-detail": {
+      "tools": [
+        "identity.get-membership",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
+    "users": { "tools": ["identity.list-users"] },
+    "users-detail": {
+      "tools": [
+        "identity.get-user-account-link",
+        "identity.update-user-profile",
+        "identity.suspend-user",
+        "identity.reactivate-user",
+        "identity.add-user-contact-method",
+        "identity.verify-user-contact-method",
+        "identity.enable-user-auth-method",
+        "identity.disable-user-auth-method"
+      ]
+    }
   },
   "deployableContributions": [
     {

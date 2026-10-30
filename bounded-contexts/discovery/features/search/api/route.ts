@@ -29,16 +29,24 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   app.get("/", async (c) => {
     const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
 
-    const result = await services.searchItems(params, { signal: c.req.raw.signal });
+    const result = await services.searchItems(params, {
+      signal: c.req.raw.signal,
+      correlationId: c.var.context?.trace?.traceId,
+    });
 
     const actor = c.var.actor;
     const context = c.var.context;
     if (actor && !actor.agentGrant && context) {
-      await services.publishSearchOutcome?.({
-        accountId: actor.accountId,
-        sessionId: actor.sessionId,
-        context,
-      });
+      try {
+        await services.publishSearchOutcome?.({
+          accountId: actor.accountId,
+          sessionId: actor.sessionId,
+          context,
+        });
+      } catch {
+        // CSAT publication is asynchronous and must not turn a successful
+        // search response into a failed request.
+      }
     }
 
     return c.json({

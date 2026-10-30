@@ -60,11 +60,8 @@ export function OperatorSessionPanel({
   const [busy, setBusy] = useState<Mutation | null>(null);
   const [grant, setGrant] = useState<OperatorSessionMintedGrant | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  // Break-glass: whether a grant or custody is known to remain, so Disconnect
-  // has something to revoke or clear. It is not read from the metadata on
-  // screen: a successful mint is itself evidence of a grant, and a failed read
-  // or refused/incomplete mutation is neither absence nor completion, so only
-  // validated metadata and a confirmed Disconnect change it.
+  // Disconnect is enabled only when validated grant metadata or a successful
+  // mint shows an active server grant. Provider credentials are never present.
   const [disconnectable, setDisconnectable] = useState(false);
   const pairButton = useRef<HTMLButtonElement>(null);
   // A completion applies only while the panel is mounted and it is still the
@@ -82,7 +79,7 @@ export function OperatorSessionPanel({
     }
     const metadata = result.value;
     setMetadataState({ kind: "ready", metadata });
-    setDisconnectable(metadata.storedAt !== null || metadata.grant !== null);
+    setDisconnectable(metadata.grant !== null);
   }, []);
 
   useEffect(() => {
@@ -149,8 +146,7 @@ export function OperatorSessionPanel({
         return;
       }
       setNotice({ kind: "disconnected", outcome: result.value });
-      // Cleared and unchanged both follow a committed revoke-all and a fresh
-      // clear; a stale revision means newer stored custody still remains.
+      // A stale revision means a newer grant remains and must stay visible.
       if (result.value.outcome !== "stale-revision") setDisconnectable(false);
     });
 
@@ -253,52 +249,18 @@ function liveAnnouncement(busy: Mutation | null, grantShown: boolean): string | 
 }
 
 function OperatorSessionStatus({ metadata }: Readonly<{ metadata: OperatorSessionMetadata }>) {
-  const { revision, storedAt, browserExpiresAt, custodyAvailable, grant } = metadata;
+  const { revision, grant } = metadata;
   const facts: KeyValueItem[] = [
     { key: t("catalog.features.operatorSession.ui.adminPanel.facts.revision"), value: String(revision) },
   ];
-  if (storedAt !== null) {
-    facts.push(
-      { key: t("catalog.features.operatorSession.ui.adminPanel.facts.storedAt"), value: formatDateTime(storedAt) },
-      {
-        key: t("catalog.features.operatorSession.ui.adminPanel.facts.browserExpiresAt"),
-        value:
-          browserExpiresAt === null
-            ? t("catalog.features.operatorSession.ui.adminPanel.facts.browserExpiresAt.none")
-            : formatDateTime(browserExpiresAt),
-      },
-    );
-  }
-  facts.push({
-    key: t("catalog.features.operatorSession.ui.adminPanel.facts.custodyAvailable"),
-    value: custodyAvailable
-      ? t("catalog.features.operatorSession.ui.adminPanel.facts.custodyAvailable.yes")
-      : t("catalog.features.operatorSession.ui.adminPanel.facts.custodyAvailable.no"),
-  });
 
   return (
     <Stack gap={3}>
-      {storedAt === null && revision === 0 ? (
-        <EmptyState
-          title={t("catalog.features.operatorSession.ui.adminPanel.absent.title")}
-          description={t("catalog.features.operatorSession.ui.adminPanel.absent.description")}
-        />
-      ) : null}
-      {storedAt === null && revision > 0 ? (
-        <EmptyState
-          title={t("catalog.features.operatorSession.ui.adminPanel.cleared.title")}
-          description={t("catalog.features.operatorSession.ui.adminPanel.cleared.description", { revision })}
-        />
-      ) : null}
+      <EmptyState
+        title={t("catalog.features.operatorSession.ui.adminPanel.unavailable.title")}
+        description={t("catalog.features.operatorSession.ui.adminPanel.unavailable.description")}
+      />
       <KeyValueList density="compact" variant="surface" items={facts} />
-      <Text size="sm" tone="secondary">
-        {t("catalog.features.operatorSession.ui.adminPanel.facts.custodyAvailable.hint")}
-      </Text>
-      {storedAt !== null && !custodyAvailable ? (
-        <Text size="sm" tone="danger">
-          {t("catalog.features.operatorSession.ui.adminPanel.facts.custodyAvailable.unreadable")}
-        </Text>
-      ) : null}
       <GrantFacts grant={grant} />
     </Stack>
   );
@@ -539,9 +501,6 @@ function parseMetadata(body: unknown): OperatorSessionMetadata | null {
   const { revision, storedAt, browserExpiresAt, custodyAvailable, grant } = body;
   if (!isRevision(revision) || typeof custodyAvailable !== "boolean") return null;
   if (!isNullableInstant(storedAt) || !isNullableInstant(browserExpiresAt)) return null;
-  // Absent custody is revision 0 with null instants; cleared custody keeps its
-  // revision with null instants; only stored custody carries instants.
-  if (storedAt === null ? browserExpiresAt !== null : revision === 0) return null;
   const parsedGrant = grant === null ? null : parseGrantMetadata(grant);
   if (grant !== null && parsedGrant === null) return null;
   return { revision, storedAt, browserExpiresAt, custodyAvailable, grant: parsedGrant };

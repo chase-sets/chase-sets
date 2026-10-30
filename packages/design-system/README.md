@@ -173,6 +173,8 @@ export function CheckoutActionForm() {
 }
 ```
 
+When `submitting` is omitted, `RouterForm` derives pending state from the accepted mutation submitter. The owning submitter receives `aria-busy` and remains enabled so its native name/value and focus are preserved; `pendingAnnouncement` optionally provides a polite live announcement. Explicit `submitting` remains caller-owned and disables the form's controls; add `keepControlsEnabled` to keep them enabled instead, publishing the submitter activated when submitting began as the `aria-busy` pending submitter and refusing repeat activations until the caller clears `submitting`.
+
 The router adapter is a separate optional subpath so the core design-system entrypoint stays framework-neutral. `pnpm run check:no-legacy-forms` runs the final blocking guardrail: production code may not render lowercase `<form>` directly or import/use framework `Form` directly outside the approved design-system adapter.
 
 Migration cleanup checklist:

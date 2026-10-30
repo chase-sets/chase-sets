@@ -61,6 +61,8 @@ const POSTGRES_URL_PATTERN = /postgres(?:ql)?:\/\/[^"'\s]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const BEARER_PATTERN = /Bearer\s+[A-Za-z0-9._-]+/g;
 const SESSION_TOKEN_FIELD_PATTERN = /"sessionToken"/g;
+const WAKE_STATUS_FETCH_FAILURE_STAGES = Object.freeze(["sign-in", "wake-status"]);
+const TRANSPORT_CAUSE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,39}$/;
 const WORKER_HEARTBEAT_STALE_AGE_MS = 120_000;
 
 export function contextDatabaseEnvName(sourceContextName) {
@@ -636,27 +638,59 @@ export async function fetchWakeStatusSnapshot(options, fetchImpl = fetch) {
     return null;
   }
 
-  const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+  const sessionToken = await withWakeStatusFetchStage("sign-in", async () => {
+    const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+    });
+    if (!signInResponse.ok) {
+      throw Object.assign(new Error(`Wake-status admin sign-in failed with HTTP ${signInResponse.status}.`), {
+        status: signInResponse.status,
+      });
+    }
+    const token = (await signInResponse.json())?.sessionToken;
+    if (!token) {
+      throw new Error("Wake-status admin sign-in did not return a session token.");
+    }
+    return token;
   });
-  if (!signInResponse.ok) {
-    throw new Error(`Wake-status admin sign-in failed with HTTP ${signInResponse.status}.`);
-  }
-  const sessionToken = (await signInResponse.json())?.sessionToken;
-  if (!sessionToken) {
-    throw new Error("Wake-status admin sign-in did not return a session token.");
-  }
 
-  const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/wake-status`, {
-    headers: { Authorization: `Bearer ${sessionToken}` },
+  return withWakeStatusFetchStage("wake-status", async () => {
+    const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/wake-status`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    if (!statusResponse.ok) {
+      throw Object.assign(new Error(`Wake-status request failed with HTTP ${statusResponse.status}.`), {
+        status: statusResponse.status,
+      });
+    }
+    return statusResponse.json();
   });
-  if (!statusResponse.ok) {
-    throw new Error(`Wake-status request failed with HTTP ${statusResponse.status}.`);
-  }
+}
 
-  return statusResponse.json();
+// Rethrows any failure inside one wake-status request stage tagged with that
+// stage, its HTTP status, and its transport cause code.
+async function withWakeStatusFetchStage(stage, run) {
+  try {
+    return await run();
+  } catch (error) {
+    throw Object.assign(new Error(`Wake-status ${stage} request failed.`, { cause: error }), {
+      stage,
+      status: error?.status ?? null,
+      code: error?.cause?.code ?? error?.code ?? null,
+    });
+  }
+}
+
+// Closed, secret-free fetch-failure fields in the safeFailureFields shape
+// (scripts/lib/postgres-connection.mjs): never a message, URL, or body.
+function classifyWakeStatusFetchFailure(value) {
+  return {
+    stage: WAKE_STATUS_FETCH_FAILURE_STAGES.includes(value?.stage) ? value.stage : "unknown",
+    status: Number.isInteger(value?.status) && value.status >= 100 && value.status <= 599 ? value.status : null,
+    code: typeof value?.code === "string" && TRANSPORT_CAUSE_CODE_PATTERN.test(value.code) ? value.code : null,
+  };
 }
 
 export async function fetchWorkerStatusSnapshot(options, fetchImpl = fetch) {
@@ -949,6 +983,7 @@ function wakeRuntimePreflightSample(sampleNumber, elapsedMs, evaluation, stabili
     relayLeaseRenewedAt: evaluation.relayLeaseRenewedAt ?? null,
     relayLeaseExpiresAt: evaluation.relayLeaseExpiresAt ?? null,
     reasons: evaluation.reasons,
+    fetchFailure: evaluation.fetchFailure ?? null,
     stability,
   };
 }
@@ -970,6 +1005,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
       ready: null,
       readyAfterMs: null,
       sampleCount: 0,
+      fetchFailureCount: 0,
+      lastFetchFailure: null,
       omittedSampleCount: 0,
       samples: [],
       initial: null,
@@ -981,6 +1018,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
   const deadline = startedAt + Math.max(0, options.wakeRuntimeReadyBudgetMs ?? 0);
   const pollIntervalMs = Math.max(250, options.wakeRuntimeReadyPollIntervalMs ?? options.pollIntervalMs ?? 5_000);
   let sampleCount = 0;
+  let fetchFailureCount = 0;
+  let lastFetchFailure = null;
   let snapshot = initialSnapshot;
   let initial = null;
   let final = null;
@@ -991,37 +1030,29 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
   let omittedSampleCount = 0;
 
   for (;;) {
+    let fetchFailure = null;
     if (!snapshot) {
       try {
         snapshot = await deps.fetchWakeStatus();
-      } catch {
-        const failed = {
+      } catch (error) {
+        // A wake-status fetch error is one not-ready sample: it resets the
+        // ready streak, and only budget expiry fails the preflight.
+        fetchFailure = classifyWakeStatusFetchFailure(error);
+        fetchFailureCount += 1;
+        lastFetchFailure = fetchFailure;
+      }
+    }
+    sampleCount += 1;
+    const evaluation = fetchFailure
+      ? {
           ready: false,
           activeWakeCapableWorkerCount: 0,
           relayLeaseState: null,
           relayOwnerId: null,
           reasons: ["wake-status-preflight-fetch-failed"],
-        };
-        const attemptedSampleCount = sampleCount + 1;
-        omittedSampleCount = appendWakeRuntimePreflightSample(
-          samples,
-          wakeRuntimePreflightSample(attemptedSampleCount, deps.now() - startedAt, failed),
-          omittedSampleCount,
-        );
-        return {
-          attempted: true,
-          ready: false,
-          readyAfterMs: null,
-          sampleCount: attemptedSampleCount,
-          omittedSampleCount,
-          samples,
-          initial: initial ?? failed,
-          final: failed,
-        };
-      }
-    }
-    sampleCount += 1;
-    const evaluation = evaluateWakeRuntimeReadiness(snapshot);
+          fetchFailure,
+        }
+      : { ...evaluateWakeRuntimeReadiness(snapshot), fetchFailure: null };
     initial ??= evaluation;
     final = evaluation;
     if (evaluation.ready) {
@@ -1039,6 +1070,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
           ready: true,
           readyAfterMs: Math.max(0, deps.now() - startedAt),
           sampleCount,
+          fetchFailureCount,
+          lastFetchFailure,
           readySampleCount,
           omittedSampleCount,
           samples,
@@ -1071,6 +1104,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
     ready: false,
     readyAfterMs: null,
     sampleCount,
+    fetchFailureCount,
+    lastFetchFailure,
     readySampleCount,
     omittedSampleCount,
     samples,

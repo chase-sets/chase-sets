@@ -46,6 +46,11 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 | Term | Owning source | Notes |
 | --- | --- | --- |
+| Acknowledged Epoch Closure | Event Core | Owner configuration lifecycle: `OPEN` → `CLOSING` → `APPLIED`, installed only after every registered consumer receipt. |
+| Guard History | Event Core | Canonical per-key, per-incarnation epoch records; caches and snapshots never seed it. |
+| CLOSED-THROUGH Receipt | Event Core | Durable consumer acknowledgement that a source epoch is no longer observable in that store incarnation. |
+| Store Incarnation | Event Core | The identity of one consumer or owner store lifetime used to reject stale grants. |
+| Source Topology | Event Core | Registered consumer store incarnations and their topology revision for one configuration key. |
 | Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |
 | Shipping Address | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Account-owned recipient destination reused during checkout; not an Inventory storage location or Fulfillment ship-from location. |
 | Buyer | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
@@ -127,6 +132,14 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
 | External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
 | Platform Feedback | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Feature Flag Definition | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Platform-owned flag key and fallback declaration. |
+| Feature Flag Document | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Versioned staging and production flag state record. |
+| Flag Fallback Value | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Definition-level boolean used when no environment document supplies a value. |
+| Targeting Default | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Environment-level boolean used when targeting does not select an account or badge. |
+| Flag Revision | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Immutable authored revision of a Feature Flag Document. |
+| Flag Environment State | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Closed per-environment enablement and targeting state. |
+| Targeting Rule | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Future rule for selecting whether an environment state applies. |
+| Flag Evaluation Context | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Reserved term for #7185; no shipped type or behavior. |
 | Affected Line Item Amount | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Order-line amount and currency fact used by Support to cap offers and adjudications; Payments and Settlement still own accounting. |
 | Affected Line Item Amount Contract | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Support validation boundary for selected lines, one currency, and a non-exceeding remedy amount. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
@@ -137,6 +150,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | UCP Profile | [Architecture](./architecture/ucp-agent-commerce.md) | Public `/.well-known/ucp` document that advertises supported Universal Commerce Protocol services and capabilities. |
 | UCP Capability | [Architecture](./architecture/ucp-agent-commerce.md) | Standards-facing protocol capability such as catalog search, checkout, or order read; maps to existing bounded-context behavior instead of owning domain state. |
 | Agent Coverage | [Architecture](./architecture/ucp-agent-commerce.md#native-mcp-bridge) | Per-route declaration in a context manifest's `agentCoverage` key: the native MCP tools that cover an admin route, a closed exemption code with a note, or the pending issue that owns the gap. |
+| Staging Receipt Lookup Service Actor | [Auth](../bounded-contexts/auth/GLOSSARY.md) | The staging-only service actor resolved from the dedicated eBay receipt lookup bearer; it never accepts a human session or cookie. |
+| `channels.receipt.lookup` | [Channels](../bounded-contexts/channels/GLOSSARY.md) | The exact Channels permission required by the staging receipt lookup service actor for the eBay account-deletion receipt lookup operation. |
 | Linked Platform Authorization | [Identity](../bounded-contexts/identity/GLOSSARY.md) | User/account consent that lets an external platform act through UCP scopes. |
 | Payment Handler | [Payments](../bounded-contexts/payments/GLOSSARY.md) | UCP-facing payment method declaration and instrument-processing contract owned by Payments. |
 | Shared Payment Token | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Provider-scoped agent payment credential grant processed without raw card handling. |

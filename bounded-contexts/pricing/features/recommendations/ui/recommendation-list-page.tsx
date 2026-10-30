@@ -83,10 +83,13 @@ export function PricingRecommendationListPage({
     <Page>
       <PageHeader
         eyebrow={t("pricing.features.recommendations.ui.recommendationListPage.seller")}
-        title={t("pricing.features.recommendations.ui.recommendationListPage.repricing")}
+        title={t("pricing.features.recommendations.ui.recommendationListPage.recommendations")}
         description={t("pricing.features.recommendations.ui.recommendationListPage.review.market.signals.and.copy")}
         actions={
           <Inline>
+            <LinkButton href="/account/desk/repricing" tone="secondary">
+              {t("pricing.features.repricingPolicies.ui.policyList.caption")}
+            </LinkButton>
             <Form spacing="none" method="post">
               <Button
                 type="submit"

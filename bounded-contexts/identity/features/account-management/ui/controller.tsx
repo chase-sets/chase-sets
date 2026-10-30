@@ -8,37 +8,48 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate, useRevalidator } from "react-router";
+import { useLocation, useMatches, useNavigate, useNavigation, useRevalidator } from "react-router";
 import { Banner, Button, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm, type RouterFormProps } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import type { OneTimeApiKeySecret } from "../../api-keys/api/one-time-secret";
 import { actionFields, actionTargetField, type AttemptBinding, type MutationAction } from "../domain/contract";
 import { descriptorDisposition, formIntentDigest, type ClientState, type MutationDescriptor } from "./descriptor";
-import { sendMutation } from "./transport";
+import { sendMutation, type MutationFailure } from "./transport";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 
 type Controller = Readonly<{
   state: ClientState;
   activeForm: HTMLFormElement | null;
+  /** The form whose mutation holds the boundary lock, from activation until it settles. */
+  pendingForm: HTMLFormElement | null;
   ready: boolean;
   isHeld: (form: HTMLFormElement) => boolean;
-  submit: (event: FormEvent<HTMLFormElement>) => void;
+  submit: (event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) => void;
 }>;
 const MutationContext = createContext<Controller | null>(null);
 
-export function AccountMutationForm(props: RouterFormProps) {
+export type MutationNotification =
+  | Readonly<{ type: "accepted" }>
+  | Readonly<{ type: "failure"; failure: MutationFailure }>;
+export type MutationNotificationHandler = (notification: MutationNotification) => void;
+
+export function AccountMutationForm({
+  onMutation,
+  ...props
+}: RouterFormProps & { onMutation?: MutationNotificationHandler }) {
   const controller = useContext(MutationContext);
   const ref = useRef<HTMLFormElement>(null);
   const entered = useRef<FormData | null>(null);
   const [held, setHeld] = useState(false);
-  const busy =
+  const pending = ref.current !== null && controller?.pendingForm === ref.current;
+  const disabled =
+    !controller?.ready ||
     held ||
-    (controller?.activeForm === ref.current &&
-      ["submitting", "confirming", "reauth-required", "route-denied"].includes(controller.state));
+    (controller.activeForm === ref.current && ["reauth-required", "route-denied"].includes(controller.state));
   useLayoutEffect(() => {
     setHeld(Boolean(ref.current && controller?.isHeld(ref.current)));
-  }, [controller]);
+  });
   useLayoutEffect(() => {
     if (controller?.state === "succeeded") {
       entered.current = null;
@@ -61,22 +72,24 @@ export function AccountMutationForm(props: RouterFormProps) {
       else if (typeof value === "string" && !(control instanceof HTMLInputElement && control.type === "file"))
         control.value = value;
     }
-  }, [busy, controller?.state]);
+  }, [disabled, controller?.state]);
   return (
     <RouterForm
       {...props}
       ref={ref}
-      disabled={!controller?.ready || busy}
-      submitting={controller?.activeForm === ref.current && controller.state === "submitting"}
+      disabled={disabled}
+      // The pending submitter stays focusable and aria-busy; RouterForm refuses its repeat activations.
+      submitting={pending}
+      keepControlsEnabled
       onChange={(event) => {
         entered.current = new FormData(event.currentTarget);
         props.onChange?.(event);
       }}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!controller?.ready || busy) return;
+        if (!controller?.ready || held) return;
         entered.current = new FormData(event.currentTarget);
-        controller.submit(event);
+        controller.submit(event, onMutation);
       }}
     />
   );
@@ -103,10 +116,19 @@ export function AccountMutationBoundary({
     null,
   );
   const [activeForm, setActiveForm] = useState<HTMLFormElement | null>(null);
+  const [pendingForm, setPendingForm] = useState<HTMLFormElement | null>(null);
+  const settlement = useRef<{ generation: number; retained: boolean; from: unknown } | null>(null);
+  const matches = useMatches();
+  const navigation = useNavigation();
+  const committedMatches = useRef<unknown>(matches);
+  const [settlementVersion, setSettlementVersion] = useState(0);
   const status = useRef<HTMLDivElement>(null);
   const descriptor = useRef<MutationDescriptor | null>(null);
   const held = useRef(new Map<string, MutationDescriptor>());
   const [heldPairs, setHeldPairs] = useState<readonly string[]>([]);
+  const [callerPresented, setCallerPresented] = useState(false);
+  // Counts sibling refusals while a mutation is in flight; each one re-announces its Banner.
+  const [refusals, setRefusals] = useState(0);
   const busy = useRef(false);
   const generation = useRef(0);
   const actorKey = `${actor.tenantId}:${actor.userId}:${actor.accountId}`;
@@ -142,7 +164,6 @@ export function AccountMutationBoundary({
       held.current.set(pair(form), descriptor.current);
       setHeldPairs([...held.current.keys()]);
     }
-    busy.current = false;
   }
 
   useEffect(() => {
@@ -155,29 +176,67 @@ export function AccountMutationBoundary({
     setSecretLost(false);
     setState("editing");
     setActiveForm(null);
+    setPendingForm(null);
+    settlement.current = null;
+    setRefusals(0);
     setSuggestion(null);
+    setCallerPresented(false);
     setReady(!parent);
     return () => {
       generation.current += 1;
       held.current.clear();
       remember(null);
       busy.current = false;
+      settlement.current = null;
     };
   }, [actorKey, parent !== null]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function commitSettlement() {
+    const pending = settlement.current;
+    if (!pending || pending.generation !== generation.current) return;
+    if (navigation.state !== "idle" || revalidator.state !== "idle") return;
+    if (committedMatches.current === pending.from) return;
+    settlement.current = null;
+    busy.current = pending.retained;
+    setPendingForm(null);
+    setRefusals(0);
+  }
+
+  useLayoutEffect(() => {
+    committedMatches.current = matches;
+    commitSettlement();
+  }, [matches, navigation.state, revalidator.state, settlementVersion]);
+
+  const activeNotification = useRef<MutationNotificationHandler | undefined>(undefined);
+
+  function submit(event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) {
     event.preventDefault();
     const native = event.nativeEvent as SubmitEvent;
-    submitForm(event.currentTarget, native.submitter as HTMLButtonElement | HTMLInputElement | null);
+    submitForm(
+      event.currentTarget,
+      native.submitter as HTMLButtonElement | HTMLInputElement | null,
+      undefined,
+      onMutation,
+    );
   }
 
   function submitForm(
     form: HTMLFormElement,
     submitter: HTMLButtonElement | HTMLInputElement | null,
     choice?: "accept-suggested" | "keep-original",
+    onMutation?: MutationNotificationHandler,
   ) {
-    if (!ready || busy.current || parent || held.current.has(pair(form))) return;
+    if (!ready || parent || held.current.has(pair(form))) return;
+    if (busy.current) {
+      // A sibling is refused without I/O; the form holding the lock repeats silently.
+      if (form === activeForm) return;
+      if (state === "reauth-required" || state === "route-denied") status.current?.focus();
+      else setRefusals((count) => count + 1);
+      return;
+    }
+    setRefusals(0);
     busy.current = true;
+    setPendingForm(form);
     const data = new FormData(form);
     if (submitter?.name) data.set(submitter.name, submitter.value);
     if (choice) data.set("addressVerificationDecision", choice);
@@ -199,9 +258,23 @@ export function AccountMutationBoundary({
     setSecret(null);
     setSecretLost(false);
     setSuggestion(null);
+    setCallerPresented(false);
+    if (onMutation !== undefined) activeNotification.current = onMutation;
+    else if (!choice) activeNotification.current = undefined;
+    const notify = (notification: MutationNotification) => {
+      try {
+        activeNotification.current?.(notification);
+        return Boolean(activeNotification.current);
+      } catch {
+        return false;
+      }
+    };
     const currentGeneration = generation.current;
+    const from = committedMatches.current;
     void (async () => {
       let sent = false;
+      let retained = false;
+      let awaitingSettlement = false;
       try {
         if (!Object.hasOwn(actionFields, action) || new URL(form.action).origin !== window.location.origin)
           throw new Error("INDETERMINATE");
@@ -224,6 +297,7 @@ export function AccountMutationBoundary({
         const sentAt = new Date().toISOString();
         remember({ ...descriptor.current!, sentAt, observedAt: sentAt });
         sent = true;
+        notify({ type: "accepted" });
         setState("submitting");
         const result = await sendMutation({
           route: location.pathname,
@@ -251,36 +325,69 @@ export function AccountMutationBoundary({
               action: result.action,
             },
           });
+        const delivered =
+          result.state === "failed-safe" &&
+          !result.suggestedAddress &&
+          form.isConnected &&
+          Boolean(activeNotification.current);
+        const failure: MutationFailure = result.failure ?? {
+          intent: action as MutationAction,
+          target,
+          message: t("identity.accountManagement.state.failed-safe"),
+          errors: null,
+        };
+        const handedOff = delivered && notify({ type: "failure", failure });
+        if (handedOff) setCallerPresented(true);
         if (descriptor.current && descriptorDisposition(descriptor.current, result.state, actor) === "discard")
           remember(null);
         if (result.state === "ambiguous") hold(form);
-        else busy.current = ["reauth-required", "route-denied"].includes(result.state);
-        status.current?.focus();
+        else retained = ["reauth-required", "route-denied"].includes(result.state);
+        if (!handedOff) status.current?.focus();
         if (result.state === "succeeded") {
           if (result.destination && result.destination !== location.pathname)
             await navigate(result.destination, { replace: true });
-          else revalidator.revalidate();
+          else await revalidator.revalidate();
+          if (generation.current === currentGeneration) {
+            settlement.current = { generation: currentGeneration, retained, from };
+            awaitingSettlement = true;
+            setSettlementVersion((version) => version + 1);
+          }
         }
       } catch {
         if (generation.current !== currentGeneration) return;
         setState(sent ? "ambiguous" : "failed-safe");
         if (sent) hold(form);
-        if (!sent) {
-          remember(null);
-          busy.current = false;
-        }
+        else remember(null);
         status.current?.focus();
+      } finally {
+        // The lock outlives success navigation/revalidation; a superseded generation was already reset.
+        if (generation.current === currentGeneration) {
+          if (awaitingSettlement) {
+            // Forms release from their layout effect after the settled route data commit.
+          } else {
+            busy.current = retained;
+            setPendingForm(null);
+            setRefusals(0);
+          }
+        }
       }
     })();
   }
 
   return (
     <MutationContext.Provider
-      value={{ ready: ready && !parent, state, activeForm, submit, isHeld: (form) => heldPairs.includes(pair(form)) }}
+      value={{
+        ready: ready && !parent,
+        state,
+        activeForm,
+        pendingForm,
+        submit,
+        isHeld: (form) => heldPairs.includes(pair(form)),
+      }}
     >
       <Stack gap={3}>
         <Stack ref={status} tabIndex={-1} role="status" aria-live="polite">
-          {state !== "editing" ? (
+          {state !== "editing" && !(state === "failed-safe" && callerPresented) ? (
             <Banner
               tone={
                 ["ambiguous", "conflict"].includes(state)
@@ -294,6 +401,9 @@ export function AccountMutationBoundary({
           ) : null}
           {heldPairs.length > 0 && state !== "ambiguous" ? (
             <Banner tone="warning" title={t("identity.accountManagement.state.ambiguous")} />
+          ) : null}
+          {refusals > 0 ? (
+            <Banner key={refusals} tone="info" title={t("identity.accountManagement.anotherChangeInProgress")} />
           ) : null}
           {secretLost ? <Text>{t("identity.accountManagement.secretUnrecoverable")}</Text> : null}
           {suggestion?.actorKey === actorKey && activeForm?.isConnected ? (

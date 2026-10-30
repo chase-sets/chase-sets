@@ -5,6 +5,7 @@ import {
   createAgentGrantRevocations,
   createActiveAgentGrantFence,
   createLinkedPlatformAuthorizationStore,
+  readAgentGrantRevocationStatus,
   type RevocationBinding,
   type AgentGrantRevocations,
   type RevocationActivationProof,
@@ -14,6 +15,7 @@ import { module as authModule } from "../../../index";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
@@ -252,6 +254,71 @@ describeDb("agent Grant revocation separate-pool proof", () => {
     ).rejects.toThrow("revocation_membership_changed");
     expect(await owner.isActivated()).toBe(false);
     expect((await pools.identity.query("SELECT * FROM identity_agent_grant_revocation_work")).rows).toEqual([]);
+  });
+
+  describe("agent-grant-revocation-status", () => {
+    const activatedAt = "2026-01-01T00:00:00.000Z";
+    const admittedAt = "2026-01-01T00:04:00.000Z";
+    const clocked = (instant: string) =>
+      createAgentGrantRevocations(
+        pools.identity,
+        createPostgresEventStore({ pool: pools.identity, now: () => parseIsoUtcTimestamp(instant) }),
+      );
+    const status = (instant: string) =>
+      readAgentGrantRevocationStatus(
+        pools.identity,
+        createPostgresEventStore({ pool: pools.identity }),
+        () => new Date(instant),
+      );
+    const snapshot = async () => ({
+      events: (await pools.identity.query("SELECT event_id, stream_version FROM event_store_events ORDER BY event_id"))
+        .rows,
+      work: (
+        await pools.identity.query(
+          "SELECT account_id, grant_id, next_attempt_at, completed FROM identity_agent_grant_revocation_work ORDER BY position",
+        )
+      ).rows,
+    });
+
+    it("reads a dormant environment as dormant with no backlog", async () => {
+      expect(await status(activatedAt)).toEqual({
+        state: "dormant",
+        proof: null,
+        activation: null,
+        nonterminal: { count: 0, oldestAgeMs: null, oldestSource: null },
+      });
+    });
+
+    it("ages an old admission from its admission after a fresh lease, and writes nothing", async () => {
+      const proof = activationProof();
+      await clocked(activatedAt).activate(proof, deploymentContext, { revalidate: async () => proof });
+      await clocked(admittedAt).admit(binding, context);
+      // The lease rewrites next_attempt_at to the database's present, after the admission.
+      expect(await owner.pending()).toHaveLength(1);
+      const before = await snapshot();
+      const read = await status("2026-01-01T00:09:00.000Z");
+      expect(read).toMatchObject({
+        state: "activated",
+        proof,
+        activation: { streamVersion: 1, recordedAt: activatedAt, proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/) },
+        nonterminal: { count: 1, oldestAgeMs: 300_000, oldestSource: "admission" },
+      });
+      expect(await snapshot()).toEqual(before);
+      expect(await status("2026-01-01T00:09:00.000Z")).toEqual(read);
+    });
+
+    it("ages a never-adopted backfill row from activation even behind a younger admission", async () => {
+      await createLinkedPlatformAuthorizationStore(pools.identity).revokeToken(
+        "synthetic-grant_sibling",
+        "2025-12-31T00:00:00.000Z",
+      );
+      const proof = activationProof();
+      await clocked(activatedAt).activate(proof, deploymentContext, { revalidate: async () => proof });
+      await clocked(admittedAt).admit(binding, context);
+      expect(await status("2026-01-01T00:10:00.000Z")).toMatchObject({
+        nonterminal: { count: 2, oldestAgeMs: 600_000, oldestSource: "activation" },
+      });
+    });
   });
 
   it("recovery-isolation reaches healthy item 51 after 50 poisoned histories across ticks and restart", async () => {

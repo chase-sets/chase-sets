@@ -40,7 +40,12 @@ import {
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
-import { flattenAvailableMcpTools, validateMcpServiceCatalog, type McpServiceDescriptor } from "./mcp-contracts";
+import {
+  flattenAvailableMcpResources,
+  flattenAvailableMcpTools,
+  validateMcpServiceCatalog,
+  type McpServiceDescriptor,
+} from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -667,7 +672,17 @@ describe("MCP runtime routes", () => {
     expect(full.tools.map((tool) => tool.name)).toContain("marketplace.get-seller-attention-queue");
   });
 
-  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+  // Operator tools/list visibility depends only on the operator authority's role permissions, so a grant equal to
+  // the union every available operator capability requires lists every available tool without hand-listing them.
+  const operatorCapabilityPermissions = [
+    ...new Set(
+      [...flattenAvailableMcpTools(), ...flattenAvailableMcpResources()]
+        .filter((capability) => capability.permissionBoundary.scope === "operator")
+        .flatMap((capability) => capability.permissionBoundary.requiredPermissions),
+    ),
+  ].sort();
+
+  function listToolsWithOperatorRolePermissions(rolePermissions: readonly string[]) {
     const app = createActorApp(
       { ...actor, roleKey: "platform-admin" },
       {
@@ -675,11 +690,11 @@ describe("MCP runtime routes", () => {
           kind: "granted",
           membershipId: actor.membershipId,
           roleKey: "platform-admin",
-          rolePermissions: ["insights-dashboards.view"],
+          rolePermissions,
         }),
       },
     );
-    const response = await app.request("/", {
+    return app.request("/", {
       method: "POST",
       body: JSON.stringify(createRequest("tools/list")),
       headers: {
@@ -687,6 +702,10 @@ describe("MCP runtime routes", () => {
         [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2025_11_25,
       },
     });
+  }
+
+  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+    const response = await listToolsWithOperatorRolePermissions(operatorCapabilityPermissions);
     const body = (await response.json()) as {
       result: {
         tools: Array<{
@@ -716,6 +735,33 @@ describe("MCP runtime routes", () => {
       if (descriptor.risk !== "read" && descriptor.guardrails.idempotencyKey === "required") {
         expect(tool.annotations.idempotentHint).toBe(true);
       }
+    }
+  });
+
+  it("drops exactly the operator tools whose permission the derived operator grant lacks", async () => {
+    const availableTools = flattenAvailableMcpTools();
+    const operatorTools = availableTools.filter((tool) => tool.permissionBoundary.scope === "operator");
+    const operatorToolPermissions = [
+      ...new Set(operatorTools.flatMap((tool) => tool.permissionBoundary.requiredPermissions)),
+    ].sort();
+    expect(operatorToolPermissions.length).toBeGreaterThan(0);
+
+    for (const withheldPermission of operatorToolPermissions) {
+      const response = await listToolsWithOperatorRolePermissions(
+        operatorCapabilityPermissions.filter((permission) => permission !== withheldPermission),
+      );
+      const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
+      const droppedToolNames = operatorTools
+        .filter((tool) => tool.permissionBoundary.requiredPermissions.includes(withheldPermission))
+        .map((tool) => tool.name);
+
+      expect(response.status).toBe(200);
+      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
+        availableTools
+          .map((tool) => tool.name)
+          .filter((name) => !droppedToolNames.includes(name))
+          .sort(),
+      );
     }
   });
 
@@ -1758,6 +1804,69 @@ describe("MCP runtime routes", () => {
       ),
     );
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("publishes payment-method setup dryRun as an unsupported closed boolean and validates it before handlers", async () => {
+    const handler = vi.fn(async () => ({ accepted: true }));
+    const app = createActorApp(
+      { ...actor, permissions: [...actor.permissions, "orders.manage"] },
+      { toolHandlers: { "payments.start-payment-method-setup": handler } },
+    );
+    const callSetup = async (extraArguments: Readonly<Record<string, unknown>>) => {
+      const response = await app.request("/", {
+        method: "POST",
+        body: JSON.stringify(
+          createRequest("tools/call", {
+            name: "payments.start-payment-method-setup",
+            arguments: {
+              accountId: "account_1",
+              returnUrl: "https://app.chasesets.test/account/payment-methods",
+              idempotencyKey: "3f2b8c1e-6a4d-4e9b-b7c2-1d0e5f6a7b81",
+              confirmationText: "Start Payment Method Setup.",
+              ...extraArguments,
+            },
+            confirmation: { confirmed: true, text: "Start Payment Method Setup." },
+          }),
+        ),
+      });
+      return response.json();
+    };
+
+    const listResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+    });
+    const listed = (
+      (await listResponse.json()) as {
+        result: {
+          tools: Array<{
+            name: string;
+            inputSchema: { additionalProperties?: boolean; properties: Record<string, { type?: unknown }> };
+            annotations: { dryRunSupported?: boolean };
+          }>;
+        };
+      }
+    ).result.tools.find((tool) => tool.name === "payments.start-payment-method-setup");
+    expect(listed?.annotations.dryRunSupported).toBe(false);
+    expect(listed?.inputSchema.additionalProperties).toBe(false);
+    expect(listed?.inputSchema.properties.dryRun?.type).toBe("boolean");
+
+    await expect(callSetup({ dryRun: "true" })).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. dryRun: Expected boolean. Expected boolean. Actual string.",
+      ),
+    );
+    await expect(callSetup({ unexpectedField: true })).resolves.toEqual(
+      toolErrorResponse("request_1", "Invalid MCP tool arguments. unexpectedField: Unexpected field."),
+    );
+    expect(handler).not.toHaveBeenCalled();
+
+    await expect(callSetup({ dryRun: false })).resolves.toEqual(toolSuccessResponse("request_1", { accepted: true }));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ arguments: expect.objectContaining({ dryRun: false }) }),
+    );
   });
 
   it("rejects tools without the required permission and records audit", async () => {

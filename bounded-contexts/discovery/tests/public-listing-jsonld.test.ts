@@ -6,9 +6,20 @@ import {
   serializePublicListingProductJsonLd,
 } from "../routes/public-listing";
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
-import { getDiscoveryPublicListingBySlug } from "../support/market-support/queries";
+import { getDiscoveryPublicListingBySlug, getDiscoveryPublicListingById } from "../support/market-support/queries";
 
 describe("public listing Product JSON-LD", () => {
+  it("resolves UCP listing ids by primary key with buyer-visible gates, never slug redirects", async () => {
+    const db = queryDb({ ...publicListing() });
+    await getDiscoveryPublicListingById(db, "lst_1");
+    const sql = db.queries[0]?.sql ?? "";
+    expect(sql).toContain("WHERE listing.listing_id = $1");
+    expect(sql).not.toContain("discovery_slug_redirects");
+    expect(sql).not.toContain("listing.listing_slug = $1");
+    expect(sql).toContain("seller_listing_availability_status");
+    expect(sql).toContain("product_measure_snapshot IS NOT NULL");
+    expect(sql).toContain("seller_at_capacity");
+  });
   it("builds Product and Offer JSON-LD from an eligible Google Shopping feed payload", () => {
     const jsonLd = buildPublicListingProductJsonLd({
       listing: publicListing(),

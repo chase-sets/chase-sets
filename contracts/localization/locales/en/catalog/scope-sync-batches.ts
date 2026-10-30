@@ -25,6 +25,8 @@ export const catalogScopeSyncBatchesEnglishTranslations = {
     "Catalog Scope Record is not active.",
   "catalog.features.scopeSyncBatches.api.planner.accepted.provider.scope.mapping.missing":
     "Catalog Scope Record has no accepted Provider Scope Mapping.",
+  "catalog.features.scopeSyncBatches.api.planner.selected.provider.units.missing":
+    "Catalog Scope Record has no selected provider units.",
   "catalog.features.scopeSyncBatches.api.route.not.found": "Scope Sync Batch was not found.",
   "catalog.features.scopeSyncBatches.api.route.request.body.required": "Scope Sync Batch request body is required.",
   "catalog.features.scopeSyncBatches.api.route.plan.fingerprint.required": "planFingerprint is required.",

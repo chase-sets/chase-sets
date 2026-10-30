@@ -160,7 +160,7 @@ export function useLiveImportJobs(
     }
 
     const interval = setInterval(() => {
-      revalidateRef.current();
+      void revalidateRef.current();
     }, pollMs);
 
     return () => {

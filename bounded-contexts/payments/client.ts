@@ -1,32 +1,27 @@
 import { hc } from "hono/client";
-import { honoClientResource } from "@chase-sets/http/hono-client";
+import type { ZodType } from "zod";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
-import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import type { buildPaymentsApi } from "./api";
 import type {
-  PaymentsCheckoutStatus,
-  PaymentsCheckoutRecoveryOptions,
-  PaymentsAccountOrderInput,
-  PaymentsMarketplaceCheckoutFeePolicy,
-  PaymentsPaymentDetail,
+  CreateAccountPaymentRequest,
+  CreateSavedPaymentSetupSessionRequest,
+  SavedPaymentMethodAttempt,
+} from "./features/payments/api/route";
+import {
+  paymentsCheckoutRecoveryOptionsSchema,
+  paymentsCheckoutStatusSchema,
+  paymentsPaymentDetailSchema,
+  type PaymentsCheckoutStatus,
+  type PaymentsCheckoutRecoveryOptions,
+  type PaymentsAccountOrderInput,
+  type PaymentsMarketplaceCheckoutFeePolicy,
+  type PaymentsPaymentDetail,
 } from "./features/payments/api/contracts";
 
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
-export type CreateAccountPaymentRequest = Readonly<{
-  orderIds: readonly string[];
-  currencyCode?: string;
-  sourceContext?: string | null;
-  sourceReferenceId?: string | null;
-  requestedBalanceCreditAmount?: string | null;
-  paymentMethodCategory?: string | null;
-  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
-  savedCheckoutInstrumentId?: string | null;
-  savePaymentMethodForFuture?: boolean;
-  returnUrlPath?: string | null;
-  agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
-}>;
+export type { CreateAccountPaymentRequest, CreateSavedPaymentSetupSessionRequest, SavedPaymentMethodAttempt };
 
 export type PaymentsSavedCheckoutInstrument = Readonly<{
   instrument_id: string;
@@ -86,6 +81,18 @@ export class PaymentsApiError extends Error {
   }
 }
 
+export type PaymentsApiResponseIssue = Readonly<{ path: readonly PropertyKey[]; code: string }>;
+
+/**
+ * A 2xx Payments API body that did not decode. It records where and how decoding failed, never a received
+ * value, because these bodies carry `processor_client_secret`.
+ */
+export class PaymentsApiResponseError extends PaymentsApiError {
+  public constructor(public readonly issues: readonly PaymentsApiResponseIssue[]) {
+    super(502, { error: { code: "internal_error", message: "Payments API returned an unexpected response." } });
+  }
+}
+
 export interface PaymentsApiClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
@@ -97,13 +104,41 @@ function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
+/**
+ * Hono's client spreads a header object into each request, which reads only own enumerable keys (a `Headers`
+ * instance contributes none). Handing it that same view keeps every payments request's headers unchanged.
+ */
+function honoHeaderValues(headers: HeadersInit | undefined): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers ?? {}));
+}
+
+type PaymentsApiResponse = Pick<Response, "ok" | "status" | "headers" | "json">;
+
+async function parseJsonResponse<T>(response: PaymentsApiResponse): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     throw new PaymentsApiError(response.status, errorBody);
   }
 
   return attachResponseMetadata(await response.json(), response) as T;
+}
+
+async function decodeJsonResponse<T extends object>(response: PaymentsApiResponse, schema: ZodType<T>): Promise<T> {
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new PaymentsApiError(response.status, errorBody);
+  }
+
+  const body: unknown = await response.json().catch((error: unknown) => {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  });
+  const decoded = schema.safeParse(body);
+  if (!decoded.success) {
+    throw new PaymentsApiResponseError(decoded.error.issues.map(({ path, code }) => ({ path, code })));
+  }
+
+  return attachResponseMetadata(decoded.data, response);
 }
 
 export function createPaymentsApiClient({
@@ -117,28 +152,26 @@ export function createPaymentsApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = honoClientResource(
-    hc<PaymentsApiApp>(baseUrl, {
-      fetch: configuredFetch,
-    }),
-  );
-  const headers = resolveHeaders(initialHeaders);
+  const client = hc<PaymentsApiApp>(baseUrl, {
+    fetch: configuredFetch,
+    headers: honoHeaderValues(resolveHeaders(initialHeaders)),
+  });
 
   return {
     async createAccountPayment(body: CreateAccountPaymentRequest): Promise<PaymentsPaymentDetail> {
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.payments.$post({
           json: body,
-          header: headers,
         }),
+        paymentsPaymentDetailSchema,
       );
     },
     async getAccountPayment(paymentId: string): Promise<PaymentsPaymentDetail> {
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.payments[":id"].$get({
           param: { id: paymentId },
-          header: headers,
         }),
+        paymentsPaymentDetailSchema,
       );
     },
     async listAccountOrderInputs(params: Readonly<{ orderIds: readonly string[] }>): Promise<{
@@ -149,7 +182,6 @@ export function createPaymentsApiClient({
           query: {
             orderIds: params.orderIds.join(","),
           },
-          header: headers,
         }),
       );
     },
@@ -157,7 +189,6 @@ export function createPaymentsApiClient({
       return parseJsonResponse(
         await client.account.payments[":id"].timeline.$get({
           param: { id: paymentId },
-          header: headers,
         }),
       );
     },
@@ -175,11 +206,11 @@ export function createPaymentsApiClient({
         requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
         paymentMethodCategory: params.paymentMethodCategory ?? undefined,
       };
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.checkout.status.$get({
           query,
-          header: headers,
         }),
+        paymentsCheckoutStatusSchema,
       );
     },
     async previewCheckoutStatus(
@@ -190,7 +221,7 @@ export function createPaymentsApiClient({
         paymentMethodCategory?: string | null;
       }>,
     ): Promise<PaymentsCheckoutStatus> {
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.checkout["preview-status"].$get({
           query: {
             amount: params.amount,
@@ -198,31 +229,22 @@ export function createPaymentsApiClient({
             requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
             paymentMethodCategory: params.paymentMethodCategory ?? undefined,
           },
-          header: headers,
         }),
+        paymentsCheckoutStatusSchema,
       );
     },
     async listSavedCheckoutInstruments(): Promise<{ items: readonly PaymentsSavedCheckoutInstrument[] }> {
-      return parseJsonResponse(
-        await client.account.checkout["saved-instruments"].$get({
-          header: headers,
-        }),
-      );
+      return parseJsonResponse(await client.account.checkout["saved-instruments"].$get());
     },
     async listPaymentMethods(): Promise<{ items: readonly PaymentsSavedCheckoutInstrument[] }> {
-      return parseJsonResponse(
-        await client.account["payment-methods"].$get({
-          header: headers,
-        }),
-      );
+      return parseJsonResponse(await client.account["payment-methods"].$get());
     },
     async createSavedPaymentSetupSession(
-      body: Readonly<{ returnUrlPath?: string | null }> = {},
+      body: CreateSavedPaymentSetupSessionRequest,
     ): Promise<PaymentsSavedCheckoutSetupSession> {
       return parseJsonResponse(
         await client.account["payment-methods"]["setup-sessions"].$post({
           json: body,
-          header: headers,
         }),
       );
     },
@@ -232,39 +254,40 @@ export function createPaymentsApiClient({
       return parseJsonResponse(
         await client.account["payment-methods"]["setup-sessions"][":processorSetupReference"].reconcile.$post({
           param: { processorSetupReference },
-          header: headers,
         }),
       );
     },
-    async setDefaultPaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async setDefaultPaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].default.$post({
           param: { instrumentId },
-          header: headers,
+          json: attempt,
         }),
       );
     },
-    async removePaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async removePaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].remove.$post({
           param: { instrumentId },
-          header: headers,
+          json: attempt,
         }),
       );
     },
     async reconcilePaymentMethods(): Promise<PaymentsPaymentMethodReconciliationResult> {
-      return parseJsonResponse(
-        await client.account["payment-methods"].reconcile.$post({
-          header: headers,
-        }),
-      );
+      return parseJsonResponse(await client.account["payment-methods"].reconcile.$post());
     },
     async recoverCheckoutPayment(body: CreateAccountPaymentRequest): Promise<PaymentsPaymentDetail> {
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.checkout.recover.$post({
           json: body,
-          header: headers,
         }),
+        paymentsPaymentDetailSchema,
       );
     },
     async getCheckoutRecoveryOptions(
@@ -275,7 +298,7 @@ export function createPaymentsApiClient({
         paymentMethodCategory?: string | null;
       }>,
     ): Promise<PaymentsCheckoutRecoveryOptions> {
-      return parseJsonResponse(
+      return decodeJsonResponse(
         await client.account.checkout.recovery.$get({
           query: {
             orderIds: params.orderIds.join(","),
@@ -283,16 +306,12 @@ export function createPaymentsApiClient({
             requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
             paymentMethodCategory: params.paymentMethodCategory ?? undefined,
           },
-          header: headers,
         }),
+        paymentsCheckoutRecoveryOptionsSchema,
       );
     },
     async getMarketplaceCheckoutFeePolicy(): Promise<PaymentsMarketplaceCheckoutFeePolicy> {
-      return parseJsonResponse(
-        await client.account["marketplace-checkout-fee-policy"].$get({
-          header: headers,
-        }),
-      );
+      return parseJsonResponse(await client.account["marketplace-checkout-fee-policy"].$get());
     },
   };
 }

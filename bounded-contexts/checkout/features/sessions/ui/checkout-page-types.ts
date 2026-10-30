@@ -83,6 +83,7 @@ export type CheckoutAddressDefaults = Readonly<{
 }>;
 
 export type CheckoutSessionPageProps = {
+  expiredCheckout?: boolean;
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
   walletUnavailable?: boolean;
@@ -102,6 +103,5 @@ export type CheckoutSessionPageProps = {
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
   initialEditSection?: CheckoutEditSection | null;
-  autoResumePaymentStart?: boolean;
   preparedPaymentEntry?: ReactNode;
 };

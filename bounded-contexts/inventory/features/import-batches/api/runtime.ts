@@ -15,12 +15,12 @@ import {
   createPostgresDurableJobWorkUnitStore,
   isDurableJobWorkUnitTerminalAccepted,
   type DurableJobWorkUnitClaimOutcomeReason,
-  type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
   type DurableJobWorkUnitTerminalOutcome,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
+import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -34,7 +34,18 @@ import type { InventoryItemServices } from "../../inventory-items/api/runtime";
 import { listNativeInventoryExportItems } from "../../inventory-items/read-model/queries";
 import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import {
+  withInventoryMutationAttempt,
+  withInventoryMutationChildAttempt,
+  inventoryMutationAttemptFromSource,
+} from "../../../support/runtime-support/mutation-attempt";
 import { buildNativeInventoryExportCsv, buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
+import {
+  INVENTORY_IMPORT_COMMIT_JOB_KIND,
+  INVENTORY_IMPORT_CREATE_JOB_KINDS,
+  INVENTORY_IMPORT_SNAPSHOT_JOB_KIND,
+  isInventoryImportCreateJobKind,
+} from "../domain/job-kinds";
 import {
   getInventoryImportSourceAdapter,
   type InventoryImportExternalReference,
@@ -45,10 +56,13 @@ import {
 import {
   getImportBatch,
   listImportBatches,
+  type InventoryImportBatchRow,
   type InventoryImportBatchDetail,
+  type InventoryImportBatchResolution,
   type InventoryImportResolutionStatus,
   type InventoryImportRowStatus,
 } from "../read-model/queries";
+import { inventoryMutationFingerprint } from "../../../support/runtime-support/mutation-intent";
 import {
   normalizeInventoryImportSellerSku,
   resolveAccountSellerSkusToInventoryItems,
@@ -62,6 +76,13 @@ import {
 } from "./saved-list-import";
 import { validateImportProduct } from "../domain/product-validation";
 import {
+  prepareInventoryImportSnapshot,
+  stageInventoryImportSnapshot,
+  loadInventoryImportSnapshotPage,
+  type InventoryImportSnapshotHeader,
+} from "./safe-snapshot";
+import { isImportMigrationPool, migrateInventoryImportSource } from "./source-migration";
+import {
   initializeProductResolutionProgress,
   normalizeProductResolutionPage,
   productResolutionReceipt,
@@ -73,6 +94,14 @@ import {
   type ProductResolutionProgress,
   type InventoryImportProductResolutionMaintenanceReceipt,
 } from "./product-resolution-maintenance";
+import {
+  enqueueInventoryDraftListingMessage,
+  processNextInventoryDraftListingDelivery,
+  type InventoryDraftListingDelivery,
+  type InventoryDraftListingDeliveryResult,
+} from "./draft-listing-delivery";
+export type { InventoryDraftListingDelivery } from "./draft-listing-delivery";
+export type { InventoryDraftListingDeliveryResult } from "./draft-listing-delivery";
 export type { InventoryImportProductResolutionMaintenanceReceipt } from "./product-resolution-maintenance";
 
 export type InventoryDraftListingCreator = (
@@ -91,6 +120,7 @@ export type InventoryDraftListingCreator = (
     shipFromAddress: AddressSnapshot;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
+    acquisitionCostCurrencyCode?: string | null;
     priceAmount: string;
     priceCurrencyCode: string;
     quantityCap: number;
@@ -98,20 +128,22 @@ export type InventoryDraftListingCreator = (
   context: EventStoreContext,
 ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
 
+export type CreateInventoryImportBatch = Readonly<{
+  accountId: AccountId;
+  csvText?: string;
+  parsedRows?: readonly ImportCsvRow[];
+  sourceKey?: InventoryImportSourceKey;
+  quantityMode?: InventoryImportQuantityMode;
+  defaultStorageLocationId?: string | null;
+  sourceFilename?: string | null;
+}>;
+
 export type InventoryImportBatchServices = Readonly<{
-  createBatch: (
-    params: Readonly<{
-      accountId: AccountId;
-      csvText?: string;
-      parsedRows?: readonly ImportCsvRow[];
-      sourceKey?: InventoryImportSourceKey;
-      quantityMode?: InventoryImportQuantityMode;
-      defaultStorageLocationId?: string | null;
-      sourceFilename?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<InventoryImportBatchDetail>;
-  getBatch: (batchId: string, accountId: string) => ReturnType<typeof getImportBatch>;
+  getBatch: (
+    batchId: string,
+    accountId: string,
+    page?: Readonly<{ limit: number; offset?: number }>,
+  ) => ReturnType<typeof getImportBatch>;
   listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
   getNativeCsvTemplate: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
   getNativeCsvExport: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
@@ -125,7 +157,7 @@ export type InventoryImportBatchServices = Readonly<{
       storageLocationId: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<InventoryImportBatchDetail>;
+  ) => Promise<InventoryImportBatchResolution>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -135,7 +167,7 @@ export type InventoryImportBatchServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<InventoryImportBatchJob>;
   enqueueCreateBatchJob: (
-    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
+    params: CreateInventoryImportBatch,
     context: EventStoreContext,
   ) => Promise<InventoryImportBatchJob>;
   createSavedListImportBatch: (
@@ -168,6 +200,7 @@ export type InventoryImportBatchServices = Readonly<{
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  processNextImportDraftListingDelivery: () => Promise<InventoryDraftListingDeliveryResult>;
   enqueueProductResolutionMaintenanceJob: (input?: {
     validatorVersion?: number;
     reactivateFailed?: boolean;
@@ -196,9 +229,19 @@ type InventoryImportBatchRuntimeDeps = Readonly<{
   db: PgQueryable;
   notificationWaiterPool?: PgTransactionalPool;
   items: InventoryItemServices;
+  rowItems?: InventoryItemServices;
   catalogItems: InventoryCatalogItemServices;
   draftListingCreator?: InventoryDraftListingCreator;
+  draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
+  executeMutation?: <T>(
+    family: "import-commit-row",
+    targetId: string,
+    accountId: string,
+    params: Readonly<Record<string, unknown> & { accountId: string }>,
+    context: EventStoreContext,
+    work: () => Promise<T>,
+  ) => Promise<T>;
 }>;
 
 type ValidatedImportRow = Readonly<{
@@ -233,11 +276,16 @@ type ExistingImportTargetItem = Readonly<{
 }>;
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
-const IMPORT_BATCH_JOB_KIND_CREATE = "create";
-const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
+const IMPORT_BATCH_JOB_KIND_CREATE = INVENTORY_IMPORT_CREATE_JOB_KINDS[0];
+const IMPORT_BATCH_JOB_KIND_SNAPSHOT = INVENTORY_IMPORT_SNAPSHOT_JOB_KIND;
+const IMPORT_BATCH_JOB_KIND_COMMIT = INVENTORY_IMPORT_COMMIT_JOB_KIND;
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND = PRODUCT_RESOLUTION_JOB_ID;
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND = PRODUCT_RESOLUTION_UNIT_ID;
 const INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION = 1;
+
+function isCreateBatchJobKind(jobKind: string): boolean {
+  return isInventoryImportCreateJobKind(jobKind);
+}
 
 export type InventoryImportBatchJobPayload = Readonly<{
   batchId?: string;
@@ -246,6 +294,16 @@ export type InventoryImportBatchJobPayload = Readonly<{
   create?: Readonly<{
     inputId: string;
     batchId?: string;
+    snapshotVersion?: 1;
+    snapshotHash?: string;
+    rowCount?: number;
+    normalizedRows?: readonly NormalizedInventoryImportRow[];
+  }>;
+  commit?: Readonly<{
+    inputId: string;
+    snapshotVersion: 1;
+    snapshotHash: string;
+    rowCount: number;
   }>;
   maintenance?: Readonly<{ validatorVersion: number }>;
 }>;
@@ -285,6 +343,8 @@ type InventoryImportBatchJobInput = Readonly<{
   quantityMode?: InventoryImportQuantityMode;
   defaultStorageLocationId?: string | null;
   sourceFilename?: string | null;
+  snapshot?: InventoryImportSnapshotHeader;
+  normalizedRows?: readonly NormalizedInventoryImportRow[];
 }>;
 
 type InventoryImportBatchCreateIdentity = Readonly<{
@@ -301,6 +361,52 @@ type InventoryImportBatchWorkUnitPayload = Readonly<{
 type InventoryImportBatchWorkUnitResult = Readonly<{
   rowId: string;
   status: InventoryImportRowStatus;
+}>;
+
+type InventoryImportCommitInputRow = Readonly<
+  Pick<
+    InventoryImportBatchRow,
+    | "row_id"
+    | "batch_id"
+    | "row_number"
+    | "status"
+    | "raw_row"
+    | "external_reference"
+    | "row_fingerprint"
+    | "quantity_mode"
+    | "quantity_delta"
+    | "set_quantity"
+    | "source_price_amount"
+    | "resolution_status"
+    | "catalog_item_id"
+    | "product_id"
+    | "selected_options"
+    | "storage_location_id"
+    | "total_quantity"
+    | "acquisition_occurred_at"
+    | "acquisition_cost_amount"
+    | "acquisition_cost_currency_code"
+    | "seller_sku"
+    | "listing_price_amount"
+    | "listing_price_currency_code"
+    | "listing_quantity_cap"
+    | "row_note"
+    | "validation_errors"
+    | "committed_inventory_item_id"
+    | "committed_listing_id"
+    | "committed_at"
+  >
+>;
+
+type InventoryImportCommitInput = Readonly<{
+  inputId: string;
+  tenantId: string;
+  actorUserId: string;
+  accountId: AccountId;
+  batchId: string;
+  snapshotVersion: 1;
+  snapshotHash: string;
+  rows: readonly InventoryImportCommitInputRow[];
 }>;
 
 export function toInventoryImportBatchJobStatus(job: InventoryImportBatchJob): InventoryImportBatchJobStatus {
@@ -324,31 +430,7 @@ export function serializeCreateBatchInputForIdempotency(
     | "sourceFilename"
   >,
 ): string {
-  return JSON.stringify(
-    canonicalJsonValue({
-      accountId: input.accountId,
-      csvText: input.csvText ?? null,
-      parsedRows: input.parsedRows ?? null,
-      sourceKey: input.sourceKey ?? null,
-      quantityMode: input.quantityMode ?? null,
-      defaultStorageLocationId: input.defaultStorageLocationId ?? null,
-      sourceFilename: input.sourceFilename ?? null,
-    }),
-  );
-}
-
-function canonicalJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalJsonValue);
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalJsonValue(entry)]),
-    );
-  }
-  return value;
+  return prepareInventoryImportSnapshot(input).header.hash;
 }
 
 function positiveWholeNumber(value: string | null, fieldName: string, errors: string[]) {
@@ -757,123 +839,8 @@ async function refreshBatchCounts(db: PgQueryable, batchId: string) {
   );
 }
 
-export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
-  const jobStore = createPostgresDurableJobStore<
-    InventoryImportBatchJobPayload,
-    InventoryImportBatchJobProgress,
-    InventoryImportBatchJobResult
-  >(
-    deps.db,
-    {
-      jobsTable: "inventory_import_batch_jobs",
-      eventsTable: "inventory_import_batch_job_events",
-      retentionExemptJobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND],
-    },
-    { notificationWaiterPool: deps.notificationWaiterPool },
-  );
-  const workUnitStore = createPostgresDurableJobWorkUnitStore<
-    InventoryImportBatchJobPayload,
-    InventoryImportBatchJobProgress,
-    InventoryImportBatchJobResult,
-    InventoryImportBatchWorkUnitPayload,
-    InventoryImportBatchWorkUnitResult
-  >(
-    deps.db,
-    {
-      jobsTable: "inventory_import_batch_jobs",
-      eventsTable: "inventory_import_batch_job_events",
-      workUnitsTable: "inventory_import_batch_work_units",
-    },
-    {
-      workflowName: "inventory.import-batch",
-    },
-  );
-
-  async function stageCreateBatchJobInput(
-    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
-    requestedInputId?: string,
-  ) {
-    const inputId = requestedInputId ?? createId("job_input");
-    await deps.db.query(
-      `INSERT INTO inventory_import_batch_job_inputs (
-         input_id,
-         account_id,
-         csv_text,
-         parsed_rows,
-         source_key,
-         quantity_mode,
-         default_storage_location_id,
-         source_filename,
-         created_at
-       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, now())
-       ON CONFLICT (input_id) DO NOTHING`,
-      [
-        inputId,
-        params.accountId,
-        params.csvText ?? null,
-        params.parsedRows ? JSON.stringify(params.parsedRows) : null,
-        params.sourceKey ?? null,
-        params.quantityMode ?? null,
-        params.defaultStorageLocationId ?? null,
-        params.sourceFilename ?? null,
-      ],
-    );
-
-    if (requestedInputId) {
-      const staged = await loadCreateBatchJobInput(inputId, params.accountId);
-      if (serializeCreateBatchInputForIdempotency(staged) !== serializeCreateBatchInputForIdempotency(params)) {
-        throw new InventoryDomainError("Inventory import request ID was already used for different source content.");
-      }
-    }
-    return inputId;
-  }
-
-  async function loadCreateBatchJobInput(inputId: string, accountId: AccountId): Promise<InventoryImportBatchJobInput> {
-    const result = await deps.db.query<{
-      input_id: string;
-      account_id: string;
-      csv_text: string | null;
-      parsed_rows: unknown;
-      source_key: InventoryImportSourceKey | null;
-      quantity_mode: InventoryImportQuantityMode | null;
-      default_storage_location_id: string | null;
-      source_filename: string | null;
-    }>(
-      `SELECT input_id,
-              account_id,
-              csv_text,
-              parsed_rows,
-              source_key,
-              quantity_mode,
-              default_storage_location_id,
-              source_filename
-       FROM inventory_import_batch_job_inputs
-       WHERE input_id = $1
-         AND account_id = $2`,
-      [inputId, accountId],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new InventoryDomainError("Import batch job input not found.");
-    }
-
-    return {
-      inputId: row.input_id,
-      accountId: row.account_id as AccountId,
-      csvText: row.csv_text ?? undefined,
-      parsedRows: row.parsed_rows == null ? undefined : readJsonValue<readonly ImportCsvRow[]>(row.parsed_rows),
-      sourceKey: row.source_key ?? undefined,
-      quantityMode: row.quantity_mode ?? undefined,
-      defaultStorageLocationId: row.default_storage_location_id,
-      sourceFilename: row.source_filename,
-    };
-  }
-
-  async function deleteCreateBatchJobInput(inputId: string) {
-    await deps.db.query(`DELETE FROM inventory_import_batch_job_inputs WHERE input_id = $1`, [inputId]);
-  }
-
-  async function validateRow(
+export function createInventoryImportRowValidator(deps: Pick<InventoryImportBatchRuntimeDeps, "db" | "catalogItems">) {
+  return async function validateRow(
     accountId: AccountId,
     row: NormalizedInventoryImportRow,
     quantityMode: InventoryImportQuantityMode,
@@ -1092,6 +1059,87 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       rowNote: clean(values.rowNote),
       validationErrors: errors,
     };
+  };
+}
+
+export function indexInventoryImportCommitRows(
+  rows: readonly InventoryImportCommitInputRow[],
+): ReadonlyMap<string, InventoryImportCommitInputRow> {
+  return new Map(rows.map((row) => [row.row_id, row]));
+}
+
+export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
+  const readBatch = (batchId: string, accountId: string, page?: Readonly<{ limit: number; offset?: number }>) =>
+    getImportBatch(deps.db, batchId, accountId, page, {
+      stockProgressionEnabled: deps.importProductRollout?.stockProgressionEnabled,
+    });
+  const validateRow = createInventoryImportRowValidator(deps);
+  const jobStore = createPostgresDurableJobStore<
+    InventoryImportBatchJobPayload,
+    InventoryImportBatchJobProgress,
+    InventoryImportBatchJobResult
+  >(
+    deps.db,
+    {
+      jobsTable: "inventory_import_batch_jobs",
+      eventsTable: "inventory_import_batch_job_events",
+      retentionExemptJobKinds: [
+        INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND,
+        IMPORT_BATCH_JOB_KIND_CREATE,
+        IMPORT_BATCH_JOB_KIND_SNAPSHOT,
+      ],
+    },
+    { notificationWaiterPool: deps.notificationWaiterPool },
+  );
+  const workUnitStore = createPostgresDurableJobWorkUnitStore<
+    InventoryImportBatchJobPayload,
+    InventoryImportBatchJobProgress,
+    InventoryImportBatchJobResult,
+    InventoryImportBatchWorkUnitPayload,
+    InventoryImportBatchWorkUnitResult
+  >(
+    deps.db,
+    {
+      jobsTable: "inventory_import_batch_jobs",
+      eventsTable: "inventory_import_batch_job_events",
+      workUnitsTable: "inventory_import_batch_work_units",
+    },
+    {
+      workflowName: "inventory.import-batch",
+    },
+  );
+
+  async function loadCreateBatchJobInput(
+    inputId: string,
+    accountId: AccountId,
+    rowNumber?: number,
+    fallback?: InventoryImportBatchJobPayload["create"],
+  ): Promise<InventoryImportBatchJobInput> {
+    const result = await deps.db.query<{
+      snapshot_version: number | null;
+    }>(
+      `SELECT snapshot_version
+       FROM inventory_import_batch_job_inputs AS input
+       WHERE input_id = $1
+         AND account_id = $2`,
+      [inputId, accountId],
+    );
+    const row = result.rows[0];
+    if (!row || row.snapshot_version == null) {
+      if (!isImportMigrationPool(deps.db))
+        throw new InventoryDomainError("Import source migration requires a transaction.");
+      await migrateInventoryImportSource(deps.db, inputId, accountId, fallback);
+    }
+    const page = await loadInventoryImportSnapshotPage(deps.db, inputId, accountId, 0, rowNumber);
+    return {
+      inputId,
+      accountId,
+      sourceKey: page.header.sourceKey,
+      quantityMode: page.header.quantityMode,
+      defaultStorageLocationId: page.header.defaultStorageLocationId,
+      snapshot: page.header,
+      normalizedRows: page.rows,
+    };
   }
 
   async function persistAccountSkuMapping(
@@ -1185,8 +1233,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
   async function resolveBatchRow(
     params: Parameters<InventoryImportBatchServices["resolveRow"]>[0],
-  ): Promise<InventoryImportBatchDetail> {
-    const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
+  ): Promise<InventoryImportBatchResolution> {
+    const detail = await readBatch(params.batchId, params.accountId);
     if (!detail) {
       throw new InventoryDomainError("Import batch not found.");
     }
@@ -1273,11 +1321,211 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     );
     await refreshBatchCounts(deps.db, params.batchId);
 
-    const nextDetail = await getImportBatch(deps.db, params.batchId, params.accountId);
+    const nextDetail = await readBatch(params.batchId, params.accountId);
     if (!nextDetail) {
       throw new InventoryDomainError("Import batch not found.");
     }
-    return nextDetail;
+    return {
+      ...nextDetail,
+      next_needs_seller_row_id: nextDetail.rows.find((candidate) => candidate.needs_seller)?.row_id ?? null,
+    };
+  }
+
+  async function commitSingleRow(
+    params: Readonly<{ batchId: string; accountId: AccountId }>,
+    row: InventoryImportCommitInputRow,
+    context: EventStoreContext,
+    claim?: Readonly<{ unitId: string; claimToken: string; claimTtlMs: number }>,
+  ): Promise<Readonly<{ status: InventoryImportRowStatus; inventoryItemId: string | null; listingId: string | null }>> {
+    let activeContext = context;
+    const work = async () => {
+      if (claim) {
+        const claimed = await deps.db.query<{
+          status: InventoryImportRowStatus;
+          committed_inventory_item_id: string | null;
+          committed_listing_id: string | null;
+          commit_generation: number;
+        }>(
+          `UPDATE inventory_import_batch_rows
+           SET commit_generation = commit_generation + 1,
+               commit_claim_token = $3,
+               commit_claimed_until = clock_timestamp() + ($4::text || ' milliseconds')::interval,
+               updated_at = clock_timestamp()
+           WHERE row_id = $1 AND batch_id = $2
+             AND (status = 'accepted' OR status = 'committed')
+             AND (status = 'committed' OR commit_claim_token IS NULL OR commit_claimed_until <= clock_timestamp()
+                  OR commit_claim_token = $3)
+           RETURNING status, committed_inventory_item_id, committed_listing_id, commit_generation`,
+          [row.row_id, params.batchId, claim.claimToken, claim.claimTtlMs],
+        );
+        const claimedRow = claimed.rows[0];
+        if (!claimedRow) throw new InventoryDomainError("Import row claim was lost or replaced.");
+        if (claimedRow.status === "committed") {
+          return {
+            status: "committed" as const,
+            inventoryItemId: claimedRow.committed_inventory_item_id,
+            listingId: claimedRow.committed_listing_id,
+          };
+        }
+      }
+
+      if (!row.catalog_item_id || !row.storage_location_id || !row.product_id) {
+        throw new InventoryDomainError("Import row is incomplete and cannot be committed.");
+      }
+
+      const existingItem = await findExistingImportTargetItem(deps.db, {
+        accountId: params.accountId,
+        catalogItemId: row.catalog_item_id,
+        productId: row.product_id,
+        selectedOptions: row.selected_options,
+        storageLocationId: row.storage_location_id,
+      });
+      const quantityDelta =
+        row.quantity_mode === "replace"
+          ? (row.set_quantity ?? 0) - (existingItem?.total_quantity ?? 0)
+          : (row.quantity_delta ?? 0);
+      if (existingItem && existingItem.total_quantity + quantityDelta < existingItem.held_quantity) {
+        throw new InventoryDomainError("Import cannot reduce total quantity below active held quantity.");
+      }
+
+      const itemServices = deps.rowItems ?? deps.items;
+      const recoveredRowPath = Boolean(deps.rowItems && deps.executeMutation);
+      const itemContext = deps.executeMutation
+        ? withInventoryMutationChildAttempt(activeContext, "item")
+        : activeContext;
+      let inventoryItemId: string | null = existingItem?.item_id ?? null;
+      if (!existingItem && quantityDelta > 0) {
+        const itemResult = await itemServices.createItem(
+          {
+            accountId: params.accountId,
+            catalogItemId: row.catalog_item_id,
+            selectedOptions: row.selected_options,
+            storageLocationId: row.storage_location_id,
+            totalQuantity: quantityDelta,
+            acquisitionCostAmount: row.acquisition_cost_amount,
+            acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
+            acquisitionOccurrence: row.acquisition_occurred_at
+              ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
+              : { kind: "unknown" },
+            itemIdOverride: itemIdForRow(row.row_id),
+          },
+          itemContext,
+        );
+        inventoryItemId = itemResult.itemId;
+      } else if (existingItem && quantityDelta !== 0) {
+        await itemServices.adjustItem(
+          {
+            accountId: params.accountId,
+            itemId: existingItem.item_id,
+            quantityDelta,
+            reason: row.quantity_mode === "replace" ? "Import exact quantity" : "Import quantity adjustment",
+            reasonCode: row.quantity_mode === "replace" || quantityDelta < 0 ? "correction" : "intake",
+            ...(recoveredRowPath ? {} : { idempotencyKey: importRowInventoryAdjustmentKey(row.row_id) }),
+            ...(quantityDelta > 0
+              ? {
+                  acquisitionOccurrence: row.acquisition_occurred_at
+                    ? {
+                        kind: "occurred" as const,
+                        occurredAt: row.acquisition_occurred_at,
+                        source: "import-supplied" as const,
+                      }
+                    : { kind: "unknown" as const },
+                }
+              : {}),
+          },
+          itemContext,
+        );
+        inventoryItemId = existingItem.item_id;
+      } else if (!existingItem && quantityDelta < 0) {
+        throw new InventoryDomainError("Import cannot reduce stock that does not exist in inventory.");
+      }
+
+      const listingQuantity =
+        row.quantity_mode === "replace" ? (row.set_quantity ?? row.total_quantity ?? 0) : Math.max(quantityDelta, 0);
+      const committedAt = row.committed_at ?? new Date().toISOString();
+      let listingId: string | null = row.committed_listing_id;
+      if (
+        inventoryItemId &&
+        row.listing_price_amount &&
+        row.listing_price_currency_code &&
+        row.listing_quantity_cap &&
+        listingQuantity > 0
+      ) {
+        listingId = listingIdForRow(row.row_id);
+        const location = await getStorageLocation(deps.db, row.storage_location_id, params.accountId);
+        if (!location) throw new InventoryDomainError("Storage location not found.");
+        await enqueueInventoryDraftListingMessage(
+          deps.db,
+          inventoryDraftListingMessageSchema.parse({
+            schemaVersion: "inventory-draft-listing/v1",
+            messageId: row.row_id,
+            authority: {
+              tenantId: activeContext.tenantId,
+              accountId: params.accountId,
+              performedByUserId: activeContext.audit.performedByUserId,
+            },
+            snapshot: {
+              importBatchId: params.batchId,
+              importRowId: row.row_id,
+              committedAt,
+              inventoryItemId,
+              catalogItemId: row.catalog_item_id,
+              productId: row.product_id,
+              selectedOptions: [...row.selected_options],
+              storageLocationId: row.storage_location_id,
+              storageLocationName: location.name,
+              shipFromCode: location.ship_from_code,
+              shipFromAddress: JSON.parse(JSON.stringify(location.ship_from_address)),
+              totalQuantity: listingQuantity,
+              acquisitionCostAmount: row.acquisition_cost_amount,
+              priceAmount: row.listing_price_amount,
+              priceCurrencyCode: row.listing_price_currency_code,
+              quantityCap: row.listing_quantity_cap,
+            },
+          }),
+        );
+      }
+
+      const updated = await deps.db.query(
+        `UPDATE inventory_import_batch_rows
+         SET status = 'committed', committed_inventory_item_id = $2, committed_listing_id = $3,
+             committed_at = COALESCE(committed_at, $4::timestamptz),
+             commit_claim_token = NULL, commit_claimed_until = NULL, updated_at = clock_timestamp()
+         WHERE row_id = $1 AND batch_id = $5
+           AND ($6::text IS NULL OR (commit_claim_token = $6 AND commit_claimed_until > clock_timestamp()))`,
+        [row.row_id, inventoryItemId, listingId, committedAt, params.batchId, claim?.claimToken ?? null],
+      );
+      if (Number(updated.rowCount ?? 0) !== 1)
+        throw new InventoryDomainError("Import row claim was lost before commit.");
+      const batch = await deps.db.query<{ committed_count: number; accepted_count: number; status: string }>(
+        `UPDATE inventory_import_batches
+         SET committed_count = committed_count + 1,
+             status = CASE
+               WHEN accepted_count > 0 AND committed_count + 1 = accepted_count THEN 'committed'
+               ELSE 'uploaded'
+             END,
+             updated_at = clock_timestamp()
+         WHERE batch_id = $1 AND account_id = $2
+         RETURNING committed_count, accepted_count, status`,
+        [params.batchId, params.accountId],
+      );
+      if (batch.rows.length !== 1) throw new InventoryDomainError("Import batch not found.");
+      return { status: "committed" as const, inventoryItemId, listingId };
+    };
+
+    if (!claim || !deps.executeMutation) return work();
+    activeContext = withInventoryMutationAttempt(
+      context,
+      inventoryMutationAttemptFromSource(`${params.batchId}:${row.row_id}:${claim.claimToken}`, "import-commit-row"),
+    );
+    return deps.executeMutation(
+      "import-commit-row",
+      row.row_id,
+      params.accountId,
+      { accountId: params.accountId, batchId: params.batchId, rowId: row.row_id, claimToken: claim.claimToken },
+      activeContext,
+      work,
+    );
   }
 
   async function commitBatchRows(
@@ -1285,6 +1533,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     context: EventStoreContext,
     onProgress?: (progress: InventoryImportBatchJobProgress) => Promise<void>,
     options: Readonly<{ throwIfCancelled?: () => void }> = {},
+    commitInputRows?: readonly InventoryImportCommitInputRow[],
   ): Promise<InventoryImportBatchDetail> {
     if (deps.importProductRollout?.stockProgressionEnabled === false) {
       throw new InventoryDomainError("Import stock progression is disabled; Product review remains available.");
@@ -1293,8 +1542,26 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     if (!detail) {
       throw new InventoryDomainError("Import batch not found.");
     }
+    if (detail.status === "expired")
+      throw new InventoryDomainError("Import batch expired; create a new import from the source.");
+    if (["validating", "failed-safe", "ambiguous"].includes(detail.status)) {
+      throw new InventoryDomainError("Import validation must finish before committing rows.");
+    }
 
-    const rowsToCommit = detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
+    const rowsToCommit = commitInputRows
+      ? commitInputRows.map((row) => {
+          const current = detail.rows.find((candidate) => candidate.row_id === row.row_id);
+          return current?.status === "committed"
+            ? {
+                ...row,
+                status: "committed" as const,
+                committed_inventory_item_id: current.committed_inventory_item_id,
+                committed_listing_id: current.committed_listing_id,
+                committed_at: current.committed_at,
+              }
+            : row;
+        })
+      : detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
     let completed = rowsToCommit.filter((row) => row.status === "committed").length;
     await onProgress?.(importBatchJobProgress("processing", completed, rowsToCommit.length, null, "Committing rows."));
     if (detail.status === "committed" && rowsToCommit.every((row) => row.status === "committed")) {
@@ -1382,6 +1649,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
       const listingQuantity =
         row.quantity_mode === "replace" ? (row.set_quantity ?? row.total_quantity ?? 0) : Math.max(quantityDelta, 0);
+      const committedAt = row.committed_at ?? new Date().toISOString();
 
       let listingId: string | null = row.committed_listing_id;
       if (
@@ -1389,37 +1657,42 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         row.listing_price_amount &&
         row.listing_price_currency_code &&
         row.listing_quantity_cap &&
-        listingQuantity > 0 &&
-        deps.draftListingCreator
+        listingQuantity > 0
       ) {
+        listingId = listingIdForRow(row.row_id);
         const location = await getStorageLocation(deps.db, row.storage_location_id, params.accountId);
         if (!location) {
           throw new InventoryDomainError("Storage location not found.");
         }
 
-        const listing = await deps.draftListingCreator(
-          {
+        const draftListingMessage = inventoryDraftListingMessageSchema.parse({
+          schemaVersion: "inventory-draft-listing/v1",
+          messageId: row.row_id,
+          authority: {
+            tenantId: context.tenantId,
             accountId: params.accountId,
+            performedByUserId: context.audit.performedByUserId,
+          },
+          snapshot: {
             importBatchId: params.batchId,
             importRowId: row.row_id,
+            committedAt,
             inventoryItemId,
-            listingIdOverride: listingIdForRow(row.row_id),
             catalogItemId: row.catalog_item_id,
             productId: row.product_id,
-            selectedOptions: row.selected_options,
+            selectedOptions: [...row.selected_options],
             storageLocationId: row.storage_location_id,
             storageLocationName: location.name,
             shipFromCode: location.ship_from_code,
-            shipFromAddress: location.ship_from_address,
+            shipFromAddress: JSON.parse(JSON.stringify(location.ship_from_address)),
             totalQuantity: listingQuantity,
             acquisitionCostAmount: row.acquisition_cost_amount,
             priceAmount: row.listing_price_amount,
             priceCurrencyCode: row.listing_price_currency_code,
             quantityCap: row.listing_quantity_cap,
           },
-          context,
-        );
-        listingId = listing.listingId;
+        });
+        await enqueueInventoryDraftListingMessage(deps.db, draftListingMessage);
       }
 
       await deps.db.query(
@@ -1427,10 +1700,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
          SET status = 'committed',
              committed_inventory_item_id = $2,
              committed_listing_id = $3,
-             committed_at = COALESCE(committed_at, now()),
+             committed_at = COALESCE(committed_at, $4::timestamptz),
              updated_at = now()
          WHERE row_id = $1`,
-        [row.row_id, inventoryItemId, listingId],
+        [row.row_id, inventoryItemId, listingId, committedAt],
       );
 
       completed += 1;
@@ -1447,190 +1720,148 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return committed;
   }
 
-  async function createBatchRows(
-    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
-    onProgress?: (progress: InventoryImportBatchJobProgress) => Promise<void>,
-    options: Readonly<{ batchId?: string; throwIfCancelled?: () => void }> = {},
-  ) {
-    const quantityMode = params.quantityMode ?? "add";
-    const adapter = getInventoryImportSourceAdapter(params.sourceKey);
-    const rows = adapter.normalize({
-      csvText: params.csvText,
-      parsedRows: params.parsedRows,
-      quantityMode,
-      defaultStorageLocationId: params.defaultStorageLocationId,
-    });
-    if (rows.length === 0) {
-      throw new InventoryDomainError("Import CSV must include at least one data row.");
-    }
+  function commitInputRow(row: InventoryImportBatchRow): InventoryImportCommitInputRow {
+    return {
+      row_id: row.row_id,
+      batch_id: row.batch_id,
+      row_number: row.row_number,
+      status: row.status,
+      raw_row: row.raw_row,
+      external_reference: row.external_reference,
+      row_fingerprint: row.row_fingerprint,
+      quantity_mode: row.quantity_mode,
+      quantity_delta: row.quantity_delta,
+      set_quantity: row.set_quantity,
+      source_price_amount: row.source_price_amount,
+      resolution_status: row.resolution_status,
+      catalog_item_id: row.catalog_item_id,
+      product_id: row.product_id,
+      selected_options: row.selected_options,
+      storage_location_id: row.storage_location_id,
+      total_quantity: row.total_quantity,
+      acquisition_occurred_at: row.acquisition_occurred_at,
+      acquisition_cost_amount: row.acquisition_cost_amount,
+      acquisition_cost_currency_code: row.acquisition_cost_currency_code,
+      seller_sku: row.seller_sku,
+      listing_price_amount: row.listing_price_amount,
+      listing_price_currency_code: row.listing_price_currency_code,
+      listing_quantity_cap: row.listing_quantity_cap,
+      row_note: row.row_note,
+      validation_errors: row.validation_errors,
+      committed_inventory_item_id: row.committed_inventory_item_id,
+      committed_listing_id: row.committed_listing_id,
+      committed_at: row.committed_at,
+    };
+  }
 
-    const batchId = options.batchId ?? createId("imb");
+  function commitInputHash(
+    accountId: AccountId,
+    batchId: string,
+    rows: readonly InventoryImportCommitInputRow[],
+  ): string {
+    return inventoryMutationFingerprint({ version: 1, accountId, batchId, rows });
+  }
+
+  async function persistCommitInput(
+    params: Readonly<{ batchId: string; accountId: AccountId }>,
+    context: EventStoreContext,
+    rows: readonly InventoryImportCommitInputRow[],
+  ): Promise<InventoryImportCommitInput> {
+    const snapshotHash = commitInputHash(params.accountId, params.batchId, rows);
+    const inputId = createId("commit_input");
     await deps.db.query(
-      `INSERT INTO inventory_import_batches (
-        batch_id,
-        account_id,
-        status,
-        source_key,
-        adapter_version,
-        quantity_mode,
-        default_storage_location_id,
-        source_filename,
-        created_at,
-        updated_at
-      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())
-      ON CONFLICT (batch_id) DO UPDATE
-      SET account_id = EXCLUDED.account_id,
-          status = CASE
-            WHEN inventory_import_batches.status = 'committed' THEN inventory_import_batches.status
-            ELSE EXCLUDED.status
-          END,
-          source_key = EXCLUDED.source_key,
-          adapter_version = EXCLUDED.adapter_version,
-          quantity_mode = EXCLUDED.quantity_mode,
-          default_storage_location_id = EXCLUDED.default_storage_location_id,
-          source_filename = EXCLUDED.source_filename,
-          updated_at = now()`,
+      `INSERT INTO inventory_import_commit_inputs
+       (input_id, tenant_id, actor_user_id, account_id, batch_id, snapshot_version, snapshot_hash, row_count, accepted_rows, created_at)
+       VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8::jsonb, now())`,
       [
-        batchId,
+        inputId,
+        context.tenantId,
+        context.audit.performedByUserId,
         params.accountId,
-        adapter.sourceKey,
-        adapter.adapterVersion,
-        quantityMode,
-        params.defaultStorageLocationId ?? null,
-        params.sourceFilename ?? null,
+        params.batchId,
+        snapshotHash,
+        rows.length,
+        JSON.stringify(rows),
       ],
     );
+    return {
+      inputId,
+      tenantId: context.tenantId,
+      actorUserId: context.audit.performedByUserId,
+      accountId: params.accountId,
+      batchId: params.batchId,
+      snapshotVersion: 1,
+      snapshotHash,
+      rows,
+    };
+  }
 
-    let completed = 0;
-    for (const row of rows) {
-      options.throwIfCancelled?.();
-      const rowId = rowIdForBatchRow(batchId, row.rowNumber);
-      const validated = await validateRow(params.accountId, row, quantityMode);
-      options.throwIfCancelled?.();
-      await deps.db.query(
-        `INSERT INTO inventory_import_batch_rows (
-          row_id,
-          batch_id,
-          row_number,
-          status,
-          raw_row,
-          external_reference,
-          row_fingerprint,
-          quantity_mode,
-          quantity_delta,
-          set_quantity,
-          source_price_amount,
-          resolution_status,
-          catalog_item_id,
-          product_id,
-          selected_options,
-          storage_location_id,
-          total_quantity,
-          acquisition_occurred_at,
-          acquisition_cost_amount,
-          seller_sku,
-          listing_price_amount,
-          listing_quantity_cap,
-          row_note,
-          validation_errors,
-          created_at,
-          updated_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-          $11, $12, $13, $14, $15, $16, $17, $18,
-          $19, $20, $21, $22, $23, $24, now(), now()
-        )
-        ON CONFLICT (batch_id, row_number) DO UPDATE
-        SET row_id = EXCLUDED.row_id,
-            status = EXCLUDED.status,
-            raw_row = EXCLUDED.raw_row,
-            external_reference = EXCLUDED.external_reference,
-            row_fingerprint = EXCLUDED.row_fingerprint,
-            quantity_mode = EXCLUDED.quantity_mode,
-            quantity_delta = EXCLUDED.quantity_delta,
-            set_quantity = EXCLUDED.set_quantity,
-            source_price_amount = EXCLUDED.source_price_amount,
-            resolution_status = EXCLUDED.resolution_status,
-            catalog_item_id = EXCLUDED.catalog_item_id,
-            product_id = EXCLUDED.product_id,
-            selected_options = EXCLUDED.selected_options,
-            storage_location_id = EXCLUDED.storage_location_id,
-            total_quantity = EXCLUDED.total_quantity,
-            acquisition_occurred_at = EXCLUDED.acquisition_occurred_at,
-            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
-            seller_sku = EXCLUDED.seller_sku,
-            listing_price_amount = EXCLUDED.listing_price_amount,
-            listing_quantity_cap = EXCLUDED.listing_quantity_cap,
-            row_note = EXCLUDED.row_note,
-            validation_errors = EXCLUDED.validation_errors,
-            updated_at = now()
-        WHERE inventory_import_batch_rows.status <> 'committed'`,
-        [
-          rowId,
-          batchId,
-          row.rowNumber,
-          validated.status,
-          JSON.stringify({
-            ...row.rawRow,
-            ...(validated.acquisitionCostCurrencyCode
-              ? { acquisitionCostCurrencyCode: validated.acquisitionCostCurrencyCode }
-              : {}),
-            ...(validated.listingPriceCurrencyCode
-              ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
-              : {}),
-          }),
-          validated.externalReference ? JSON.stringify(validated.externalReference) : null,
-          validated.rowFingerprint,
-          validated.quantityMode,
-          validated.quantityDelta,
-          validated.setQuantity,
-          validated.sourcePriceAmount,
-          validated.resolutionStatus,
-          validated.catalogItemId,
-          validated.productId,
-          JSON.stringify(validated.selectedOptions),
-          validated.storageLocationId,
-          validated.totalQuantity,
-          validated.acquisitionOccurredAt,
-          validated.acquisitionCostAmount,
-          validated.sellerSku,
-          validated.listingPriceAmount,
-          validated.listingQuantityCap,
-          validated.rowNote,
-          JSON.stringify(validated.validationErrors),
-        ],
-      );
-      completed += 1;
-      await onProgress?.(importBatchJobProgress("processing", completed, rows.length, rowId, "Validated row."));
+  async function loadCommitInput(
+    inputId: string,
+    params: Readonly<{ batchId: string; accountId: AccountId }>,
+    context: EventStoreContext,
+  ): Promise<InventoryImportCommitInput> {
+    const result = await deps.db.query<{
+      tenant_id: string;
+      actor_user_id: string;
+      account_id: AccountId;
+      batch_id: string;
+      snapshot_version: number;
+      snapshot_hash: string;
+      row_count: number;
+      accepted_rows: unknown;
+    }>(
+      `SELECT tenant_id, actor_user_id, account_id, batch_id, snapshot_version, snapshot_hash, row_count, accepted_rows
+       FROM inventory_import_commit_inputs
+       WHERE input_id = $1 AND account_id = $2 AND batch_id = $3`,
+      [inputId, params.accountId, params.batchId],
+    );
+    const row = result.rows[0];
+    if (
+      !row ||
+      row.tenant_id !== context.tenantId ||
+      row.actor_user_id !== context.audit.performedByUserId ||
+      row.account_id !== params.accountId ||
+      row.batch_id !== params.batchId ||
+      row.snapshot_version !== 1 ||
+      !/^[a-f0-9]{64}$/.test(row.snapshot_hash) ||
+      !Number.isSafeInteger(row.row_count) ||
+      !Array.isArray(row.accepted_rows)
+    ) {
+      throw new InventoryDomainError("Import commit input is unavailable; reconciliation is required.");
     }
-
-    await refreshBatchCounts(deps.db, batchId);
-    const detail = await getImportBatch(deps.db, batchId, params.accountId);
-    if (!detail) {
-      throw new InventoryDomainError("Import batch could not be loaded.");
+    const rows = row.accepted_rows as readonly InventoryImportCommitInputRow[];
+    if (
+      rows.length !== row.row_count ||
+      commitInputHash(params.accountId, params.batchId, rows) !== row.snapshot_hash
+    ) {
+      throw new InventoryDomainError("Import commit input is invalid; reconciliation is required.");
     }
-    return detail;
+    return {
+      inputId,
+      tenantId: row.tenant_id,
+      actorUserId: row.actor_user_id,
+      accountId: row.account_id,
+      batchId: row.batch_id,
+      snapshotVersion: 1,
+      snapshotHash: row.snapshot_hash,
+      rows,
+    };
   }
 
   function normalizedCreateBatchRows(
     input: Pick<
       InventoryImportBatchJobInput,
-      "csvText" | "parsedRows" | "sourceKey" | "quantityMode" | "defaultStorageLocationId"
+      "csvText" | "parsedRows" | "sourceKey" | "quantityMode" | "defaultStorageLocationId" | "normalizedRows"
     >,
   ): readonly NormalizedInventoryImportRow[] {
-    const quantityMode = input.quantityMode ?? "add";
-    return getInventoryImportSourceAdapter(input.sourceKey).normalize({
-      csvText: input.csvText,
-      parsedRows: input.parsedRows,
-      quantityMode,
-      defaultStorageLocationId: input.defaultStorageLocationId,
-    });
+    return input.normalizedRows ?? prepareInventoryImportSnapshot({ ...input, accountId: "normalization" }).rows;
   }
 
-  async function ensureCreateBatchHeader(input: InventoryImportBatchJobInput, batchId: string) {
+  async function ensureCreateBatchHeader(input: InventoryImportBatchJobInput, batchId: string, queryable = deps.db) {
     const quantityMode = input.quantityMode ?? "add";
     const adapter = getInventoryImportSourceAdapter(input.sourceKey);
-    await deps.db.query(
+    await queryable.query(
       `INSERT INTO inventory_import_batches (
         batch_id,
         account_id,
@@ -1639,22 +1870,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         adapter_version,
         quantity_mode,
         default_storage_location_id,
-        source_filename,
         created_at,
         updated_at
-      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())
-      ON CONFLICT (batch_id) DO UPDATE
-      SET account_id = EXCLUDED.account_id,
-          status = CASE
-            WHEN inventory_import_batches.status = 'committed' THEN inventory_import_batches.status
-            ELSE EXCLUDED.status
-          END,
-          source_key = EXCLUDED.source_key,
-          adapter_version = EXCLUDED.adapter_version,
-          quantity_mode = EXCLUDED.quantity_mode,
-          default_storage_location_id = EXCLUDED.default_storage_location_id,
-          source_filename = EXCLUDED.source_filename,
-          updated_at = now()`,
+      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, now(), now())
+      ON CONFLICT (batch_id) DO NOTHING`,
       [
         batchId,
         input.accountId,
@@ -1662,20 +1881,18 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         adapter.adapterVersion,
         quantityMode,
         input.defaultStorageLocationId ?? null,
-        input.sourceFilename ?? null,
       ],
     );
   }
 
   async function validateAndStoreCreateBatchRow(
-    accountId: AccountId,
+    queryable: PgQueryable,
     batchId: string,
     row: NormalizedInventoryImportRow,
-    quantityMode: InventoryImportQuantityMode,
+    validated: ValidatedImportRow,
   ): Promise<InventoryImportBatchWorkUnitResult> {
     const rowId = rowIdForBatchRow(batchId, row.rowNumber);
-    const validated = await validateRow(accountId, row, quantityMode);
-    await deps.db.query(
+    await queryable.query(
       `INSERT INTO inventory_import_batch_rows (
         row_id,
         batch_id,
@@ -1708,31 +1925,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         $11, $12, $13, $14, $15, $16, $17, $18,
         $19, $20, $21, $22, $23, $24, now(), now()
       )
-      ON CONFLICT (batch_id, row_number) DO UPDATE
-      SET row_id = EXCLUDED.row_id,
-          status = EXCLUDED.status,
-          raw_row = EXCLUDED.raw_row,
-          external_reference = EXCLUDED.external_reference,
-          row_fingerprint = EXCLUDED.row_fingerprint,
-          quantity_mode = EXCLUDED.quantity_mode,
-          quantity_delta = EXCLUDED.quantity_delta,
-          set_quantity = EXCLUDED.set_quantity,
-          source_price_amount = EXCLUDED.source_price_amount,
-          resolution_status = EXCLUDED.resolution_status,
-          catalog_item_id = EXCLUDED.catalog_item_id,
-          product_id = EXCLUDED.product_id,
-          selected_options = EXCLUDED.selected_options,
-          storage_location_id = EXCLUDED.storage_location_id,
-          total_quantity = EXCLUDED.total_quantity,
-          acquisition_occurred_at = EXCLUDED.acquisition_occurred_at,
-          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
-          seller_sku = EXCLUDED.seller_sku,
-          listing_price_amount = EXCLUDED.listing_price_amount,
-          listing_quantity_cap = EXCLUDED.listing_quantity_cap,
-          row_note = EXCLUDED.row_note,
-          validation_errors = EXCLUDED.validation_errors,
-          updated_at = now()
-      WHERE inventory_import_batch_rows.status <> 'committed'`,
+      ON CONFLICT (batch_id, row_number) DO NOTHING`,
       [
         rowId,
         batchId,
@@ -1768,7 +1961,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         JSON.stringify(validated.validationErrors),
       ],
     );
-    await refreshBatchCounts(deps.db, batchId);
+    await refreshBatchCounts(queryable, batchId);
     return { rowId, status: validated.status };
   }
 
@@ -1787,81 +1980,48 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       completeJob: boolean;
     }>
   > {
-    const units = await listImportBatchWorkUnitsForJob(queryable, job.jobId);
-    const terminalUnits = units.filter(
-      (unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped",
+    const counts = await queryable.query<{ total: number; terminal: number; failed: number; outcomes: number }>(
+      `SELECT COUNT(*)::integer AS total,
+        COUNT(*) FILTER (WHERE unit.state IN ('completed', 'failed', 'skipped'))::integer AS terminal,
+        COUNT(*) FILTER (WHERE unit.state = 'failed')::integer AS failed,
+        COUNT(row.row_id)::integer AS outcomes
+       FROM inventory_import_batch_work_units AS unit
+       LEFT JOIN inventory_import_batch_rows AS row ON row.batch_id = $2
+         AND row.row_number = (unit.payload->>'rowNumber')::integer
+         AND unit.result->>'rowId' = row.row_id AND unit.result->>'status' = row.status
+       WHERE unit.job_id = $1 AND unit.unit_kind = ANY($3::text[])`,
+      [job.jobId, batchId, INVENTORY_IMPORT_CREATE_JOB_KINDS],
     );
-    const total = Math.max(job.progress.total, units.length);
-    const completeJob = total > 0 && terminalUnits.length >= total;
-    const batch = await getImportBatch(queryable, batchId, job.payload.accountId);
+    const count = counts.rows[0];
+    const total = job.progress.total;
+    if (
+      count &&
+      count.terminal === count.total &&
+      count.failed === 0 &&
+      (count.total !== total || count.outcomes !== total)
+    ) {
+      throw new InventoryDomainError("Import validation outcomes require reconciliation.");
+    }
+    const completeJob = Boolean(
+      count &&
+      total > 0 &&
+      count.total === total &&
+      count.terminal === total &&
+      count.outcomes === total &&
+      count.failed === 0,
+    );
+    const batch = await getImportBatch(queryable, batchId, job.payload.accountId, { limit: 0 });
     return {
       parentProgress: importBatchJobProgress(
         completeJob ? "completed" : "processing",
-        terminalUnits.length,
+        count?.terminal ?? 0,
         total,
         null,
         completeJob ? "Import validation completed." : "Validated row.",
       ),
-      parentResult: batch ? { batch } : null,
+      parentResult: batch ? { batch: completeJob ? { ...batch, status: "ready-to-commit" } : batch } : null,
       completeJob,
     };
-  }
-
-  async function listImportBatchWorkUnitsForJob(
-    queryable: PgQueryable,
-    jobId: string,
-  ): Promise<
-    readonly DurableJobWorkUnitRecord<InventoryImportBatchWorkUnitPayload, InventoryImportBatchWorkUnitResult>[]
-  > {
-    const result = await queryable.query<{
-      unit_id: string;
-      unit_kind: string;
-      state: "queued" | "running" | "completed" | "failed" | "skipped";
-      payload: unknown;
-      result: unknown;
-      error_message: string | null;
-      claim_owner_id: string | null;
-      claim_token: string | null;
-      claimed_until: Date | string | null;
-      attempt_count: number | string;
-      created_at: Date | string;
-      updated_at: Date | string;
-      completed_at: Date | string | null;
-    }>(
-      `SELECT unit_id,
-              unit_kind,
-              state,
-              payload,
-              result,
-              error_message,
-              claim_owner_id,
-              claim_token,
-              claimed_until,
-              attempt_count,
-              created_at,
-              updated_at,
-              completed_at
-       FROM inventory_import_batch_work_units
-       WHERE job_id = $1
-       ORDER BY created_at ASC, unit_id ASC`,
-      [jobId],
-    );
-    return result.rows.map((row) => ({
-      jobId,
-      unitId: row.unit_id,
-      unitKind: row.unit_kind,
-      state: row.state,
-      payload: readJsonValue(row.payload),
-      result: row.result == null ? null : readJsonValue(row.result),
-      errorMessage: row.error_message,
-      claimOwnerId: row.claim_owner_id,
-      claimToken: row.claim_token,
-      claimedUntil: row.claimed_until == null ? null : formatTimestamp(row.claimed_until),
-      attemptCount: Number(row.attempt_count),
-      createdAt: formatTimestamp(row.created_at),
-      updatedAt: formatTimestamp(row.updated_at),
-      completedAt: row.completed_at == null ? null : formatTimestamp(row.completed_at),
-    }));
   }
 
   function assertMatchingCreateJob(
@@ -1870,7 +2030,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     accountId: AccountId,
   ): void {
     if (
-      job.jobKind !== IMPORT_BATCH_JOB_KIND_CREATE ||
+      !isCreateBatchJobKind(job.jobKind) ||
       job.payload.accountId !== accountId ||
       job.payload.batchId !== identity.batchId ||
       job.payload.create?.batchId !== identity.batchId ||
@@ -1880,30 +2040,28 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     }
   }
 
-  function enqueueCreateWorkUnits(jobId: string, rows: readonly NormalizedInventoryImportRow[]) {
+  function enqueueCreateWorkUnits(
+    jobId: string,
+    rows: readonly NormalizedInventoryImportRow[],
+    unitKind = IMPORT_BATCH_JOB_KIND_SNAPSHOT,
+  ) {
     return workUnitStore.enqueue({
       jobId,
       units: rows.map((row) => ({
         unitId: String(row.rowNumber),
-        unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        unitKind,
         payload: { rowNumber: row.rowNumber },
       })),
     });
   }
 
   async function enqueueCreateBatchJob(
-    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
+    params: CreateInventoryImportBatch,
     context: EventStoreContext,
     identity?: InventoryImportBatchCreateIdentity,
   ): Promise<InventoryImportBatchJob> {
-    const quantityMode = params.quantityMode ?? "add";
-    const rows = normalizedCreateBatchRows({
-      csvText: params.csvText,
-      parsedRows: params.parsedRows,
-      sourceKey: params.sourceKey,
-      quantityMode,
-      defaultStorageLocationId: params.defaultStorageLocationId,
-    });
+    const snapshot = prepareInventoryImportSnapshot(params);
+    const rows = snapshot.rows;
     if (rows.length === 0) {
       throw new InventoryDomainError("Import CSV must include at least one row.");
     }
@@ -1919,19 +2077,36 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
     }
 
-    const inputId = await stageCreateBatchJobInput(params, identity?.inputId);
+    const inputId = identity?.inputId ?? createId("job_input");
+    await stageInventoryImportSnapshot(deps.db, inputId, snapshot);
     const batchId = identity?.batchId ?? createId("imb");
     const jobId = identity?.jobId ?? createId("job");
+    await ensureCreateBatchHeader(
+      {
+        inputId,
+        accountId: params.accountId,
+        sourceKey: snapshot.header.sourceKey,
+        quantityMode: snapshot.header.quantityMode,
+        defaultStorageLocationId: snapshot.header.defaultStorageLocationId,
+      },
+      batchId,
+    );
     let job: InventoryImportBatchJob;
     try {
       job = await jobStore.enqueue({
         jobId,
-        jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        jobKind: IMPORT_BATCH_JOB_KIND_SNAPSHOT,
         payload: {
           batchId,
           accountId: params.accountId,
           ...(identity ? { idempotencyFingerprint: identity.inputFingerprint } : {}),
-          create: { inputId, batchId },
+          create: {
+            inputId,
+            batchId,
+            snapshotVersion: 1,
+            snapshotHash: snapshot.header.hash,
+            rowCount: snapshot.header.rowCount,
+          },
         },
         progress: importBatchJobProgress("queued", 0, rows.length, null, "Import validation queued."),
         eventContext: context,
@@ -2216,8 +2391,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
   }
 
   return {
-    createBatch: (params) => createBatchRows(params),
-    getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
+    getBatch: (batchId, accountId, page) => readBatch(batchId, accountId, page ?? { limit: 100 }),
     listBatches: (params) => listImportBatches(deps.db, params),
     getNativeCsvTemplate: async (params) => {
       const locations = await listStorageLocations(deps.db, {
@@ -2259,22 +2433,61 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       };
     },
     enqueueCommitBatchJob: async (params, context) => {
-      const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
+      const detail = await readBatch(params.batchId, params.accountId);
       if (!detail) {
         throw new InventoryDomainError("Import batch not found.");
       }
 
-      const remaining = Math.max(0, detail.accepted_count - detail.committed_count);
-      return jobStore.enqueue({
+      if (detail.status === "expired") {
+        throw new InventoryDomainError("Import batch expired; create a new import from the source.");
+      }
+      if (["validating", "failed-safe", "ambiguous"].includes(detail.status)) {
+        throw new InventoryDomainError("Import validation must finish before committing rows.");
+      }
+
+      if (deps.importProductRollout?.stockProgressionEnabled === false) {
+        throw new InventoryDomainError("Import stock progression is disabled; Product review remains available.");
+      }
+      if (detail.status === "committing") {
+        throw new InventoryDomainError("Import commit is already running.");
+      }
+      if (!detail.can_commit) {
+        throw new InventoryDomainError("Import batch has no accepted rows waiting to commit.");
+      }
+
+      const acceptedRows = detail.rows
+        .filter((row) => row.status === "accepted" || row.status === "committed")
+        .map(commitInputRow);
+      const commitInput = await persistCommitInput(params, context, acceptedRows);
+
+      const remaining = detail.commit_ready_count;
+      const job = await jobStore.enqueue({
         jobId: createId("job"),
         jobKind: IMPORT_BATCH_JOB_KIND_COMMIT,
         payload: {
           batchId: params.batchId,
           accountId: params.accountId,
+          commit: {
+            inputId: commitInput.inputId,
+            snapshotVersion: commitInput.snapshotVersion,
+            snapshotHash: commitInput.snapshotHash,
+            rowCount: commitInput.rows.length,
+          },
         },
         progress: importBatchJobProgress("queued", 0, remaining, null, "Commit queued."),
         eventContext: context,
       });
+      if (job.status === "queued" || job.status === "running") {
+        await workUnitStore.enqueue({
+          jobId: job.jobId,
+          units: acceptedRows.map((row) => ({
+            unitId: row.row_id,
+            unitKind: "commit-row-v1",
+            payload: { rowNumber: row.row_number },
+          })),
+        });
+      }
+      return job;
     },
     getImportBatchJob: (jobId) => jobStore.get(jobId),
     listImportBatchJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
@@ -2287,30 +2500,52 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         limit: input.limit,
       });
       const result = await deps.db.query(
-        `WITH expired AS (
-           SELECT input.input_id
+        `WITH expired AS MATERIALIZED (
+           SELECT input.input_id, input.snapshot_version, input.snapshot_hash
            FROM inventory_import_batch_job_inputs AS input
            WHERE input.created_at < $1::timestamptz
+             AND input.snapshot_version = 1
              AND NOT EXISTS (
                SELECT 1
                FROM inventory_import_batch_jobs AS job
                WHERE job.status IN ('queued', 'running')
-                 AND job.payload #>> '{create,inputId}' = input.input_id
+                 AND (job.payload #>> '{create,inputId}' = input.input_id OR EXISTS (
+                   SELECT 1 FROM inventory_import_batch_jobs AS creator
+                   WHERE creator.payload #>> '{create,inputId}' = input.input_id
+                     AND creator.payload->>'accountId' = job.payload->>'accountId'
+                     AND creator.payload->>'batchId' = job.payload->>'batchId'
+                 ))
              )
            ORDER BY input.created_at ASC, input.input_id ASC
            LIMIT $2
+           FOR UPDATE OF input SKIP LOCKED
+         ), expired_batches AS (
+           UPDATE inventory_import_batches AS batch SET status = 'expired', updated_at = now()
+           FROM inventory_import_batch_jobs AS job, expired
+           WHERE job.payload #>> '{create,inputId}' = expired.input_id
+             AND batch.batch_id = job.payload->>'batchId' AND batch.account_id = job.payload->>'accountId'
+             AND batch.committed_count = 0 AND batch.status <> 'committed'
+           RETURNING batch.batch_id
+         ), audit AS (
+           INSERT INTO inventory_import_source_cleanup (input_id, snapshot_version, snapshot_hash, reason, deleted_at)
+           SELECT input_id, snapshot_version, snapshot_hash, 'precommit-resume-window-expired', now() FROM expired
+           ON CONFLICT (input_id) DO NOTHING RETURNING input_id
          )
          DELETE FROM inventory_import_batch_job_inputs AS input
-         USING expired
-         WHERE input.input_id = expired.input_id`,
+         USING expired, audit
+         WHERE input.input_id = expired.input_id AND audit.input_id = input.input_id
+           AND input.snapshot_version = expired.snapshot_version AND input.snapshot_hash = expired.snapshot_hash`,
         [formatRetentionDate(stagedInputCreatedBefore), Math.max(1, Math.min(input.limit ?? 500, 5_000))],
       );
 
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
+      if (input.signal?.aborted) return 0;
+      const commitUnitResult = await processNextCommitBatchWorkUnit(input);
+      if (commitUnitResult > 0) return commitUnitResult;
       const createUnitResult = await processNextCreateBatchWorkUnit(input);
-      if (createUnitResult.processed > 0) {
+      if (createUnitResult.processed > 0 || createUnitResult.handedOff) {
         return createUnitResult.processed;
       }
 
@@ -2321,7 +2556,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
         claimTtlMs: input.claimTtlMs,
-        jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE, IMPORT_BATCH_JOB_KIND_COMMIT],
+        jobKinds: [IMPORT_BATCH_JOB_KIND_SNAPSHOT, IMPORT_BATCH_JOB_KIND_CREATE, IMPORT_BATCH_JOB_KIND_COMMIT],
       });
       if (!claimed) {
         return 0;
@@ -2349,47 +2584,67 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
         });
 
-        stagedInput =
-          claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE
-            ? await loadCreateBatchJobInput(
-                requireCreateInputId(claimed.payload),
-                claimed.payload.accountId as AccountId,
-              )
-            : null;
-        let commandReceipt: CommandReceiptMetadata | null = null;
-        const batch = await runWithEventCommitMetadata(async () => {
-          const result = stagedInput
-            ? await createBatchRows(
-                {
-                  accountId: stagedInput.accountId,
-                  csvText: stagedInput.csvText,
-                  parsedRows: stagedInput.parsedRows,
-                  sourceKey: stagedInput.sourceKey,
-                  quantityMode: stagedInput.quantityMode,
-                  defaultStorageLocationId: stagedInput.defaultStorageLocationId,
-                  sourceFilename: stagedInput.sourceFilename,
-                },
-                async (progress) => {
-                  await progressCheckpoint.checkpoint(progress);
-                },
-                {
-                  batchId: requireCreateBatchId(claimed.payload),
-                  throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
-                },
-              )
-            : await commitBatchRows(
+        stagedInput = isCreateBatchJobKind(claimed.jobKind)
+          ? await loadCreateBatchJobInput(
+              requireCreateInputId(claimed.payload),
+              claimed.payload.accountId as AccountId,
+              undefined,
+              claimed.payload.create,
+            )
+          : null;
+        if (stagedInput) {
+          let rows = stagedInput.normalizedRows ?? [];
+          while (rows.length > 0) {
+            await enqueueCreateWorkUnits(claimed.jobId, rows);
+            if (!stagedInput.snapshot || rows.length < 100) break;
+            const page = await loadInventoryImportSnapshotPage(
+              deps.db,
+              stagedInput.inputId,
+              stagedInput.accountId,
+              rows[rows.length - 1].rowNumber,
+            );
+            rows = page.rows;
+          }
+          await workUnitStore.reconcileTerminalParent({
+            jobId: claimed.jobId,
+            parentProgress: claimed.progress,
+            resolveParentUpdate: (db) =>
+              importBatchCreateParentUpdateFromWorkUnits(db, claimed, requireCreateBatchId(claimed.payload)),
+          });
+          await jobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: claimed.progress,
+          });
+          return 1;
+        }
+        const commitInput =
+          claimed.jobKind === IMPORT_BATCH_JOB_KIND_COMMIT
+            ? await loadCommitInput(
+                claimed.payload.commit?.inputId ?? "",
                 {
                   batchId: requireBatchId(claimed.payload),
                   accountId: claimed.payload.accountId as AccountId,
                 },
                 context,
-                async (progress) => {
-                  await progressCheckpoint.checkpoint(progress);
-                },
-                {
-                  throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
-                },
-              );
+              )
+            : null;
+        let commandReceipt: CommandReceiptMetadata | null = null;
+        const batch = await runWithEventCommitMetadata(async () => {
+          const result = await commitBatchRows(
+            {
+              batchId: requireBatchId(claimed.payload),
+              accountId: claimed.payload.accountId as AccountId,
+            },
+            context,
+            async (progress) => {
+              await progressCheckpoint.checkpoint(progress);
+            },
+            {
+              throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
+            },
+            commitInput?.rows,
+          );
           commandReceipt = commandReceiptFromEventMetadata(getEventCommitMetadata());
           return result;
         });
@@ -2399,10 +2654,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             claimOwnerId: input.claimOwnerId,
             progress: importBatchJobProgress(
               "completed",
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? batch.total_count : batch.committed_count,
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? batch.total_count : batch.accepted_count,
+              isCreateBatchJobKind(claimed.jobKind) ? batch.total_count : batch.committed_count,
+              isCreateBatchJobKind(claimed.jobKind) ? batch.total_count : batch.accepted_count,
               null,
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? "Import validation completed." : "Commit completed.",
+              isCreateBatchJobKind(claimed.jobKind) ? "Import validation completed." : "Commit completed.",
             ),
             result: {
               batch,
@@ -2410,9 +2665,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             },
           }),
         );
-        if (stagedInput) {
-          await deleteCreateBatchJobInput(stagedInput.inputId).catch(() => undefined);
-        }
         return 1;
       } catch (error) {
         if (isImportBatchJobHandoff(error, input)) {
@@ -2425,21 +2677,150 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             progress: {
               ...claimed.progress,
               phase: "failed",
-              message: error instanceof Error ? error.message : "Import batch job failed.",
+              message: "import_job_failed_reconciliation_required",
             },
-            errorMessage: error instanceof Error ? error.message : "Import batch job failed.",
+            errorMessage: "import_job_failed_reconciliation_required",
           }),
         );
-        if (stagedInput) {
-          await deleteCreateBatchJobInput(stagedInput.inputId).catch(() => undefined);
-        }
         return 1;
       }
     },
+    processNextImportDraftListingDelivery: () =>
+      processNextInventoryDraftListingDelivery(deps.db, deps.draftListingDelivery),
     enqueueProductResolutionMaintenanceJob,
     processNextImportProductResolutionMaintenanceJob,
     getImportBatchWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
   };
+
+  async function processNextCommitBatchWorkUnit(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+    jobId?: string;
+    commitInput?: InventoryImportCommitInput;
+    commitRowsById?: ReadonlyMap<string, InventoryImportCommitInputRow>;
+  }): Promise<number> {
+    const claimResult = await workUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: 1,
+      jobMaxActiveClaims: 1,
+      jobKinds: [IMPORT_BATCH_JOB_KIND_COMMIT],
+      jobId: input.jobId,
+      laneName: "commit-row",
+    });
+    const claim = claimResult.claim;
+    if (!claim) return 0;
+    const fence = {
+      jobId: claim.job.jobId,
+      unitId: claim.unit.unitId,
+      claimOwnerId: claim.claimOwnerId,
+      claimToken: claim.claimToken,
+      claimTtlMs: input.claimTtlMs,
+    };
+    const context = claim.job.eventContext;
+    if (!context) {
+      await workUnitStore.recordTerminal({
+        ...fence,
+        state: "failed",
+        errorMessage: "import_commit_missing_event_context",
+        parentProgress: { ...claim.job.progress, phase: "failed", message: "Import commit context is unavailable." },
+        failJob: true,
+      });
+      return 1;
+    }
+    try {
+      if (input.signal?.aborted) throw new InventoryDomainError("Import commit was cancelled.");
+      input.throwIfLeaseLost?.();
+      const batchId = requireBatchId(claim.job.payload);
+      const accountId = claim.job.payload.accountId as AccountId;
+      const commitInput =
+        input.commitInput ??
+        (await loadCommitInput(claim.job.payload.commit?.inputId ?? "", { batchId, accountId }, context));
+      const commitRowsById = input.commitRowsById ?? indexInventoryImportCommitRows(commitInput.rows);
+      const row = commitRowsById.get(claim.unit.unitId);
+      if (!row) throw new InventoryDomainError("Import commit row is unavailable; reconciliation is required.");
+      await commitSingleRow({ batchId, accountId }, row, context, {
+        unitId: claim.unit.unitId,
+        claimToken: claim.claimToken,
+        claimTtlMs: input.claimTtlMs,
+      });
+      const outcome = await workUnitStore.recordTerminal({
+        ...fence,
+        state: "completed",
+        unitResult: { rowId: row.row_id, status: "committed" },
+        parentProgress: {
+          ...claim.job.progress,
+          phase: "processing",
+          currentRowId: row.row_id,
+          message: "Committed import row.",
+        },
+        resolveParentUpdate: async (db) => {
+          const pending = await db.query<{ count: number | string }>(
+            `SELECT count(*)::integer AS count FROM inventory_import_batch_work_units
+             WHERE job_id = $1 AND state NOT IN ('completed', 'failed', 'skipped')`,
+            [claim.job.jobId],
+          );
+          const complete = Number(pending.rows[0]?.count ?? 0) === 0;
+          const detailResult = await db.query<{ committed_count: number; accepted_count: number }>(
+            `SELECT committed_count, accepted_count
+             FROM inventory_import_batches
+             WHERE batch_id = $1 AND account_id = $2`,
+            [batchId, accountId],
+          );
+          const detail = detailResult.rows[0];
+          if (!detail) throw new InventoryDomainError("Import batch not found.");
+          let parentResult = claim.job.result;
+          if (complete) {
+            const completedBatch = await getImportBatch(db, batchId, accountId, { limit: 10_000 });
+            if (!completedBatch) throw new InventoryDomainError("Import batch not found.");
+            parentResult = { batch: completedBatch };
+          }
+          return {
+            parentProgress: importBatchJobProgress(
+              complete ? "completed" : "processing",
+              detail.committed_count,
+              detail.accepted_count,
+              complete ? null : row.row_id,
+              complete ? "Commit completed." : "Committing rows.",
+            ),
+            parentResult,
+            completeJob: complete,
+          };
+        },
+      });
+      if (!isDurableJobWorkUnitTerminalAccepted(outcome))
+        throw new InventoryDomainError("Import row terminal fence was lost.");
+      return (
+        1 +
+        (await processNextCommitBatchWorkUnit({
+          ...input,
+          jobId: claim.job.jobId,
+          commitInput,
+          commitRowsById,
+        }))
+      );
+    } catch (error) {
+      if (input.signal?.aborted) {
+        await workUnitStore.releaseClaim(fence);
+        return 0;
+      }
+      await workUnitStore.recordTerminal({
+        ...fence,
+        state: "failed",
+        unitResult: { rowId: claim.unit.unitId, status: "rejected" },
+        errorMessage: "import_job_failed_reconciliation_required",
+        parentProgress: {
+          ...claim.job.progress,
+          phase: "failed",
+          message: "Import row commit failed; reconciliation is required.",
+        },
+        failJob: true,
+      });
+      return 1;
+    }
+  }
 
   async function processNextCreateBatchWorkUnit(input: {
     claimOwnerId: string;
@@ -2449,13 +2830,13 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     laneName?: string | null;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
-  }): Promise<Readonly<{ processed: number; missReason?: DurableJobWorkUnitClaimOutcomeReason }>> {
+  }): Promise<Readonly<{ processed: number; missReason?: DurableJobWorkUnitClaimOutcomeReason; handedOff?: boolean }>> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE],
+      jobKinds: [IMPORT_BATCH_JOB_KIND_SNAPSHOT, IMPORT_BATCH_JOB_KIND_CREATE],
       laneName: input.laneName ?? null,
     });
     const claim = claimResult.claim;
@@ -2468,40 +2849,59 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       const stagedInput = await loadCreateBatchJobInput(
         requireCreateInputId(claim.job.payload),
         claim.job.payload.accountId as AccountId,
+        claim.unit.payload.rowNumber,
+        claim.job.payload.create,
       );
       const batchId = requireCreateBatchId(claim.job.payload);
+      const expected = claim.job.payload.create;
+      if (
+        expected?.snapshotVersion !== undefined &&
+        (expected.snapshotVersion !== stagedInput.snapshot?.version ||
+          expected.snapshotHash !== stagedInput.snapshot.hash ||
+          expected.rowCount !== stagedInput.snapshot.rowCount ||
+          expected.rowCount !== claim.job.progress.total)
+      ) {
+        throw new InventoryDomainError("Import source binding is invalid; reconciliation is required.");
+      }
       const rows = normalizedCreateBatchRows(stagedInput);
       const row = rows.find((candidate) => candidate.rowNumber === claim.unit.payload.rowNumber);
       if (!row) {
         throw new InventoryDomainError("Import batch work unit row was not found.");
       }
-      await ensureCreateBatchHeader(stagedInput, batchId);
-      const storedRow = await validateAndStoreCreateBatchRow(
-        stagedInput.accountId,
-        batchId,
-        row,
-        stagedInput.quantityMode ?? "add",
+      const retained = await deps.db.query<{ row_id: string; status: InventoryImportRowStatus }>(
+        `SELECT row.row_id, row.status FROM inventory_import_batch_rows AS row
+         JOIN inventory_import_batches AS batch ON batch.batch_id = row.batch_id
+         WHERE row.batch_id = $1 AND batch.account_id = $2 AND row.row_number = $3`,
+        [batchId, stagedInput.accountId, row.rowNumber],
       );
+      const previous = retained.rows[0];
+      const validated = previous
+        ? null
+        : await validateRow(stagedInput.accountId, row, stagedInput.quantityMode ?? "add");
+      throwIfImportBatchJobCancelled(input);
       const batch = await finishCreateBatchWorkUnit({
         jobId: claim.job.jobId,
         batchId,
         accountId: stagedInput.accountId,
         inputId: stagedInput.inputId,
         rowResult: {
-          rowId: storedRow.rowId,
-          status: storedRow.status,
+          rowId: previous?.row_id ?? rowIdForBatchRow(batchId, row.rowNumber),
+          status: previous?.status ?? validated!.status,
         },
         claimOwnerId: claim.claimOwnerId,
         claimToken: claim.claimToken,
         unitId: claim.unit.unitId,
         parentProgress: claim.job.progress,
         parentResult: claim.job.result,
+        persist: async (queryable) => {
+          await ensureCreateBatchHeader(stagedInput, batchId, queryable);
+          if (validated) await validateAndStoreCreateBatchRow(queryable, batchId, row, validated);
+        },
       });
-      if (batch.complete) {
-        await deleteCreateBatchJobInput(stagedInput.inputId).catch(() => undefined);
-      }
+      void batch;
       return { processed: 1 };
     } catch (error) {
+      if (error instanceof InventoryImportBatchClaimLostError) throw error;
       if (isImportBatchJobHandoff(error, input)) {
         await workUnitStore.releaseClaim({
           jobId: claim.job.jobId,
@@ -2509,7 +2909,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           claimOwnerId: claim.claimOwnerId,
           claimToken: claim.claimToken,
         });
-        return { processed: 0 };
+        return { processed: 0, handedOff: true };
       }
       await requireImportBatchJobClaim(
         workUnitStore.recordTerminal({
@@ -2519,7 +2919,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           claimToken: claim.claimToken,
           state: "failed",
           unitResult: { rowId: String(claim.unit.payload.rowNumber), status: "rejected" },
-          errorMessage: error instanceof Error ? error.message : "Import batch row validation failed.",
+          errorMessage: "import_validation_failed_reconciliation_required",
+          failJob: true,
           parentProgress: claim.job.progress,
           parentResult: claim.job.result,
           resolveParentUpdate: (queryable) =>
@@ -2541,6 +2942,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     unitId: string;
     parentProgress: InventoryImportBatchJobProgress;
     parentResult: InventoryImportBatchJobResult | null;
+    persist: (queryable: PgQueryable) => Promise<void>;
   }): Promise<{ complete: boolean }> {
     const completed = await workUnitStore.recordTerminal({
       jobId: input.jobId,
@@ -2551,8 +2953,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       unitResult: input.rowResult,
       parentProgress: input.parentProgress,
       parentResult: input.parentResult,
-      resolveParentUpdate: (queryable) =>
-        importBatchCreateParentUpdateFromWorkUnits(
+      resolveParentUpdate: async (queryable) => {
+        await input.persist(queryable);
+        return importBatchCreateParentUpdateFromWorkUnits(
           queryable,
           {
             jobId: input.jobId,
@@ -2564,13 +2967,18 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             },
           },
           input.batchId,
-        ),
+        );
+      },
     });
-    await requireImportBatchJobClaim(completed);
+    if (completed !== "recorded") {
+      throw new InventoryImportBatchClaimLostError("Import create claim no longer owns the validation outcome.");
+    }
     const summary = await workUnitStore.summarize({ jobId: input.jobId });
     return { complete: summary.total > 0 && summary.total === summary.completed + summary.failed + summary.skipped };
   }
 }
+
+class InventoryImportBatchClaimLostError extends InventoryDomainError {}
 
 function importBatchJobProgress(
   phase: InventoryImportBatchJobProgress["phase"],
@@ -2641,20 +3049,12 @@ async function requireImportBatchJobClaim(
   }
 }
 
-function readJsonValue<T>(value: unknown): T {
-  return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
-}
-
 function retentionCutoff(daysAgo: number): Date {
   return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 }
 
 function formatRetentionDate(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function formatTimestamp(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 function throwIfImportBatchJobCancelled(input?: { signal?: AbortSignal; throwIfLeaseLost?: () => void }) {
