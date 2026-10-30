@@ -6,7 +6,9 @@ use corten::{
 use corten_ui::{Toast, Toaster};
 
 use crate::{
-    catalog::form::{CategoryInput, DimensionInput, FieldInput, OptionInput, ReorderInput},
+    catalog::form::{
+        CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, FieldInput, FieldRuleInput, OptionInput, ReorderInput,
+    },
     text::{Cat, Pilot},
     views::Draft,
 };
@@ -217,6 +219,94 @@ pub fn CategoryForm<'a, I: Id + AttrValue + Copy>(
     }
 }
 
+/// A component's create form or its edit form (`ComponentListPage`'s and `ComponentDetailPage`'s
+/// dialogs): its key, name and description.
+#[component(css = Dialog)]
+pub fn ComponentForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<ComponentInput>,
+) -> impl Patch {
+    let f = ComponentInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.component_id} value={&i.component_id}>
+            }
+            <Input label={t.component_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.component_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.component_description()} name={f.description} value={&i.description} errors={&e} />
+            <div class={Footer}>
+                <button type="submit">{if create { t.component_list_create() } else { t.component_save() }}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A component's Add Field Rule form: the field's id, typed as in admin-web, and Required.
+#[component(css = Dialog)]
+pub fn FieldRuleForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    form: &'a Draft<FieldRuleInput>,
+) -> impl Patch {
+    let f = FieldRuleInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            <Input label={t.component_field_id()} name={f.field_id} value={&i.field_id} errors={&e} />
+            <div class={Checks}>
+                <Check label={t.component_required_3()} name={f.required} checked={i.required} />
+            </div>
+            <div class={Footer}>
+                <button type="submit">{t.component_add()}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A component's Add Dimension Rule form: the dimension's id, Required, the option ids it
+/// allows, and when it applies, typed as in admin-web.
+#[component(css = Dialog)]
+pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    form: &'a Draft<DimensionRuleInput>,
+) -> impl Patch {
+    let f = DimensionRuleInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            <Input label={t.component_dimension_id()} name={f.dimension_id} value={&i.dimension_id} errors={&e} />
+            <div class={Checks}>
+                <Check label={t.component_required_4()} name={f.required} checked={i.required} />
+            </div>
+            <Input
+                label={t.component_allowed_option_ids_comma_separated_leave()}
+                name={f.allowed_option_ids}
+                value={&i.allowed_option_ids}
+                errors={&e}
+            />
+            <Input
+                label={t.component_applies_when_dimensionid_optionid_optionid_comma()}
+                name={f.applies_when}
+                value={&i.applies_when}
+                errors={&e}
+            />
+            <div class={Footer}>
+                <button type="submit">{t.component_add_2()}</button>
+            </div>
+        </form>
+    }
+}
 /// An option's add or edit form: its code, a number, and its labels, one row per locale. Add
 /// Label and Remove post the form back to be drawn with a row more or less (no script, nothing
 /// written); the hidden first button is the form's default, so Enter in a field submits it

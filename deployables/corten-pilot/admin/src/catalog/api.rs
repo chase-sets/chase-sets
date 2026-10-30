@@ -341,6 +341,88 @@ pub struct Category {
     pub updated_at: String,
 }
 
+/// `Component` (features/components/ui/contracts.ts), the fields the list shows.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct Component {
+    pub component_id: String,
+    pub key: String,
+    pub name: String,
+    pub status: String,
+}
+
+/// A list row's rules as the API's command takes them (`Component.field_rules`,
+/// `.dimension_rules`): the list reads the component's own table, where the detail reads the
+/// admin page's, which can miss a change (chase-sets/chase-sets#10823).
+#[derive(Clone, Debug, Deserialize)]
+pub struct ComponentRules {
+    pub component_id: String,
+    #[serde(default)]
+    pub field_rules: Vec<Value>,
+    #[serde(default)]
+    pub dimension_rules: Vec<Value>,
+}
+
+/// `ComponentDetail`: the component and its rules, with the names of what they name.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ComponentDetail {
+    pub component_id: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub field_rules: Vec<FieldRule>,
+    #[serde(default)]
+    pub dimension_rules: Vec<DimensionRule>,
+    pub updated_at: String,
+}
+
+/// A component's rule that a field is set (`fieldRules[]`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRule {
+    pub field_id: String,
+    #[serde(default)]
+    pub field_name: String,
+    pub required: bool,
+}
+
+/// A component's rule that a dimension is picked, from which options, and when it applies.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionRule {
+    pub dimension_id: String,
+    #[serde(default)]
+    pub dimension_name: String,
+    pub required: bool,
+    #[serde(default)]
+    pub allowed_options: Vec<OptionCode>,
+    #[serde(default)]
+    pub applies_when: Vec<Applies>,
+}
+
+/// An option as a rule names it (`OptionRef`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct OptionCode {
+    pub option_id: String,
+    pub code: String,
+}
+
+/// One clause of when a dimension rule applies: that dimension is one of these options.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Applies {
+    pub dimension_id: String,
+    #[serde(default)]
+    pub dimension_name: Option<String>,
+    #[serde(default)]
+    pub option_ids: Vec<String>,
+    #[serde(default)]
+    pub options: Vec<OptionCode>,
+}
+
 /// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ItemRow {
@@ -711,6 +793,7 @@ impl<R> Job<R> {
             "catalog.authoring.dimensions.lifecycle" => Some(Kind::Dimensions),
             "catalog.authoring.fields.lifecycle" => Some(Kind::Fields),
             "catalog.authoring.categories.lifecycle" => Some(Kind::Categories),
+            "catalog.authoring.components.lifecycle" => Some(Kind::Components),
             "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
         }
@@ -751,6 +834,7 @@ pub enum Kind {
     Dimensions,
     Fields,
     Categories,
+    Components,
     Items,
     ProductContents,
     ReferenceRecords,
@@ -767,6 +851,7 @@ impl Kind {
             Kind::Dimensions => "dimensions",
             Kind::Fields => "fields",
             Kind::Categories => "categories",
+            Kind::Components => "components",
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",

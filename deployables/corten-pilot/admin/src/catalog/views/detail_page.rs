@@ -142,6 +142,17 @@ pub fn OptionLifecycleForm<'a, I: Id + AttrValue + Copy>(
     }
 }
 
+/// A row's Remove button, its own form (a component's field or dimension rule), with the API's
+/// refusal above it.
+#[component(css = DetailPage)]
+pub fn RemoveForm<'a, I: Id + AttrValue + Copy>(id: I, action: &'a str, label: &'a str, errors: &'a Errors) -> impl Patch {
+    html! {
+        <form class={Inline} id={id} method="post" action={action} data-patch>
+            {errors.form_message()}
+            <button type="submit" class={(Small, Danger)}>{label}</button>
+        </form>
+    }
+}
 /// A dimension's options: each row's values, its edit dialog and its status change.
 #[component(css = DetailPage)]
 pub fn OptionTable<'a>(

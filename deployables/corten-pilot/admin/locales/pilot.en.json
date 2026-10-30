@@ -42,7 +42,8 @@
     "action": "This action is not available here.",
     "edit_option": "Edit {code}",
     "options_label": "Options of {name}",
-    "drafts_only": "Check only draft Catalog Items to remove them."
+    "drafts_only": "Check only draft Catalog Items to remove them.",
+    "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again."
   },
   "bulk": {
     "label": "Bulk changes",

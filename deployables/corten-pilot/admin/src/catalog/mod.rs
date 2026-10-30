@@ -24,6 +24,7 @@
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the scopes list (`scopes`) |
 //! | `GET /catalog/scopes/{id}` and its writes | a scope's page (`scope`) |
 //! | `GET /catalog/categories?...` and its writes | the categories list and a category's page (`categories`) |
+//! | `GET /catalog/components?...` and its writes | the components list and a component's page with its rules (`components`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -41,6 +42,7 @@ use serde_json::{Map, Value};
 pub mod api;
 pub mod attention;
 pub mod categories;
+pub mod components;
 pub mod form;
 pub mod item;
 pub mod items;
@@ -61,7 +63,7 @@ use views::{Bulk, DimensionForms, Draft, FieldForms, Followed, ListScreen, Previ
 pub const VIEW: &str = "catalog.view";
 pub const MANAGE: &str = "catalog.manage";
 /// `CATALOG_LIST_PAGE_SIZE`.
-const PAGE_SIZE: u32 = 50;
+pub(crate) const PAGE_SIZE: u32 = 50;
 
 /// Every URL the area serves, with its handlers: every one takes staff who may read the catalog,
 /// and who may change it for a write (`CatalogAccess`).
@@ -272,6 +274,10 @@ pub enum Done {
     OptionDeprecated,
     OptionReactivated,
     Reordered,
+    FieldRuleAdded,
+    FieldRuleRemoved,
+    DimensionRuleAdded,
+    DimensionRuleRemoved,
 }
 
 impl Done {
@@ -291,7 +297,12 @@ impl Done {
         let lifecycle = |action: &str| t.dimension_lifecycle_completed(action).to_string();
         match self {
             Done::Created => t.dimension_list_dimension_created().into(),
-            Done::Revised => t.dimension_dimension_revised().into(),
+            // A component's rule outcomes are not a dimension's.
+            Done::Revised
+            | Done::FieldRuleAdded
+            | Done::FieldRuleRemoved
+            | Done::DimensionRuleAdded
+            | Done::DimensionRuleRemoved => t.dimension_dimension_revised().into(),
             Done::Activated | Done::Published => lifecycle(t.dimension_activated()),
             Done::Deprecated => lifecycle(t.dimension_deprecated()),
             Done::Archived => lifecycle(t.dimension_archived()),
@@ -326,6 +337,22 @@ impl Done {
             _ => t.category_category_revised().into(),
         }
     }
+
+    /// The toast on a component's pages.
+    pub fn component(self, t: Cat) -> String {
+        let lifecycle = |action: &str| t.component_lifecycle_completed(action).to_string();
+        match self {
+            Done::Created => t.component_list_component_created().into(),
+            Done::Activated | Done::Published => lifecycle(t.component_activated()),
+            Done::Deprecated => lifecycle(t.component_deprecated()),
+            Done::Archived => lifecycle(t.component_archived()),
+            Done::FieldRuleAdded => t.component_field_rule_added().into(),
+            Done::FieldRuleRemoved => t.component_field_rule_removed().into(),
+            Done::DimensionRuleAdded => t.component_dimension_rule_added().into(),
+            Done::DimensionRuleRemoved => t.component_dimension_rule_removed().into(),
+            _ => t.component_component_updated().into(),
+        }
+    }
 }
 
 /// The area: each screen's routes module (all in `/catalog`, each holding its handlers to the
@@ -336,6 +363,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scope::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());
+    let area = components::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
@@ -1014,6 +1042,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         Kind::Dimensions => views::bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive()).to_vec(),
         Kind::Fields => views::bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive()).to_vec(),
         Kind::Categories => views::category_actions(t).to_vec(),
+        Kind::Components => views::bulk_actions(t.component_activate(), t.component_deprecate(), t.component_archive()).to_vec(),
         // admin-web labels the archive with the item page's Archive.
         Kind::Items => views::item_operations(t)
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })

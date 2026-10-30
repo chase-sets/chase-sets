@@ -6,7 +6,9 @@ use corten::prelude::*;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use super::api::{Category, ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption};
+use super::api::{
+    Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption,
+};
 use crate::text::Pilot;
 
 /// A new id for a form about to be drawn, as `createId(prefix)` makes it: the API takes the id
@@ -184,6 +186,106 @@ impl CategoryInput {
 /// A display order as `String(display_order)` writes it: `3`, not `3.0`.
 pub fn display_order(order: f64) -> String {
     if order.fract() == 0.0 && order.abs() < 9.0e15 { (order as i64).to_string() } else { order.to_string() }
+}
+
+/// A component's create and edit form: its key, name and description (its rules have their
+/// own forms).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ComponentInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub component_id: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+}
+
+impl ComponentInput {
+    pub fn blank() -> Self {
+        ComponentInput { component_id: new_id("cmp"), ..Default::default() }
+    }
+
+    pub fn of(c: &ComponentDetail) -> Self {
+        ComponentInput {
+            component_id: String::new(),
+            key: c.key.clone(),
+            name: c.name.clone(),
+            description: c.description.clone().unwrap_or_default(),
+        }
+    }
+
+    /// `createComponent`'s body.
+    pub fn create_body(&self) -> Value {
+        json!({
+            "componentId": self.component_id,
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+        })
+    }
+
+    /// `configureComponent`'s body: the API replaces the rules, so the edit restates `current`'s,
+    /// as the component's own table has them (chase-sets/chase-sets#10824).
+    pub fn revise_body(&self, current: &ComponentRules) -> Value {
+        json!({
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+            "fieldRules": current.field_rules,
+            "dimensionRules": current.dimension_rules,
+        })
+    }
+}
+
+/// A component's Add Field Rule form: a field id, and whether it is required.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct FieldRuleInput {
+    pub field_id: String,
+    pub required: bool,
+}
+
+impl FieldRuleInput {
+    pub fn body(&self) -> Value {
+        json!({ "fieldId": self.field_id.trim(), "required": self.required })
+    }
+}
+
+/// A component's Add Dimension Rule form: a dimension id, whether it is required, the option ids
+/// it allows (comma separated, none for all), and when it applies (`dimensionId=optionId|optionId`
+/// clauses, comma separated).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct DimensionRuleInput {
+    pub dimension_id: String,
+    pub required: bool,
+    pub allowed_option_ids: String,
+    pub applies_when: String,
+}
+
+impl DimensionRuleInput {
+    /// `addDimensionRule`'s body: no allowed ids is left out (every option), and a clause without
+    /// a dimension or an option is dropped (`parseApplicabilityClauses`).
+    pub fn body(&self) -> Value {
+        let allowed: Vec<&str> = self.allowed_option_ids.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let applies: Vec<Value> = self
+            .applies_when
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .filter_map(|entry| {
+                let mut parts = entry.split('=');
+                let dimension = parts.next().unwrap_or("").trim();
+                let options: Vec<&str> = parts.next().unwrap_or("").split('|').map(str::trim).filter(|s| !s.is_empty()).collect();
+                (!dimension.is_empty() && !options.is_empty()).then(|| json!({ "dimensionId": dimension, "optionIds": options }))
+            })
+            .collect();
+        let mut body = json!({ "dimensionId": self.dimension_id.trim(), "required": self.required, "appliesWhen": applies });
+        if !allowed.is_empty() {
+            body["allowedOptionIds"] = json!(allowed);
+        }
+        body
+    }
 }
 
 /// An option's add and edit form: its code, a number, and a label per locale (rows of

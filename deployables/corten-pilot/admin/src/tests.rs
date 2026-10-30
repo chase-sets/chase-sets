@@ -418,6 +418,21 @@ fn catalog_category(id: &str) -> Value {
     })
 }
 
+/// A draft component with a required field rule and a dimension rule that allows one option and
+/// applies when another dimension is `holo` (the API's `ComponentDetail`).
+fn catalog_component(id: &str) -> Value {
+    json!({
+        "component_id": id, "key": "card-face", "name": "Card face", "description": "", "status": "draft",
+        "field_rules": [{ "fieldId": "fld_seed", "fieldName": "Language", "required": true }],
+        "dimension_rules": [{
+            "dimensionId": "dim_seed", "dimensionName": "Condition", "required": false,
+            "allowedOptions": [{ "optionId": "chc_a", "code": "nm" }],
+            "appliesWhen": [{ "dimensionId": "dim_b", "dimensionName": "Finish", "optionIds": ["chc_x"], "options": [{ "optionId": "chc_x", "code": "holo" }] }],
+        }],
+        "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -703,6 +718,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             "/dimensions/bulk-lifecycle/preview"
             | "/fields/bulk-lifecycle/preview"
             | "/categories/bulk-lifecycle/preview"
+            | "/components/bulk-lifecycle/preview"
             | "/items/bulk-lifecycle/preview",
         ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
@@ -722,6 +738,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             "/dimensions/bulk-lifecycle/confirm"
             | "/fields/bulk-lifecycle/confirm"
             | "/categories/bulk-lifecycle/confirm"
+            | "/components/bulk-lifecycle/confirm"
             | "/items/bulk-lifecycle/confirm",
         ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
@@ -752,6 +769,20 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         (Method::GET, "/fields/fld_seed") => Json(catalog_field("fld_seed")).into_response(),
         (Method::GET, "/categories") => Json(json!({ "items": [catalog_category("ctg_seed")], "total": 1 })).into_response(),
         (Method::GET, "/categories/ctg_seed") => Json(catalog_category("ctg_seed")).into_response(),
+        (Method::GET, "/components") => Json(json!({
+            "items": [{
+                "component_id": "cmp_seed", "key": "card-face", "name": "Card face", "status": "draft",
+                "field_rules": [{ "fieldId": "fld_seed", "required": true }],
+                "dimension_rules": [{ "dimensionId": "dim_seed", "required": false, "allowedOptionIds": ["chc_a"],
+                                      "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x"] }] }],
+            }],
+            "total": 1,
+        }))
+        .into_response(),
+        (Method::GET, "/components/cmp_seed") => Json(catalog_component("cmp_seed")).into_response(),
+        (Method::DELETE, "/components/cmp_seed/field-rules/fld_gone") => {
+            refusal(StatusCode::CONFLICT, "invalid_transition", "The component has no rule for this field.")
+        }
         (Method::POST | Method::PUT | Method::DELETE, _) => written(StatusCode::OK, "cmd"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
@@ -1101,6 +1132,116 @@ async fn categories_are_created_revised_and_published_not_activated() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert_eq!(pilot.catalog_writes().len(), 3, "nothing more sent");
+}
+
+#[tokio::test]
+async fn components_are_created_and_their_rules_added_and_removed() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/components?has_field_rules=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/components?hasFieldRules=true&limit=50&offset=0");
+    assert!(html.contains(r#"href="/catalog/components/cmp_seed">View</a>"#), "{html}");
+
+    let (status, headers, _) =
+        pilot.send(post("/catalog/components", "component_id=cmp_01JZ&key=back&name=Back&description=", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=created"));
+
+    // The page: each rule, with what it names, its options and when it applies.
+    let (_, _, html) = pilot.send(get("/catalog/components/cmp_seed", Some("staff"))).await;
+    assert!(html.contains("<td>Language</td>") && html.contains("<td>Condition</td>"), "{html}");
+    assert!(html.contains("<td>nm</td>") && html.contains("<td>Finish = holo</td>"), "{html}");
+    assert!(html.contains(r#"action="/catalog/components/cmp_seed/field-rules/fld_seed/remove""#), "{html}");
+    assert!(html.contains(r#"name="action" value="activate">Activate</button>"#), "{html}");
+
+    let posts = [
+        ("/catalog/components/cmp_seed/edit", "key=card-face&name=Card+front&description="),
+        ("/catalog/components/cmp_seed/field-rules", "field_id=+fld_x+&required=on"),
+        (
+            "/catalog/components/cmp_seed/dimension-rules",
+            "dimension_id=dim_x&allowed_option_ids=chc_1%2C+chc_2&applies_when=dim_b%3Dchc_x%7Cchc_y%2C+bad%2C+dim_c%3D",
+        ),
+        ("/catalog/components/cmp_seed/field-rules/fld_seed/remove", ""),
+        ("/catalog/components/cmp_seed/dimension-rules/dim_seed/remove", ""),
+    ];
+    for (uri, body) in posts {
+        let (status, headers, _) = pilot.send(post(uri, body, true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{uri}");
+        assert!(headers["corten-location"].to_str().unwrap().starts_with("/catalog/components/cmp_seed?"), "{uri}");
+    }
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/components"));
+    assert_eq!(body(0)["componentId"], "cmp_01JZ");
+    // The edit restates the rules the API has, read from the list (the component's own table)
+    // just before the write, not from the page's read.
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/components/cmp_seed"));
+    assert_eq!(body(1)["fieldRules"], json!([{ "fieldId": "fld_seed", "required": true }]));
+    assert_eq!(
+        body(1)["dimensionRules"],
+        json!([{ "dimensionId": "dim_seed", "required": false, "allowedOptionIds": ["chc_a"],
+                 "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x"] }] }])
+    );
+    assert_eq!(sent[2].path, "/api/catalog/components/cmp_seed/field-rules");
+    assert_eq!(body(2), json!({ "fieldId": "fld_x", "required": true }));
+    assert_eq!(sent[3].path, "/api/catalog/components/cmp_seed/dimension-rules");
+    assert_eq!(
+        body(3),
+        json!({ "dimensionId": "dim_x", "required": false, "allowedOptionIds": ["chc_1", "chc_2"],
+                "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x", "chc_y"] }] })
+    );
+    assert_eq!(
+        (&sent[4].method, sent[4].path.as_str()),
+        (&Method::DELETE, "/api/catalog/components/cmp_seed/field-rules/fld_seed")
+    );
+    assert_eq!(sent[5].path, "/api/catalog/components/cmp_seed/dimension-rules/dim_seed");
+    assert_eq!(sent.len(), 6);
+    let reads: Vec<String> = pilot
+        .catalog_calls()
+        .into_iter()
+        .filter(|c| c.method == Method::GET && c.path.starts_with("/api/catalog/components"))
+        .map(|c| c.path)
+        .collect();
+    assert_eq!(
+        reads,
+        [
+            "/api/catalog/components?hasFieldRules=true&limit=50&offset=0",
+            "/api/catalog/components/cmp_seed",
+            "/api/catalog/components?limit=50&offset=0",
+        ],
+        "the list, the page, and the edit's read of the rules"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_previews() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post("/catalog/components/cmp_seed/field-rules/fld_gone/remove", "", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains("The component has no rule for this field."), "{html}");
+    let (status, _, html) = pilot.send(post("/catalog/components/cmp_seed/field-rules/fld_gone/remove", "", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("The component has no rule for this field."), "{html}");
+
+    // An edit of a component the list does not have writes nothing: its rules would be lost.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/catalog/components/cmp_other/edit", "key=x&name=X&description=", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("rules could not be read, so it was not saved"), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/components/bulk?has_dimension_rules=false", "action=activate&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Bulk Activate Preview"), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/components/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "activate", "selection": { "mode": "filter", "query": { "hasDimensionRules": "false" } } })
+    );
 }
 
 #[tokio::test]

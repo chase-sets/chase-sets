@@ -21,6 +21,7 @@ mod attention_panel;
 mod bulk_dialogs;
 mod bulk_rows;
 mod categories;
+mod components;
 mod detail_page;
 mod dialog;
 mod item_list;
@@ -34,9 +35,13 @@ pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
-pub use detail_page::{ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, Transition};
+pub use components::{ComponentForms, component_list, component_page, component_rows};
+pub use detail_page::{
+    ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
+};
 pub use dialog::{
-    CategoryForm, Dialog, DimensionForm, FieldForm, Input, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types,
+    CategoryForm, ComponentForm, Dialog, DimensionForm, DimensionRuleForm, FieldForm, FieldRuleForm, Input, OptionForm,
+    ReorderForm, Toasts, Trigger, value_kinds, value_types,
 };
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
@@ -48,7 +53,8 @@ pub use item_page::{
     item_transitions,
 };
 pub use list_page::{
-    CategoryRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter,
+    CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table,
+    TextFilter,
 };
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{ScopePage, scope_page};
@@ -265,6 +271,28 @@ pub mod ids {
 
     pub fn option_lifecycle(option_id: &str) -> OptionLifecycleId<'_> {
         OptionLifecycleId(option_id)
+    }
+
+    /// A component's Add Field Rule and Add Dimension Rule forms, and their dialogs.
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddFieldRuleId;
+    pub const ADD_FIELD_RULE: CatalogAddFieldRuleId = CatalogAddFieldRuleId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddFieldRuleDialogId;
+    pub const ADD_FIELD_RULE_DIALOG: CatalogAddFieldRuleDialogId = CatalogAddFieldRuleDialogId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddDimensionRuleId;
+    pub const ADD_DIMENSION_RULE: CatalogAddDimensionRuleId = CatalogAddDimensionRuleId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddDimensionRuleDialogId;
+    pub const ADD_DIMENSION_RULE_DIALOG: CatalogAddDimensionRuleDialogId = CatalogAddDimensionRuleDialogId;
+
+    /// A rule's Remove form: `rule-{kind}-{id}` (`field` or `dimension`).
+    #[derive(Id, Clone, Copy)]
+    pub struct RuleId<'a>(pub &'a str);
+
+    pub fn rule(kind: &str, id: &str) -> String {
+        format!("{kind}-{id}")
     }
 }
 
