@@ -8,7 +8,7 @@ use corten_ui::{Toast, Toaster};
 use crate::{
     catalog::form::{
         AttachInput, BlueprintInput, CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, DimensionRulesInput,
-        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, ReorderInput, TemplateInput,
+        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, RefTypeInput, ReorderInput, TemplateInput,
     },
     text::{Cat, Pilot},
     views::Draft,
@@ -317,6 +317,34 @@ pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
             />
             <div class={Footer}>
                 <button type="submit">{t.component_add_2()}</button>
+            </div>
+        </form>
+    }
+}
+/// A reference type's create form or its edit form; its attribute keys one per line.
+#[component(css = Dialog)]
+pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<RefTypeInput>,
+) -> impl Patch {
+    let f = RefTypeInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.reference_type_id} value={&i.reference_type_id}>
+            }
+            <Input label={t.ref_type_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.ref_type_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.ref_type_description()} name={f.description} value={&i.description} errors={&e} />
+            <TextArea label={t.ref_type_attribute_keys()} name={f.attribute_keys} value={&i.attribute_keys} errors={&e} />
+            <p class={Hint}>{t.ref_type_attribute_keys_description()}</p>
+            <div class={Footer}>
+                <button type="submit">{if create { t.ref_type_list_create() } else { t.ref_type_save() }}</button>
             </div>
         </form>
     }

@@ -3,12 +3,13 @@ use corten::prelude::*;
 use super::{SelectAll, SelectRow, StatusPill, dialog::format_target};
 use crate::{
     catalog::{
-        api::{Blueprint, Category, Component, Dimension, DisplayTemplate, Field},
+        api::{Blueprint, Category, Component, Dimension, DisplayTemplate, Field, ReferenceType},
         blueprints::url as blueprints,
         categories::url as categories,
         components::url as components,
         display_templates::url as templates,
         form::display_order,
+        reference_types::url as ref_types,
         url,
     },
     text::{Cat, Pilot},
@@ -167,6 +168,28 @@ pub fn ComponentRow<'a>(t: Cat, row: &'a Component, select: Option<Pilot>) -> im
             <td><StatusPill status={&row.status} toned={false} /></td>
             <td>
                 <a class={View} href={components::Component { id: &row.component_id, after_write: None, done: None }}>
+                    {t.list_view()}
+                </a>
+            </td>
+        </tr>
+    }
+}
+
+/// A reference type's row: its key, name, how many attribute keys it declares, and its status;
+/// with `select`, its box in the bulk form first.
+#[component(css = ListPage)]
+pub fn RefTypeRow<'a>(t: Cat, row: &'a ReferenceType, select: Option<Pilot>) -> impl Render {
+    html! {
+        <tr>
+            if let Some(p) = select {
+                <td><SelectRow p={p} id={&row.reference_type_id} status={None} /></td>
+            }
+            <td>{&row.key}</td>
+            <td>{&row.name}</td>
+            <td>{row.attribute_keys.len()}</td>
+            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <a class={View} href={ref_types::RefType { id: &row.reference_type_id, after_write: None, done: None }}>
                     {t.list_view()}
                 </a>
             </td>

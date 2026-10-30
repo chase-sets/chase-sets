@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use super::api::{
     BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds,
-    DisplayTemplate, Field, FieldRuleIds, ItemDetail, SelectedOption,
+    DisplayTemplate, Field, FieldRuleIds, ItemDetail, ReferenceType, SelectedOption,
 };
 use crate::text::Pilot;
 
@@ -238,6 +238,53 @@ impl ComponentInput {
     }
 }
 
+/// Keys separated by commas or new lines, trimmed, without empties (`parseKeyList`).
+fn key_list(text: &str) -> Vec<&str> {
+    text.split([',', '\n']).map(str::trim).filter(|s| !s.is_empty()).collect()
+}
+
+/// A reference type's create and edit form: its key, name and description, and its attribute
+/// keys, one per line (`formatKeyList`) or separated by commas.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct RefTypeInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub reference_type_id: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub attribute_keys: String,
+}
+
+impl RefTypeInput {
+    pub fn blank() -> Self {
+        RefTypeInput { reference_type_id: new_id("rft"), ..Default::default() }
+    }
+
+    pub fn of(t: &ReferenceType) -> Self {
+        RefTypeInput {
+            reference_type_id: String::new(),
+            key: t.key.clone(),
+            name: t.name.clone(),
+            description: t.description.clone().unwrap_or_default(),
+            attribute_keys: t.attribute_keys.join("\n"),
+        }
+    }
+
+    /// `createReferenceType`'s body (with the id) or `reviseReferenceType`'s.
+    pub fn body(&self, create: bool) -> Value {
+        let mut body = json!({
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+            "attributeKeys": key_list(&self.attribute_keys),
+        });
+        if create {
+            body["referenceTypeId"] = json!(self.reference_type_id);
+        }
+        body
+    }
+}
 /// A display template's create and edit form (`DisplayTemplateInput`): its key, name and
 /// description, its target (a kind, and the record's id unless it is global), its priority, and
 /// its title and subtitle templates.

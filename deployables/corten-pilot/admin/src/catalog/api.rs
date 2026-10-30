@@ -512,6 +512,19 @@ pub struct AppliesIds {
     pub option_ids: Vec<String>,
 }
 
+/// `ReferenceType` (features/reference-data/ui/contracts.ts), which the detail is too.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ReferenceType {
+    pub reference_type_id: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub attribute_keys: Vec<String>,
+    pub status: String,
+    pub updated_at: String,
+}
 /// `DisplayTemplate` (features/display-templates/ui/contracts.ts), which the detail is too.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DisplayTemplate {
@@ -914,6 +927,7 @@ impl<R> Job<R> {
             "catalog.authoring.categories.lifecycle" => Some(Kind::Categories),
             "catalog.authoring.components.lifecycle" => Some(Kind::Components),
             "catalog.authoring.blueprints.lifecycle" => Some(Kind::Blueprints),
+            "catalog.authoring.reference-types.lifecycle" => Some(Kind::ReferenceTypes),
             "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
         }
@@ -957,6 +971,7 @@ pub enum Kind {
     Components,
     Blueprints,
     DisplayTemplates,
+    ReferenceTypes,
     Items,
     ProductContents,
     ReferenceRecords,
@@ -976,6 +991,7 @@ impl Kind {
             Kind::Components => "components",
             Kind::Blueprints => "blueprints",
             Kind::DisplayTemplates => "display-templates",
+            Kind::ReferenceTypes => "reference-types",
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",

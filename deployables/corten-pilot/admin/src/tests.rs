@@ -475,6 +475,13 @@ fn display_template(id: &str) -> Value {
         "required_field_keys": ["card-name"], "status": "draft", "updated_at": "2026-01-01T00:00:00.000Z",
     })
 }
+/// A draft reference type with two attribute keys (`ReferenceType`).
+fn reference_type(id: &str) -> Value {
+    json!({
+        "reference_type_id": id, "key": "set", "name": "Set", "description": null,
+        "attribute_keys": ["release-date", "series"], "status": "draft", "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -762,6 +769,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/categories/bulk-lifecycle/preview"
             | "/components/bulk-lifecycle/preview"
             | "/blueprints/bulk-lifecycle/preview"
+            | "/reference-types/bulk-lifecycle/preview"
             | "/items/bulk-lifecycle/preview",
         ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
@@ -783,6 +791,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/categories/bulk-lifecycle/confirm"
             | "/components/bulk-lifecycle/confirm"
             | "/blueprints/bulk-lifecycle/confirm"
+            | "/reference-types/bulk-lifecycle/confirm"
             | "/items/bulk-lifecycle/confirm",
         ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
@@ -836,6 +845,11 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             "validation_failed",
             "Display Template token {field.card-name} references an unknown or inactive field.",
         ),
+        (Method::GET, "/reference-types") => Json(json!({ "items": [reference_type("rft_seed")], "total": 1 })).into_response(),
+        (Method::GET, "/reference-types/rft_seed") => Json(reference_type("rft_seed")).into_response(),
+        (Method::POST, "/reference-types/rft_seed/archive") => {
+            refusal(StatusCode::CONFLICT, "invalid_transition", "Only a deprecated reference type can be archived.")
+        }
         (Method::GET, "/blueprints") => Json(catalog_blueprints()).into_response(),
         (Method::GET, "/blueprints/bpr_seed" | "/blueprints/bpr_other") => {
             Json(catalog_blueprint(rest.trim_start_matches("/blueprints/"))).into_response()
@@ -1502,6 +1516,53 @@ async fn display_templates_are_listed_created_and_revised_and_a_refused_publish_
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert_eq!(pilot.catalog_writes().len(), 3, "the create, the edit and the refused publish");
+}
+#[tokio::test]
+async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_refused_archive_is_the_forms_message() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/reference-types?attribute_key=series", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/reference-types?attributeKey=series&limit=50&offset=0");
+    assert!(html.contains("<td>set</td>") && html.contains("<td>2</td>"), "{html}");
+    assert!(html.contains(r#"href="/catalog/reference-types/rft_seed">View</a>"#), "{html}");
+
+    let posts = [
+        (
+            "/catalog/reference-types",
+            "reference_type_id=rft_01JZ&key=set&name=Set&description=&attribute_keys=release-date%2C+series%0D%0A%0D%0Aprinted",
+        ),
+        ("/catalog/reference-types/rft_seed/edit", "key=set&name=Card+set&description=Printed+sets&attribute_keys="),
+    ];
+    for (uri, body) in posts {
+        let (status, headers, _) = pilot.send(post(uri, body, true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{uri}");
+        assert!(headers.contains_key("corten-location"), "{uri}");
+    }
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/reference-types"));
+    assert_eq!(body(0)["referenceTypeId"], "rft_01JZ");
+    assert_eq!(body(0)["attributeKeys"], json!(["release-date", "series", "printed"]), "split on commas and lines");
+    assert_eq!(body(0)["name"], json!({ "defaultLocale": "en", "values": { "en": "Set" } }));
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/reference-types/rft_seed"));
+    assert_eq!(body(1)["attributeKeys"], json!([]));
+    assert!(body(1).get("referenceTypeId").is_none());
+
+    let (_, _, html) = pilot.send(get("/catalog/reference-types/rft_seed", Some("staff"))).await;
+    assert!(html.contains("<dd>release-date, series</dd>"), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/reference-types/rft_seed/lifecycle", "action=archive&status=draft", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Only a deprecated reference type can be archived."), "{html}");
+
+    let (status, _, _) = pilot.send(post("/catalog/reference-types/bulk?status=draft", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    let sent = pilot.catalog_writes().remove(3);
+    assert_eq!(sent.path, "/api/catalog/reference-types/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "publish", "selection": { "mode": "filter", "query": { "status": "draft" } } })
+    );
 }
 #[tokio::test]
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {
