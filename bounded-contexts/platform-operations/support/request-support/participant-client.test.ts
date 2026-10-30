@@ -29,7 +29,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("record-response v1 compatibility", () => {
   for (const explicit of [true, false]) {
-    it(`${explicit ? "old explicit" : "omitted"} descriptor lookup and send replay retain bytes and append once`, async () => {
+    it(`response removal preserves retained attempt recovery: ${explicit ? "old explicit" : "omitted"} descriptor lookup and send replay retain bytes and append once`, async () => {
       const f = await responseFixture("offer-partial-refund", "Offer");
       f.setActor(responseSeller);
       const body = { ...f.body, ...(explicit ? { offerResolutionType: "partial-refund" } : {}) };
@@ -48,6 +48,21 @@ describe("record-response v1 compatibility", () => {
       expect(await api.participantCommand("record-response", body, attemptId, f.id)).toEqual(first);
       expect(f.allEvents.filter((event) => event.eventType.endsWith(".response-recorded"))).toHaveLength(1);
       expect(f.allEvents.filter((event) => event.eventType.endsWith(".participant-attempt-recorded"))).toHaveLength(1);
+      if (explicit) {
+        const beforeConflict = [...f.allEvents];
+        clientFetch.mockClear();
+        await expect(api.participantCommand("record-response", f.body, attemptId, f.id)).rejects.toMatchObject({
+          phase: "ambiguous",
+          descriptor: {
+            ...descriptor,
+            requestHash: "5311718d3c0f214609932c3796b200034f9eead83a7aec7a1120fe9a1bc54216",
+          },
+        });
+        expect(clientFetch.mock.calls.map(([, init]) => init?.method ?? "GET")).toEqual(["POST", "GET"]);
+        expect((await clientFetch.mock.results[0].value).status).toBe(409);
+        expect((await clientFetch.mock.results[1].value).status).toBe(200);
+        expect(f.allEvents).toEqual(beforeConflict);
+      }
     });
   }
 });
