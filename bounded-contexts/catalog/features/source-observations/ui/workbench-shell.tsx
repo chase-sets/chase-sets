@@ -1,3 +1,4 @@
+// Keep this Catalog UI path in ordinary change scope.
 import { type ReactNode } from "react";
 import {
   BulkActionSurface,
