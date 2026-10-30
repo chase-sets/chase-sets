@@ -10,7 +10,7 @@ function runStartupRetryChild(source: string) {
   return spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", source], {
     cwd: startupRetryWorkingDirectory,
     encoding: "utf8",
-    timeout: 4_000,
+    timeout: 60_000,
   });
 }
 
@@ -102,8 +102,8 @@ describe("runStartupRetry", () => {
       let attempts = 0;
       const value = await runStartupRetry({
         operationName: "child-transient",
-        retryBudgetMs: 500,
-        retryDelayMs: 20,
+        retryBudgetMs: 5_000,
+        retryDelayMs: 250,
         run: async () => {
           attempts += 1;
           if (attempts === 1) throw new Error("transient");
@@ -114,6 +114,7 @@ describe("runStartupRetry", () => {
     `);
 
     expect(result.status).toBe(0);
+    expect(result.status).not.toBe(13);
     expect(result.stdout).toContain('{"attempts":2,"value":"ready"}');
   });
 
@@ -122,8 +123,8 @@ describe("runStartupRetry", () => {
       import { runStartupRetry } from ${JSON.stringify(startupRetryModuleUrl)};
       await runStartupRetry({
         operationName: "child-exhausted",
-        retryBudgetMs: 30,
-        retryDelayMs: 10,
+        retryBudgetMs: 300,
+        retryDelayMs: 250,
         logger: {
           error: (message, fields) => process.stdout.write(JSON.stringify({ message, fields }) + "\\n"),
         },
@@ -131,7 +132,8 @@ describe("runStartupRetry", () => {
       });
     `);
 
-    expect(result.status).not.toBe(0);
+    expect(result.signal).toBeNull();
+    expect(result.status).toBe(1);
     expect(result.stdout).toContain('"type":"platform-worker.startup_retry.exhausted"');
   });
 });

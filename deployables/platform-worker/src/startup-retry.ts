@@ -65,6 +65,7 @@ function positiveInteger(value: number | undefined, fallback: number): number {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
+    // Keep the timer referenced so top-level-await callers cannot exit before retrying.
     setTimeout(resolve, Math.max(0, ms));
   });
 }
