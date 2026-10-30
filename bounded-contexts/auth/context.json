@@ -5,7 +5,7 @@
   "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
-  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"],
+  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "service-actors", "sessions", "sign-in"],
   "allowedSupportDirectories": [
     "api-support",
     "auth-support",
@@ -18,7 +18,7 @@
     "ui-support"
   ],
   "publicExports": [".", "./context", "./host-config", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity", "@chase-sets/payments"],
+  "allowedContextDependencies": ["@chase-sets/identity", "@chase-sets/payments"],
   "seedRequirements": ["identity"],
   "eventSubscriptions": [
     {
@@ -297,8 +297,19 @@
       "note": "Ends the browser session; MCP clients hold no admin browser session.",
       "tools": []
     },
-    "sessions": { "pending": "#9238" },
-    "sessions-detail": { "pending": "#9238" }
+    "sessions": { "tools": ["auth.list-sessions"] },
+    "sessions-detail": {
+      "tools": ["auth.get-session", "auth.revoke-session", "auth.switch-session-account"]
+    }
+  },
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "auth.list-sessions", "ownerSlice": "sessions" },
+      { "name": "auth.get-session", "ownerSlice": "sessions" },
+      { "name": "auth.revoke-session", "ownerSlice": "sessions" },
+      { "name": "auth.switch-session-account", "ownerSlice": "sessions" }
+    ],
+    "resources": []
   },
   "deployableContributions": [
     {
@@ -788,6 +799,11 @@
       "purpose": "Own registration feature behavior, read models, and UI contracts for the auth context.",
       "expectedConsumers": ["Internal auth module composition"]
     },
+    "service-actors": {
+      "classification": "slice",
+      "purpose": "Own staging service-actor credential parsing and receipt-lookup actor resolution for the auth context.",
+      "expectedConsumers": ["Auth server composition", "Channels eBay receipt actor client"]
+    },
     "sessions": {
       "classification": "slice",
       "purpose": "Own sessions feature behavior, read models, and UI contracts for the auth context.",
@@ -806,12 +822,12 @@
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"],
+      "expectedConsumers": ["sessions"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1007,6 +1023,8 @@
       "surfaces": [
         "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H5572ea7ef0df#1",
+        "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H5572ea7ef0df#2",
         "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx"
       ],
@@ -1028,15 +1046,22 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
+        "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:Hc06be86223c9#1",
         "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:H5c166225bc84#1",
         "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#2",
-        "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
+        "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H7e42342e53be#1",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H527159536557#1",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H527159536557#2",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H527159536557#3",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H527159536557#4",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H527159536557#5",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#2",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#3",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#4",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#5",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H53b1a2e3458b#1",
         "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
@@ -1165,8 +1190,8 @@
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /revoke",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token",
         "api-client:bounded-contexts/auth/client.ts:PUT Hbc5f03363dca#1",
-        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H901edc92b88e#1",
-        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H995cca9e3e33#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:He840736eb4c0#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:Hfafac129789d#1",
         "route-action:bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx"
       ],
       "visibleDestination": {

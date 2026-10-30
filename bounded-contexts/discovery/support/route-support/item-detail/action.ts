@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   navigateAfterWriteWithPlatformPostWriteToken,
@@ -25,11 +25,19 @@ import {
   ACCOUNT_CART_ADD_LINE_HANDOFF,
   ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
+  checkoutCartAttemptCommitSource,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
   ensureAnonymousSellListId,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  submitCheckoutCartAttempt,
 } from "@chase-sets/checkout/server";
-import type { AddToCartActionData } from "../../../features/item-detail/ui/commerce-sections";
+import type {
+  AddToCartActionData,
+  AddToCartAmbiguousActionData,
+} from "../../../features/item-detail/ui/commerce-sections";
 import { canUseAccountCheckoutCart } from "../../../features/item-detail/ui/commerce-sections";
 import {
   buildRegisterToClaimListingDraftHref,
@@ -40,9 +48,9 @@ import {
   LISTING_STOCK_SHIP_FROM_CODE,
   selectItemImage,
 } from "./support";
-import { sortListingsByBuyerPrice } from "../../../features/item-detail/domain/item-detail-market";
 import {
   assertSelectedListingQuantityAvailable,
+  findLowestListingForProductAction,
   findSelectedListingForAction,
   getPublicSelectedOfferForSellList,
   getListingAvailableQuantity,
@@ -85,38 +93,6 @@ function listingCommandId(result: ListingCommandResult) {
   return result.id ?? result.listingId ?? result.listing_id ?? null;
 }
 
-function buyNowEntryAttemptKey(params: {
-  accountId: string;
-  source: Readonly<{
-    listingId: string;
-    catalogItemId: string;
-    productId: string;
-    selectedOptions: unknown;
-    quantity: number;
-    fulfillmentMode: string;
-    lockedListingId: string | null;
-  }>;
-}) {
-  const digest = createHash("sha256")
-    .update(
-      JSON.stringify({
-        schema: "discovery.item-detail.buy-now-entry.v1",
-        accountId: params.accountId,
-        listingId: params.source.listingId,
-        catalogItemId: params.source.catalogItemId,
-        productId: params.source.productId,
-        selectedOptions: params.source.selectedOptions,
-        quantity: params.source.quantity,
-        fulfillmentMode: params.source.fulfillmentMode,
-        lockedListingId: params.source.lockedListingId,
-      }),
-    )
-    .digest("hex")
-    .slice(0, 32);
-
-  return `chkentry_${digest}`;
-}
-
 function listingFeeQuoteFingerprint(result: ListingCommandResult) {
   return result.feeQuoteFingerprint ?? result.fee_quote_fingerprint ?? null;
 }
@@ -149,20 +125,157 @@ function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market
   };
 }
 
-function findBestAvailableListingForAction(item: DiscoveryItemDetail, productId: string) {
-  const bestListing =
-    sortListingsByBuyerPrice(
-      item.market_listings.filter(
-        (listing) =>
-          listing.product_id === productId && listing.status === "active" && getListingAvailableQuantity(listing) > 0,
-      ),
-    )[0] ?? null;
+function actionErrorMessage(error: Error) {
+  return "status" in error &&
+    error.status === 503 &&
+    "body" in error &&
+    readApiErrorCode(error.body) === "checkout_closed"
+    ? t("discovery.routes.itemDetail.checkout.closed")
+    : error.message;
+}
 
-  if (!bestListing) {
-    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+function isCheckoutAttemptConflict(error: unknown) {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    error.status === 409 &&
+    "body" in error &&
+    readApiErrorCode(error.body) === "checkout_attempt_conflict"
+  );
+}
+
+/** A refused or conflicting entry key: the changed copy, and a fresh key the page adopts for the next Buy now. */
+function buyNowSelectionChanged() {
+  return {
+    error: t("discovery.routes.itemDetail.buy.changed"),
+    intent: "buy-this-listing",
+    entryAttemptKey: createId("chkentry"),
+  };
+}
+
+function readMarketSelection(value: FormDataEntryValue | null) {
+  try {
+    const parsed: unknown = JSON.parse(String(value));
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const { listingId, offerId, options } = parsed as Record<string, unknown>;
+    return {
+      listingId: typeof listingId === "string" ? listingId : null,
+      offerId: typeof offerId === "string" ? offerId : null,
+      options: parseSelectedOptions(JSON.stringify(Array.isArray(options) ? options : [])),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The quantity and market selection a Buy now form submitted, so a returned error shows them again. */
+function readBuyDraft(formData: FormData) {
+  const quantity = Number(String(formData.get("quantity") ?? "").trim());
+  return {
+    quantity: Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
+    selection: readMarketSelection(formData.get("marketSelection")),
+  };
+}
+
+/**
+ * Buy now forwards only the page-view entry key its form carries. Any other
+ * error keeps that key and the submitted draft, so an explicit re-click
+ * replays the same submission and Checkout returns the first Session; nothing
+ * resends automatically.
+ */
+async function buyThisListing({
+  request,
+  formData,
+  itemId,
+  discoveryApi,
+  checkoutApi,
+}: Readonly<{
+  request: Request;
+  formData: FormData;
+  itemId: string;
+  discoveryApi: ReturnType<typeof createDiscoveryRequestApiClient>;
+  checkoutApi: ReturnType<typeof createCheckoutRequestApiClient>;
+}>) {
+  const entryAttemptKey = String(formData.get("entryAttemptKey") ?? "");
+  if (!isCheckoutCommandAttemptId(entryAttemptKey)) {
+    return buyNowSelectionChanged();
   }
 
-  return bestListing;
+  try {
+    const actor = await resolveActorFromAuthApi({ request });
+    const item = await discoveryApi.getItemDetail(itemId);
+    const productId = String(formData.get("productId") ?? "");
+    const lockedListingId = String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim();
+    const quantity = parsePositiveQuantity(formData.get("quantity"));
+    const lockedListing = lockedListingId
+      ? findSelectedListingForAction(item, lockedListingId)
+      : findLowestListingForProductAction(item, productId);
+    assertSelectedListingQuantityAvailable(lockedListing, quantity);
+    const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
+    const source = {
+      type: "buy-now",
+      listingId: lockedListing.listing_id,
+      catalogItemId: item.catalog_item_id,
+      productId,
+      itemTitle: item.title,
+      itemSubtitle: item.subtitle,
+      selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+      productSummary: String(formData.get("productSummary") ?? "") || null,
+      quantity,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: lockedListing.listing_id,
+    } as const;
+
+    if (!canUseAccountCheckoutCart(actor)) {
+      const query = new URLSearchParams({
+        source: "buy-now",
+        listingId: source.listingId,
+        fulfillmentMode: source.fulfillmentMode,
+        lockedListingId: source.lockedListingId ?? "",
+        catalogItemId: source.catalogItemId,
+        productId: source.productId,
+        itemTitle: source.itemTitle,
+        itemSubtitle: source.itemSubtitle ?? "",
+        selectedOptions: JSON.stringify(source.selectedOptions),
+        productSummary: source.productSummary ?? "",
+        quantity: String(source.quantity),
+        priceAmount: lockedListing?.price_amount ?? "",
+        priceCurrencyCode: lockedListing?.price_currency_code ?? "",
+        sellerName: lockedListing?.seller_display_name ?? "",
+        availability: lockedListing
+          ? t("discovery.routes.itemDetail.inventory.option.label", {
+              productSummary: source.productSummary ?? source.itemTitle,
+              availableQuantity: lockedListingAvailableQuantity,
+            })
+          : "",
+        fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
+      });
+      return redirect(`/checkout/buy/readiness?${query.toString()}`, { status: 307 });
+    }
+
+    const session = await checkoutApi.createCheckoutSession({ entryAttemptKey, source });
+
+    return redirect(
+      await navigateAfterWriteWithPlatformPostWriteToken(session, `/checkout/buy/session/${session.session_id}`),
+    );
+  } catch (error) {
+    if (isCheckoutAttemptConflict(error)) {
+      return buyNowSelectionChanged();
+    }
+    if (error instanceof Error) {
+      return {
+        error: actionErrorMessage(error),
+        intent: "buy-this-listing",
+        entryAttemptKey,
+        buyDraft: readBuyDraft(formData),
+      };
+    }
+
+    throw error;
+  }
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -170,7 +283,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
   if (intent === "commit-saved-list") {
-    return commitSavedListAddition(request, formData);
+    return commitSavedListAddition(request, formData, (...args) =>
+      navigateAfterWriteFromSourcesWithPlatformPostWriteToken(...args),
+    );
   }
   if (intent === "prepare-saved-list") {
     try {
@@ -276,7 +391,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         intent === "buy-best-match" ? "" : String(formData.get("sellerPreferenceId") ?? "").trim();
       const preferredListing = sellerPreferenceId ? findSelectedListingForAction(item, sellerPreferenceId) : null;
       if (intent === "buy-best-match") {
-        assertSelectedListingQuantityAvailable(findBestAvailableListingForAction(item, productId), quantity);
+        assertSelectedListingQuantityAvailable(findLowestListingForProductAction(item, productId), quantity);
       }
       if (preferredListing) {
         if (preferredListing.product_id !== productId) {
@@ -304,9 +419,51 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedListingSnapshot: selectedListingSnapshotFromListing(preferredListing),
       };
 
-      if (!canUseAccountCheckoutCart(actor)) {
-        const anonymousCartId = ensureAnonymousCartId(request);
-        const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
+      // One attempt per deliberate add, minted by the buyer's browser at submit.
+      // A post that arrives without one (no script ran) mints it here once.
+      const presentedAttemptId = String(formData.get("attemptId") ?? "");
+      const attemptId = isCheckoutCommandAttemptId(presentedAttemptId)
+        ? presentedAttemptId
+        : mintCheckoutCommandAttemptId();
+      const addBody = { ...cartLine, attemptId };
+      const guestCartId = canUseAccountCheckoutCart(actor) ? null : ensureAnonymousCartId(request);
+      const submission = await submitCheckoutCartAttempt({
+        attemptId,
+        kind: "cart.add-line",
+        target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+        body: addBody,
+        send: () =>
+          guestCartId ? checkoutApi.addGuestCartLine(guestCartId, addBody) : checkoutApi.addCartLine(addBody),
+        lookup: (query) =>
+          guestCartId
+            ? checkoutApi.getGuestCartCommandAttempt(guestCartId, query)
+            : checkoutApi.getCartCommandAttempt(query),
+      });
+      if (submission.state === "ambiguous") {
+        const response = Response.json({
+          status: "add-to-cart-ambiguous",
+          attemptId,
+        } satisfies AddToCartAmbiguousActionData);
+        if (guestCartId) appendAnonymousCartCookie(response.headers, guestCartId, request);
+        return response;
+      }
+      if (submission.state !== "succeeded") {
+        throw new Error(
+          submission.message ??
+            submission.attempt?.vector?.[0]?.message ??
+            t("discovery.routes.itemDetail.add.to.cart.failed"),
+        );
+      }
+      const committedLine = submission.attempt!.vector![0]!;
+      const result = submission.response ?? {
+        id: committedLine.lineId ?? "",
+        version: committedLine.version,
+        status: committedLine.status ?? "added",
+        ...checkoutCartAttemptCommitSource(submission),
+      };
+
+      if (guestCartId) {
+        const anonymousCartId = guestCartId;
         if (intent === "buy-best-match") {
           const response = redirect(
             await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
@@ -330,7 +487,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return response;
       }
 
-      const result = await checkoutApi.addCartLine(cartLine);
       if (intent === "buy-best-match") {
         return redirect(
           await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
@@ -351,68 +507,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "buy-this-listing") {
-      const actor = await resolveActorFromAuthApi({ request });
-      const item = await discoveryApi.getItemDetail(params.id!);
-      const productId = String(formData.get("productId") ?? "");
-      const lockedListingId = String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim();
-      const quantity = parsePositiveQuantity(formData.get("quantity"));
-      const lockedListing = lockedListingId
-        ? findSelectedListingForAction(item, lockedListingId)
-        : findBestAvailableListingForAction(item, productId);
-      assertSelectedListingQuantityAvailable(lockedListing, quantity);
-      const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
-      const source = {
-        type: "buy-now",
-        listingId: lockedListing.listing_id,
-        catalogItemId: item.catalog_item_id,
-        productId,
-        itemTitle: item.title,
-        itemSubtitle: item.subtitle,
-        selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
-        productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity,
-        fulfillmentMode: "locked-listing" as const,
-        lockedListingId: lockedListing.listing_id,
-      } as const;
-
-      if (!canUseAccountCheckoutCart(actor)) {
-        const query = new URLSearchParams({
-          source: "buy-now",
-          listingId: source.listingId,
-          fulfillmentMode: source.fulfillmentMode,
-          lockedListingId: source.lockedListingId ?? "",
-          catalogItemId: source.catalogItemId,
-          productId: source.productId,
-          itemTitle: source.itemTitle,
-          itemSubtitle: source.itemSubtitle ?? "",
-          selectedOptions: JSON.stringify(source.selectedOptions),
-          productSummary: source.productSummary ?? "",
-          quantity: String(source.quantity),
-          priceAmount: lockedListing?.price_amount ?? "",
-          priceCurrencyCode: lockedListing?.price_currency_code ?? "",
-          sellerName: lockedListing?.seller_display_name ?? "",
-          availability: lockedListing
-            ? t("discovery.routes.itemDetail.inventory.option.label", {
-                productSummary: source.productSummary ?? source.itemTitle,
-                availableQuantity: lockedListingAvailableQuantity,
-              })
-            : "",
-          fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
-        });
-        return redirect(`/checkout/buy/readiness?${query.toString()}`, { status: 307 });
-      }
-
-      const session = await checkoutApi.createCheckoutSession({
-        entryAttemptKey: buyNowEntryAttemptKey({
-          accountId: String(actor?.accountId ?? ""),
-          source,
-        }),
-        source,
-      });
-
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(session, `/checkout/buy/session/${session.session_id}`),
-      );
+      return await buyThisListing({ request, formData, itemId: params.id!, discoveryApi, checkoutApi });
     }
 
     if (intent === "sell-now") {
@@ -633,16 +728,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     if (error instanceof Error) {
-      return {
-        error:
-          "status" in error &&
-          error.status === 503 &&
-          "body" in error &&
-          readApiErrorCode(error.body) === "checkout_closed"
-            ? t("discovery.routes.itemDetail.checkout.closed")
-            : error.message,
-        intent,
-      };
+      return { error: actionErrorMessage(error), intent };
     }
 
     throw error;

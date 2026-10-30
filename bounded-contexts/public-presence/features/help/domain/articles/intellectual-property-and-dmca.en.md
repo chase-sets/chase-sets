@@ -4,7 +4,7 @@ title: "Intellectual property and DMCA"
 description: How Chase Sets handles copyright and other intellectual-property complaints, how to send a DMCA notice or counter-notice, where to send it, and how repeat infringement affects an account.
 audience: seller
 category: selling
-reviewedAt: "2026-08-02"
+reviewedAt: "2026-10-21"
 citedPolicies: []
 relatedFlows: []
 claimCategories: []
@@ -44,11 +44,11 @@ If content on Chase Sets uses your work without permission, you can raise it two
 
 ## What a DMCA notice must contain
 
-Under [Section 512 of the Copyright Act](https://www.copyright.gov/512/), a notification of claimed infringement must include, in substance (reviewed against the U.S. Copyright Office's Section 512 materials on August 2, 2026):
+Under [Section 512 of the Copyright Act](https://www.copyright.gov/512/), a notification of claimed infringement must include, in substance (reviewed against the U.S. Copyright Office's Section 512 materials on October 21, 2026):
 
 - identification of the copyrighted work you claim is infringed, or a representative list if there are many
 - identification of the material you claim is infringing, with enough location detail — on Chase Sets, the listing or review URL — for it to be found
-- your name, address, telephone number, and email address
+- information reasonably sufficient for Chase Sets to contact you, such as your address, telephone number, and, if available, an email address
 - a statement that you have a good-faith belief the use is not authorized by the copyright owner, its agent, or the law
 - a statement that the information in the notice is accurate and, under penalty of perjury, that you are authorized to act for the copyright owner
 - your physical or electronic signature
@@ -72,7 +72,9 @@ If material you posted is removed after an infringement notice and you believe t
 - your physical or electronic signature
 - identification of the removed material and where it appeared before removal
 - a statement under penalty of perjury that you have a good-faith belief the material was removed as a result of mistake or misidentification
-- your name, address, and telephone number, and consent to federal court jurisdiction as the statute describes
+- your name, address, and telephone number
+- a statement that you consent to the jurisdiction of the federal district court for the judicial district where your address is located or, if your address is outside the United States, any judicial district in which Chase Sets may be found
+- a statement that you will accept service of process from the person who sent the infringement notice or that person's agent
 
 Send counter-notices to the same contact listed above; a person reviews each one under the statute's procedure. The statute provides that a service provider restores material no less than ten and no more than fourteen business days after receiving a valid counter-notice, unless the original claimant notifies the provider that it has filed a court action seeking to restrain the alleged infringement.
 

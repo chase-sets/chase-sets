@@ -2,7 +2,9 @@ import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SupportApiEnv } from "./http";
-import type { SupportRequestServices } from "./runtime";
+import { accountRoleForSupportRequest, type SupportRequestServices } from "./runtime";
+import { normalizeFlowType } from "../domain/common";
+import { projectSupportFlow, projectSupportParticipantPolicy } from "./support-flow-projection";
 import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../domain/platform-remedy-policy";
 import { SupportEvidenceAttachmentError } from "./attachments";
 import { EvidenceAccessError } from "./evidence-access-audit";
@@ -367,7 +369,11 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       );
     }
 
-    return c.json(supportRequest);
+    const definition = await services.resolveSupportFlowDefinition(normalizeFlowType(supportRequest.flow_type));
+    return c.json({
+      ...supportRequest,
+      flow: projectSupportFlow(definition, "support", supportRequest),
+    });
   });
 
   app.post("/ops/escalate-overdue", async (c) => {
@@ -934,7 +940,18 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       );
     }
 
-    return c.json(supportRequest);
+    const role = accountRoleForSupportRequest(supportRequest, access.actor.accountId);
+    const definition = await services.resolveSupportFlowDefinition(normalizeFlowType(supportRequest.flow_type));
+    const flow = projectSupportFlow(definition, role, supportRequest);
+    return c.json({
+      ...supportRequest,
+      flow,
+      participantPolicy: projectSupportParticipantPolicy(
+        supportRequest,
+        { role, accountId: access.actor.accountId },
+        flow,
+      ),
+    });
   });
 
   app.post("/:id/attachments", async (c) => {

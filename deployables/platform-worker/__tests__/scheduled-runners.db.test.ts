@@ -53,13 +53,11 @@ if (!adminDatabaseUrl && process.env.CI) {
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
 // 34 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
-const EXPECTED_REGISTERED_RUNNER_COUNT = 35;
+const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
@@ -219,6 +217,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(registeredRunners.length).toBe(EXPECTED_REGISTERED_RUNNER_COUNT);
     expect(names.filter((name) => name === "channels.connector-liveness-sweep")).toHaveLength(1);
     expect(names.filter((name) => name === "channels.ebay-account-deletion-receipt-expiry")).toHaveLength(1);
+    expect(names).not.toContain("pricing.tcgplayer-market-capture");
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -376,7 +375,6 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         terms: {
           currency: "USD",
           adjustmentBps: 0,
-          itemCommitmentAllowance: "20.00",
           offers: [
             {
               offerId,

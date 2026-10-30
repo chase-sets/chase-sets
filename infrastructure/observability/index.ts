@@ -48,6 +48,11 @@ export type Logger = Readonly<{
 
 export type LogFields = Readonly<Record<string, unknown>>;
 
+export type DiscoverySearchRetrievalFailureSignal = Readonly<{
+  correlationId?: string | null;
+  error: unknown;
+}>;
+
 export type ObservabilityRuntime = Readonly<{
   config: ObservabilityConfig;
   logger: Logger;
@@ -69,6 +74,16 @@ const DEFAULT_LOG_EXPORT_MAX_IN_FLIGHT = 4;
 const DEFAULT_LOG_EXPORT_QUEUE_SIZE = 100;
 const MAX_LOG_EXPORT_MAX_IN_FLIGHT = 16;
 const MAX_LOG_EXPORT_QUEUE_SIZE = 1_000;
+const TRACE_ID_RE = /^(?!0{32})[0-9a-f]{32}$/;
+const DISCOVERY_SEARCH_ERROR_CLASSES = new Set([
+  "AbortError",
+  "AggregateError",
+  "DatabaseError",
+  "Error",
+  "PostgresError",
+  "RangeError",
+  "TypeError",
+]);
 
 const OBSERVABILITY_SCOPE_NAME = "@chase-sets/observability";
 const tracer = trace.getTracer(OBSERVABILITY_SCOPE_NAME);
@@ -1705,6 +1720,52 @@ export function sanitizeLogFields(fields: LogFields): LogFields {
       SENSITIVE_FIELD_RE.test(key) ? "[redacted]" : sanitizeValue(value),
     ]),
   );
+}
+
+export function normalizeTraceCorrelationId(value: unknown): string {
+  if (typeof value === "string" && TRACE_ID_RE.test(value)) {
+    return value;
+  }
+
+  const activeTraceId = trace.getSpanContext(context.active())?.traceId;
+  return typeof activeTraceId === "string" && TRACE_ID_RE.test(activeTraceId) ? activeTraceId : "unknown";
+}
+
+export function classifyDiscoverySearchRetrievalFailure(error: unknown): Readonly<{
+  errorClass: string;
+  sqlstateCategory: string;
+}> {
+  const candidate = error && typeof error === "object" ? error : undefined;
+  const name = candidate && "name" in candidate && typeof candidate.name === "string" ? candidate.name : "";
+  const severity =
+    candidate && "severity" in candidate && typeof candidate.severity === "string" ? candidate.severity : undefined;
+  const constructorName = candidate?.constructor?.name;
+  const isPostgresServerError = constructorName === "DatabaseError" || (name === "error" && severity !== undefined);
+  const code =
+    candidate && "code" in candidate && typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
+  return {
+    errorClass: isPostgresServerError ? "DatabaseError" : DISCOVERY_SEARCH_ERROR_CLASSES.has(name) ? name : "unknown",
+    sqlstateCategory: isPostgresServerError && /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown",
+  };
+}
+
+export function recordDiscoverySearchRetrievalFailure(event: DiscoverySearchRetrievalFailureSignal): void {
+  getObservabilityRuntime().logger.error(
+    "Discovery search retrieval failed.",
+    discoverySearchRetrievalFailureFields(event),
+  );
+}
+
+export function discoverySearchRetrievalFailureFields(event: DiscoverySearchRetrievalFailureSignal): LogFields {
+  const classified = classifyDiscoverySearchRetrievalFailure(event.error);
+  return {
+    type: "discovery.search.retrieval",
+    operation: "discovery.search.retrieval",
+    resource: "discovery.search.retrieval",
+    correlationId: normalizeTraceCorrelationId(event.correlationId),
+    errorClass: classified.errorClass,
+    sqlstateCategory: classified.sqlstateCategory,
+  };
 }
 
 async function observeOperation<T>(

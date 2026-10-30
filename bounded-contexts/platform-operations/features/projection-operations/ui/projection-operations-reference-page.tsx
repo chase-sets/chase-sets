@@ -17,12 +17,10 @@ import { t } from "@chase-sets/localization";
 import type {
   ProjectionGroupStatus,
   ProjectionOperationsFilters,
-  ProjectionOperationsSnapshot,
   ProjectionSubscriptionRow,
 } from "../read-model/contracts";
+import type { ProjectionOperationsConsoleSnapshot, WakeStatusConsoleSnapshot } from "../api/client";
 import { buildProjectionSubscriptionRows, compareSubscriptionRows, stateSeverity } from "../read-model/contracts";
-import type { WakeStatusSnapshot } from "../read-model/wake-status-contracts";
-import { buildWakeAttentionItems } from "../read-model/wake-status-contracts";
 import {
   formatDecimalCount,
   formatProjectionDateTime,
@@ -48,9 +46,9 @@ export function ProjectionOperationsReferencePage({
   actorPermissions = [],
   onSelectedDetailClose,
 }: Readonly<{
-  data: ProjectionOperationsSnapshot;
+  data: ProjectionOperationsConsoleSnapshot;
   filters: ProjectionOperationsFilters;
-  wakeStatus?: WakeStatusSnapshot | null;
+  wakeStatus?: WakeStatusConsoleSnapshot | null;
   actorPermissions?: readonly string[];
   onSelectedDetailClose?: () => void;
 }>) {
@@ -319,8 +317,8 @@ function WorkersTable({
   );
 }
 
-function WakeReferencePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot | null }>) {
-  const items = buildWakeAttentionItems(wakeStatus);
+function WakeReferencePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusConsoleSnapshot | null }>) {
+  const items = wakeStatus?.attentionItems ?? [];
   return (
     <Stack gap={3}>
       <Surface tone="subtle" elevation="tinted" data-elevation-role="furniture">
@@ -357,7 +355,7 @@ function WakeReferencePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSna
   );
 }
 
-function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsSnapshot }>) {
+function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsConsoleSnapshot }>) {
   return (
     <Grid columns={{ base: 1, xl: 2 }} gap={4}>
       <DetailPanel title={t(`${routeKey}.snapshotDiagnostics`)}>

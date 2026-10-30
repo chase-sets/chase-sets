@@ -18,7 +18,6 @@ export const context: EventStoreContext = {
 export const terms: BuyerOfferPolicyTerms = {
   currency: "USD",
   adjustmentBps: 0,
-  itemCommitmentAllowance: "100.00",
   offers: [
     {
       offerId: "off_one",
@@ -34,7 +33,6 @@ export const terms: BuyerOfferPolicyTerms = {
 export const privateLimitTerms: BuyerOfferPolicyTerms = {
   ...terms,
   adjustmentBps: -2345,
-  itemCommitmentAllowance: "98765.43",
   offers: [{ ...terms.offers[0]!, maximumUnitItemAmount: "8765.43" }],
 };
 export const privatePolicyFields = {
@@ -44,7 +42,7 @@ export const privatePolicyFields = {
   preview: { previewId: "private_preview", terms: privateLimitTerms },
   maximumUnitItemAmount: privateLimitTerms.offers[0]!.maximumUnitItemAmount,
   adjustmentBps: privateLimitTerms.adjustmentBps,
-  itemCommitmentAllowance: privateLimitTerms.itemCommitmentAllowance,
+  itemCommitmentAllowance: "98765.43",
   consumedItemAmount: "1234.56",
   remainingItemAllowance: "97530.87",
 };

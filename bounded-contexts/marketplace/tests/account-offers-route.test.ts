@@ -312,14 +312,12 @@ describe("market-following Submitted Offer real router", () => {
   }
 
   it.each([false, true])(
-    "walks draft, review, consent, pause, fresh resume/increase and permanent stop (lag=%s)",
+    "walks draft, review, consent, pause, fresh resume/revision and permanent stop (lag=%s)",
     async (lag) => {
       const f = await routed(lag);
       fireEvent.click(screen.getByRole("switch"));
       expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
-      fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
-        target: { value: "100.00" },
-      });
+      expect(screen.queryByLabelText(/item commitment allowance/i)).toBeNull();
       expect(screen.getByRole("button", { name: "Advanced adjustment" }).getAttribute("aria-expanded")).toBe("false");
       fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
       await screen.findByText("Review exact Offer authority");
@@ -334,7 +332,7 @@ describe("market-following Submitted Offer real router", () => {
       expect(f.commands.find((command) => command.type === "AuthorizeBuyerOfferPolicy")?.consent).toBe(true);
       fireEvent.click(screen.getByRole("button", { name: "Pause market following" }));
       await screen.findByText("Paused", { selector: "span" });
-      fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+      fireEvent.change(screen.getByLabelText("Maximum unit item amount: Item"), {
         target: { value: "120.00" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Preview to resume" }));
@@ -368,22 +366,16 @@ describe("market-following Submitted Offer real router", () => {
   it("takes the first Preview version from an authoritative owner read, not the projected Offer", async () => {
     const f = await routed(true, true);
     fireEvent.click(screen.getByRole("switch"));
-    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
-      target: { value: "99.00" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
     await screen.findByText("Review exact Offer authority");
     expect(f.commands.at(-1)).toMatchObject({ terms: { offers: [{ offerVersion: 2 }] } });
     f.router.dispose();
   });
 
-  it("keeps selection, caps, allowance and adjustment while clearing consent on interleaved resume drift", async () => {
+  it("keeps selection, caps and adjustment while clearing consent on interleaved resume drift", async () => {
     const f = await routed(true);
     fireEvent.click(screen.getByRole("switch"));
     fireEvent.change(screen.getByLabelText("Maximum unit item amount: Item"), { target: { value: "20.00" } });
-    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
-      target: { value: "99.00" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Advanced adjustment" }));
     fireEvent.change(screen.getByLabelText("Market Price adjustment (%)", { exact: true }), {
       target: { value: "-5" },
@@ -416,9 +408,7 @@ describe("market-following Submitted Offer real router", () => {
     expect(f.responses.at(-1)).toEqual({ status: 409, body: { error: { code: "stale_preview" } } });
     expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("Maximum unit item amount: Item") as HTMLInputElement).value).toBe("20.00");
-    expect(
-      (screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }) as HTMLInputElement).value,
-    ).toBe("99.00");
+    expect(screen.queryByLabelText(/item commitment allowance/i)).toBeNull();
     expect((screen.getByLabelText("Market Price adjustment (%)", { exact: true }) as HTMLInputElement).value).toBe(
       "-5",
     );
@@ -444,7 +434,7 @@ describe("market-following Submitted Offer real router", () => {
     const f = await routed();
     fireEvent.click(screen.getByRole("switch"));
     expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
-    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+    fireEvent.change(screen.getByLabelText("Maximum unit item amount: Item"), {
       target: { value: "99.00" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
@@ -463,10 +453,10 @@ describe("market-following Submitted Offer real router", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /^I authorize/ }));
     fireEvent.click(screen.getByRole("button", { name: "Authorize reviewed Offers" }));
     await screen.findByText("Review your Offer controls");
-    const allowance = screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }) as HTMLInputElement;
-    expect(allowance.value).toBe("99.00");
-    expect(allowance.getAttribute("aria-invalid")).toBe("true");
-    expect(allowance.getAttribute("aria-describedby")).toContain("error");
+    const maximum = screen.getByLabelText("Maximum unit item amount: Item") as HTMLInputElement;
+    expect(maximum.value).toBe("99.00");
+    expect(maximum.getAttribute("aria-invalid")).toBe("true");
+    expect(maximum.getAttribute("aria-describedby")).toContain("error");
     expect(screen.queryByRole("button", { name: "Authorize reviewed Offers" })).toBeNull();
     f.router.dispose();
   });

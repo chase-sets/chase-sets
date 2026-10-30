@@ -4451,7 +4451,7 @@
           },
           "dryRun": {
             "type": "boolean",
-            "description": "Validate without creating a hosted setup session."
+            "description": "Dry runs are not supported; omit or pass false. True is refused before any setup work."
           }
         }
       },
@@ -4495,7 +4495,7 @@
       },
       "confirmation_required": true,
       "idempotency_key": "required",
-      "dry_run_supported": true,
+      "dry_run_supported": false,
       "expected_usage": [
         "Use once, before in-chat checkout completion, when the account has no stored payment method.",
         "Return the hosted URL to the user for a one-time card-entry hop; then poll confirm-payment-method-setup."
@@ -6126,7 +6126,11 @@
           "accountId",
           "items",
           "total",
-          "count"
+          "count",
+          "completeness",
+          "next_payout",
+          "blocked_payouts",
+          "availability"
         ],
         "properties": {
           "accountId": {
@@ -6188,6 +6192,170 @@
           "count": {
             "type": "integer",
             "description": "Returned payout count."
+          },
+          "completeness": {
+            "type": "object",
+            "description": "Whether the payout summary is complete or capped.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "total"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "Summary completeness state."
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total actionable payout count."
+              },
+              "cap": {
+                "type": "integer",
+                "description": "Summary hard cap when bounded."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Reason the summary is bounded."
+              }
+            }
+          },
+          "next_payout": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Next requested or in-transit payout.",
+            "additionalProperties": false,
+            "required": [
+              "payout_id",
+              "amount",
+              "requested_amount",
+              "fee_amount",
+              "currency_code",
+              "estimated_arrival_at"
+            ],
+            "properties": {
+              "payout_id": {
+                "type": "string",
+                "description": "Payout identifier."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Net payout amount."
+              },
+              "requested_amount": {
+                "type": "string",
+                "description": "Requested payout amount."
+              },
+              "fee_amount": {
+                "type": "string",
+                "description": "Payout fee amount."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Payout currency code."
+              },
+              "estimated_arrival_at": {
+                "type": "string",
+                "description": "Estimated arrival timestamp."
+              }
+            }
+          },
+          "blocked_payouts": {
+            "type": "array",
+            "description": "Payouts requiring retry or reconciliation.",
+            "items": {
+              "type": "object",
+              "description": "Blocked payout summary row.",
+              "additionalProperties": false,
+              "required": [
+                "payout_id",
+                "account_id",
+                "reference",
+                "block_reason",
+                "kind",
+                "next_action",
+                "observed_at"
+              ],
+              "properties": {
+                "payout_id": {
+                  "type": "string",
+                  "description": "Payout identifier."
+                },
+                "account_id": {
+                  "type": "string",
+                  "description": "Account that owns the payout."
+                },
+                "reference": {
+                  "type": "string",
+                  "description": "Human payout reference."
+                },
+                "block_reason": {
+                  "type": "string",
+                  "description": "Provider-neutral blocked reason."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Blocked payout kind."
+                },
+                "next_action": {
+                  "type": "string",
+                  "description": "Recommended next action."
+                },
+                "observed_at": {
+                  "type": "string",
+                  "description": "Timestamp the block was observed."
+                }
+              }
+            }
+          },
+          "availability": {
+            "type": "object",
+            "description": "Settlement payout availability.",
+            "additionalProperties": false,
+            "required": [
+              "can_request",
+              "unavailable_reasons",
+              "unavailable_reason_details"
+            ],
+            "properties": {
+              "can_request": {
+                "type": "boolean",
+                "description": "Whether the actor may request a payout."
+              },
+              "unavailable_reasons": {
+                "type": "array",
+                "description": "Availability reason codes.",
+                "items": {
+                  "type": "string",
+                  "description": "Reason code."
+                }
+              },
+              "unavailable_reason_details": {
+                "type": "array",
+                "description": "Availability reason details.",
+                "items": {
+                  "type": "object",
+                  "description": "Availability reason detail.",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "Reason code."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human reason message."
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },

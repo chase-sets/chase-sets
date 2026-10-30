@@ -805,8 +805,18 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: current.state.status });
       }
 
+      const buyerAccount = await deps.db.query<{ account_status: string }>(
+        `SELECT status AS account_status FROM marketplace_account_pages WHERE account_id = $1`,
+        [current.state.buyerAccountId],
+      );
+      if (buyerAccount.rows[0]?.account_status !== "active") {
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", {
+          status: current.state.status,
+        });
+      }
+
       const listingStreamId = `marketplace.listing-${params.listingId}`;
-      const commitment = current.state.buyerOfferPolicyId
+      const managedAcceptance = current.state.buyerOfferPolicyId
         ? await managed.acceptance(current.state, current.version, context)
         : null;
       const availabilityStreamId = `marketplace.seller-listing-availability-${params.sellerAccountId}`;
@@ -829,6 +839,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (
         exactListing.listingId !== params.listingId ||
         exactListing.accountId !== params.sellerAccountId ||
+        exactListing.publicationScope === "channel-only" ||
         exactListing.status !== "active" ||
         !exactListing.productId ||
         !exactListing.catalogItemId ||
@@ -892,7 +903,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         accountId: params.sellerAccountId,
         priceAmount: String(current.state.priceAmount),
       });
-      const confirmedQuote = commitment
+      const confirmedQuote = managedAcceptance
         ? {
             ...quote,
             fee_quote_fingerprint: `${quote.fee_quote_fingerprint}|${params.offerId}:${current.version}|${params.listingId}:${listing.version}`,
@@ -928,8 +939,8 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         acceptanceBatchId: params.acceptanceBatchId ?? null,
         acceptanceBatchSize: params.acceptanceBatchSize ?? null,
       } as const;
-      const [acceptedEvent] = commitment
-        ? decideManagedMarketplaceOffer(current.state, acceptCommand, commitment.policy.state)
+      const [acceptedEvent] = managedAcceptance
+        ? decideManagedMarketplaceOffer(current.state, acceptCommand, managedAcceptance.policy.state)
         : decideMarketplaceOffer(current.state, acceptCommand);
       if (!acceptedEvent || acceptedEvent.type !== "marketplace.offer.accepted") {
         throw new Error("Offer acceptance did not produce a commitment fact.");
@@ -955,7 +966,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       try {
         return await attempt.commit(
           [
-            ...(commitment ? [commitment.append] : []),
+            ...(managedAcceptance ? [managedAcceptance.append] : []),
             {
               streamId: offerStreamId,
               expectedVersion: current.version,
@@ -1005,7 +1016,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           if (latest.state.status !== "submitted" && latest.state.status !== "accepted") {
             throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
           }
-          if (commitment) throw new ManagedOfferConflictError("managed_offer_conflict");
+          if (managedAcceptance) throw new ManagedOfferConflictError("managed_offer_conflict");
           throw new MarketplaceOfferAcceptanceReadinessError(
             latest.state.status === "accepted" ? "offer_already_accepted" : "listing_not_eligible",
             { listingId: params.listingId },

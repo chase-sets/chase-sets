@@ -24,7 +24,6 @@ export const buyerOfferPolicySelectionSchema = z.strictObject({
 export const buyerOfferPolicyTermsSchema = z.strictObject({
   currency: z.string().regex(/^[A-Z]{3}$/),
   adjustmentBps: z.number().int().min(-2500).max(0).default(0),
-  itemCommitmentAllowance: amount,
   offers: z.array(buyerOfferPolicySelectionSchema).min(1).max(100),
 });
 export type BuyerOfferPolicyTerms = z.output<typeof buyerOfferPolicyTermsSchema>;

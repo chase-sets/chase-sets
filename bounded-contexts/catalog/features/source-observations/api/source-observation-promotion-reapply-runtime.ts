@@ -13,9 +13,11 @@ import {
   isLorcanaSetReferenceSourceObservationNormalized,
   isMagicSetReferenceSourceObservationNormalized,
   isOnePieceSetReferenceSourceObservationNormalized,
+  isYugiohSetReferenceSourceObservationNormalized,
   type SourceObservationLorcanaSetReferenceNormalized,
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
 import {
@@ -161,7 +163,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
-      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isYugiohSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return promoteReferenceObservationFromRow({
         ...input,
@@ -316,7 +319,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized;
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized;
     context: EventStoreContext;
   }): Promise<SourceObservationPromotionTargetResult> {
     const providerProfileVersion = await requireReferenceDataPromotionProfileVersion(
@@ -479,7 +483,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
-      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isYugiohSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return reapplyReferenceObservationFromRow({
         ...input,
@@ -588,7 +593,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized;
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized;
     context: EventStoreContext;
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
@@ -919,7 +925,8 @@ export function createSourceObservationPromotionReapplyRuntime({
       if (
         isMagicSetReferenceSourceObservationNormalized(observation.normalized) ||
         isLorcanaSetReferenceSourceObservationNormalized(observation.normalized) ||
-        isOnePieceSetReferenceSourceObservationNormalized(observation.normalized)
+        isOnePieceSetReferenceSourceObservationNormalized(observation.normalized) ||
+        isYugiohSetReferenceSourceObservationNormalized(observation.normalized)
       ) {
         // Reference-data promotion writes no Catalog Item, so it has no display identity to validate.
         return [];

@@ -4,6 +4,20 @@
 
 A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
 
+## Inventory Draft Listing Message
+
+An **Inventory Draft Listing Message** is the recursively closed, versioned committed-row snapshot defined by `contracts/inventory-draft-listing`. Its message identity is the Inventory import-row identity; the target draft identity is derived from that row, never supplied by delivery. Trusted delivery authority must match its tenant, account and acting User.
+
+## Inventory Draft Listing Receipt
+
+An **Inventory Draft Listing Receipt** is Marketplace's immutable acceptance result. Draft creation, inventory-listing registration facts and this durable receipt commit in one Marketplace transaction. Exact replay reads the original receipt without updating supply projections, repricing, creating another draft or publishing. A changed snapshot, authority or version cannot replace it. An untouched matching direct-port draft may acquire its first receipt without another creation fact. Its `source` is `message` for a new draft or `legacy-draft` when an existing direct-port draft is reconciled.
+
+Rollout installs the durable receipt migration and compatible reader/consumer before Inventory produces messages. Existing direct callers remain valid until the Inventory delivery slice switches them over. Rollback must pause delivery before removing a consumer, retain the migration ledger entry, receipt table and immutability trigger, and reconcile possible-send loss by reading the same message identity. Receipts have no retry expiry and are not swept with staging data.
+
+## Inventory Draft Listing Unavailable Diagnostic
+
+An **Inventory Draft Listing Unavailable Diagnostic** is one of the closed, secret-free causes attached to a retryable Inventory Draft Listing consumer result: `listing-rejected`, `unexpected-failure`, `receipt-ledger-not-ready`, or `consumer-unbound`. It describes the retryable boundary without retaining exception messages, causes, identifiers, or payload data. Deterministic message conflicts carry no diagnostic.
+
 ## Review Opportunity Fact
 
 A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.
@@ -25,6 +39,14 @@ Notes:
 - Listings are owned by Marketplace.
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
+
+## Publication Scope
+
+**Publication Scope** is the immutable choice made when creating a Listing: `native` (the default) or `channel-only`.
+
+## Channel-Only Listing
+
+A **Channel-Only Listing** is created as a draft with native visibility disabled and native fee state not enrolled. Its complete normalized amount and ISO-4217 currency pair is a hidden reference price, not native publication or channel activation authority. Creation resolves no native Terms or fee quote and enrolls no fee lock. Native publication, Resume, price, purchase-limit and capacity commands refuse it; withdrawal remains available and terminal. Channel target acceptance and activation are separate capabilities.
 
 ## Listing Price
 
@@ -82,10 +104,6 @@ A **Buyer Offer Policy** is one buyer account's explicit, versioned authority fo
 ## Maximum Unit Item Amount
 
 The **Maximum Unit Item Amount** is the buyer-consented ceiling on one selected Offer's per-unit item price. It is not a checkout total and excludes later shipping, fees and tax.
-
-## Item Commitment Allowance
-
-The **Item Commitment Allowance** is the lifetime cumulative item amount a Buyer Offer Policy may authorize at seller acceptance, in its immutable authorized currency. Accepted unit item amount times quantity consumes this allowance atomically. Consumption never returns automatically after payment failure, cancellation or refund, and pause, resume and revision never reset it. Only fresh buyer consent may increase the allowance. It is not spend, funding, escrow or a wallet balance.
 
 ## Offer
 
@@ -147,6 +165,10 @@ Examples:
 - Paused
 - Withdrawn
 - Sold Out
+
+## Inventory-Capacity Pause
+
+An **Inventory-Capacity Pause** is a system pause of a previously active Listing when active quantity caps exceed Inventory's available capacity. Its `inventory-capacity` provenance is distinct from seller, policy and channel pauses. Reconciliation restores only still-capacity-paused native Listings that fit after active commitments and pass current publication checks, preserving identity, price, quantity cap and Fee Locks. Blocked recovery stays actionable in Listing attention and detail until recovery or a superseding seller action. Historical missing reasons are never inferred to be capacity pauses.
 
 ## Fee Lock
 

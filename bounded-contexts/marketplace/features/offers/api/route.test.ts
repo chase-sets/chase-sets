@@ -665,14 +665,18 @@ describe("buyer Offer lifecycle routes", () => {
     permissions,
   });
 
-  async function lifecycleApps(offerIds: Readonly<Record<string, string>>, lifecycleOpen = true) {
+  async function lifecycleApps(
+    offerIds: Readonly<Record<string, string>>,
+    lifecycleOpen = true,
+    accountStatus: string | null = null,
+  ) {
     const eventStore = createInMemoryEventStore().eventStore;
     const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
     const appendToStream = vi.spyOn(eventStore, "appendToStream");
     const services = createMarketplaceOfferRuntime({
       ...(lifecycleOpen ? { offerLifecycleAdmission: { check: async () => ({ admitted: true }) as const } } : {}),
       eventStore,
-      db: { query: vi.fn(async () => ({ rows: [] })) },
+      db: { query: vi.fn(async () => ({ rows: accountStatus ? [{ account_status: accountStatus }] : [] })) },
       checkpointStore: {} as never,
       commercialTermsResolver: {} as never,
     });
@@ -818,6 +822,28 @@ describe("buyer Offer lifecycle routes", () => {
     await expect(accept.json()).resolves.toMatchObject({
       error: { code: "offer_not_open", details: { status: "paused" } },
     });
+  });
+
+  it("hides the counterparty status when accepting a suspended Offer", async () => {
+    const { seller } = await lifecycleApps({ off_1: "acc_buyer" }, true, "suspended");
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+    });
+    expect(accept.status).toBe(409);
+    const body = await accept.json();
+    expect(body).toMatchObject({ error: { code: "offer_not_open" } });
+    expect(body.error.details).not.toHaveProperty("accountStatus");
+  });
+
+  it("returns 409 offer_not_open when the buyer mirror is missing", async () => {
+    const { seller } = await lifecycleApps({ off_1: "acc_buyer" }, true, null);
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+    });
+    expect(accept.status).toBe(409);
+    await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
   });
 
   it("hides another buyer's Offer from single lifecycle commands", async () => {

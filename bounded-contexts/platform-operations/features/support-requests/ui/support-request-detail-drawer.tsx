@@ -18,10 +18,14 @@ import {
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import { normalizeFlowType, type SupportResolutionType } from "../domain/common";
-import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
 import { adjudicationRefundCap, adjudicationRefundPrefill, CaseAdjudicationPanel } from "./case-adjudication-panel";
-import type { PlatformRemedyProposalInput, PlatformRemedyProposalPreview, SupportRequestDetail } from "./contracts";
+import type {
+  PlatformRemedyProposalInput,
+  PlatformRemedyProposalPreview,
+  SupportRequestDetail,
+  SupportRequestDetailResponse,
+} from "./contracts";
 import { PlatformRemedyWorkflowPanel } from "./platform-remedy-workflow-panel";
 import { SupportEvidenceAttachmentGallery } from "./support-evidence-attachments";
 import {
@@ -219,14 +223,14 @@ function EscalateForm({ actionHref }: Readonly<{ actionHref: string }>) {
  * can never issue an outcome the domain would reject, and it prefills the refund
  * from the affected lines/offer history capped at the domain ceiling.
  */
-function resolutionItemsForFlow(request: SupportRequestDetail) {
+function resolutionItemsForFlow(request: SupportRequestDetailResponse) {
   const byValue = new Map(resolutionTypeItems.map((item) => [item.value as SupportResolutionType, item]));
-  return getSupportFlowDefinition(normalizeFlowType(request.flow_type))
-    .allowedResolutions.map((resolution) => byValue.get(resolution))
+  return request.flow.allowedResolutions
+    .map((resolution) => byValue.get(resolution))
     .filter((item): item is (typeof resolutionTypeItems)[number] => Boolean(item));
 }
 
-function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequestDetail; actionHref: string }>) {
+function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequestDetailResponse; actionHref: string }>) {
   const reasons = responsibilityReasonItems(request);
   const resolutionItems = resolutionItemsForFlow(request);
   const refundPrefill = adjudicationRefundPrefill(request);
@@ -289,7 +293,7 @@ function OperatorActionForm({
   action,
   request,
   actionHref,
-}: Readonly<{ action: OperatorAction; request: SupportRequestDetail; actionHref: string }>) {
+}: Readonly<{ action: OperatorAction; request: SupportRequestDetailResponse; actionHref: string }>) {
   switch (action) {
     case "response":
       return <ResponseForm actionHref={actionHref} />;
@@ -614,7 +618,7 @@ function OtherActions({
   request,
   actionHref,
   primaryAction,
-}: Readonly<{ request: SupportRequestDetail; actionHref: string; primaryAction: OperatorAction }>) {
+}: Readonly<{ request: SupportRequestDetailResponse; actionHref: string; primaryAction: OperatorAction }>) {
   const alternateActions = (["response", "escalate", "resolve"] as const).filter((action) => action !== primaryAction);
   const canMutate = !isTerminalStatus(request.status);
 
@@ -708,7 +712,7 @@ export function EntityDetailDrawer({
   remedyProposalInput,
   onClose,
 }: Readonly<{
-  request: SupportRequestDetail;
+  request: SupportRequestDetailResponse;
   now: string;
   actionHref: string;
   marketplaceOrigin?: string | null;

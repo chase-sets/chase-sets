@@ -2807,7 +2807,8 @@ describe("worker runner loop", () => {
       streamId,
     });
     const routeCalls: Array<Readonly<{ streamId: string; context?: ProjectionRunContext }>> = [];
-    const acquiredLeases: Array<Readonly<{ leaseName: string; metadata?: Record<string, unknown> }>> = [];
+    const acquiredLeases: Array<Readonly<{ leaseName: string; ownerId: string; metadata?: Record<string, unknown> }>> =
+      [];
     const renewedLeases: string[] = [];
     let signalRenewedLease: (() => void) | undefined;
     const renewedLease = new Promise<void>((resolve) => {
@@ -2846,7 +2847,7 @@ describe("worker runner loop", () => {
     const group = createProjectionGroup({ subscriptionRunners: [decoyRunner, targetRunner] });
     const controlPlane = createAlwaysLeasedControlPlane({
       acquireLease: async (input) => {
-        acquiredLeases.push({ leaseName: input.leaseName, metadata: input.metadata });
+        acquiredLeases.push({ leaseName: input.leaseName, ownerId: input.ownerId, metadata: input.metadata });
         return {
           leaseName: input.leaseName,
           ownerId: input.ownerId,
@@ -2879,6 +2880,7 @@ describe("worker runner loop", () => {
 
     expect(acquiredLeases).toContainEqual({
       leaseName: "projection-group:inventory.inventory-catalog-item-projection",
+      ownerId: "worker-a:projection-operations",
       metadata: {
         operationId: operation.operationId,
         operationKind: "retry-blocked-stream",
@@ -2892,7 +2894,7 @@ describe("worker runner loop", () => {
       {
         streamId,
         context: expect.objectContaining({
-          ownerId: "worker-a",
+          ownerId: "worker-a:projection-operations",
           fencingToken: "projection-group-fence-7",
           operationId: operation.operationId,
         }),

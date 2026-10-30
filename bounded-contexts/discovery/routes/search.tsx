@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ClientLoaderFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   type ActionFunctionArgs,
+  data as routeData,
   redirect,
   useFetcher,
   useLoaderData,
@@ -22,9 +23,14 @@ import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../suppo
 import type { DiscoverySearchInterpretation } from "../support/client-support/contracts";
 import {
   appendAnonymousCartCookie,
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  submitCheckoutCartAttempt,
 } from "@chase-sets/checkout/server";
+import { mintCartAttemptId } from "../features/item-detail/ui/commerce/commerce-primitives";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { EMPTY_CATEGORY_LIST, EMPTY_DISCOVERY_SEARCH_RESPONSE } from "../features/search/ui/route-data-defaults";
@@ -50,6 +56,7 @@ import {
   prepareSavedListAddition,
   savedListActionError,
 } from "../support/request-support/saved-list-addition";
+import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 
 const PAGE_SIZE = 24;
 const INTERPRETED_PARAM = "interpreted";
@@ -72,6 +79,7 @@ const EMPTY_SEARCH_RESULT = {
   interpreted: null,
   interpretedFilters: [],
   data: null,
+  searchFailed: false,
   categories: [],
   homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
@@ -292,7 +300,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           interpreted,
         }),
       )
-      .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
+      .catch(() => null),
     isHomeLanding
       ? api
           .searchItems(
@@ -316,7 +324,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   ]);
   // Interpreted rows are never shown here: the canonical URL is loaded as its own request,
   // whose marker keeps the dispatcher from interpreting again.
-  if (data.interpretation && interpreted === null) {
+  if (data?.interpretation && interpreted === null) {
     throw redirect(buildInterpretedSearchPath(url, data.interpretation), { status: 302 });
   }
   const canonicalPath =
@@ -324,7 +332,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
       : buildCategoryPath("", url.searchParams);
 
-  return {
+  const result = {
     search,
     category,
     tag,
@@ -338,6 +346,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     interpreted,
     interpretedFilters: readInterpretedFilters(url.searchParams),
     data,
+    searchFailed: data === null,
     categories: categories.items,
     homeMerchandising: isHomeLanding
       ? {
@@ -350,6 +359,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
     savedListClaim,
   };
+  // React Router's `data` helper preserves the loader payload while attaching the HTTP status,
+  // this installed router version does not expose its generic wrapper type.
+  return data === null ? (routeData(result, { status: 502 }) as unknown as typeof result) : result;
 }
 
 /**
@@ -380,7 +392,10 @@ type BulkAddActionData =
       mergedLineCount: number;
       failedLineCount: number;
       requestedLineCount: number;
-    }>;
+      failedLines?: readonly Readonly<{ title: string; message: string | null }>[];
+    }>
+  | Readonly<{ status: "bulk-ambiguous"; preview: DiscoveryBulkCartPreview; attemptId: string }>
+  | Readonly<{ status: "bulk-not-applied"; preview: DiscoveryBulkCartPreview; message: string | null }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -437,6 +452,10 @@ function isBulkAddActionData(
 ): value is BulkAddActionData {
   if (!isRecord(value) || !isBulkPreview(value.preview)) return false;
   if (value.status === "bulk-preview") return true;
+  if (intent === "commit-bulk-add" && value.status === "bulk-ambiguous") return typeof value.attemptId === "string";
+  if (intent === "commit-bulk-add" && value.status === "bulk-not-applied") {
+    return value.message === null || typeof value.message === "string";
+  }
   return (
     intent === "commit-bulk-add" &&
     value.status === "bulk-added" &&
@@ -446,7 +465,9 @@ function isBulkAddActionData(
 
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   if (intent === "commit-saved-list") {
-    return commitSavedListAddition(request, formData);
+    return commitSavedListAddition(request, formData, (...args) =>
+      navigateAfterWriteFromSourcesWithPlatformPostWriteToken(...args),
+    );
   }
   if (intent === "prepare-saved-list") {
     try {
@@ -543,30 +564,46 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     lockedListingId: null,
   }));
 
-  if (!actor) {
-    const anonymousCartId = ensureAnonymousCartId(request);
-    const result = await checkoutApi.addGuestCartLines(anonymousCartId, { lines });
-    const response = Response.json({
-      status: "bulk-added",
-      preview,
-      addedLineCount: result.addedLineCount,
-      mergedLineCount: result.mergedLineCount,
-      failedLineCount: result.failedLineCount,
-      requestedLineCount: result.requestedLineCount,
-    } satisfies BulkAddActionData);
-    appendAnonymousCartCookie(response.headers, anonymousCartId, request);
-    return response;
-  }
-
-  const result = await checkoutApi.addCartLines({ lines });
-  return Response.json({
-    status: "bulk-added",
-    preview,
-    addedLineCount: result.addedLineCount,
-    mergedLineCount: result.mergedLineCount,
-    failedLineCount: result.failedLineCount,
-    requestedLineCount: result.requestedLineCount,
-  } satisfies BulkAddActionData);
+  // The whole bulk add is one Checkout attempt, minted by the browser at the
+  // deliberate commit; a post without one mints it here once.
+  const presentedAttemptId = String(formData.get("attemptId") ?? "");
+  const attemptId = isCheckoutCommandAttemptId(presentedAttemptId)
+    ? presentedAttemptId
+    : mintCheckoutCommandAttemptId();
+  const anonymousCartId = actor ? null : ensureAnonymousCartId(request);
+  const body = { attemptId, lines };
+  const submission = await submitCheckoutCartAttempt({
+    attemptId,
+    kind: "cart.add-lines",
+    target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+    body,
+    send: () =>
+      anonymousCartId ? checkoutApi.addGuestCartLines(anonymousCartId, body) : checkoutApi.addCartLines(body),
+    lookup: (query) =>
+      anonymousCartId
+        ? checkoutApi.getGuestCartCommandAttempt(anonymousCartId, query)
+        : checkoutApi.getCartCommandAttempt(query),
+  });
+  const vector = submission.attempt?.vector ?? [];
+  const actionData: BulkAddActionData =
+    submission.state === "ambiguous"
+      ? { status: "bulk-ambiguous", preview, attemptId }
+      : submission.state === "failed-safe"
+        ? { status: "bulk-not-applied", preview, message: submission.message }
+        : {
+            status: "bulk-added",
+            preview,
+            addedLineCount: vector.filter((line) => line.status === "added").length,
+            mergedLineCount: vector.filter((line) => line.status === "merged").length,
+            failedLineCount: vector.filter((line) => line.outcome !== "succeeded").length,
+            requestedLineCount: vector.length,
+            failedLines: vector
+              .filter((line) => line.outcome !== "succeeded")
+              .map((line) => ({ title: preview.lines[line.index]?.title ?? "", message: line.message })),
+          };
+  const response = Response.json(actionData);
+  if (anonymousCartId) appendAnonymousCartCookie(response.headers, anonymousCartId, request);
+  return response;
 }
 
 export const action = defineFormAction({
@@ -696,6 +733,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   );
   const accumulatedSnapshotKey = JSON.stringify([
     resultSetKey,
+    data.searchFailed,
     restartedFirstPage !== null,
     activeFirstPage?.nextCursor,
     activeExtraPages.length,
@@ -875,7 +913,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         }
         current.delete("page");
         current.delete(INTERPRETED_PARAM);
-        navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
+        void navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
         return;
       }
 
@@ -1200,7 +1238,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }, [data, dynamicFilters, loaderCacheKey, visibleData?.nextCursor]);
 
   const submitBulkAddIntent = useCallback(
-    async (intent: "preview-bulk-add" | "commit-bulk-add") => {
+    async (intent: "preview-bulk-add" | "commit-bulk-add", resendAttemptId?: string) => {
       if (activeBulkRequestRef.current) return;
       const request = {
         id: ++bulkAddRequestIdRef.current,
@@ -1211,6 +1249,12 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       activeBulkRequestRef.current = request;
       const formData = new FormData();
       formData.set("intent", intent);
+      if (intent === "commit-bulk-add") {
+        // A deliberate commit mints a new attempt; only the explicit resend of
+        // an ambiguous commit reuses the one it already sent.
+        const attemptId = resendAttemptId ?? mintCartAttemptId();
+        formData.set("attemptId", attemptId);
+      }
       setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
 
       try {
@@ -1248,6 +1292,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       dynamicFilters={dynamicFilters}
       interpretedFilters={data.interpretedFilters}
       data={visibleData}
+      error={data.searchFailed ? t("discovery.features.search.ui.searchPage.results.error.description") : null}
       resultSetKey={activeFirstPage?.resultSetKey}
       categories={[...data.categories]}
       homeMerchandising={data.homeMerchandising}
@@ -1260,6 +1305,11 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         error: bulkAddState.error,
         onPreview: () => void submitBulkAddIntent("preview-bulk-add"),
         onCommit: () => void submitBulkAddIntent("commit-bulk-add"),
+        onResend: () => {
+          if (bulkAddState.data?.status === "bulk-ambiguous") {
+            void submitBulkAddIntent("commit-bulk-add", bulkAddState.data.attemptId);
+          }
+        },
       }}
       savedListClaim={data.savedListClaim}
       restoreSearchFocus={restoreSearchFocusRef.current}

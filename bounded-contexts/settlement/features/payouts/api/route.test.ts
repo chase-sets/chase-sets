@@ -38,6 +38,71 @@ function createAuthenticatedApp(services: unknown, permissions: readonly string[
 }
 
 describe("settlement payout routes", () => {
+  it("returns the complete Settlement payout summary and never grants request authority to a read-only actor", async () => {
+    const getPayoutSummary = vi.fn(async (params: { accountId: string; canRequestPayouts: boolean }) => ({
+      items: [],
+      total: 0,
+      count: 0,
+      completeness: { kind: "complete" as const, total: 0 },
+      next_payout: null,
+      blocked_payouts: [],
+      availability: {
+        can_request: params.canRequestPayouts,
+        unavailable_reasons: params.canRequestPayouts ? [] : ["payout-request-permission-required"],
+        unavailable_reason_details: [],
+      },
+    }));
+    const listPayouts = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = createAuthenticatedApp({ getPayoutSummary, listPayouts }, ["payouts.view"]);
+
+    const response = await app.request("/payouts");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [],
+      total: 0,
+      completeness: { kind: "complete", total: 0 },
+      availability: { can_request: false, unavailable_reasons: ["payout-request-permission-required"] },
+    });
+    expect(getPayoutSummary).toHaveBeenCalledWith({ accountId: "acc_seller", canRequestPayouts: false });
+    expect(listPayouts).toHaveBeenCalledWith({ accountId: "acc_seller", limit: 50, offset: 0 });
+  });
+
+  it("preserves payout pagination while adding the Settlement summary fields", async () => {
+    const listPayouts = vi.fn(async () => ({
+      items: [{ payout_id: "p2" }, { payout_id: "p3" }],
+      total: 3,
+    }));
+    const getPayoutSummary = vi.fn(async () => ({
+      items: [],
+      total: 1,
+      count: 1,
+      completeness: { kind: "complete" as const, total: 1 },
+      next_payout: null,
+      blocked_payouts: [],
+      availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+    }));
+    const app = createAuthenticatedApp({ getPayoutSummary, listPayouts }, ["payouts.view"]);
+    const response = await app.request("/payouts?limit=2&offset=1");
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ payout_id: "p2" }, { payout_id: "p3" }],
+      total: 3,
+      count: 2,
+      completeness: { kind: "complete" },
+    });
+    expect(listPayouts).toHaveBeenCalledWith({ accountId: "acc_seller", limit: 2, offset: 1 });
+  });
+
+  it.each([
+    { permissions: null, status: 401 },
+    { permissions: ["payouts.request"] as const, status: 403 },
+  ])("preserves payout summary authentication and authorization", async ({ permissions, status }) => {
+    const getPayoutSummary = vi.fn();
+    const response = await createAuthenticatedApp({ getPayoutSummary }, permissions).request("/payouts");
+    expect(response.status).toBe(status);
+    if (permissions === null) expect(getPayoutSummary).not.toHaveBeenCalled();
+  });
+
   it("allows platform-only readers to reconcile-read both accounts without claiming payouts", async () => {
     const rows = [{ account_id: "acc_seller" }, { account_id: "acc_other" }];
     const listPayoutsNeedingReconciliation = vi.fn(async ({ accountId }: { accountId: string | null }) =>
@@ -219,6 +284,74 @@ describe("settlement payout routes", () => {
       },
       context,
     );
+  });
+
+  it("forwards preview amount selections and rejects unknown selections before the runtime", async () => {
+    const previewPayoutRequest = vi.fn(async () => ({ can_request: true }));
+    const app = createAuthenticatedApp({ previewPayoutRequest }, ["payouts.request"]);
+
+    const selected = await app.request("/payouts/preview", {
+      method: "POST",
+      body: JSON.stringify({ amount: "1.00", amountSelection: "available", availableAmount: "9999.00" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(selected.status).toBe(200);
+    expect(previewPayoutRequest).toHaveBeenCalledWith(
+      { accountId: "acc_seller", amount: "1.00", amountSelection: "available" },
+      context,
+    );
+
+    for (const amountSelection of [null, ""] as const) {
+      previewPayoutRequest.mockClear();
+      const unchanged = await app.request("/payouts/preview", {
+        method: "POST",
+        body: JSON.stringify({ amount: "12.50", amountSelection }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(unchanged.status).toBe(200);
+      expect(previewPayoutRequest).toHaveBeenCalledWith(
+        { accountId: "acc_seller", amount: "12.50", amountSelection },
+        context,
+      );
+    }
+
+    previewPayoutRequest.mockClear();
+    const unknown = await app.request("/payouts/preview", {
+      method: "POST",
+      body: JSON.stringify({ amount: "12.50", amountSelection: "available-now" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(unknown.status).toBe(400);
+    await expect(unknown.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+    expect(previewPayoutRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns payout quick amounts for the actor account", async () => {
+    const getPayoutQuickAmounts = vi.fn(async (_params: { accountId: string }) => ({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "125.00",
+    }));
+    const app = createAuthenticatedApp({ getPayoutQuickAmounts }, ["payouts.view"]);
+
+    const response = await app.request("/payouts/quick-amounts");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "125.00",
+    });
+    expect(getPayoutQuickAmounts).toHaveBeenCalledExactlyOnceWith({ accountId: "acc_seller" });
+  });
+
+  it("requires authentication for payout quick amounts", async () => {
+    const getPayoutQuickAmounts = vi.fn();
+    const response = await createAuthenticatedApp({ getPayoutQuickAmounts }, null).request("/payouts/quick-amounts");
+    expect(response.status).toBe(401);
+    expect(getPayoutQuickAmounts).not.toHaveBeenCalled();
   });
 
   it("returns payout money timelines for the current account", async () => {
@@ -566,6 +699,7 @@ describe("platform payout read authority", () => {
     ["GET", "/payouts", "listPayouts"],
     ["GET", "/payouts/pyo_other", "getPayout"],
     ["GET", "/payouts/pyo_other/timeline", "getPayoutMoneyTimeline"],
+    ["GET", "/payouts/quick-amounts", "getPayoutQuickAmounts"],
   ])("denies platform-only readers %s %s without invoking %s", async (method, path, serviceName) => {
     const service = vi.fn();
     const response = await createAuthenticatedApp({ [serviceName]: service }, ["payouts.platform.view"]).request(path, {

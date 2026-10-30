@@ -41,12 +41,6 @@ variable "kubernetes_version" {
   }
 }
 
-variable "auto_upgrade" {
-  type        = bool
-  default     = true
-  description = "Enable DigitalOcean patch auto-upgrades during the configured maintenance window."
-}
-
 variable "surge_upgrade" {
   type        = bool
   default     = true
@@ -75,12 +69,6 @@ variable "service_subnet" {
   type        = string
   default     = ""
   description = "Optional service CIDR for the DOKS cluster."
-}
-
-variable "maintenance_day" {
-  type        = string
-  default     = "sunday"
-  description = "DOKS maintenance window day."
 }
 
 variable "maintenance_start_time" {

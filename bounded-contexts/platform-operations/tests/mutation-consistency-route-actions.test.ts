@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
+import { getSupportFlowDefinition } from "../features/support-requests/domain/flow-catalog";
+import type { SupportParticipantPolicy } from "../features/support-requests/api/support-flow-projection";
 
 const { mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
@@ -721,6 +723,11 @@ describe("platform operations mutation consistency route actions", () => {
   });
 
   it("loads participant-scoped case detail with the viewer role and catalog truth", async () => {
+    const participantPolicy: SupportParticipantPolicy = {
+      nextActor: "buyer",
+      deadlineAt: "2026-10-13T12:00:00.000Z",
+      actions: [{ kind: "escalate" }, { kind: "cancel" }],
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe("http://localhost/api/marketplace/support-requests/sup_1");
       return jsonResponse({
@@ -730,6 +737,8 @@ describe("platform operations mutation consistency route actions", () => {
         seller_account_id: "acc_seller",
         opened_by_account_id: "acc_buyer",
         flow_type: "product-damaged",
+        flow: getSupportFlowDefinition("product-damaged"),
+        participantPolicy,
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -741,7 +750,7 @@ describe("platform operations mutation consistency route actions", () => {
       context: undefined,
     } as never)) as {
       viewerRole: string;
-      canCancel: boolean;
+      participantPolicy: SupportParticipantPolicy;
       flow: { flowType: string; automationSummary: string };
     };
 
@@ -750,7 +759,7 @@ describe("platform operations mutation consistency route actions", () => {
       permission: "support.view",
     });
     expect(result.viewerRole).toBe("buyer");
-    expect(result.canCancel).toBe(true);
+    expect(result.participantPolicy).toEqual(participantPolicy);
     expect(result.flow.flowType).toBe("product-damaged");
     expect(result.flow.automationSummary).toContain("If the seller does not respond by the deadline");
   });

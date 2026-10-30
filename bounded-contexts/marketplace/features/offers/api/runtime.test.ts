@@ -17,6 +17,7 @@ import { marketplaceOfferCanonicalRequest } from "../../mutation-recovery/domain
 const acceptedOfferMatch = {
   offer_id: "off_1",
   buyer_account_id: "acc_buyer",
+  account_status: "active",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::",
   item_title: "Charizard",
@@ -118,6 +119,95 @@ async function seedActiveListing(eventStore: EventStore, context: AppendToStream
 }
 
 describe("marketplace offer runtime", () => {
+  it("refuses Offer acceptance for channel-only drafts even when projections claim active supply, with zero events", async () => {
+    const context = {
+      tenantId: "tnt_marketplace" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    const legacy = createInMemoryEventStore().eventStore;
+    await seedActiveListing(legacy, context);
+    const original = (await legacy.readStream({ streamId: "marketplace.listing-lst_1" }))[0]!.payload;
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "marketplace.listing-lst_1",
+      expectedVersion: 0,
+      context,
+      events: [
+        {
+          eventType: "marketplace.listing.created",
+          payload: {
+            ...original,
+            schemaVersion: 2,
+            publicationScope: "channel-only",
+            nativeVisibility: "disabled",
+            nativeFeeState: "not-enrolled",
+            marketplaceSalesFeeUnitAmount: null,
+            sellerNetUnitAmount: null,
+            shippingAllowancePercentageBps: 0,
+            termsScheduleId: null,
+            termsAgreementId: null,
+            termsResolvedAt: null,
+            feeQuoteFingerprint: null,
+            shipFromAddress: {
+              name: "Seller",
+              company: null,
+              line1: "1 Main",
+              line2: null,
+              city: "Austin",
+              state: "TX",
+              postalCode: "78701",
+              country: "US",
+              phone: null,
+              email: null,
+            },
+          },
+        },
+      ],
+    });
+    const resolveListingTerms = vi.fn(() => {
+      throw new Error("Channel-only must not quote Terms");
+    });
+    const services = createMarketplaceOfferRuntime({
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) },
+      checkpointStore: {} as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+    });
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      context,
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        catalogItemId: "cat_charizard" as never,
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        priceCurrencyCode: "USD",
+        quantityRequested: 1,
+      },
+    });
+    const before = await eventStore.readAll();
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: "quote",
+        },
+        context,
+      ),
+    ).rejects.toThrow("eligible");
+    expect(await eventStore.readAll()).toEqual(before);
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+
   it.each(["commit", "failure", "conflict-recovery"] as const)(
     "records returned unmanaged acceptance events only for a successful %s",
     async (outcome) => {
@@ -466,6 +556,7 @@ describe("marketplace offer runtime", () => {
           {
             offer_id: "off_1",
             buyer_account_id: "acc_buyer",
+            account_status: "active",
             catalog_catalog_item_id: "cat_charizard",
             product_id: "cat_charizard::",
             item_title: "Charizard",
@@ -540,6 +631,57 @@ describe("marketplace offer runtime", () => {
       ),
     ).rejects.toThrow("Seller does not have enough active supply to accept this offer.");
     expect(commercialTermsResolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects a suspended buyer before managed pricing or allowance work", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "marketplace.offer-off_suspended",
+      expectedVersion: 0,
+      context: {
+        tenantId: "tnt_marketplace" as never,
+        audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+      },
+      events: [
+        {
+          eventType: "marketplace.offer.submitted",
+          payload: {
+            offerId: "off_suspended",
+            buyerAccountId: "acc_buyer",
+            catalogItemId: "cat_charizard",
+            productId: "cat_charizard::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+            priceAmount: "350.00",
+            priceCurrencyCode: "USD",
+            quantityRequested: 1,
+          },
+        },
+      ],
+    });
+    const evaluateTargets = vi.fn(async () => []);
+    const services = createMarketplaceOfferRuntime({
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [{ account_status: "suspended" }] })) },
+      checkpointStore: {} as never,
+      managedOfferPricing: { evaluateTargets },
+      commercialTermsResolver: {} as never,
+    });
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_suspended" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: "x",
+        },
+        {} as never,
+      ),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(evaluateTargets).not.toHaveBeenCalled();
   });
 
   it("rejects same-account offer acceptance before quoting terms", async () => {

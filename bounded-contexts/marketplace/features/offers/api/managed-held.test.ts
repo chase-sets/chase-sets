@@ -191,7 +191,7 @@ describe("held managed Offer explanation boundaries", () => {
     expect(await stream(f)).toHaveLength(3);
   });
 
-  it("R5: another Offer's consumption does not change consent, but acceptance still reloads remaining allowance", async () => {
+  it("R5: another Offer's acceptance does not change consent or prevent a second acceptance", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     f.setTarget(held());
     await f.offers.applyManagedOffer("off_one" as never, "initial", context);
@@ -202,14 +202,13 @@ describe("held managed Offer explanation boundaries", () => {
       audit: { ...context.audit, forAccountId: "acc_two" },
     });
     f.setTarget(held());
-    await f.offers.applyManagedOffer("off_one" as never, "after_consumption", context);
+    await f.offers.applyManagedOffer("off_one" as never, "after_acceptance", context);
     expect(await stream(f)).toEqual(recorded);
     f.setTarget({ status: "target", unitItemAmount: "10.00", evidence: {} });
-    await expect(
-      f.offers.acceptOffer(await f.acceptance(), { ...context, audit: { ...context.audit, forAccountId: "acc_one" } }),
-    ).rejects.toMatchObject({
-      code: "managed_offer_held",
-    });
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("20.00");
+    await f.offers.acceptOffer(await f.acceptance(), { ...context, audit: { ...context.audit, forAccountId: "acc_one" } });
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
+    expect((await f.store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toHaveLength(
+      2,
+    );
   });
 });

@@ -62,6 +62,16 @@ export const SUBCOMMANDS = {
     description:
       "Reconcile a frozen Catalog completion manifest or deployed Catalog database facts and gate launch on completeness blockers.",
   },
+  "credential:health": {
+    script: "credential-health.mjs",
+    description:
+      "Collect secret metadata, check credential liveness, or classify credential health from the inventory.",
+  },
+  "credential:rotate": {
+    script: "credential-rotate.mjs",
+    description:
+      "Validate a new assisted credential value, write it to one value group, and dispatch its proof workflows.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",
@@ -208,6 +218,10 @@ export const SUBCOMMANDS = {
   "release-health:db-duration-drift": {
     script: "release-health-db-duration-drift.mjs",
     description: "Collect DB duration drift and explicitly pending baseline cohorts.",
+  },
+  "release-health:dependency-audit": {
+    script: "release-health-dependency-audit.mjs",
+    description: "Report high and critical production dependency advisories.",
   },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",

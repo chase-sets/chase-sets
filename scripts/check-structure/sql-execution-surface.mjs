@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { loadModuleResolutionContext, resolveModule } from "./module-resolution.mjs";
 
 const contractModules = new Set([
@@ -681,14 +682,6 @@ export function exceptionalSqlPartition(files, result) {
   };
 }
 
-function defaultExecGit(args, repoRoot) {
-  return execFileSync("git", args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
 function parseChangedFilesJson(changedFilesJson) {
   let parsed;
   try {
@@ -708,7 +701,7 @@ function parseChangedFilesJson(changedFilesJson) {
 export function deriveChangedSqlExecutionFiles({
   repoRoot,
   changedFilesJson = process.env.CHANGED_FILES_JSON,
-  execGit = (args) => defaultExecGit(args, repoRoot),
+  execGit = null,
 } = {}) {
   let files;
   if (changedFilesJson !== undefined) {
@@ -716,7 +709,16 @@ export function deriveChangedSqlExecutionFiles({
   } else {
     let mergeBase;
     try {
-      mergeBase = execGit(["merge-base", "origin/main", "HEAD"]).trim();
+      mergeBase = (
+        execGit
+          ? execGit(["merge-base", "origin/main", "HEAD"])
+          : execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
+              cwd: repoRoot,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "pipe"],
+              maxBuffer: GIT_LISTING_MAX_BUFFER,
+            })
+      ).trim();
     } catch {
       throw new SqlExecutionGuardError(
         "SQL_MERGE_BASE_FAILED",
@@ -727,7 +729,18 @@ export function deriveChangedSqlExecutionFiles({
       throw new SqlExecutionGuardError("SQL_MERGE_BASE_FAILED", "git merge-base for origin/main and HEAD was empty");
     }
     try {
-      files = execGit(["diff", "--name-only", "--diff-filter=ACMR", mergeBase, "HEAD"]).split(/\r?\n/).filter(Boolean);
+      files = (
+        execGit
+          ? execGit(["diff", "--name-only", "--diff-filter=ACMR", mergeBase, "HEAD"])
+          : execFileSync("git", ["diff", "--name-only", "--diff-filter=ACMR", mergeBase, "HEAD"], {
+              cwd: repoRoot,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "pipe"],
+              maxBuffer: GIT_LISTING_MAX_BUFFER,
+            })
+      )
+        .split(/\r?\n/)
+        .filter(Boolean);
     } catch {
       throw new SqlExecutionGuardError("SQL_DIFF_FAILED", "could not derive changed files from git diff");
     }
@@ -735,13 +748,14 @@ export function deriveChangedSqlExecutionFiles({
   return files.map(normalizeRepoPath).filter(isGovernedProductionModule).sort();
 }
 
-export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => defaultExecGit(args, repoRoot) } = {}) {
-  return execGit(["ls-files", "-z", "--cached"])
-    .split("\0")
-    .filter(Boolean)
-    .map(normalizeRepoPath)
-    .filter(isGovernedProductionModule)
-    .sort();
+export function listNonTestTypeScriptModules(repoRoot, { execGit = execFileSync } = {}) {
+  const tracked = execGit("git", ["ls-files", "-z", "--cached"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  });
+  return tracked.split("\0").filter(Boolean).map(normalizeRepoPath).filter(isGovernedProductionModule).sort();
 }
 
 export function runSqlExecutionSurfaceGuard({ repoRoot, changedFilesJson, execGit } = {}) {

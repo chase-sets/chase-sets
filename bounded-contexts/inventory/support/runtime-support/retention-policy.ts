@@ -23,6 +23,11 @@ export const inventoryRetentionExemptions: readonly BcRetentionExemption[] = [
     owner: "inventory",
     reason: "Hold rows are mutable event projections that may receive later release, consume, or extension events.",
   },
+  {
+    tableName: "inventory_import_draft_listing_outbox",
+    owner: "inventory",
+    reason: "Draft handoff receipts and audit are retained so delivery retries never recreate a Marketplace draft.",
+  },
 ];
 
 export const inventoryRetentionSchemaMigrations: readonly BcSchemaMigration[] = [

@@ -52,9 +52,13 @@ type CandidateFieldKey =
   | "barcode";
 
 type CandidateFieldSpec = Readonly<{
-  factKey: string;
+  factKey: CandidateFieldKey;
   fieldPath: string;
-  read: (row: SourceObservationListRow, identity: CatalogMergeCandidateIdentity) => JsonValue | undefined;
+}>;
+
+export type MergeCandidateFieldValue = Readonly<{
+  value: JsonValue;
+  fromFallback: boolean;
 }>;
 
 type CatalogMergeCandidateConflictInput = Readonly<{
@@ -70,59 +74,102 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
   {
     factKey: "name",
     fieldPath: "catalogItem.name",
-    read: (row) => stringFact(row.normalized.name) ?? undefined,
   },
   {
     factKey: "setName",
     fieldPath: "catalogItem.setName",
-    read: (row) => stringFact(row.normalized.setName) ?? stringFact(row.normalized.expansionName) ?? undefined,
   },
   {
     factKey: "expansionName",
     fieldPath: "catalogItem.expansionName",
-    read: (row) => stringFact(row.normalized.expansionName),
   },
   {
     factKey: "collectorNumber",
     fieldPath: "catalogItem.collectorNumber",
-    read: (row, identity) => stringFact(row.normalized.cardNumber) ?? identity.collectorNumber ?? undefined,
   },
   {
     factKey: "rarity",
     fieldPath: "catalogItem.rarity",
-    read: (row) => stringFact(valueAt(row.normalized, "rarity")),
   },
   {
     factKey: "releaseDate",
     fieldPath: "catalogItem.releaseDate",
-    read: (row) => stringFact(valueAt(row.normalized, "releaseDate")),
   },
   {
     factKey: "releaseYear",
     fieldPath: "catalogItem.releaseYear",
-    read: (row) => numberFact(valueAt(row.normalized, "releaseYear")),
   },
   {
     factKey: "productLineName",
     fieldPath: "catalogItem.productLineName",
-    read: (row) => stringFact(valueAt(row.normalized, "productLineName")) ?? undefined,
   },
   {
     factKey: "productForm",
     fieldPath: "catalogItem.productForm",
-    read: (row, identity) =>
-      stringFact(valueAt(row.normalized, "sealedProductForm")) ??
-      stringFact(valueAt(row.normalized, "productForm")) ??
-      stringFact(row.normalized.kind) ??
-      identity.productForm ??
-      undefined,
   },
   {
     factKey: "barcode",
     fieldPath: "catalogItem.barcode",
-    read: (row, identity) => stringFact(valueAt(row.normalized, "barcode")) ?? identity.barcode ?? undefined,
   },
 ];
+
+export function extractMergeCandidateFieldValue(
+  factKey: string,
+  row: Pick<SourceObservationListRow, "normalized">,
+  identity: CatalogMergeCandidateIdentity,
+): MergeCandidateFieldValue | null {
+  const value = (() => {
+    switch (factKey) {
+      case "name":
+        return stringFact(row.normalized.name);
+      case "setName":
+        return stringFact(row.normalized.setName) ?? stringFact(row.normalized.expansionName);
+      case "expansionName":
+        return stringFact(row.normalized.expansionName);
+      case "collectorNumber":
+        return stringFact(row.normalized.cardNumber)
+          ? { value: stringFact(row.normalized.cardNumber)!, fromFallback: false }
+          : identity.collectorNumber
+            ? { value: identity.collectorNumber, fromFallback: true }
+            : null;
+      case "rarity":
+        return stringFact(valueAt(row.normalized, "rarity"));
+      case "releaseDate":
+        return stringFact(valueAt(row.normalized, "releaseDate"));
+      case "releaseYear":
+        return numberFact(valueAt(row.normalized, "releaseYear"));
+      case "productLineName":
+        return stringFact(valueAt(row.normalized, "productLineName"));
+      case "productForm":
+        return (
+          stringFact(valueAt(row.normalized, "sealedProductForm")) ??
+          stringFact(valueAt(row.normalized, "productForm")) ??
+          stringFact(row.normalized.kind)
+        );
+      case "barcode":
+        return stringFact(valueAt(row.normalized, "barcode"));
+      default:
+        return null;
+    }
+  })();
+  if (value === null || value === undefined || value === "") {
+    if (factKey === "productForm" && identity.productForm) {
+      return { value: identity.productForm, fromFallback: true };
+    }
+    if (factKey === "barcode" && identity.barcode) {
+      return { value: identity.barcode, fromFallback: true };
+    }
+    return null;
+  }
+  if (typeof value === "object" && "value" in value && "fromFallback" in value) {
+    return value;
+  }
+  return { value: value as JsonValue, fromFallback: false };
+}
+
+export function mergeCandidateFieldValuesEqual(left: JsonValue, right: JsonValue): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 export function buildCatalogMergeCandidatesFromObservations(
   observations: readonly SourceObservationListRow[],
@@ -337,8 +384,8 @@ function projectCandidateFields(
 
   for (const spec of CANDIDATE_FIELD_SPECS) {
     const entries = group.flatMap((entry) => {
-      const value = spec.read(entry.row, identity);
-      return value === undefined || value === null || value === "" ? [] : [{ entry, value }];
+      const extracted = extractMergeCandidateFieldValue(spec.factKey, entry.row, identity);
+      return !extracted ? [] : [{ entry, value: extracted.value }];
     });
     if (entries.length === 0) {
       continue;
@@ -436,10 +483,14 @@ function providerScopeMappingMatchesObservation(
   row: SourceObservationListRow,
 ): boolean {
   const normalized = row.normalized;
+  const setIdCoordinates =
+    row.provider_key.toLowerCase() === "scryfall"
+      ? textValues(valueAt(normalized, "setCode"))
+      : textValues(valueAt(normalized, "setId"), valueAt(normalized, "expansionId"));
   const coordinateChecks: readonly Readonly<{ expected: string | null; observed: readonly string[] }>[] = [
     {
       expected: mapping.set_id,
-      observed: textValues(valueAt(normalized, "setId"), valueAt(normalized, "expansionId")),
+      observed: setIdCoordinates,
     },
     {
       expected: mapping.set_name,
@@ -682,7 +733,13 @@ function uniqueBy<T>(values: readonly T[], keyFor: (value: T) => string): T[] {
 }
 
 function uniqueJsonValues(values: readonly JsonValue[]): readonly JsonValue[] {
-  return uniqueBy(values, (value) => JSON.stringify(value));
+  const distinct: JsonValue[] = [];
+  for (const value of values) {
+    if (!distinct.some((existing) => mergeCandidateFieldValuesEqual(existing, value))) {
+      distinct.push(value);
+    }
+  }
+  return distinct;
 }
 
 function sortedUnique(values: readonly string[]): string[] {

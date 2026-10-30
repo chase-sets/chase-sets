@@ -239,7 +239,7 @@ describe("catalog list query state", () => {
     );
   });
 
-  it("debounces text search and commits filters immediately", () => {
+  it("debounces text search and commits filters immediately", async () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -249,10 +249,10 @@ describe("catalog list query state", () => {
     render(<Harness query={query} />);
 
     fireEvent.change(screen.getByLabelText("Search"), { target: { value: "charizard" } });
-    act(() => vi.advanceTimersByTime(299));
+    await act(() => vi.advanceTimersByTime(299));
     expect(setSearchParams).not.toHaveBeenCalled();
 
-    act(() => vi.advanceTimersByTime(1));
+    await act(() => vi.advanceTimersByTime(1));
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [searchUpdater, searchOptions] = setSearchParams.mock.calls[0];
     expect(searchUpdater(new URLSearchParams("search=old&page=3")).toString()).toBe("search=charizard");

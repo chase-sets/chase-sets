@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -50,12 +51,15 @@ export function listBoundedContextManifests(options = {}) {
     options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir, roots: ["bounded-contexts"] })
   ).filter((workspace) => workspace.root === "bounded-contexts");
 
-  return workspaces
+  const contexts = workspaces
     .map((workspace) => {
       const manifestPath = path.join(workspace.dir, "context.json");
-      const manifest = readJson(manifestPath);
+      const sourcePath = path.join(workspace.dir, "context.source.mjs");
+      const manifest = existsSync(sourcePath) ? loadContextSourceManifest(sourcePath) : readJson(manifestPath);
       if (typeof manifest?.contextName !== "string" || !manifest.contextName.trim()) {
-        throw new Error(`Context manifest must declare a non-empty contextName: ${manifestPath}`);
+        throw new Error(
+          `Context manifest must declare a non-empty contextName: ${existsSync(sourcePath) ? sourcePath : manifestPath}`,
+        );
       }
 
       return {
@@ -65,9 +69,99 @@ export function listBoundedContextManifests(options = {}) {
         dir: workspace.dir,
         manifest,
         manifestPath,
+        sourcePath: existsSync(sourcePath) ? sourcePath : null,
       };
     })
     .sort((left, right) => left.contextName.localeCompare(right.contextName, "en"));
+
+  assertUniqueContextContributionIdentities(contexts);
+  return contexts;
+}
+
+/**
+ * Load the authored source seam in a child Node process so the synchronous
+ * metadata generators can consume ESM modules (including JSON imports) without
+ * changing their public API. The source may expose `contextManifest`, `manifest`,
+ * or a default object; all three names intentionally describe the same shape.
+ */
+export function loadContextSourceManifest(sourcePath, options = {}) {
+  const node = options.node ?? process.execPath;
+  const script = [
+    "const module = await import(process.argv[1]);",
+    "const value = module.contextManifest ?? module.manifest ?? module.default;",
+    "if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('source must export an object as contextManifest, manifest, or default');",
+    "process.stdout.write(JSON.stringify(value));",
+  ].join(" ");
+
+  let output;
+  try {
+    output = execFileSync(node, ["--input-type=module", "-e", script, pathToFileURL(path.resolve(sourcePath)).href], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const detail = error?.stderr?.toString().trim() || error?.message || String(error);
+    throw new Error(`Failed to compose context source ${sourcePath}: ${detail}`);
+  }
+
+  try {
+    return JSON.parse(output);
+  } catch (error) {
+    throw new Error(`Failed to compose context source ${sourcePath}: source export is not JSON-serializable.`);
+  }
+}
+
+const contributionIdentityFields = {
+  projectionGroups: ["projectionName"],
+  eventSubscriptions: ["sourceContextName", "projectionName"],
+  eventReactions: ["sourceContextName", "reactionName"],
+  anonymousRoutes: ["routePath", "methods"],
+  shellContributions: ["deployable", "slot", "key"],
+  hostPorts: ["portName"],
+  deployableContributions: ["deployable"],
+  accountCapabilities: ["key"],
+};
+
+function contributionIdentity(field, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const keys = field.endsWith("Inventory") ? ["id"] : contributionIdentityFields[field];
+  if (!keys) return null;
+  const parts = [];
+  for (const key of keys) {
+    const part = value[key];
+    if (Array.isArray(part)) {
+      if (part.length === 0 || !part.every((entry) => typeof entry === "string" && entry.trim())) return null;
+      parts.push(`${key}:${part.join(",")}`);
+      continue;
+    }
+    if (typeof part !== "string" || !part.trim()) return null;
+    parts.push(`${key}:${part}`);
+  }
+  return parts.join("|");
+}
+
+export function assertUniqueContextContributionIdentities(contexts) {
+  for (const context of contexts) {
+    if (!context.sourcePath) continue;
+    const seen = new Map();
+    for (const [field, value] of Object.entries(context.manifest ?? {})) {
+      if (!Array.isArray(value)) continue;
+      for (const [index, item] of value.entries()) {
+        // apiMounts is intentionally unkeyed: neither mountPath nor deep equality
+        // is a stable identity for the repeated marketplace mounts.
+        const identity = contributionIdentity(field, item);
+        if (!identity) continue;
+        const scopedIdentity = `${field}:${identity}`;
+        const previous = seen.get(scopedIdentity);
+        if (previous) {
+          throw new Error(
+            `Duplicate context contribution identity "${identity}" in ${context.sourcePath ?? context.manifestPath}: ${previous} and ${field}[${index}].`,
+          );
+        }
+        seen.set(scopedIdentity, `${field}[${index}]`);
+      }
+    }
+  }
 }
 
 export function contextManifestContributesToApiHost(manifest, hostName) {

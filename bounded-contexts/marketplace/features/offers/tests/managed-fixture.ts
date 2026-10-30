@@ -5,13 +5,14 @@ import { createBuyerOfferPolicyRuntime } from "../../offer-policy/api/runtime";
 import { context, seedOffer, terms } from "../../offer-policy/tests/fixtures";
 import type { ManagedOfferPricing, ManagedOfferTarget } from "../api/managed-authority";
 
-export async function managedFixture(store: EventStore, allowance = "30.00", pricing?: ManagedOfferPricing) {
+export async function managedFixture(store: EventStore, pricing?: ManagedOfferPricing) {
   const db = {
     query: vi.fn(async () => ({
       rows: [
         {
           offer_id: "off_one",
           buyer_account_id: "acc_buyer",
+          account_status: "active",
           catalog_catalog_item_id: "cat_one",
           product_id: "cat_one::",
           item_title: "Item",
@@ -139,7 +140,6 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
       operationId: "preview",
       terms: {
         ...terms,
-        itemCommitmentAllowance: allowance,
         offers: [terms.offers[0]!, { ...terms.offers[0]!, offerId: "off_two" }],
       },
     },

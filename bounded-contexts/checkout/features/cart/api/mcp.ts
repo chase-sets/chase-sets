@@ -13,6 +13,13 @@ import type { CartLineId } from "../../../support/runtime-support/common";
 import type { CheckoutSelectedListingSnapshotInput } from "../domain/domain";
 import type { CheckoutShipFromAddressRow } from "../integrations/identity/identity-queries";
 import { toPublicCheckoutCartLines } from "./contracts";
+import {
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
+  CHECKOUT_MCP_IDEMPOTENCY_KEY_PATTERN,
+  computeCheckoutCommandAttemptRequestHash,
+  type CheckoutCommandAttemptResult,
+} from "../../command-attempts/api/contracts";
+import type { CheckoutCartLineCommandInput } from "../../command-attempts/api/cart-attempt";
 import type { CheckoutCartServices } from "./runtime";
 import type { CheckoutSessionServices } from "../../sessions/api/runtime";
 import { releaseCheckoutInventoryReservations } from "../../../support/request-support/checkout-confirmation";
@@ -23,10 +30,7 @@ export type CheckoutCartMcpHandlers = Readonly<{
 }>;
 
 export type CheckoutCartMcpServices = Readonly<{
-  cart: Pick<
-    CheckoutCartServices,
-    "addLine" | "listAuthorizedCartLines" | "removeLine" | "setLineFulfillment" | "setLineQuantity"
-  >;
+  cart: Pick<CheckoutCartServices, "executeCartAttempt" | "listAuthorizedCartLines">;
   sessions: Pick<CheckoutSessionServices, "cancelSession" | "getSession" | "setShippingAddress">;
   listSavedShippingAddresses: (accountId: string) => Promise<readonly CheckoutShipFromAddressRow[]>;
 }>;
@@ -35,6 +39,46 @@ function rejectDryRun(args: Readonly<Record<string, unknown>>) {
   if (args.dryRun === true) {
     throw new Error("dryRun is not supported for checkout cart MCP writes yet.");
   }
+}
+
+/**
+ * Cart line tools are owner-authoritative: the agent's UUIDv4 `idempotencyKey`
+ * is the Cart attempt id, refused before any read when missing or malformed.
+ * The fingerprint binds it to the scoped Account, so another actor presenting
+ * the same key starts its own attempt and never replays this one.
+ */
+function readOwnerIdempotencyKey(args: Readonly<Record<string, unknown>>) {
+  const key = args.idempotencyKey;
+  if (typeof key !== "string" || !CHECKOUT_MCP_IDEMPOTENCY_KEY_PATTERN.test(key)) {
+    throw new Error("Owner-authoritative tools require a canonical UUIDv4 idempotency key.");
+  }
+  return key;
+}
+
+/** The request an MCP attempt hashes: the tool arguments minus the key and the confirmation text. */
+function mcpAttemptRequestHash(args: Readonly<Record<string, unknown>>) {
+  const { idempotencyKey: _key, confirmationText: _confirmation, ...request } = args;
+  return computeCheckoutCommandAttemptRequestHash(request);
+}
+
+/** One decided line, or the error an agent sees for a refused line or an unresolved attempt. */
+function requireSucceededLine(result: CheckoutCommandAttemptResult) {
+  if (result.ownerStatus === "conflict") {
+    throw new Error("checkout_attempt_conflict: this idempotencyKey was already used with different arguments.");
+  }
+  if (result.ownerStatus === "failed-safe") {
+    throw new Error(
+      "cart_changed: the cart kept changing; nothing was applied. Read the cart and retry with a new key.",
+    );
+  }
+  if (result.ownerStatus !== "committed") {
+    throw new Error("checkout_attempt_ambiguous: the cart could not confirm this attempt.");
+  }
+  const failed = result.vector!.find((line) => line.outcome !== "succeeded");
+  if (failed) {
+    throw new Error(failed.message ?? "Cart line could not be updated.");
+  }
+  return result.vector!.at(-1)!;
 }
 
 function readRequiredString(args: Readonly<Record<string, unknown>>, key: string) {
@@ -104,7 +148,9 @@ function readFulfillmentMode(args: Readonly<Record<string, unknown>>) {
   };
 }
 
-function readAvailabilityState(args: Readonly<Record<string, unknown>>) {
+function readAvailabilityState(
+  args: Readonly<Record<string, unknown>>,
+): "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined {
   const availabilityState = readOptionalString(args, "availabilityState");
   if (!availabilityState) {
     return undefined;
@@ -224,38 +270,50 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
 
   const addCartLine: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
+    const attemptId = readOwnerIdempotencyKey(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const fulfillment = readFulfillmentMode(args);
-    const result = await services.cart.addLine(
+    const { result } = await services.cart.executeCartAttempt(
       {
-        accountId: scopedActor.accountId as AccountId,
-        catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
-        productId: readRequiredString(args, "productId"),
-        itemTitle: readRequiredString(args, "itemTitle"),
-        itemSubtitle: readOptionalString(args, "itemSubtitle"),
-        itemImageUrl: readOptionalString(args, "itemImageUrl"),
-        itemImageSrcSet: readOptionalString(args, "itemImageSrcSet"),
-        itemImageLoadingUrl: readOptionalString(args, "itemImageLoadingUrl"),
-        itemImageLoadingAlt: readOptionalString(args, "itemImageLoadingAlt"),
-        itemImageLoadingSrcSet: readOptionalString(args, "itemImageLoadingSrcSet"),
-        selectedOptions: readSelectedOptions(args),
-        productSummary: readOptionalString(args, "productSummary"),
-        quantity: readPositiveInteger(args, "quantity"),
-        ...fulfillment,
-        selectedListingSnapshot: readSelectedListingSnapshot(args),
+        ownerKey: scopedActor.accountId,
+        attemptId,
+        kind: "cart.add-line",
+        target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+        requestHash: await mcpAttemptRequestHash(args),
+        commands: [
+          {
+            type: "add",
+            catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
+            productId: readRequiredString(args, "productId"),
+            itemTitle: readRequiredString(args, "itemTitle"),
+            itemSubtitle: readOptionalString(args, "itemSubtitle"),
+            itemImageUrl: readOptionalString(args, "itemImageUrl"),
+            itemImageSrcSet: readOptionalString(args, "itemImageSrcSet"),
+            itemImageLoadingUrl: readOptionalString(args, "itemImageLoadingUrl"),
+            itemImageLoadingAlt: readOptionalString(args, "itemImageLoadingAlt"),
+            itemImageLoadingSrcSet: readOptionalString(args, "itemImageLoadingSrcSet"),
+            selectedOptions: readSelectedOptions(args),
+            productSummary: readOptionalString(args, "productSummary"),
+            quantity: readPositiveInteger(args, "quantity"),
+            ...fulfillment,
+            selectedListingSnapshot: readSelectedListingSnapshot(args),
+          },
+        ],
       },
       createActorEventStoreContext(scopedActor),
     );
+    const line = requireSucceededLine(result);
 
-    return cartLineReceipt(scopedActor.accountId, result, result.status);
+    return cartLineReceipt(scopedActor.accountId, { lineId: line.lineId!, version: line.version }, line.status!);
   };
 
   const updateCartLine: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
+    const attemptId = readOwnerIdempotencyKey(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const lineId = readMcpTypedIdArgument(args, "cartLineId", "cli");
+    const lineId = readMcpTypedIdArgument(args, "cartLineId", "cli") as CartLineId;
     const quantity = readOptionalPositiveInteger(args, "quantity");
     const updatesFulfillment =
       readOptionalString(args, "fulfillmentMode") !== null ||
@@ -268,49 +326,59 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
       throw new Error("quantity or fulfillment fields are required.");
     }
 
-    let latest: { lineId: CartLineId; version: number } | null = null;
-    const context = createActorEventStoreContext(scopedActor);
-    if (quantity !== null) {
-      latest = await services.cart.setLineQuantity(
-        {
-          accountId: scopedActor.accountId as AccountId,
-          lineId,
-          quantity,
-        },
-        context,
-      );
-    }
-    if (updatesFulfillment) {
-      latest = await services.cart.setLineFulfillment(
-        {
-          accountId: scopedActor.accountId as AccountId,
-          lineId,
-          ...readFulfillmentMode(args),
-          selectedListingSnapshot: readSelectedListingSnapshot(args),
-          availabilityState: readAvailabilityState(args),
-        },
-        context,
-      );
-    }
+    // Quantity and fulfillment are one attempt: both apply, or neither does.
+    const commands: CheckoutCartLineCommandInput[] = [
+      ...(quantity !== null ? [{ type: "quantity" as const, lineId, quantity }] : []),
+      ...(updatesFulfillment
+        ? [
+            {
+              type: "fulfillment" as const,
+              lineId,
+              ...readFulfillmentMode(args),
+              selectedListingSnapshot: readSelectedListingSnapshot(args),
+              availabilityState: readAvailabilityState(args),
+            },
+          ]
+        : []),
+    ];
+    const { result } = await services.cart.executeCartAttempt(
+      {
+        ownerKey: scopedActor.accountId,
+        attemptId,
+        kind: "cart.update-line",
+        target: lineId,
+        requestHash: await mcpAttemptRequestHash(args),
+        commands,
+      },
+      createActorEventStoreContext(scopedActor),
+    );
+    const line = requireSucceededLine(result);
 
-    return cartLineReceipt(scopedActor.accountId, latest ?? { lineId, version: 0 }, "updated", {
+    return cartLineReceipt(scopedActor.accountId, { lineId, version: line.version }, "updated", {
       ...(quantity !== null ? { quantity } : {}),
     });
   };
 
   const removeCartLine: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
+    const attemptId = readOwnerIdempotencyKey(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const result = await services.cart.removeLine(
+    const lineId = readMcpTypedIdArgument(args, "cartLineId", "cli") as CartLineId;
+    const { result } = await services.cart.executeCartAttempt(
       {
-        accountId: scopedActor.accountId as AccountId,
-        lineId: readMcpTypedIdArgument(args, "cartLineId", "cli"),
+        ownerKey: scopedActor.accountId,
+        attemptId,
+        kind: "cart.remove-line",
+        target: lineId,
+        requestHash: await mcpAttemptRequestHash(args),
+        commands: [{ type: "remove", lineId }],
       },
       createActorEventStoreContext(scopedActor),
     );
+    const line = requireSucceededLine(result);
 
-    return cartLineReceipt(scopedActor.accountId, result, "removed");
+    return cartLineReceipt(scopedActor.accountId, { lineId, version: line.version }, "removed");
   };
 
   const selectSavedAddress: McpToolHandler = async ({ actor, arguments: args }) => {

@@ -27,7 +27,9 @@ import {
 import {
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   type EvidenceWindowRegistration,
+  type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { deriveProjectionTriage, deriveWakeAttentionItems } from "@chase-sets/platform-operations/server";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import {
   createUcpEnvelope,
@@ -41,6 +43,61 @@ import { closePlatformApiPools, createPlatformApiPools } from "../src/database-p
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
+
+type InventoryImportMcpService = Parameters<NonNullable<typeof inventoryModule.buildMcpHandlers>>[0]["importBatches"];
+
+function inventoryImportMcpServices() {
+  const detail: Awaited<ReturnType<InventoryImportMcpService["getBatch"]>> = {
+    batch_id: "imb_1",
+    account_id: "acc_1",
+    status: "ready-to-commit",
+    source_key: "native-csv",
+    adapter_version: 1,
+    quantity_mode: "add",
+    default_storage_location_id: null,
+    total_count: 1,
+    accepted_count: 1,
+    rejected_count: 0,
+    committed_count: 0,
+    can_commit: true,
+    commit_ready_count: 1,
+    rows: [],
+    created_at: "2026-10-29T00:00:00.000Z",
+    updated_at: "2026-10-29T00:00:00.000Z",
+  };
+  const job = (
+    context: Parameters<InventoryImportMcpService["enqueueCommitBatchJob"]>[1],
+    jobKind: "create" | "commit",
+  ): Awaited<ReturnType<InventoryImportMcpService["enqueueCommitBatchJob"]>> => ({
+    jobId: `job_${jobKind}_synthetic`,
+    jobKind,
+    status: "queued",
+    payload: { accountId: "acc_1", batchId: "imb_1" },
+    progress: { phase: "queued", completed: 0, total: 1, currentRowId: null, message: null },
+    result: null,
+    errorMessage: null,
+    eventContext: context,
+    claimOwnerId: null,
+    claimedUntil: null,
+    attemptCount: 0,
+    nextEligibleAt: "2026-10-29T00:00:00.000Z",
+    createdAt: "2026-10-29T00:00:00.000Z",
+    startedAt: null,
+    completedAt: null,
+    updatedAt: "2026-10-29T00:00:00.000Z",
+  });
+  return {
+    importBatches: {
+      getBatch: vi.fn<InventoryImportMcpService["getBatch"]>(async () => detail),
+      enqueueCreateBatchJob: vi.fn<InventoryImportMcpService["enqueueCreateBatchJob"]>(async (_params, context) =>
+        job(context, "create"),
+      ),
+      enqueueCommitBatchJob: vi.fn<InventoryImportMcpService["enqueueCommitBatchJob"]>(async (_params, context) =>
+        job(context, "commit"),
+      ),
+    },
+  };
+}
 
 function signedUcpHeaders(body: string) {
   return {
@@ -114,6 +171,7 @@ function platformActor(permissions: readonly string[]) {
 function createEmptyRuntime(
   services: Record<string, unknown> = {},
   mountedModules: readonly { module: unknown; services: unknown }[] = [],
+  projectionGroups: readonly unknown[] = [],
 ) {
   return {
     mountedContexts: [],
@@ -123,13 +181,14 @@ function createEmptyRuntime(
       identity: {},
       ...services,
     },
-    projectionGroups: [],
+    projectionGroups,
     subscriptionRunners: [],
   } as never;
 }
 
 async function withUninstrumentedPlatformApiRuntime(
   action: (runtime: ReturnType<typeof createPlatformApiHost>) => void | Promise<void>,
+  hostOptions: Pick<Parameters<typeof createPlatformApiHost>[0], "controlPlane" | "workSignalStore"> = {},
 ) {
   const pools = createPlatformApiPools({
     runtimeProfile: "public",
@@ -142,6 +201,7 @@ async function withUninstrumentedPlatformApiRuntime(
       createPlatformApiHost({
         runtimeProfile: "public",
         pools,
+        ...hostOptions,
         hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
       }),
     );
@@ -706,6 +766,219 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("wires operations attention reads into the platform API without self-fetching", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T00:00:00.000Z"));
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const controlPlane = {
+      listProjectionStatusSnapshots: vi.fn(async () => []),
+    } as unknown as PlatformControlPlane;
+    const workSignalStore = {
+      summarizeProjectionWakeIntents: vi.fn(async () => {
+        vi.setSystemTime(new Date("2026-07-22T00:00:01.000Z"));
+        return {
+          queuedCount: 0,
+          claimedCount: 0,
+          failedCount: 1,
+          expiredCount: 0,
+          staleClaimCount: 0,
+          oldestQueuedAt: null,
+          oldestClaimedAt: null,
+        };
+      }),
+      summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+      summarizeCheckpointSignals: vi.fn(async () => ({
+        readinessCount: 0,
+        expiredReadinessCount: 0,
+        latestReadyRecordedAt: null,
+        pendingWaiterCount: 0,
+        expiredPendingWaiterCount: 0,
+        satisfiedWaiterCount: 0,
+        oldestPendingWaiterAt: null,
+        pendingWaiterOrigins: [],
+      })),
+    };
+
+    try {
+      await withUninstrumentedPlatformApiRuntime(
+        async (runtime) => {
+          const app = buildPlatformApiApp(runtime, {
+            resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+            controlPlane,
+            workSignalStore,
+          });
+          fetch.mockClear();
+          const response = await app.request("/api/platform/operations-attention");
+
+          expect(response.status).toBe(200);
+          const body = await response.json();
+          expect(body.sources).toEqual([
+            expect.objectContaining({ id: "projection-poison-event", status: "available" }),
+            expect.objectContaining({ id: "projection-blocked-stream", status: "available" }),
+            expect.objectContaining({ id: "wake-stalled-job", status: "available" }),
+          ]);
+          expect(body.items).toEqual([
+            expect.objectContaining({ source: "wake-stalled-job", observedAt: "2026-07-22T00:00:01.000Z" }),
+          ]);
+          expect(workSignalStore.summarizeProjectionWakeIntents).toHaveBeenCalledTimes(1);
+        },
+        { controlPlane, workSignalStore },
+      );
+      expect(
+        fetch.mock.calls.filter(([input]) => String(input).includes("/api/platform/operations-attention")),
+      ).toHaveLength(0);
+    } finally {
+      fetch.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    {
+      name: "fresh",
+      snapshotAt: "2026-07-22T00:00:00.000Z",
+      states: ["active", "stale", "expired", "unknown", "unknown"],
+    },
+    {
+      name: "old",
+      snapshotAt: "2026-07-22T01:00:00.000Z",
+      states: ["expired", "expired", "expired", "unknown", "unknown"],
+    },
+    { name: "absent", snapshotAt: undefined, states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "partial", snapshotAt: "2026-07-22T", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+    { name: "invalid", snapshotAt: "invalid", states: ["expired", "expired", "expired", "unknown", "unknown"] },
+  ])("composes canonical projection triage with $name snapshotAt", async ({ snapshotAt, states }) => {
+    const projectionGroup = {
+      targetContextName: "catalog",
+      projectionName: "catalog-item-projection",
+      requiredDuringBootstrap: true,
+      subscriptionRunners: [],
+      refreshStatus: vi.fn(),
+      getStatus: () => ({
+        targetContextName: "catalog",
+        projectionName: "catalog-item-projection",
+        projectionRevision: 1,
+        storedProjectionRevision: 1,
+        revisionStale: false,
+        sourceContextNames: ["catalog"],
+        ownedTables: [],
+        requiredDuringBootstrap: true,
+        initialized: true,
+        caughtUp: false,
+        state: "degraded",
+        lastError: "synthetic failure",
+        outstandingEventCount: "2",
+        blockedStreamCount: 0,
+        poisonEventCount: 1,
+        updatedAt: "2026-07-22T00:00:00.000Z",
+        subscriptions: [],
+      }),
+    };
+    const controlPlane = {
+      listProjectionStatusSnapshots: vi.fn(async () => []),
+      readWorkerHeartbeatHistory: vi.fn<PlatformControlPlane["readWorkerHeartbeatHistory"]>(async () => ({
+        snapshotAt: snapshotAt as string,
+        workers: [
+          { worker_id: "active", heartbeat_at: "2026-07-22T00:00:00.000Z" },
+          { worker_id: "stale", heartbeat_at: "2026-07-21T23:50:00.000Z" },
+          { worker_id: "expired", heartbeat_at: "2026-07-21T23:49:59.999Z" },
+          { worker_id: "missing-heartbeat" },
+          {},
+        ],
+        summary: {
+          activeOrStaleCount: 2,
+          expiredTotalCount: 1,
+          expiredWithinDiagnosticWindowCount: 1,
+          expiredReturnedCount: 1,
+          expiredTruncated: false,
+          expiredDiagnosticLimit: 100,
+          diagnosticWindowMs: 604_800_000,
+        },
+      })),
+      listRunnerStatuses: vi.fn(async () => []),
+      listProjectionOperations: vi.fn(async () => []),
+      summarizeProjectionOperations: vi.fn(async () => ({
+        queuedCount: "0",
+        runningCount: "0",
+        failedCount: "0",
+        cancelRequestedCount: "0",
+        oldestQueuedAt: null,
+        oldestRunningAt: null,
+        averageDurationMs: null,
+      })),
+    } satisfies Pick<
+      PlatformControlPlane,
+      | "listProjectionStatusSnapshots"
+      | "readWorkerHeartbeatHistory"
+      | "listRunnerStatuses"
+      | "listProjectionOperations"
+      | "summarizeProjectionOperations"
+    >;
+    const app = buildPlatformApiApp(createEmptyRuntime({}, [], [projectionGroup]), {
+      resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+      controlPlane: controlPlane as unknown as PlatformControlPlane,
+    });
+
+    const response = await app.request("/api/platform/projections");
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const canonical = deriveProjectionTriage(body);
+    expect(body.attentionItems).toEqual(canonical.attentionItems);
+    expect(body.repairQueue).toEqual(canonical.repairQueue);
+    expect(body.activeWorkerCount).toBe(canonical.activeWorkerCount);
+    expect(body.staleWorkerCount).toBe(canonical.staleWorkerCount);
+    expect(body.workers.map((worker: Record<string, unknown>) => worker.worker_state)).toEqual(states);
+    expect(body.activeWorkerCount).toBe(snapshotAt === "2026-07-22T00:00:00.000Z" ? 1 : 0);
+    expect(body.staleWorkerCount).toBe(snapshotAt === "2026-07-22T00:00:00.000Z" ? 1 : 0);
+    expect(body.repairQueue.some((item: { kind: string }) => item.kind === "projection-group")).toBe(true);
+    expect(body).not.toHaveProperty("generatedAt");
+  });
+
+  it.each(["enabled", "disabled", "unavailable"] as const)(
+    "composes canonical wake attention when wake is %s",
+    async (state) => {
+      const app = buildPlatformApiApp(createEmptyRuntime(), {
+        resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+        ...(state === "unavailable"
+          ? {}
+          : {
+              workSignalStore: {
+                summarizeProjectionWakeIntents: vi.fn(async () => ({
+                  queuedCount: 0,
+                  claimedCount: 0,
+                  failedCount: state === "enabled" ? 2 : 0,
+                  expiredCount: state === "enabled" ? 3 : 0,
+                  staleClaimCount: state === "enabled" ? 1 : 0,
+                  oldestQueuedAt: null,
+                  oldestClaimedAt: null,
+                })),
+                summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+                summarizeCheckpointSignals: vi.fn(async () => ({
+                  readinessCount: 0,
+                  expiredReadinessCount: 0,
+                  latestReadyRecordedAt: null,
+                  pendingWaiterCount: 0,
+                  expiredPendingWaiterCount: state === "enabled" ? 1 : 0,
+                  satisfiedWaiterCount: 0,
+                  oldestPendingWaiterAt: null,
+                  pendingWaiterOrigins: [],
+                })),
+              },
+            }),
+      });
+      const wakeResponse = await app.request("/api/platform/projections/wake-status");
+      expect(wakeResponse.status).toBe(200);
+      const body = await wakeResponse.json();
+      expect(body.attentionItems).toEqual(deriveWakeAttentionItems(body));
+      expect(body.attentionItems.map((item: { id: string }) => item.id)).toEqual(
+        state === "enabled"
+          ? ["wake-failed-intents", "wake-stale-claims", "wake-expired-intents", "wake-expired-waiters"]
+          : [],
+      );
+    },
+  );
+
   it("routes dotted projection names through projection operation retry endpoints", async () => {
     const enqueueProjectionOperation = vi.fn(async () => ({
       operationId: "op_retry",
@@ -1164,19 +1437,7 @@ describe("platform api app wiring", () => {
   });
 
   it("registers Inventory import MCP handlers from the context module contract", async () => {
-    const importBatchDetail = {
-      batchId: "batch_1",
-      accountId: "acc_1",
-      rows: [],
-    };
-    const inventoryServices = {
-      importBatches: {
-        createBatch: vi.fn(async () => importBatchDetail),
-        getBatch: vi.fn(async () => importBatchDetail),
-        listBatches: vi.fn(),
-        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
-      },
-    };
+    const inventoryServices = inventoryImportMcpServices();
     const auditRecords: unknown[] = [];
     const app = buildPlatformApiApp(
       createEmptyRuntime({ inventory: inventoryServices }, [{ module: inventoryModule, services: inventoryServices }]),
@@ -1249,7 +1510,7 @@ describe("platform api app wiring", () => {
           sourceKey: "tcgplayer-csv",
           quantityMode: "add",
           csvText: "title,quantity\nCharizard,1",
-          idempotencyKey: "idem_create_batch",
+          idempotencyKey: "51a57702-b343-45a4-9134-8505ad6f3d0a",
           confirmationText: "Create Inventory Import Batch.",
         },
         confirmation: {
@@ -1261,16 +1522,16 @@ describe("platform api app wiring", () => {
         name: "inventory.get-import-batch",
         arguments: {
           accountId: "acc_1",
-          batchId: "batch_1",
+          batchId: "imb_1",
         },
       },
       {
         name: "inventory.commit-import-batch",
         arguments: {
           accountId: "acc_1",
-          batchId: "batch_1",
+          batchId: "imb_1",
           reason: "Commit reviewed rows.",
-          idempotencyKey: "idem_commit_batch",
+          idempotencyKey: "457de5b5-17db-4396-88c9-fde59639db79",
           confirmationText: "Commit Inventory Import Batch.",
         },
         confirmation: {
@@ -1290,10 +1551,11 @@ describe("platform api app wiring", () => {
           params: invocation,
         }),
       });
-      const body = (await invocationResponse.json()) as { error?: { code: number } };
+      const body = (await invocationResponse.json()) as { error?: { code: number }; result?: { isError?: boolean } };
 
       expect(invocationResponse.status).toBe(200);
       expect(body.error).toBeUndefined();
+      expect(body.result?.isError).not.toBe(true);
     }
 
     const resourcesResponse = await app.request("/mcp", {
@@ -1321,7 +1583,7 @@ describe("platform api app wiring", () => {
         id: "resource_read_1",
         method: "resources/read",
         params: {
-          uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+          uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
         },
       }),
     });
@@ -1329,6 +1591,9 @@ describe("platform api app wiring", () => {
 
     expect(readResourceResponse.status).toBe(200);
     expect(readResourceBody.error).toBeUndefined();
+    expect(inventoryServices.importBatches.getBatch).toHaveBeenCalledWith("imb_1", "acc_1");
+    expect(inventoryServices.importBatches.enqueueCreateBatchJob).toHaveBeenCalledOnce();
+    expect(inventoryServices.importBatches.enqueueCommitBatchJob).toHaveBeenCalledOnce();
 
     const deniedResponse = await app.request("/mcp", {
       method: "POST",
@@ -1340,7 +1605,7 @@ describe("platform api app wiring", () => {
           name: "inventory.commit-import-batch",
           arguments: {
             accountId: "acc_1",
-            batchId: "batch_1",
+            batchId: "imb_1",
             reason: "Commit reviewed rows.",
             idempotencyKey: "commit_mismatched_confirmation",
             confirmationText: "Commit inventory import batch.",
@@ -1368,7 +1633,7 @@ describe("platform api app wiring", () => {
         expect.objectContaining({
           outcome: "allowed",
           method: "resources/read",
-          resourceUri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+          resourceUri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           actorId: "user_1",
           accountId: "acc_1",
           auditEventName: "mcp.inventory.resources.read",
@@ -1385,19 +1650,7 @@ describe("platform api app wiring", () => {
   });
 
   it("serves stateless native MCP requests across composed platform API instances without session affinity", async () => {
-    const importBatchDetail = {
-      batchId: "batch_1",
-      accountId: "acc_1",
-      rows: [],
-    };
-    const inventoryServices = {
-      importBatches: {
-        createBatch: vi.fn(async () => importBatchDetail),
-        getBatch: vi.fn(async () => importBatchDetail),
-        listBatches: vi.fn(),
-        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
-      },
-    };
+    const inventoryServices = inventoryImportMcpServices();
     const createApp = () =>
       buildPlatformApiApp(
         createEmptyRuntime({ inventory: inventoryServices }, [
@@ -1437,12 +1690,12 @@ describe("platform api app wiring", () => {
         statelessMcpRequest(
           "resources/read",
           {
-            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           },
           "resource_read_20260728",
         ),
       ),
-      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/acc_1/import-batches/batch_1"),
+      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/acc_1/import-batches/imb_1"),
     });
 
     expect(toolsResponse.status).toBe(200);
@@ -1467,7 +1720,7 @@ describe("platform api app wiring", () => {
       result: {
         contents: [
           expect.objectContaining({
-            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           }),
         ],
       },
@@ -1656,7 +1909,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -1675,8 +1941,8 @@ describe("platform api app wiring", () => {
     expect(response.status).toBe(200);
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
-      products: [{ id: "cat_1", title: "Charizard" }],
+      ucp: { status: "success" },
+      products: [expect.objectContaining({ id: "cat_1" })],
     });
   });
 
@@ -1736,6 +2002,7 @@ describe("platform api app wiring", () => {
             recordPaymentStarted: vi.fn(),
             recordOfferSubmitted: vi.fn(),
             getSession,
+            getLastRecordedQuote: vi.fn(async () => null),
             projectionHandlerSets: [],
           },
         },
@@ -1796,8 +2063,8 @@ describe("platform api app wiring", () => {
         }),
       );
       await expect(response.json()).resolves.toMatchObject({
-        ucp: { status: "ok" },
-        checkout: { id: checkoutSessionId },
+        ucp: { status: "success" },
+        id: checkoutSessionId,
       });
       orders = ["ord_1"];
       await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
@@ -1839,7 +2106,7 @@ describe("platform api app wiring", () => {
       nextCursor: null,
     }));
     const completeCheckout = vi.fn(async () =>
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         checkout: { id: `chk_${completeCheckout.mock.calls.length}` },
       }),
     );
@@ -1870,7 +2137,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -1926,7 +2206,7 @@ describe("platform api app wiring", () => {
         method: "tools/call",
         params: {
           name: "search_catalog",
-          arguments: { query: "charizard", limit: 3 },
+          arguments: { catalog: { query: "charizard", pagination: { limit: 3 } } },
         },
       }),
       headers: { "Content-Type": "application/json" },
@@ -2021,8 +2301,8 @@ describe("platform api app wiring", () => {
     await expect(searchResponse.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
-          ucp: { status: "ok" },
-          products: [{ id: "cat_1", title: "Charizard" }],
+          ucp: { status: "success" },
+          products: [expect.objectContaining({ id: "cat_1" })],
         },
       },
     });
@@ -2047,8 +2327,18 @@ describe("platform api app wiring", () => {
     });
     expect(conflictCompleteResponse.status).toBe(200);
     await expect(conflictCompleteResponse.json()).resolves.toMatchObject({
-      error: {
-        message: "Idempotency-Key was already used with different request parameters.",
+      result: {
+        structuredContent: {
+          ucp: { version: UCP_VERSION, status: "error" },
+          messages: [
+            {
+              type: "error",
+              code: "idempotency_key_conflict",
+              content: "Idempotency-Key was already used with different request parameters.",
+              severity: "recoverable",
+            },
+          ],
+        },
       },
     });
   });
@@ -2785,7 +3075,11 @@ describe("platform API payment provider mode observation", () => {
     const sourceFiles = collectRepositorySourceFiles(repositoryRoot);
 
     // Includes the shared-seed bootstrap host, whose owned pools close in finally.
-    verifyHostConstructionCensus(repositoryRoot, sourceFiles);
+    // AC2's caller-held/standalone seed host in bootstrap-lock-contention.db.test.ts closes its pools in finally.
+    const hostCallSites = verifyHostConstructionCensus(repositoryRoot, sourceFiles);
+    expect(hostCallSites.map((entry) => entry.file)).toContain(
+      "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+    );
 
     const paymentsServiceCallSites = countConstructionCallSites(
       sourceFiles,
@@ -2795,6 +3089,7 @@ describe("platform API payment provider mode observation", () => {
     ).map((entry) => entry.file);
     expect(paymentsServiceCallSites.sort()).toEqual([
       "bounded-contexts/payments/features/payments/api/evidence-window-disposition.test.ts",
+      "bounded-contexts/payments/features/payments/api/saved-instrument-attempt.db.test.ts",
       "bounded-contexts/payments/features/payments/api/webhook-inbox.db.test.ts",
       "bounded-contexts/payments/features/wallet-funding/api/capture.db.test.ts",
       "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts",

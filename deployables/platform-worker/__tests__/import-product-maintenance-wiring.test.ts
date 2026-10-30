@@ -36,10 +36,14 @@ describe("Import Product maintenance worker composition", () => {
   });
   it("main imports and invokes the tested factory, not a decoupled copy", () => {
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(main).toMatch(
+    const inventoryJobRunners = readFileSync(new URL("../src/inventory-job-runners.ts", import.meta.url), "utf8");
+    expect(main).toMatch(/import \{[^}]*createInventoryJobRunners[^}]*\} from "\.\/inventory-job-runners"/);
+    expect(main).toContain("createInventoryJobRunners(runtime.services, config, logger)");
+    expect(inventoryJobRunners).toMatch(
       /import \{[^}]*createInventoryProductResolutionMaintenanceRunners[^}]*\} from "\.\/scheduled-runners"/,
     );
-    expect(main).toContain("createInventoryProductResolutionMaintenanceRunners(services, input)");
+    expect(inventoryJobRunners).toContain("createInventoryProductResolutionMaintenanceRunners(services, input)");
     expect(main).not.toContain('workflowName: "inventory.import-product-resolution-maintenance"');
+    expect(inventoryJobRunners).not.toContain('workflowName: "inventory.import-product-resolution-maintenance"');
   });
 });

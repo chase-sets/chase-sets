@@ -15,6 +15,10 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Discovery Concepts
 
+### Search Session
+
+A **Search Session** is the authenticated session context associated with a signed-in Discovery search occurrence.
+
 ### Discovery Query
 
 A **Discovery Query** is the normalized set of search text, filters, sort order, and pagination inputs used to request catalog-item browse results.

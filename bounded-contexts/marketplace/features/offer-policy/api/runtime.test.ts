@@ -446,7 +446,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     estimateVersion = "1";
     expect((await runtime.execute("bop_one", command, context)).status).toBe("active");
   });
-  it("preserves lifetime consumption across pause, fresh consent, resume and terminal stop", async () => {
+  it("keeps owner reads free of retired limits across acceptance, pause, fresh consent, resume and stop", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const accepted = await f.acceptance();
     const outcome = await f.offers.acceptOffer(accepted, {
@@ -458,7 +458,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       {
         attemptId: String("pause").padEnd(22, "_"),
         type: "PauseBuyerOfferPolicy",
-        expectedVersion: 4,
+        expectedVersion: 3,
         operationId: "pause",
       },
       context,
@@ -472,7 +472,6 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         operationId: "resume_preview",
         terms: {
           ...terms,
-          itemCommitmentAllowance: "40.00",
           offers: [{ ...terms.offers[0]!, offerId: "off_two", offerVersion: 2 }],
         },
       },
@@ -492,8 +491,6 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     );
     expect(resumed).toMatchObject({
       status: "active",
-      consumedItemAmount: "20.00",
-      remainingItemAllowance: "20.00",
       revision: 2,
     });
     const stopped = await f.policies.execute(
@@ -506,7 +503,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       },
       context,
     );
-    expect(stopped).toMatchObject({ status: "stopped", consumedItemAmount: "20.00" });
+    expect(stopped).toMatchObject({ status: "stopped" });
+    for (const owner of [await f.policies.get("bop_one", "acc_buyer"), paused, fresh, resumed, stopped]) {
+      expect(owner).not.toHaveProperty("consumedItemAmount");
+      expect(owner).not.toHaveProperty("remainingItemAllowance");
+      expect(owner.authority).not.toHaveProperty("itemCommitmentAllowance");
+    }
     expect(
       await f.offers.acceptOffer(accepted, {
         ...context,
@@ -566,7 +568,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     ["positive adjustment", { ...terms, adjustmentBps: 1 }],
     ["excess discount", { ...terms, adjustmentBps: -2501 }],
     ["fractional adjustment", { ...terms, adjustmentBps: -1.5 }],
-    ["allowance overflow", { ...terms, itemCommitmentAllowance: "10000000000.00" }],
+    ["retired field", { ...terms, itemCommitmentAllowance: "100.00" }],
   ])("rejects %s with no events, even with a stale projection", async (_name, invalid) => {
     const { runtime, store, db } = await fixture();
     await seedOffer(store, "off_foreign", "acc_other");
@@ -730,7 +732,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
   it("concurrent preview revision invalidates old consent", async () => {
     const { runtime, store } = await fixture();
     const p = await preview(runtime);
-    await preview(runtime, { ...terms, itemCommitmentAllowance: "200.00" }, p.version, "revision");
+    await preview(runtime, { ...terms, adjustmentBps: -100 }, p.version, "revision");
     const before = await store.readAll();
     await expect(
       runtime.execute(
@@ -850,11 +852,11 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     expect((await runtime.execute("bop_one", pause, context)).version).toBe(4);
     const p = await preview(
       runtime,
-      { ...terms, itemCommitmentAllowance: "200.00", offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
+      { ...terms, adjustmentBps: -100, offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
       4,
       "resume_preview",
     );
-    expect(p.authority!.itemCommitmentAllowance).toBe("100.00");
+    expect(p.authority!.adjustmentBps).toBe(0);
     const resume = {
       attemptId: String("resume").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",

@@ -1,6 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createServer, type OutgoingHttpHeaders } from "node:http";
 import { dirname } from "node:path";
-import { expect, test, type Locator, type Page, type Request, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Browser,
+  type Locator,
+  type Page,
+  type Request,
+  type Response,
+  type Route,
+} from "@playwright/test";
 import {
   startWholeGameCredentialProbe,
   wholeGameProbeCredentials,
@@ -137,7 +147,6 @@ const uatTestTimeoutMs =
 const supportedProviderUatJourneyScopes = [
   "one-piece-launch",
   "lorcana-launch",
-  "tcgplayer-pokemon-targeted",
   "all-provider-regression",
   "staging-representative-catalog",
   "pokemon-matrix",
@@ -230,13 +239,6 @@ type ProviderSyncAttempt = Readonly<{
 type CatalogSyncAttempt = Readonly<{
   previousJobRows: readonly string[];
 }>;
-
-type TargetedTcgplayerPokemonProgress = {
-  checkpoint: string;
-  nextBlocker: string;
-  observed: readonly string[];
-  lastLoggedAt: number;
-};
 
 type LorcanaDownstreamSmokeResult = Readonly<{
   mode: "promote" | "reapply";
@@ -1365,25 +1367,23 @@ function providerJourneysForScope(scope: string): readonly ProviderSyncJourney[]
   if (previewProbeScopeSkipsMutatingJourney(scope)) return [];
   return scope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
-    : scope === "tcgplayer-pokemon-targeted"
-      ? []
-      : scope === "lorcana-launch"
-        ? lorcanaLaunchProviderSyncJourneys
-        : scope === "staging-representative-catalog"
-          ? stagingRepresentativeCatalogProviderSyncJourneys
-          : scope === "pokemon-matrix"
-            ? pokemonMatrixProviderSyncJourneys
-            : scope === "mtg-matrix"
-              ? mtgMatrixProviderSyncJourneys
-              : scope === "yugioh-matrix"
-                ? yugiohMatrixProviderSyncJourneys
-                : scope === "one-piece-matrix"
-                  ? onePieceMatrixProviderSyncJourneys
-                  : scope === "lorcana-matrix"
-                    ? lorcanaMatrixProviderSyncJourneys
-                    : scope === "full-matrix-uat"
-                      ? providerProductLineFormMatrixJourneys
-                      : onePieceLaunchProviderSyncJourneys;
+    : scope === "lorcana-launch"
+      ? lorcanaLaunchProviderSyncJourneys
+      : scope === "staging-representative-catalog"
+        ? stagingRepresentativeCatalogProviderSyncJourneys
+        : scope === "pokemon-matrix"
+          ? pokemonMatrixProviderSyncJourneys
+          : scope === "mtg-matrix"
+            ? mtgMatrixProviderSyncJourneys
+            : scope === "yugioh-matrix"
+              ? yugiohMatrixProviderSyncJourneys
+              : scope === "one-piece-matrix"
+                ? onePieceMatrixProviderSyncJourneys
+                : scope === "lorcana-matrix"
+                  ? lorcanaMatrixProviderSyncJourneys
+                  : scope === "full-matrix-uat"
+                    ? providerProductLineFormMatrixJourneys
+                    : onePieceLaunchProviderSyncJourneys;
 }
 const providerSyncJourneys = providerJourneysForScope(providerUatJourneyScope);
 
@@ -3034,6 +3034,10 @@ test.describe("catalog staging provider sync UAT", () => {
     if (isWholeGameJourneyScope(providerUatJourneyScope)) {
       if (testInfo.retry > 0) throw new WholeGameRehearsalRefusal("automatic-retry-refused");
       await signInWholeGame(page, process.env.ADMIN_WEB_URL ?? "");
+      // Live-run boundary receipts (#9957): emitted only here, never from shared sign-in helpers.
+      const boundary = `[catalog-staging-provider-uat] journey=${providerUatJourneyScope} run=${process.env.GITHUB_RUN_ID ?? ""} sha=${process.env.GITHUB_SHA ?? ""}`;
+      console.log(`${boundary} sign-in-settlement-boundary=success`);
+      console.log(`${boundary} catalog-importer-boundary=reached`);
       const receipt = await runWholeGameJourney(
         page,
         providerUatJourneyScope,
@@ -3067,18 +3071,11 @@ test.describe("catalog staging provider sync UAT", () => {
                 journey.unitKey,
                 selectedScope,
                 syncAttempt.previousJobRows,
-                undefined,
                 { allowPartialWithReview: journey.allowPartialWithReview },
               );
             }
           });
         }
-      });
-    }
-
-    if (providerUatJourneyScope === "tcgplayer-pokemon-targeted") {
-      await test.step("TCGplayer Pokemon Catalog sync child scope and merge-candidate promotion", async () => {
-        await expectTargetedTcgplayerPokemonCatalogSync(page);
       });
     }
 
@@ -3328,7 +3325,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number, retry: 
       executedIds.push(selectedId);
       progress.current = { ...progress.current, executed: true, importJobId: currentSearchParam(page, "jobId") };
       await budget.run(() =>
-        expectImportJobSettledForSelectedUnit(page, member.unitKey, selected, sync.previousJobRows, undefined, {
+        expectImportJobSettledForSelectedUnit(page, member.unitKey, selected, sync.previousJobRows, {
           allowPartialWithReview: member.journey.allowPartialWithReview,
         }),
       );
@@ -3521,35 +3518,50 @@ async function signInThroughVisibleForm(
     timeout: pageReadyTimeoutMs,
   });
 
+  const importer = importerHeading(page);
+  const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
+  const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
+  const emailInput = page.getByRole("textbox", { name: /email|phone/i });
+  // One combined wait per pass; separate timed waits would each spend their
+  // full timeout on every control the current step does not render. Hidden
+  // controls stay in the DOM between steps, so only visible ones count.
+  const signInStep = importer.or(passwordInput).or(passwordChoice).or(emailInput).filter({ visible: true }).first();
+
   const deadline = Date.now() + pageReadyTimeoutMs;
   while (Date.now() < deadline) {
     assertOrigin?.(page.url());
-    if (await isImporterVisible(page, 3_000)) {
+    await signInStep
+      .waitFor({ state: "visible", timeout: Math.max(1, Math.min(3_000, deadline - Date.now())) })
+      .catch(() => undefined);
+    assertOrigin?.(page.url());
+    if (await importer.isVisible().catch(() => false)) {
       return;
     }
 
-    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
-    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (await passwordInput.isVisible().catch(() => false)) {
       assertOrigin?.(page.url());
       await fillCredential(passwordInput, credentials.password);
       assertOrigin?.(page.url());
-      await page.getByRole("button", { name: /^sign in$/i }).click();
+      await submitSignInUntilSettled(
+        page,
+        () => page.getByRole("button", { name: /^sign in$/i }).click(),
+        deadline,
+        assertOrigin,
+      );
       assertOrigin?.(page.url());
       await openCatalogImporter(page, assertOrigin);
       return;
     }
 
-    const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
     if (
-      (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) &&
+      (await passwordChoice.isVisible().catch(() => false)) &&
       !(await passwordChoice.isChecked().catch(() => false))
     ) {
       await passwordChoice.click();
       continue;
     }
 
-    const emailInput = page.getByRole("textbox", { name: /email|phone/i });
-    if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (await emailInput.isVisible().catch(() => false)) {
       assertOrigin?.(page.url());
       await fillCredential(emailInput, credentials.email);
       assertOrigin?.(page.url());
@@ -3560,6 +3572,66 @@ async function signInThroughVisibleForm(
   }
 
   throw new Error("The staging admin sign-in form did not reach the password step or importer before the timeout.");
+}
+
+const signInSettlementPollMs = 250;
+
+// Leaving the sign-in page before its submission settles cancels the client
+// action that carries the session cookie (#9957), so nothing may navigate
+// until the submission's own response or the shipped failure title is seen.
+async function submitSignInUntilSettled(
+  page: Page,
+  submit: () => Promise<void>,
+  deadline: number,
+  assertOrigin?: (url: string) => void,
+): Promise<void> {
+  const settled: Response[] = [];
+  const observe = (response: Response) => {
+    void isSignInSettlement(page, response).then(
+      (settlement) => {
+        if (settlement) settled.push(response);
+      },
+      () => undefined,
+    );
+  };
+  // ValidationSummary title, key auth.features.signIn.ui.signInPage.sign.in.failed.
+  const failure = page.getByRole("alert").getByRole("heading", { name: "Sign-in failed", exact: true }).first();
+  page.on("response", observe);
+  try {
+    await submit();
+    while (Date.now() < deadline) {
+      assertOrigin?.(page.url());
+      if (settled.length > 0) return;
+      const failed = await failure
+        .waitFor({ state: "visible", timeout: Math.max(1, Math.min(signInSettlementPollMs, deadline - Date.now())) })
+        .then(
+          () => true,
+          () => false,
+        );
+      if (failed)
+        throw new Error("The staging admin sign-in was rejected (Sign-in failed); the importer was not opened.");
+    }
+    assertOrigin?.(page.url());
+    throw new Error("The staging admin sign-in submission did not settle before the timeout.");
+  } finally {
+    page.off("response", observe);
+  }
+}
+
+// Settlement is the submission's own response: a main-frame document reached
+// from the form POST, with or without a cookie, or React Router's client action
+// redirect on the route's `.data` URL (202, or 204 plus X-Remix-Redirect) that
+// sets a cookie. Auth API JSON, such as /api/auth/password-sign-in, is neither.
+async function isSignInSettlement(page: Page, response: Response): Promise<boolean> {
+  const request = response.request();
+  let submission = request;
+  for (let hop = request.redirectedFrom(); hop; hop = hop.redirectedFrom()) submission = hop;
+  if (submission.method() !== "POST" || request.frame() !== page.mainFrame()) return false;
+  const status = response.status();
+  if (request.isNavigationRequest()) return status < 300 || status >= 400;
+  if (!new URL(request.url()).pathname.endsWith(".data")) return false;
+  const redirected = status === 202 || (status === 204 && (await response.headerValue("x-remix-redirect")) !== null);
+  return redirected && Boolean(await response.headerValue("set-cookie"));
 }
 
 async function openCatalogImporter(page: Page, assertOrigin?: (url: string) => void): Promise<void> {
@@ -3884,134 +3956,6 @@ async function syncSelectedProviderUnit(
   );
 }
 
-async function expectTargetedTcgplayerPokemonCatalogSync(page: Page): Promise<void> {
-  const progress = createTargetedTcgplayerPokemonProgress();
-  try {
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "shared importer surface is ready for targeted TCGplayer Pokemon UAT",
-      "select Product Line Pokemon and Set Name Base Set from the operator UI",
-    );
-    const selectedScope = await selectProviderScope(page, tcgplayerPokemonProviderSyncJourney);
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      `selected source scope ${selectedScope.displayLabel}`,
-      "start Catalog sync for the selected provider participation row",
-      selectedScope.fields.map((field) => `${field.name}:${field.value}`),
-    );
-    const catalogSyncAttempt = await startCatalogSyncForSelectedProviderUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      progress,
-    );
-    await expectCatalogSyncChildImportForSelectedUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      catalogSyncAttempt.previousJobRows,
-      progress,
-    );
-    await expectImportJobSettledForSelectedUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      catalogSyncAttempt.previousJobRows,
-      progress,
-      { allowPartialWithReview: true },
-    );
-    await promoteTcgplayerPokemonMergeCandidateFromReview(page, selectedScope, progress);
-  } catch (error) {
-    throw new Error(targetedTcgplayerPokemonFailureMessage(progress, error));
-  }
-}
-
-async function startCatalogSyncForSelectedProviderUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<CatalogSyncAttempt> {
-  await expandWorkflowStage(page, "run-sync");
-  const commandForm = page
-    .locator(`form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.sync}"]`)
-    .first();
-  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  const participationRow = catalogSyncParticipationRowForUnit(page, unitKey);
-  await expect(participationRow).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(participationRow.getByText(unitKey, { exact: true })).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(
-    participationRow.getByText(/ingestionUnitKey:tcgplayer:pokemon:single-card:source-observation-import/i),
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(participationRow.getByText(/productLineId:3|setName:Base Set|provider:tcgplayer/i).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Catalog sync provider participation row is visible",
-    "enable/select the participation row and submit Start Catalog sync",
-    [await visibleLocatorText(participationRow)],
-  );
-
-  const participationCheckbox = participationRow.getByRole("checkbox").first();
-  await expect(participationCheckbox)
-    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
-    .catch(async () => {
-      throw new Error(
-        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: the participation row is visible but not selectable. ${await visibleLocatorText(
-          participationRow,
-        )}`,
-      );
-    });
-  if (!(await participationCheckbox.isChecked().catch(() => false))) {
-    await selectCatalogSyncParticipationRow(participationRow, participationCheckbox);
-  }
-  await expect(participationCheckbox).toBeChecked({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Catalog sync provider participation row is selected",
-    "submit Start Catalog sync and wait for command feedback",
-    [await visibleLocatorText(participationRow)],
-  );
-
-  const startButton = commandForm.getByRole("button", { name: "Start Catalog sync" });
-  await expect(startButton)
-    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
-    .catch(async () => {
-      throw new Error(
-        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: Start Catalog sync is disabled. ${await visibleLocatorText(
-          commandForm,
-        )}`,
-      );
-    });
-  const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
-
-  await startButton.click();
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Start Catalog sync was submitted",
-    "observe queued command feedback or parent Catalog sync-run progress",
-  );
-  await expectCatalogSyncCommandAcceptedOrRunVisible(page, progress);
-  return { previousJobRows };
-}
-
-function catalogSyncParticipationRowForUnit(page: Page, unitKey: string): Locator {
-  return page
-    .locator(
-      `[data-catalog-sync-participation-row="true"][data-catalog-sync-participation-unit="${cssAttrValue(unitKey)}"]`,
-    )
-    .filter({ visible: true })
-    .first();
-}
-
-async function visibleLocatorText(locator: Locator): Promise<string> {
-  return locator
-    .innerText({ timeout: 2_000 })
-    .then(normalizeWhitespace)
-    .catch(() => "row text unavailable");
-}
-
 async function selectCatalogSyncParticipationRow(participationRow: Locator, checkbox: Locator): Promise<void> {
   await checkCheckboxThroughVisibleLabel(participationRow, checkbox);
 }
@@ -4029,262 +3973,12 @@ async function checkCheckboxThroughVisibleLabel(container: Locator, checkbox: Lo
   await checkbox.check({ timeout: controlActionTimeoutMs });
 }
 
-const targetedTcgplayerPokemonObservedLimit = 3;
-const targetedTcgplayerPokemonObservedMaxLength = 1_200;
-
-function createTargetedTcgplayerPokemonProgress(): TargetedTcgplayerPokemonProgress {
-  return {
-    checkpoint: "targeted TCGplayer Pokemon UAT started",
-    nextBlocker: "reach the shared importer operator UI",
-    observed: [],
-    lastLoggedAt: 0,
-  };
-}
-
-function recordTargetedTcgplayerPokemonProgress(
-  progress: TargetedTcgplayerPokemonProgress | undefined,
-  checkpoint: string,
-  nextBlocker: string,
-  observed: readonly string[] = [],
-  throttleMs = 0,
-): void {
-  if (!progress) {
-    return;
-  }
-  const now = Date.now();
-  progress.checkpoint = checkpoint;
-  progress.nextBlocker = nextBlocker;
-  progress.observed = observed
-    .map(sanitizeTargetedTcgplayerPokemonEvidence)
-    .filter(Boolean)
-    .slice(0, targetedTcgplayerPokemonObservedLimit);
-  if (throttleMs > 0 && now - progress.lastLoggedAt < throttleMs) {
-    return;
-  }
-  progress.lastLoggedAt = now;
-  console.log(targetedTcgplayerPokemonProgressMessage(progress));
-}
-
-function targetedTcgplayerPokemonProgressMessage(progress: TargetedTcgplayerPokemonProgress): string {
-  const observed = progress.observed.length > 0 ? ` observed="${progress.observed.join(" | ")}"` : "";
-  return `[catalog-staging-provider-uat] tcgplayer-pokemon-targeted checkpoint="${sanitizeTargetedTcgplayerPokemonEvidence(
-    progress.checkpoint,
-  )}" nextBlocker="${sanitizeTargetedTcgplayerPokemonEvidence(progress.nextBlocker)}"${observed}`;
-}
-
-function targetedTcgplayerPokemonFailureMessage(progress: TargetedTcgplayerPokemonProgress, error: unknown): string {
-  const observed = progress.observed.length > 0 ? ` Observed operator UI: ${progress.observed.join(" | ")}.` : "";
-  return `TCGplayer Pokemon targeted UAT failed after checkpoint "${sanitizeTargetedTcgplayerPokemonEvidence(
-    progress.checkpoint,
-  )}". Next concrete blocker: ${sanitizeTargetedTcgplayerPokemonEvidence(progress.nextBlocker)}.${observed} Original error: ${sanitizeTargetedTcgplayerPokemonEvidence(
-    error instanceof Error ? error.message : String(error),
-  )}`;
-}
-
-function sanitizeTargetedTcgplayerPokemonEvidence(value: string): string {
-  return sanitizeSupportSafeEvidence(value, targetedTcgplayerPokemonObservedMaxLength);
-}
-
 function sanitizeSupportSafeEvidence(value: string, maxLength = supportSafeDiagnosticMaxLength): string {
   const sanitized = normalizeWhitespace(value)
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/\b(password|secret|token|authorization|api[-_\s]?key|cookie|session)\s*[:=]\s*\S+/gi, "$1:[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email redacted]");
   return sanitized.length > maxLength ? `${sanitized.slice(0, maxLength)}... [truncated]` : sanitized;
-}
-
-async function expectCatalogSyncCommandAcceptedOrRunVisible(
-  page: Page,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  const deadline = Date.now() + syncTimeoutMs;
-  const syncRun = page.locator("[data-catalog-sync-run]").first();
-  while (Date.now() < deadline) {
-    if (await syncRun.isVisible({ timeout: 500 }).catch(() => false)) {
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "parent Catalog sync-run progress is visible",
-        "wait for the child import job row for the selected Pokemon scope",
-        [await visibleLocatorText(syncRun)],
-      );
-      return;
-    }
-    if (
-      await page
-        .getByText("Command queued")
-        .first()
-        .isVisible({ timeout: 500 })
-        .catch(() => false)
-    ) {
-      await expectCommandQueued(page);
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "Catalog sync command queued feedback is visible",
-        "wait for parent Catalog sync-run progress and the child import job row",
-      );
-      return;
-    }
-    await page.waitForTimeout(500);
-  }
-
-  throw new Error("Catalog sync did not show queued command feedback or visible parent sync-run progress.");
-}
-
-async function expectCatalogSyncChildImportForSelectedUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-  previousJobRows: readonly string[],
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  const previous = new Set(previousJobRows.map(normalizeWhitespace));
-  const syncRun = page.locator("[data-catalog-sync-run]").first();
-  const deadline = Date.now() + sourceOptionTimeoutMs;
-  let observedRows: readonly string[] = [];
-
-  while (Date.now() < deadline) {
-    await expandWorkflowStage(page, "run-sync");
-    await expect(syncRun).toBeVisible({ timeout: sourceOptionTimeoutMs });
-    observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
-    const childRow = observedRows.find((row) => !previous.has(row)) ?? observedRows[0];
-    if (childRow && /import job .*(?:queued|running|completed|partial)/i.test(childRow)) {
-      await expect(syncRun.getByText(/Child jobs/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-      await expectVisibleCatalogSyncChildJobRow(syncRun);
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "Catalog sync child import row is visible",
-        "wait for the child import job to reach completed terminal state",
-        [childRow],
-      );
-      return;
-    }
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "waiting for Catalog sync child import row",
-      "Catalog sync parent run has not yet exposed a new child row for the selected Pokemon scope",
-      observedRows,
-      30_000,
-    );
-    await page.waitForTimeout(1_000);
-  }
-
-  throw new Error(
-    `Catalog sync did not expose a visible child import row for ${unitKey} and ${selectedScope.displayLabel}. Observed rows: ${
-      observedRows.join(" | ") || "none"
-    }`,
-  );
-}
-
-async function expectVisibleCatalogSyncChildJobRow(syncRun: Locator): Promise<void> {
-  const childJobsTable = syncRun.getByRole("table", { name: /Catalog sync child jobs/i }).first();
-  await expect(childJobsTable).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(
-    childJobsTable.getByRole("row", { name: /TCGplayer Pokemon.*(?:Queued|Running|Completed|Partial)/i }).first(),
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-}
-
-async function promoteTcgplayerPokemonMergeCandidateFromReview(
-  page: Page,
-  selectedScope: SelectedProviderScope,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  await expandWorkflowStage(page, "review-changes");
-  const reviewModule = mergeCandidateReviewModule(page);
-  await expect(reviewModule).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Merged candidate review module is visible",
-    "find an enabled TCGplayer Pokemon merge-candidate Promote action",
-    [await visibleLocatorText(reviewModule)],
-  );
-
-  const candidate = await firstMergeCandidateRowWithEnabledPromotion(reviewModule);
-  if (!candidate) {
-    const reviewText = await reviewModule
-      .innerText({ timeout: 2_000 })
-      .then(normalizeWhitespace)
-      .catch(() => "Merged candidate review text was not visible.");
-    throw new Error(
-      `TCGplayer Pokemon targeted UAT could not find an enabled merge-candidate Promote action for ${
-        selectedScope.displayLabel
-      }. ${reviewText}`,
-    );
-  }
-
-  const { row, promoteButton } = candidate;
-  await expect(row.getByText(/tcgplayer/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "enabled TCGplayer Pokemon merge-candidate Promote action is visible",
-    "open the evidence sheet and verify generated command payloads are visible",
-    [await visibleLocatorText(row)],
-  );
-  await openMergeCandidateEvidenceSheet(page, row);
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "merge-candidate evidence sheet is visible",
-    "submit the Promote action and observe command queued feedback",
-  );
-  await expect(promoteButton).toBeEnabled({ timeout: sourceOptionTimeoutMs });
-  await promoteButton.click();
-  await expectCommandQueued(page);
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    `TCGplayer Pokemon merge-candidate promotion queued for ${selectedScope.displayLabel}`,
-    "durable promotion command accepted; targeted UAT path is complete",
-  );
-}
-
-function mergeCandidateReviewModule(page: Page): Locator {
-  return page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Merged candidate review" }) })
-    .first();
-}
-
-type MergeCandidatePromoteTarget = Readonly<{
-  row: Locator;
-  promoteButton: Locator;
-}>;
-
-async function firstMergeCandidateRowWithEnabledPromotion(
-  reviewModule: Locator,
-): Promise<MergeCandidatePromoteTarget | null> {
-  const promoteButtons = reviewModule.getByRole("button", { name: /^Promote\b/i });
-  const deadline = Date.now() + sourceOptionTimeoutMs;
-  while (Date.now() < deadline) {
-    const count = await promoteButtons.count();
-    for (let index = 0; index < count; index += 1) {
-      const promoteButton = promoteButtons.nth(index);
-      if (await promoteButton.isEnabled({ timeout: 500 }).catch(() => false)) {
-        const row = promoteButton.locator("xpath=ancestor::tr[1]");
-        if (
-          await row
-            .getByText(/tcgplayer/i)
-            .first()
-            .isVisible({ timeout: 500 })
-            .catch(() => false)
-        ) {
-          return { row, promoteButton };
-        }
-      }
-    }
-    await reviewModule.page().waitForTimeout(1_000);
-  }
-
-  return null;
-}
-
-async function openMergeCandidateEvidenceSheet(page: Page, row: Locator): Promise<void> {
-  await row.getByRole("button", { name: "Evidence" }).click();
-  await expect(page.getByRole("heading", { name: /Candidate detail:/i }).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(page.getByText("Generated command payloads", { exact: true }).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(page.getByText(/Promote .* source/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await page.keyboard.press("Escape").catch(() => undefined);
 }
 
 async function expectImportPreflight(
@@ -4482,18 +4176,39 @@ const workflowStageNames: Record<WorkflowStageKey, RegExp> = {
   "create-items": /^Create \/ update items\b/i,
 };
 
-async function expandWorkflowStage(page: Page, stage: WorkflowStageKey): Promise<void> {
+async function expandWorkflowStage(page: Page, stage: WorkflowStageKey, timeoutMs?: number): Promise<void> {
   const trigger = page
     .locator(`[data-catalog-import-workflow-stage="${stage}"]`)
     .or(page.getByRole("heading", { name: workflowStageNames[stage] }).getByRole("button"))
     .first();
-  await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
-  const deadline = Date.now() + pageReadyTimeoutMs;
-  while ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true" && Date.now() < deadline) {
-    await trigger.click();
-    await page.waitForTimeout(250);
+  if (timeoutMs === undefined) {
+    await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
+    const deadline = Date.now() + pageReadyTimeoutMs;
+    while ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true" && Date.now() < deadline) {
+      await trigger.click();
+      await page.waitForTimeout(250);
+    }
+    await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
+    return;
   }
-  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
+  const deadline = Date.now() + timeoutMs;
+  const remaining = (): number => {
+    const value = deadline - Date.now();
+    if (value <= 0) {
+      const error = new Error(`${stage} stage did not expand before its deadline`);
+      error.name = "TimeoutError";
+      throw error;
+    }
+    return value;
+  };
+  await expect(trigger).toBeVisible({ timeout: remaining() });
+  while (true) {
+    const expanded = await trigger.getAttribute("aria-expanded", { timeout: remaining() });
+    if (expanded === "true") break;
+    await trigger.click({ timeout: remaining() });
+    await page.waitForTimeout(Math.min(250, remaining()));
+  }
+  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: remaining() });
 }
 
 async function expectImportJobSettledForSelectedUnit(
@@ -4501,7 +4216,6 @@ async function expectImportJobSettledForSelectedUnit(
   unitKey: string,
   selectedScope: SelectedProviderScope,
   previousJobRows: readonly string[],
-  progress?: TargetedTcgplayerPokemonProgress,
   options: Readonly<{ allowPartialWithReview?: boolean }> = {},
 ): Promise<void> {
   const previous = new Set(previousJobRows.map(normalizeWhitespace));
@@ -4522,40 +4236,14 @@ async function expectImportJobSettledForSelectedUnit(
         await expect(partialRow.getByRole("link", { name: "Review observations" }).first()).toBeVisible({
           timeout: sourceOptionTimeoutMs,
         });
-        recordTargetedTcgplayerPokemonProgress(
-          progress,
-          "child import job reached partial terminal state with reviewable observations",
-          "open Review changes and promote a TCGplayer Pokemon merge candidate",
-          [unsuccessful],
-        );
         return;
       }
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "child import job reached an unsuccessful terminal state",
-        "inspect the visible import job row and provider readiness before rerunning the targeted path",
-        [unsuccessful],
-      );
       throw new Error(`Import job for ${unitKey} reached an unsuccessful terminal state: ${unsuccessful}`);
     }
     const completed = changedRows.find(importJobRowReachedCompletedTerminal);
     if (completed) {
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        `child import job completed for ${selectedScope.displayLabel}`,
-        "open Review changes and promote a TCGplayer Pokemon merge candidate",
-        [completed],
-      );
       return;
     }
-
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "waiting for child import job terminal state",
-      "child import job has not reached a new completed row for the selected Pokemon scope",
-      observedRows,
-      30_000,
-    );
     await page.waitForTimeout(2_000);
   }
 
@@ -5739,21 +5427,24 @@ function emptyToNull(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-async function expectImporterVisible(page: Page): Promise<void> {
-  await expect(
-    page.getByRole("heading", {
-      name: "Pull provider data, review Source Observations, promote Catalog facts",
-    }),
-  ).toBeVisible({ timeout: pageReadyTimeoutMs });
+function importerHeading(page: Page): Locator {
+  return page.getByRole("heading", {
+    name: "Pull provider data, review Source Observations, promote Catalog facts",
+  });
 }
 
+async function expectImporterVisible(page: Page): Promise<void> {
+  await expect(importerHeading(page)).toBeVisible({ timeout: pageReadyTimeoutMs });
+}
+
+// Locator.isVisible ignores its timeout, so a timed probe must really wait.
 async function isImporterVisible(page: Page, timeout: number): Promise<boolean> {
-  return page
-    .getByRole("heading", {
-      name: "Pull provider data, review Source Observations, promote Catalog facts",
-    })
-    .isVisible({ timeout })
-    .catch(() => false);
+  return importerHeading(page)
+    .waitFor({ state: "visible", timeout })
+    .then(
+      () => true,
+      () => false,
+    );
 }
 
 async function selectOption(
@@ -6831,7 +6522,6 @@ test.describe("catalog staging Scope Sync Batch preview probe", () => {
       gap: true,
     });
     expect(row("pokemon-ja").gaps).toContain("discovery-language-gap:ja");
-    expect(row("pokemon-en").scopeRecordSet.sharedWith).toBe("pokemon-ja");
     expect(row("magic").preview.confirmAllowed).toBe(true);
     expect(row("magic").roster.units.find((unit) => unit.providerKey === "mtgjson")?.disposition).toBe("unsupported");
     expect(row("lorcana").roster.units.map((unit) => unit.providerKey)).toEqual(["tcgplayer"]);
@@ -7608,6 +7298,7 @@ async function submitPromoteAllReady(
   await expect(form).toHaveCount(1, { timeout: pageReadyTimeoutMs });
   wholeGameRemainingMs(runtime);
   assertWholeGameOrigin(page.url());
+  await expandWorkflowStage(page, "review-changes", wholeGameRemainingMs(runtime, pageReadyTimeoutMs));
   await clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready", exact: true }), runtime);
 
   const deadline = Math.min(runtime.deadlineAt, Date.now() + syncTimeoutMs);
@@ -7858,8 +7549,8 @@ async function serveWholeGameApplicationFixture(
   const jobs: WholeGamePromoteJob[] = [];
   const requested = fixtureBatch({});
   const other = fixtureBatch({ batchId: "batch-other", status: "failed", units: requested.units });
-  const scopePage = `<form method="post" data-catalog-merge-candidate-bulk-promote="true">
-    <input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form>`;
+  const scopePage = `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true">
+    <input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form></div>`;
   const calls = await serveWholeGameFixture(page, (request) => {
     if (request.path === "/catalog/scopes/sync-batches")
       return { html: fixtureBatchSection(other) + fixtureBatchSection(requested) };
@@ -8053,6 +7744,227 @@ credentialProbeTest.describe("catalog whole-game credential transport", () => {
   });
 });
 
+// Delayed-cookie sign-in fixture (#9957): a real loopback server, so Chromium
+// owns cookies, response headers and cancellation. Every value is synthetic.
+const signInSettlementCredentials = {
+  email: "sign-in-settlement-synthetic@example.invalid",
+  password: "sign-in-settlement-synthetic-password",
+} as const;
+const signInSettlementSessionMarker = "sign-in-settlement-synthetic-session";
+const signInSettlementDriftOrigin = "https://synthetic-drift.invalid";
+// Longer than openCatalogImporter's 2 s importer visibility wait, so a helper
+// that does not settle navigates while the cookie-bearing response is held.
+const signInSettlementCookieDelayMs = 4_000;
+const signInSettlementImporter = `<!doctype html><html data-admin-web-hydrated="true"><body>
+  <h1>Pull provider data, review Source Observations, promote Catalog facts</h1></body></html>`;
+
+type SignInSettlementAction =
+  | "client-redirect"
+  | "client-rejected"
+  | "origin-drift"
+  | "native-cookie"
+  | "native-no-cookie";
+type SignInSettlementFixture = Readonly<{ origin: string; assertOrigin: (url: string) => void }>;
+
+function signInSettlementPage(action: SignInSettlementAction): string {
+  // The client action mirrors #9509: the Auth API JSON answers first, then the
+  // route action's `.data` response carries the cookie and the redirect.
+  const submit =
+    action === "origin-drift"
+      ? `location.replace("${signInSettlementDriftOrigin}/access/sign-in");`
+      : `await fetch("/api/auth/password-sign-in", { method: "POST" });
+        const response = await fetch("/access/sign-in.data?returnTo=%2Fcatalog%2Fintegrations", {
+          method: "POST", body: new FormData(form) });
+        if (response.status === 202) location.assign("/catalog/integrations");
+        else document.getElementById("summary").innerHTML = '<section role="alert"><h2>Sign-in failed</h2></section>';`;
+  const client = action.startsWith("native-")
+    ? ""
+    : `<script>const form = document.getElementById("password-step");
+      form.addEventListener("submit", async (event) => { event.preventDefault(); ${submit} });</script>`;
+  return `<!doctype html><html><body><div id="email-step"><label>Email <input type="email" name="email"></label>
+    <button type="button" onclick="document.getElementById('email-step').hidden=true;
+      document.getElementById('password-step').hidden=false">Continue</button></div>
+    <form id="password-step" hidden method="post" action="/access/sign-in">
+      <label>Password <input type="password" name="password"></label><button type="submit">Sign in</button></form>
+    <div id="summary"></div>${client}</body></html>`;
+}
+
+async function signInSettlementAttempt(
+  browser: Browser,
+  action: SignInSettlementAction,
+  signIn: (page: Page, fixture: SignInSettlementFixture) => Promise<void>,
+) {
+  const events: string[] = [];
+  const held = new Set<ReturnType<typeof setTimeout>>();
+  const session = {
+    "set-cookie": `sign-in-settlement=${signInSettlementSessionMarker}; Path=/; HttpOnly; SameSite=Lax`,
+  };
+  const server = createServer((request, response) => {
+    request.resume();
+    const step = `${request.method} ${(request.url ?? "").split("?")[0]}`;
+    const html = (body: string, headers: OutgoingHttpHeaders = {}) => {
+      response.writeHead(200, { "content-type": "text/html", ...headers });
+      response.end(body);
+    };
+    if (step === "GET /access/sign-in") return html(signInSettlementPage(action));
+    if (step === "GET /catalog/integrations") {
+      const cookie = request.headers.cookie?.includes(signInSettlementSessionMarker) ? "cookie" : "no-cookie";
+      events.push(`importer-navigation:${cookie}`);
+      return html(signInSettlementImporter);
+    }
+    if (step === "POST /api/auth/password-sign-in") {
+      events.push("auth-api-json");
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "set-cookie": "sign-in-settlement-api=synthetic-json; Path=/",
+      });
+      return response.end(JSON.stringify({ ok: true }));
+    }
+    if (step === "POST /access/sign-in.data") {
+      events.push("action-submitted");
+      const answer = (status: number, headers: OutgoingHttpHeaders = {}) => {
+        response.writeHead(status, { "content-type": "text/x-script", "x-remix-response": "yes", ...headers });
+        response.end();
+      };
+      if (action === "client-rejected") return answer(200);
+      const timer = setTimeout(() => {
+        held.delete(timer);
+        events.push("action-response");
+        answer(202, session);
+      }, signInSettlementCookieDelayMs);
+      held.add(timer);
+      return;
+    }
+    if (step === "POST /access/sign-in") {
+      events.push(`native-document:${action === "native-cookie" ? "cookie" : "no-cookie"}`);
+      return html(signInSettlementImporter, action === "native-cookie" ? session : {});
+    }
+    response.writeHead(404, { "content-type": "text/plain" });
+    response.end("synthetic route not found");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Sign-in settlement fixture did not bind a TCP port.");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const context = await browser.newContext({ baseURL: origin, serviceWorkers: "block" });
+  const sessionCookie = async () =>
+    (await context.cookies(origin)).some((cookie) => cookie.value === signInSettlementSessionMarker);
+  try {
+    await context.route(`${signInSettlementDriftOrigin}/**`, (route) =>
+      route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body></body></html>" }),
+    );
+    const page = await context.newPage();
+    const assertOrigin = (url: string) => {
+      if (new URL(url).origin !== origin) throw new WholeGameRehearsalRefusal("staging-origin-required");
+    };
+    let outcome = "signed-in";
+    try {
+      await signIn(page, { origin, assertOrigin });
+    } catch (error) {
+      outcome =
+        error instanceof WholeGameRehearsalRefusal
+          ? error.code
+          : error instanceof Error && error.message.includes("(Sign-in failed)")
+            ? "sign-in-failed"
+            : "unexpected-error";
+    }
+    return { outcome, events: [...events], sessionCookie: await sessionCookie() };
+  } finally {
+    for (const timer of held) clearTimeout(timer);
+    try {
+      await context.close();
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+}
+
+const settledSignIn = (page: Page, fixture: SignInSettlementFixture) =>
+  signInThroughVisibleForm(page, fixture.assertOrigin, signInSettlementCredentials, fixture.origin);
+
+credentialProbeTest.describe("catalog staging sign-in settlement", () => {
+  credentialProbeTest.describe.configure({ retries: 0 });
+
+  credentialProbeTest("sign-in-settlement-before-importer-navigation", async ({ browser }) => {
+    const candidate = await signInSettlementAttempt(browser, "client-redirect", settledSignIn);
+    // Bypass control: the pre-#9957 helper opened the importer right after the click.
+    const bypass = await signInSettlementAttempt(browser, "client-redirect", async (page, fixture) => {
+      await page.goto("/access/sign-in?returnTo=%2Fcatalog%2Fintegrations");
+      await page.getByRole("textbox", { name: "Email" }).fill(signInSettlementCredentials.email);
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.locator('input[type="password"]').fill(signInSettlementCredentials.password);
+      await page.getByRole("button", { name: /^sign in$/i }).click();
+      await openCatalogImporter(page, fixture.assertOrigin);
+    });
+    const rejected = await signInSettlementAttempt(browser, "client-rejected", settledSignIn);
+
+    // The candidate leaves the page only after the held cookie response; the
+    // bypass navigates first, without the cookie, and cancels that response.
+    expect(candidate.outcome).toBe("signed-in");
+    expect(candidate.events.slice(0, 4)).toEqual([
+      "auth-api-json",
+      "action-submitted",
+      "action-response",
+      "importer-navigation:cookie",
+    ]);
+    expect(candidate.events).not.toContain("importer-navigation:no-cookie");
+    expect(candidate.sessionCookie).toBe(true);
+    expect(bypass.outcome).toBe("signed-in");
+    expect(bypass.events.slice(0, 3)).toEqual(["auth-api-json", "action-submitted", "importer-navigation:no-cookie"]);
+    expect(bypass.sessionCookie).toBe(false);
+    expect(rejected).toEqual({
+      outcome: "sign-in-failed",
+      events: ["auth-api-json", "action-submitted"],
+      sessionCookie: false,
+    });
+  });
+
+  credentialProbeTest("sign-in-settlement-accepts-native-form-documents", async ({ browser }) => {
+    expect(await signInSettlementAttempt(browser, "native-cookie", settledSignIn)).toEqual({
+      outcome: "signed-in",
+      events: ["native-document:cookie"],
+      sessionCookie: true,
+    });
+    expect(await signInSettlementAttempt(browser, "native-no-cookie", settledSignIn)).toEqual({
+      outcome: "signed-in",
+      events: ["native-document:no-cookie"],
+      sessionCookie: false,
+    });
+  });
+
+  credentialProbeTest("sign-in-settlement-stops-on-origin-refusal", async ({ browser }) => {
+    expect(await signInSettlementAttempt(browser, "origin-drift", settledSignIn)).toEqual({
+      outcome: "staging-origin-required",
+      events: [],
+      sessionCookie: false,
+    });
+  });
+
+  const delayedImporter = (delayMs: number) =>
+    `<!doctype html><html><body><script>setTimeout(() => document.body.insertAdjacentHTML("beforeend",
+      "<h1>Pull provider data, review Source Observations, promote Catalog facts</h1>"), ${delayMs});</script></body></html>`;
+
+  credentialProbeTest("importer-visibility-waits", async ({ page }) => {
+    await page.setContent(delayedImporter(1_000));
+    // An immediate probe at this moment, as Locator.isVisible gives, is false.
+    expect(await importerHeading(page).isVisible()).toBe(false);
+    expect(await isImporterVisible(page, 5_000)).toBe(true);
+  });
+
+  credentialProbeTest("importer-visibility-times-out", async ({ page }) => {
+    await page.setContent(delayedImporter(1_500));
+    const startedAt = Date.now();
+    expect(await isImporterVisible(page, 500)).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(450);
+    // The same heading does render later, so the refusal above is the timeout.
+    await expect(importerHeading(page)).toBeVisible();
+  });
+});
+
 test.describe("catalog whole-game rehearsal journeys", () => {
   test.use({ offline: true, serviceWorkers: "block" });
   for (const target of [
@@ -8140,6 +8052,24 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       expect(calls.filter((call) => call.startsWith("POST "))).toEqual([]);
     });
   }
+  test("AC2 collapsed review-stage expansion rejects before promotion", async ({ page }) => {
+    test.setTimeout(10_000);
+    const calls = await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") return { json: { items: [] } };
+      if (request.path === "/catalog/scopes/scope-1") {
+        return {
+          html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form></div>`,
+        };
+      }
+      return undefined;
+    });
+    await page.goto(`${wholeGameStagingOrigin}/catalog/scopes/scope-1`);
+    const runtime: WholeGameRuntime = { deadlineAt: Date.now() + 1_000, pollMs: 10 };
+    await expect(submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    expect(calls.filter((call) => call.startsWith("POST /catalog/scopes/scope-1"))).toEqual([]);
+  });
   for (const [status, circuitOpen, retryFailed, resumeCancelled, expectedState, expectedIntent] of [
     ["queued", false, false, false, "running", null],
     ["running", false, false, false, "running", null],
@@ -8197,7 +8127,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         if (request.path === "/catalog/scopes/scope-1") {
           if (request.method === "POST") submitted = true;
           return {
-            html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form>`,
+            html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
           };
         }
         if (request.path === "/api/catalog/source-observations/bulk-jobs/active")
@@ -8524,7 +8454,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
             result: { promoted: 0, outcomes: [] },
           });
         return {
-          html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form>`,
+          html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
         };
       }
       if (request.path.startsWith("/api/catalog/source-observations/bulk-jobs/zero-"))

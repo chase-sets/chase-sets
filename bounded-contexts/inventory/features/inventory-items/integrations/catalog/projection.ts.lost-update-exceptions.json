@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-a97373c2964a59e4",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts",
+      "kind": "DELETE",
+      "table": "inventory_catalog_external_product_references",
+      "digest": "c0702fedb87f6358a536c80943169178799fed1587ea224b96b592e8fea47f92"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:73 directly synchronizes inventory_catalog_external_product_references from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d933a47d3d8f13ca",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts",
+      "kind": "DELETE",
+      "table": "inventory_catalog_external_catalog_item_references",
+      "digest": "19354e149a37cb161c98d719271661c511d6b45a106207f00fd37baa775c75b3"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:86 directly synchronizes inventory_catalog_external_catalog_item_references from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-090e809b47f36f5c",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts",
+      "kind": "DELETE",
+      "table": "inventory_catalog_gtins",
+      "digest": "6fd9587f1e87f157891935c51ba9705d46ce5d17db842469975b60eaf067bf3b"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:116 directly synchronizes inventory_catalog_gtins from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

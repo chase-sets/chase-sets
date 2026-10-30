@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentOAuthScope } from "@chase-sets/auth-context";
+import { buildAgentConnectorPackaging } from "./agent-connector-packaging";
 import {
   CORE_MCP_SERVICE_IDS,
   EXTERNAL_MCP_SERVICE_IDS,
@@ -48,7 +49,10 @@ function actualType(value: unknown) {
   return typeof value;
 }
 
-function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]): boolean {
+  if (Array.isArray(expected)) {
+    return value === null || matchesType(value, expected[0]);
+  }
   switch (expected) {
     case "array":
       return Array.isArray(value);
@@ -62,6 +66,7 @@ function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
     case "string":
       return typeof value === expected;
   }
+  return false;
 }
 
 function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: string): string[] {
@@ -333,6 +338,34 @@ describe("MCP service catalog", () => {
     expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
   });
 
+  it("keeps payment-method setup dryRun a closed boolean while the source and connector contracts declare it unsupported", () => {
+    const tool = findMcpTool("payments.start-payment-method-setup");
+    const schema = tool?.inputSchema;
+    expect(tool?.guardrails.dryRunSupported).toBe(false);
+    expect(schema?.additionalProperties).toBe(false);
+    expect(schema?.properties.dryRun).toMatchObject({ type: "boolean" });
+    expect(schema?.required).not.toContain("dryRun");
+
+    const required = {
+      accountId: "acc_1",
+      returnUrl: "https://app.chasesets.test/account/payment-methods",
+      idempotencyKey: "setup-1",
+      confirmationText: "Start Payment Method Setup.",
+    };
+    expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: false }, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: "true" }, schema!)).toEqual([
+      "dryRun expected boolean but received string.",
+    ]);
+    expect(validateObject({ ...required, unexpected: true }, schema!)).toEqual(["unexpected is not allowed."]);
+
+    const registration = buildAgentConnectorPackaging().registration.tools.find(
+      (entry) => entry.name === "payments.start-payment-method-setup",
+    );
+    expect(registration?.dry_run_supported).toBe(false);
+    expect(registration?.input_schema).toEqual(schema);
+  });
+
   it("requires the complete price pair in closed Marketplace listing write schemas", () => {
     const createSchema = findMcpTool("marketplace.create-listing")?.inputSchema;
     const updateSchema = findMcpTool("marketplace.update-listing-price")?.inputSchema;
@@ -424,7 +457,6 @@ describe("MCP service catalog", () => {
       adapter_version: 1,
       quantity_mode: "add",
       default_storage_location_id: null,
-      source_filename: null,
       total_count: 1,
       accepted_count: 1,
       rejected_count: 0,
@@ -692,6 +724,16 @@ describe("MCP service catalog", () => {
         items: [settlementPayout],
         total: 1,
         count: 1,
+        completeness: { kind: "complete", total: 1 },
+        next_payout: null,
+        blocked_payouts: [],
+        availability: {
+          can_request: false,
+          unavailable_reasons: ["payout-request-permission-required"],
+          unavailable_reason_details: [
+            { code: "payout-request-permission-required", message: "Request permission is required." },
+          ],
+        },
       }),
     ).toEqual([]);
     expect(
@@ -779,7 +821,7 @@ describe("MCP service catalog", () => {
   });
 
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
-    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual([
+    expect(findMcpTool("identity.create-invitation")?.audit.sensitiveInputFields).toEqual([
       "confirmationText",
       "email",
       "idempotencyKey",

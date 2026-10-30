@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   admitPriorProductionJob,
+  admitExecutorRun,
+  admitMarkerOnlyPolicy,
+  admitMarkerSourceRun,
   assertRegistryIdentity,
   publishReleaseMarker,
   readCompletePages,
@@ -12,11 +15,15 @@ import {
   validateTransitionAuthority,
   registryManifestBytes,
   readPriorAuthority,
+  rejectInterveningSourceDeployment,
   reconcileReleaseMarker,
+  reconcileMarkerOnly,
   readOnlySpawn,
   markerIo,
 } from "./production-release-marker.mjs";
 import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
+import { releaseLockRefusal, runReleaseLockCheck } from "./release-lock.mjs";
+import { ACTIVE_GC_NOT_FOUND_PHRASE } from "./digitalocean-registry-gc-gate.mjs";
 
 // Every mutable control below has unmistakably synthetic identities, never a real hosted job identity.
 const commit = "a".repeat(40);
@@ -196,6 +203,15 @@ describe("publication interruption and unknown response", () => {
     });
     expect(io.publishGit).toHaveBeenCalledTimes(3);
   });
+  it("lets a registry GC gate refusal escape the authoritative publication catch", async () => {
+    const { io } = publication();
+    const refusal = new Error("registry GC active");
+    refusal.code = "registry-gc-read-only";
+    io.assertRegistryWritable = vi.fn().mockRejectedValue(refusal);
+    await expect(publishReleaseMarker(identity, io)).rejects.toMatchObject({ code: "registry-gc-read-only" });
+    expect(io.assertRegistryWritable).toHaveBeenCalledOnce();
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+  });
   it.each(["fetch", "registry", "ancestry", "freshness"])("refuses %s failure before mutation", async (failure) => {
     const { io } = publication();
     if (failure === "fetch") io.readRefs.mockRejectedValue(new Error("fetch failed"));
@@ -219,6 +235,296 @@ describe("publication interruption and unknown response", () => {
     state.registry = Buffer.from("{}");
     await expect(publishReleaseMarker(identity, io)).rejects.toThrow();
     expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+  });
+});
+
+describe("marker-only source recovery", () => {
+  it("admits the live REST run shape without a ref field", () => {
+    expect(() =>
+      admitExecutorRun(
+        {
+          id: 900000010,
+          path: ".github/workflows/platform-production.yml",
+          event: "workflow_dispatch",
+          head_branch: "main",
+          head_sha: commit,
+          run_attempt: 1,
+          status: "in_progress",
+        },
+        { runId: 900000010, attempt: 1 },
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["wrong branch", { head_branch: "feature" }],
+    ["wrong event", { event: "push" }],
+    ["completed run", { status: "completed" }],
+    ["wrong attempt", { run_attempt: 2 }],
+    ["wrong workflow", { path: ".github/workflows/other.yml" }],
+  ])("refuses executor admission for %s", (_name, patch) => {
+    expect(() =>
+      admitExecutorRun(
+        {
+          id: 900000010,
+          path: ".github/workflows/platform-production.yml",
+          event: "workflow_dispatch",
+          head_branch: "main",
+          head_sha: commit,
+          run_attempt: 1,
+          status: "in_progress",
+          ...patch,
+        },
+        { runId: 900000010, attempt: 1 },
+      ),
+    ).toThrow("unverified production workflow source");
+  });
+
+  it("binds lock and circuit checks to the retained source commit", async () => {
+    const sourceCommit = "c".repeat(40);
+    const env = {
+      PRODUCTION_RELEASE_LOCKED: "false",
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: "synthetic-route",
+      PRODUCTION_RELEASE_LOCK_DEADLINE: "2099-05-31T12:00:00Z",
+      GITHUB_REPOSITORY: "synthetic/repo",
+      GITHUB_TOKEN: "synthetic-token",
+      GITHUB_STEP_SUMMARY: "",
+      CIRCUIT_ISSUE_NUMBER: "",
+      CIRCUIT_REASON: "",
+    };
+    const checkLock = vi.fn(async (options) => {
+      expect(options.releaseCommit).toBe(sourceCommit);
+      expect(options.releaseLocked).toBe(env.PRODUCTION_RELEASE_LOCKED);
+      expect(options.lockExitRoute).toBe(env.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE);
+      expect(options.lockDeadline).toBe(env.PRODUCTION_RELEASE_LOCK_DEADLINE);
+      expect(options.emergencyBypass).toBe("false");
+      return { deploymentAllowed: true, errors: [] };
+    });
+    const run = vi.fn(async (_program, args) => {
+      for (const [flag, value] of [
+        ["--base-sha", sourceCommit],
+        ["--candidate-sha", sourceCommit],
+        ["--automatic", "false"],
+        ["--enforcement", "false"],
+      ]) {
+        expect(args[args.indexOf(flag) + 1]).toBe(value);
+      }
+      expect(args[args.indexOf("--circuit-issue-number") + 1]).toBe("");
+      expect(args[args.indexOf("--circuit-reason") + 1]).toBe("");
+      return { stdout: "", stderr: "" };
+    });
+    await expect(admitMarkerOnlyPolicy({ commit: sourceCommit }, env, { checkLock, run })).resolves.toMatchObject({
+      deploymentAllowed: true,
+    });
+    expect(checkLock).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a locked source before the circuit guard", async () => {
+    const env = { PRODUCTION_RELEASE_LOCKED: "true" };
+    const checkLock = vi.fn(async (options) => {
+      expect(options.releaseLocked).toBe(env.PRODUCTION_RELEASE_LOCKED);
+      return { deploymentAllowed: false, errors: ["locked"] };
+    });
+    const run = vi.fn();
+    await expect(admitMarkerOnlyPolicy({ commit }, env, { checkLock, run })).rejects.toThrow(
+      "production release lock refused source",
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["pending", "2099-05-31T12:00:00Z"],
+    ["overdue", "2000-05-31T12:00:00Z"],
+    ["invalid", "2099-05-31T12:00:00Z", ""],
+    ["unlocked", "malformed", "malformed"],
+  ])("uses the real lock check for %s marker recovery", async (state, deadline, route) => {
+    const exitRoute = JSON.stringify({
+      kind: "host-revert",
+      reference: "https://github.com/chase-sets/chase-sets/issues/10391",
+    });
+    const env = {
+      PRODUCTION_RELEASE_LOCKED: state === "unlocked" ? "false" : "true",
+      PRODUCTION_RELEASE_LOCK_REASON: "synthetic marker hold",
+      PRODUCTION_RELEASE_LOCK_REFERENCE: "synthetic incident",
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: route ?? exitRoute,
+      PRODUCTION_RELEASE_LOCK_DEADLINE: deadline,
+      GITHUB_REPOSITORY: "synthetic/repo",
+    };
+    let lock;
+    const checkLock = async (options) => (lock = await runReleaseLockCheck(options));
+    const run = vi.fn(async () => ({ stdout: "", stderr: "" }));
+    const admission = admitMarkerOnlyPolicy({ commit }, env, { checkLock, run });
+    if (state === "unlocked") {
+      await expect(admission).resolves.toMatchObject({ deploymentAllowed: true });
+      expect(run).toHaveBeenCalledOnce();
+    } else {
+      await expect(admission).rejects.toThrow("production release lock refused source");
+      expect(run).not.toHaveBeenCalled();
+    }
+    expect(lock.lockState).toBe(state);
+    if (state === "pending" || state === "overdue") {
+      if (state === "pending") expect(lock.errors ?? []).toEqual([]);
+      else expect(lock.errors).toEqual([expect.stringContaining("has passed; host escalation")]);
+      expect(releaseLockRefusal(lock)).toContain(`Exit route: ${exitRoute}`);
+      expect(releaseLockRefusal(lock)).toContain(`Deadline: ${deadline}`);
+      expect(releaseLockRefusal(lock)).not.toMatch(/PRODUCTION_RELEASE_LOCK_(EXIT_ROUTE|DEADLINE) is required/);
+    } else if (state === "invalid") {
+      expect(lock.errors).toContain(
+        "PRODUCTION_RELEASE_LOCK_EXIT_ROUTE is required when PRODUCTION_RELEASE_LOCKED=true.",
+      );
+    }
+  });
+
+  it("admits an earlier retained authority while requiring a completed matching latest attempt", async () => {
+    const sourceRun = {
+      id: run.id,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      head_branch: "main",
+      head_sha: commit,
+      status: "completed",
+      conclusion: "failure",
+      created_at: run.created_at,
+    };
+    const latestRun = { ...sourceRun, run_attempt: 3, status: "completed", conclusion: "failure" };
+    const api = vi.fn(async (path) => (path.endsWith("/attempts/1") ? sourceRun : latestRun));
+    await expect(admitMarkerSourceRun(api, run.id, 1)).resolves.toMatchObject({
+      sourceRun,
+      latestRun,
+    });
+    expect(api).toHaveBeenNthCalledWith(1, `actions/runs/${run.id}/attempts/1`);
+    expect(api).toHaveBeenNthCalledWith(2, `actions/runs/${run.id}`);
+  });
+
+  it.each([
+    ["in-progress latest", { status: "in_progress" }],
+    ["head mismatch", { head_sha: previousCommit }],
+  ])("refuses %s source state", async (_name, latestPatch) => {
+    const sourceRun = {
+      id: run.id,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      head_branch: "main",
+      head_sha: commit,
+      status: "completed",
+      conclusion: "failure",
+      created_at: run.created_at,
+    };
+    const api = vi.fn(async (path) =>
+      path.endsWith("/attempts/1") ? sourceRun : { ...sourceRun, run_attempt: 3, ...latestPatch },
+    );
+    await expect(admitMarkerSourceRun(api, run.id, 1)).rejects.toThrow("unverified marker source latest attempt");
+  });
+
+  it("rejects an intervening deployment and accepts capture-only refusals after the authority", async () => {
+    const makeCaptureRefusal = (attempt, deploy = "skipped") => ({
+      ...syntheticJob(),
+      id: 900000100 + attempt,
+      run_attempt: attempt,
+      steps: [
+        {
+          name: "Capture production rollback target",
+          status: "completed",
+          conclusion: "failure",
+          started_at: timestamp(1),
+          completed_at: timestamp(2),
+        },
+        {
+          name: "Deploy production Kubernetes release",
+          status: "completed",
+          conclusion: deploy,
+          started_at: timestamp(3),
+          completed_at: timestamp(4),
+        },
+        {
+          name: "Roll back production Kubernetes release",
+          status: "completed",
+          conclusion: "skipped",
+          started_at: timestamp(5),
+          completed_at: timestamp(6),
+        },
+      ],
+    });
+    const api = vi.fn(async (path) => {
+      const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
+      return { total_count: 1, jobs: [{ ...makeCaptureRefusal(attempt), run_attempt: attempt }] };
+    });
+    await expect(rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 })).resolves.toBeUndefined();
+    api.mockImplementation(async (path) => {
+      const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
+      return {
+        total_count: 1,
+        jobs: [makeCaptureRefusal(attempt, attempt === 2 ? "success" : "skipped")],
+      };
+    });
+    await expect(rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 })).rejects.toThrow(
+      "Deploy production Kubernetes release",
+    );
+  });
+
+  it("publishes only after live source identity and stable retained history checks", async () => {
+    const { io, state } = publication();
+    const history = [
+      { revision: 20, status: "superseded", description: "Upgrade complete" },
+      { revision: 21, status: "deployed", description: "Upgrade complete" },
+    ];
+    const source = { ...identity, resultingHeadRevision: 21 };
+    const effects = [];
+    const result = await reconcileMarkerOnly(source, {
+      ...io,
+      readRefs: vi.fn(async () => {
+        effects.push("refs");
+        return io.readRefs();
+      }),
+      readRegistry: vi.fn(async () => {
+        effects.push("registry-read");
+        return io.readRegistry();
+      }),
+      publishRegistry: vi.fn(async () => {
+        effects.push("registry-publish");
+        return io.publishRegistry();
+      }),
+      publishGit: vi.fn(async (...args) => {
+        effects.push("git-publish");
+        return io.publishGit(...args);
+      }),
+      readHistory: vi.fn(async () => history),
+      readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
+      assertWriters: vi.fn(async () => effects.push("writers")),
+      capture: vi.fn(async () => {
+        effects.push("capture");
+        return { preDeployHistory: history };
+      }),
+      assertFresh: vi.fn(async () => {}),
+    });
+    expect(result).toMatchObject({ marker_updated: "true", production_marker_commit: commit });
+    expect(effects).toContain("writers");
+    expect(effects).toContain("capture");
+    expect(effects).toContain("git-publish");
+    expect(effects.indexOf("writers")).toBeLessThan(effects.indexOf("capture"));
+    expect(effects.indexOf("capture")).toBeLessThan(effects.indexOf("git-publish"));
+    expect(effects.lastIndexOf("writers")).toBeLessThan(effects.indexOf("git-publish"));
+    expect(state.production).toBe(commit);
+  });
+
+  it("refuses a live Helm identity that is not the retained source commit", async () => {
+    const { io } = publication();
+    await expect(
+      reconcileMarkerOnly(
+        { ...identity, resultingHeadRevision: 21 },
+        {
+          ...io,
+          readHistory: async () => [{ revision: 21, status: "deployed", description: "Upgrade complete" }],
+          readValues: async () => ({ global: { image: { tag: previousCommit } } }),
+          assertWriters: vi.fn(),
+          capture: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow("live Helm identity");
     expect(io.publishGit).not.toHaveBeenCalled();
   });
 });
@@ -575,6 +881,71 @@ describe("registry reads through the real command adapter", () => {
     expect(io.publishRegistry).toHaveBeenCalledOnce();
   });
 
+  it("fails closed when the scoped registry credential is withheld", async () => {
+    const runCommand = vi.fn(async () => {
+      throw failure(`ERROR: ${ref}: not found\n`);
+    });
+    const adapter = markerIo(release, {}, async () => {}, runCommand);
+    await expect(adapter.assertRegistryWritable()).rejects.toMatchObject({
+      code: "unknown",
+      registryGcGate: { reason: "missing-registry-credential", result: "refused" },
+    });
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    io.assertRegistryWritable = adapter.assertRegistryWritable;
+    await expect(publishReleaseMarker(release, io)).rejects.toThrow("unknown");
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+    expect(runCommand).toHaveBeenCalled();
+  });
+
+  it("surfaces provider-error refusal with the unknown code before publication", async () => {
+    const providerError = failure("500 provider unavailable\n");
+    const runCommand = vi.fn(async (program) => {
+      if (program === "docker") throw failure(`ERROR: ${ref}: not found\n`);
+      throw providerError;
+    });
+    const adapter = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    io.assertRegistryWritable = adapter.assertRegistryWritable;
+    await expect(publishReleaseMarker(release, io)).rejects.toMatchObject({ code: "unknown" });
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+  });
+
+  it("names registry-gc-read-only in the marker refusal message; F3 message mutant turns red", async () => {
+    const runCommand = vi.fn(async (program, args) => {
+      if (program === "git" && args[0] === "ls-remote") {
+        return { stdout: `${previousCommit} refs/heads/production\n` };
+      }
+      if (program === "docker") throw failure(`ERROR: ${ref}: not found\n`);
+      if (program === "doctl") {
+        return {
+          stdout: JSON.stringify([
+            {
+              uuid: "c5cf2bde-b606-4663-b6ec-7320b0f8b262",
+              registry_name: "synthetic",
+              status: "scanning for unreferenced blobs",
+            },
+          ]),
+        };
+      }
+      return { stdout: "" };
+    });
+    const adapter = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+    const publishRegistry = vi.spyOn(adapter, "publishRegistry");
+    const publishGit = vi.spyOn(adapter, "publishGit");
+
+    await expect(publishReleaseMarker(release, adapter)).rejects.toSatisfy((error) => {
+      expect(error).toMatchObject({ code: "registry-gc-read-only" });
+      expect(error.message).toContain("registry-gc-read-only");
+      return true;
+    });
+    expect(publishRegistry).not.toHaveBeenCalled();
+    expect(publishGit).not.toHaveBeenCalled();
+  });
+
   it.each([`error: ${ref}: not found\r\n`, "manifest unknown", "ERROR: manifest unknown: manifest unknown\n"])(
     "retains supported tag-absence wording %s",
     async (stderr) => {
@@ -683,6 +1054,11 @@ describe("publication interruption through the real command adapter", () => {
             stdout: args.includes("--raw") ? Buffer.concat([state.registry, Buffer.from("\n")]) : `${digest}\n`,
           };
         }
+        if (program === "doctl") {
+          const error = new Error("synthetic no active GC");
+          error.stderr = `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}`;
+          throw error;
+        }
         expect(program).toBe("git");
         if (args[0] === "fetch") {
           state.fetched = args.at(-1).startsWith("refs/tags/") ? state.tag : state.production;
@@ -727,7 +1103,7 @@ describe("publication interruption through the real command adapter", () => {
         image: "registry.digitalocean.com/synthetic/chase-sets-platform",
         createdAt: run.created_at,
       };
-      const io = markerIo(release, {}, async () => {}, runCommand);
+      const io = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
       expect(await publishReleaseMarker(release, io)).toMatchObject({
         marker_updated: "true",
         production_marker_commit: commit,

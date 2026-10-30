@@ -1,9 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
+  buyerVisibleOfferPredicateSql,
 } from "../../../support/market-support/listing-visibility";
 import type {
   DiscoveryAccountOfferMatchWithTerms,
@@ -17,6 +19,11 @@ import type {
   DiscoveryProductContentItemRef,
   DiscoverySellerInventoryItem,
 } from "../../../support/client-support/contracts";
+import {
+  sortAccountOfferMatchesForReview,
+  sortListingsByBuyerPrice,
+  sortOffersBySellerPrice,
+} from "../domain/item-detail-market";
 
 const ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT = 25;
 
@@ -84,6 +91,12 @@ export type DiscoveryItemDetailRow = Readonly<{
     created_at: string;
     updated_at: string;
   }>[];
+  market_products?: readonly Readonly<{
+    product_id: string;
+    lowest_listing_id: string | null;
+    best_offer_id: string | null;
+  }>[];
+  market_product_listings?: readonly Readonly<DiscoveryItemDetailRow["market_listings"][number]>[];
   offer_demand_matches: readonly Readonly<{
     offer_id: string;
     buyer_account_id: string;
@@ -116,6 +129,29 @@ type BaseDiscoveryItemDetailRow = Omit<
   DiscoveryItemDetailRow,
   "market_summary" | "market_listings" | "offer_demand_matches" | "contents" | "included_in"
 >;
+
+type DiscoveryMarketListingDbRow = Omit<DiscoveryItemDetailRow["market_listings"][number], "selected_options"> & {
+  selected_options: unknown;
+  product_measure_snapshot?: unknown;
+  supply_total_quantity?: unknown;
+  active_held_quantity?: unknown;
+};
+
+function safePriceNumericSql(alias: string): string {
+  return `CASE WHEN ${alias}.price_amount ~ '^[[:space:]]*0*[0-9]{1,10}([.][0-9]{1,2})?[[:space:]]*$' THEN ${alias}.price_amount::numeric END`;
+}
+
+function mapDiscoveryMarketListing(row: DiscoveryMarketListingDbRow) {
+  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
+  void product_measure_snapshot;
+  void supply_total_quantity;
+  void active_held_quantity;
+  return {
+    ...publicRow,
+    graded_card: row.graded_card ?? null,
+    selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+  };
+}
 
 type ProductContentLineDbRow = Readonly<{
   line_id: string;
@@ -367,7 +403,8 @@ export async function getDiscoveryItemDetail(
      )
      SELECT
        CASE WHEN COUNT(DISTINCT price_currency_code) = 1
-         THEN MIN(price_amount::numeric)::text ELSE NULL END AS lowest_price_amount,
+         THEN MIN(CASE WHEN price_amount ~ '^[[:space:]]*0*[0-9]{1,10}([.][0-9]{1,2})?[[:space:]]*$'
+                       THEN price_amount::numeric END)::text ELSE NULL END AS lowest_price_amount,
        CASE WHEN COUNT(DISTINCT price_currency_code) = 1
          THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
        COUNT(*)::integer AS active_listing_count,
@@ -377,14 +414,7 @@ export async function getDiscoveryItemDetail(
     [item.catalog_item_id],
   );
 
-  const listingsResult = await db.query<
-    Omit<DiscoveryItemDetailRow["market_listings"][number], "selected_options"> & {
-      selected_options: unknown;
-      product_measure_snapshot?: unknown;
-      supply_total_quantity?: unknown;
-      active_held_quantity?: unknown;
-    }
-  >(
+  const listingsResult = await db.query<DiscoveryMarketListingDbRow>(
     `WITH startable_listing AS (
        SELECT
          listing.listing_id,
@@ -418,6 +448,7 @@ export async function getDiscoveryItemDetail(
          account.founder_number AS seller_founder_number,
          COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
          ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity,
+         ${safePriceNumericSql("listing")} AS listing_price_key,
          listing.created_at::text AS created_at,
          listing.updated_at::text AS updated_at
        FROM discovery_market_listings AS listing
@@ -461,15 +492,13 @@ export async function getDiscoveryItemDetail(
        updated_at
      FROM startable_listing
      WHERE visible_quantity > 0
-     ORDER BY price_currency_code ASC, price_amount::numeric ASC, updated_at DESC, listing_id ASC
+     ORDER BY price_currency_code ASC, listing_price_key ASC NULLS LAST, created_at ASC, listing_id ASC
      LIMIT ${ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT}`,
     [item.catalog_item_id],
   );
 
   const offersResult = await db.query<
-    Omit<DiscoveryItemDetailRow["offer_demand_matches"][number], "selected_options"> & {
-      selected_options: unknown;
-    }
+    Omit<DiscoveryItemDetailRow["offer_demand_matches"][number], "selected_options"> & { selected_options: unknown }
   >(
     `SELECT
        offer.offer_id,
@@ -497,16 +526,119 @@ export async function getDiscoveryItemDetail(
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.catalog_catalog_item_id = $1
-       AND offer.status = 'submitted'
-       AND offer.price_currency_code IS NOT NULL
-       AND offer.offer_stream_version > 0
+       AND ${buyerVisibleOfferPredicateSql("offer", "account")}
      ORDER BY
        offer.price_currency_code ASC,
-       offer.price_amount::numeric DESC,
+       ${safePriceNumericSql("offer")} DESC NULLS LAST,
        offer.quantity_requested DESC,
        offer.created_at ASC,
        offer.offer_id ASC
      LIMIT ${ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT}`,
+    [item.catalog_item_id],
+  );
+
+  const productListingsResult = await db.query<DiscoveryMarketListingDbRow>(
+    `WITH startable_listing AS (
+       SELECT
+         listing.listing_id,
+         listing.listing_slug,
+         listing.product_slug,
+         listing.account_id,
+         listing.inventory_item_id,
+         listing.catalog_catalog_item_id,
+         listing.product_id,
+         listing.item_title,
+         listing.item_subtitle,
+         listing.selected_options,
+         listing.product_summary,
+         listing.graded_card,
+         listing.storage_location_name,
+         listing.ship_from_code,
+         listing.price_amount,
+         listing.price_currency_code,
+         listing.listing_stream_version,
+         listing.shipping_allowance_percentage_bps,
+         listing.quantity_cap,
+         listing.max_units_per_order,
+         listing.max_units_per_day,
+         listing.max_units_per_customer_account,
+         listing.status,
+         account.seller_slug,
+         account.seller_display_name,
+         account.average_rating_as_seller::text AS seller_average_rating,
+         COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
+         COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
+         account.founder_number AS seller_founder_number,
+         COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity,
+         ${safePriceNumericSql("listing")} AS listing_price_key,
+         listing.created_at::text AS created_at,
+         listing.updated_at::text AS updated_at
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.catalog_catalog_item_id = $1
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}
+     )
+     SELECT DISTINCT ON (product_id)
+       listing_id,
+       listing_slug,
+       product_slug,
+       account_id,
+       inventory_item_id,
+       catalog_catalog_item_id,
+       product_id,
+       item_title,
+       item_subtitle,
+       selected_options,
+       product_summary,
+       graded_card,
+       storage_location_name,
+       ship_from_code,
+       price_amount,
+       price_currency_code,
+       listing_stream_version,
+       shipping_allowance_percentage_bps,
+       quantity_cap,
+       max_units_per_order,
+       max_units_per_day,
+       max_units_per_customer_account,
+       status,
+       seller_slug,
+       seller_display_name,
+       seller_average_rating,
+       seller_review_count,
+       seller_badges,
+       seller_founder_number,
+       seller_at_capacity,
+       visible_quantity,
+       created_at,
+       updated_at
+     FROM startable_listing
+     WHERE visible_quantity > 0
+     ORDER BY product_id ASC, price_currency_code ASC, listing_price_key ASC NULLS LAST, created_at ASC, listing_id ASC`,
+    [item.catalog_item_id],
+  );
+
+  const productOffersResult = await db.query<{
+    product_id: string;
+    offer_id: string;
+  }>(
+    `SELECT DISTINCT ON (offer.product_id)
+       offer.product_id,
+       offer.offer_id
+     FROM discovery_offer_demand_matches AS offer
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = offer.buyer_account_id
+     WHERE offer.catalog_catalog_item_id = $1
+       AND ${buyerVisibleOfferPredicateSql("offer", "account")}
+     ORDER BY
+       offer.product_id ASC,
+       offer.price_currency_code ASC,
+       ${safePriceNumericSql("offer")} DESC NULLS LAST,
+       offer.quantity_requested DESC,
+       offer.created_at ASC,
+       offer.offer_id ASC`,
     [item.catalog_item_id],
   );
 
@@ -525,6 +657,31 @@ export async function getDiscoveryItemDetail(
     listProductContentsForItem(db, item.catalog_item_id, "included_in"),
   ]);
 
+  const marketListings = sortListingsByBuyerPrice(listingsResult.rows.map(mapDiscoveryMarketListing));
+  const marketOffers = sortOffersBySellerPrice(
+    offersResult.rows.map((row) => ({
+      ...row,
+      buyer_slug: row.buyer_slug ?? null,
+      buyer_average_rating: row.buyer_average_rating ?? null,
+      buyer_review_count: row.buyer_review_count ?? 0,
+      selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+    })),
+  );
+  const productFacts = new Map<string, { lowest_listing_id: string | null; best_offer_id: string | null }>();
+  for (const row of productListingsResult.rows) {
+    productFacts.set(row.product_id, {
+      lowest_listing_id: tryMoneyToCents(row.price_amount) === null ? null : row.listing_id,
+      best_offer_id: null,
+    });
+  }
+  for (const row of productOffersResult.rows) {
+    const current = productFacts.get(row.product_id) ?? { lowest_listing_id: null, best_offer_id: null };
+    productFacts.set(row.product_id, { ...current, best_offer_id: row.offer_id });
+  }
+  const marketProducts = [...productFacts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([product_id, facts]) => ({ product_id, ...facts }));
+
   return {
     ...item,
     display_badges: asArray<DiscoveryDisplayBadge>(item.display_badges),
@@ -533,20 +690,10 @@ export async function getDiscoveryItemDetail(
     image_urls: normalizeStringArray(item.image_urls),
     product_asset_sets: asArray(item.product_asset_sets),
     market_summary: marketSummary,
-    market_listings: listingsResult.rows.map((row) => {
-      const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
-      void product_measure_snapshot;
-      void supply_total_quantity;
-      void active_held_quantity;
-      return {
-        ...publicRow,
-        selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
-      };
-    }),
-    offer_demand_matches: offersResult.rows.map((row) => ({
-      ...row,
-      selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
-    })),
+    market_listings: marketListings as unknown as DiscoveryItemDetailRow["market_listings"],
+    offer_demand_matches: marketOffers as unknown as DiscoveryItemDetailRow["offer_demand_matches"],
+    market_products: marketProducts,
+    market_product_listings: productListingsResult.rows.map(mapDiscoveryMarketListing),
     contents,
     included_in: includedIn,
   };
@@ -586,13 +733,15 @@ export async function getDiscoveryItemDetailSellerOverlay(
            AND listing.price_currency_code = offer.price_currency_code
            AND ${buyerVisibleListingPredicateSql("listing", "seller")}
          ORDER BY
-           listing.price_amount::numeric ASC,
-           listing.updated_at DESC,
+           ${safePriceNumericSql("listing")} ASC NULLS LAST,
+           listing.created_at ASC,
            listing.listing_id ASC
          LIMIT 1
        ) AS listing ON true
+       INNER JOIN discovery_market_accounts AS buyer
+         ON buyer.account_id = offer.buyer_account_id
        WHERE offer.catalog_catalog_item_id = $2
-         AND offer.status = 'submitted'
+         AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
      )
      SELECT
        offer.offer_id,
@@ -635,7 +784,7 @@ export async function getDiscoveryItemDetailSellerOverlay(
        ON buyer.account_id = offer.buyer_account_id
      ORDER BY
        offer.price_currency_code ASC,
-       offer.price_amount::numeric DESC,
+       ${safePriceNumericSql("offer")} DESC NULLS LAST,
        offer.quantity_requested DESC,
        offer.created_at ASC,
        offer.offer_id ASC`,
@@ -731,11 +880,13 @@ export async function getDiscoveryItemDetailSellerOverlay(
   const selectedListing = selectedListingResult.rows[0] ?? null;
 
   return {
-    accountOfferMatches: accountOfferMatchesResult.rows.map((row) => ({
-      ...row,
-      selected_options: normalizeSelectedOptions(row.selected_options),
-      acceptance_terms: null,
-    })),
+    accountOfferMatches: sortAccountOfferMatchesForReview(
+      accountOfferMatchesResult.rows.map((row) => ({
+        ...row,
+        selected_options: normalizeSelectedOptions(row.selected_options),
+        acceptance_terms: null,
+      })),
+    ),
     sellerInventoryItems: inventoryResult.rows.map((row) => ({
       ...row,
       storage_location_name: row.storage_location_name ?? "",

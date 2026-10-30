@@ -48,6 +48,7 @@ import {
 import {
   countCaptureSendCap,
   countCapturePhaseCaps,
+  countCaptureSealSchema,
   type CountCaptureBaseline,
   type CountCaptureEffects,
   type CountCaptureHost,
@@ -127,11 +128,23 @@ export const countCapturePlannerInputSchema = z
     budget: countCapturePlanSchema.shape.budget.partial().nullable().optional(),
   })
   .strict();
+// The seal only. A collection is refused here: it can describe the deployment up
+// to the boundary only when gathered after the acknowledged frozenAt.
 export const countCaptureFreezeInputSchema = z
   .object({
-    runnerRunId: z.string().regex(/^[1-9]\d{0,19}$/),
-    runnerRunAttempt: z.number().int().min(1).max(1000),
-    collection: countCaptureCollectionSchema.optional(),
+    dispatchId: countCaptureFields.id,
+    runnerRunId: countCaptureSealSchema.shape.runnerRunId,
+    runnerRunAttempt: countCaptureSealSchema.shape.runnerRunAttempt,
+  })
+  .strict();
+// The one terminal completion of the exact sealed run, by the runner that sealed it.
+export const countCaptureCompleteInputSchema = z
+  .object({
+    runId: z.uuid(),
+    dispatchId: countCaptureFields.id,
+    runnerRunId: countCaptureSealSchema.shape.runnerRunId,
+    runnerRunAttempt: countCaptureSealSchema.shape.runnerRunAttempt,
+    collection: countCaptureCollectionSchema,
   })
   .strict();
 export type CountCaptureEvidence = Readonly<{
@@ -454,6 +467,7 @@ export function createCountCaptureLifecycle(deps: {
         },
       );
       return {
+        authority: countCaptureAuthoritySchema.parse(input.authority),
         admittedAt: run.admittedAt,
         expiresAt: run.expiresAt,
         host: run.host,
@@ -583,27 +597,52 @@ export function createCountCaptureLifecycle(deps: {
         return observed.value;
       });
     },
+    // Seals the session owner's run and acknowledges the server boundary. It reads
+    // nothing and assembles nothing; the receipt waits for the post-seal collection.
     async freeze(session: CountCaptureSession, input: z.infer<typeof countCaptureFreezeInputSchema>) {
       const parsed = countCaptureFreezeInputSchema.parse(input);
-      const run = await deps.store.seal(owner(session));
+      const run = await deps.store.seal(owner(session), parsed);
+      return { runId: run.runId, frozenAt: run.frozenAt! };
+    },
+    // Appends the post-seal collection to the exact sealed run and retains its one
+    // receipt, within the run's own lifetime. It never resumes capture: the run
+    // stays frozen and sends stay fenced. An expired sealed run stays receipt-free.
+    async complete(session: CountCaptureSession, input: z.infer<typeof countCaptureCompleteInputSchema>) {
+      const parsed = countCaptureCompleteInputSchema.parse(input);
+      const ownerHash = owner(session);
+      const run = await deps.store.read(parsed.runId);
+      if (
+        run.ownerHash !== ownerHash ||
+        run.status !== "frozen" ||
+        !run.frozenAt ||
+        !run.seal ||
+        run.receipt ||
+        Date.parse(run.expiresAt) <= Date.parse(now()) ||
+        run.host.dispatchId !== parsed.dispatchId ||
+        run.seal.runnerRunId !== parsed.runnerRunId ||
+        run.seal.runnerRunAttempt !== parsed.runnerRunAttempt
+      )
+        throw new CountCaptureStopped();
+      const seal = run.seal;
       return local(run, async () => {
-        const receipt = await closedReceipt(run, parsed, run.stopped);
+        const receipt = await closedReceipt(run, seal, parsed.collection);
         if (!validateCountLifecycleReceipt(receipt).valid) throw new CountCaptureStopped();
-        return { receipt: await deps.store.retainReceipt(run.runId, receipt) };
+        return { receipt: await deps.store.retainReceipt(run, receipt) };
       });
     },
   };
 
   async function closedReceipt(
     run: CountCaptureRun,
-    input: z.infer<typeof countCaptureFreezeInputSchema>,
-    stopped: boolean,
+    seal: NonNullable<CountCaptureRun["seal"]>,
+    collection: z.infer<typeof countCaptureCollectionSchema>,
   ): Promise<CountLifecycleReceipt | CountLifecycleStopReceipt> {
     const frozenAt = run.frozenAt!;
+    const stopped = seal.from === "stopped";
     const attribution = {
       dispatchId: run.host.dispatchId,
-      runnerRunId: input.runnerRunId,
-      runnerRunAttempt: input.runnerRunAttempt,
+      runnerRunId: seal.runnerRunId,
+      runnerRunAttempt: seal.runnerRunAttempt,
       runnerSha: run.host.runnerSha,
       packetHash: run.host.packetHash,
       reviewReceiptHash: run.authority?.review.receiptHash ?? null,
@@ -650,7 +689,6 @@ export function createCountCaptureLifecycle(deps: {
       !preConfirm ||
       !effects ||
       !evidence?.complete ||
-      !input.collection ||
       run.request ||
       stopped
     ) {
@@ -767,7 +805,7 @@ export function createCountCaptureLifecycle(deps: {
         effectsCapability: false,
       },
       effects,
-      freezeCollection: input.collection,
+      freezeCollection: collection,
       stopReasons: [],
       classification: {
         verdict: "INCOMPLETE",

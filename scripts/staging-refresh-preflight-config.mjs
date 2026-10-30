@@ -5,7 +5,6 @@
 export const STAGING_REFRESH_PREFLIGHT_VERSION = "staging-refresh-preflight/v1";
 
 export const stagingRefreshRequiredSecrets = Object.freeze([
-  { name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", valueKind: "present" },
   { name: "SCRYDEX_API_KEY", valueKind: "present" },
   { name: "SCRYDEX_TEAM_ID", valueKind: "present" },
   { name: "STRIPE_SECRET_KEY", valueKind: "stripe-secret-test" },
@@ -17,6 +16,8 @@ export const stagingRefreshRequiredSecrets = Object.freeze([
 export const stagingRefreshCredentialedProviders = Object.freeze(["tcgplayer", "scrydex"]);
 
 export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
+  // platform-production-lock-monitor.yml is deliberately excluded: it reads
+  // production variables and delivers issues, with no staging/provider writes.
   ".github/workflows/platform-production.yml",
   ".github/workflows/platform-staging-reset.yml",
   ".github/workflows/platform-staging-wake-drills.yml",
@@ -26,6 +27,7 @@ export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
   ".github/workflows/catalog-staging-provider-uat.yml",
   ".github/workflows/catalog-integration-staging-reset.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
+  ".github/workflows/platform-staging-cluster-addons.yml",
 ]);
 
 function choice(queryKind, labels, values = [], extra = {}) {

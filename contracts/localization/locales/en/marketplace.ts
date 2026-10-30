@@ -8,12 +8,29 @@ export const marketplaceEnglishTranslations = {
   "marketplace.recovery.failedSafe": "The action was not sent. Review your inputs before trying again.",
   "marketplace.recovery.ambiguous":
     "We could not confirm the result. This action is disabled to avoid duplicating your work.",
+  "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
+  "marketplace.features.listings.capacityRecovery.waiting":
+    "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",
+  "marketplace.features.listings.capacityRecovery.summary":
+    "Listing {reference} could not resume after inventory capacity returned. {action}",
+  "marketplace.features.listings.capacityRecovery.evidence":
+    "Review the Listing evidence checklist, correct unmet requirements, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.away":
+    "Turn Seller Listing Availability back on, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.visibility":
+    "Review the Listing's native visibility and fee enrollment before publishing.",
+  "marketplace.features.listings.capacityRecovery.measure":
+    "Resolve the Product's shipping measure, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.price":
+    "Set a complete price and currency before publishing this Listing.",
+  "marketplace.features.listings.capacityRecovery.unavailable":
+    "Publication checks are unavailable. Open this Listing and retry publication when checks are available.",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
   "marketplace.marketFollowing.itemOnly":
     "Item-only limits. Checkout fees, shipping, tax and later amounts are not capped.",
   "marketplace.marketFollowing.effects":
-    "The lifetime Item Commitment Allowance tracks accepted item commitments, not payments. Payment failure, cancellation and refunds never restore it. Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
+    "Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
   "marketplace.marketFollowing.status.draft": "Draft",
   "marketplace.marketFollowing.status.active": "Active",
   "marketplace.marketFollowing.status.paused": "Paused",
@@ -28,10 +45,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.select": "Select {title} ({offer})",
   "marketplace.marketFollowing.current": "Current unit amount: {amount}. Quantity: {quantity}. Currency: {currency}.",
   "marketplace.marketFollowing.maximum": "Maximum unit item amount: {title}",
-  "marketplace.marketFollowing.allowance": "Lifetime Item Commitment Allowance",
-  "marketplace.marketFollowing.allowanceValue": "Lifetime Item Commitment Allowance: {amount}",
-  "marketplace.marketFollowing.consumed": "Accepted item commitments: {amount}",
-  "marketplace.marketFollowing.remaining": "Remaining item commitment allowance: {amount}",
   "marketplace.marketFollowing.empty": "Select an eligible submitted Offer. Accepted Offers cannot be repriced.",
   "marketplace.marketFollowing.advanced": "Advanced adjustment",
   "marketplace.marketFollowing.adjustment": "Market Price adjustment (%)",
@@ -39,8 +52,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.preview": "Preview selected Offers",
   "marketplace.marketFollowing.resumePreview": "Preview to resume",
   "marketplace.marketFollowing.review": "Review exact Offer authority",
-  "marketplace.marketFollowing.reviewTerms":
-    "Currency: {currency}. Adjustment: {adjustment}%. Lifetime Item Commitment Allowance: {allowance}.",
+  "marketplace.marketFollowing.reviewTerms": "Currency: {currency}. Adjustment: {adjustment}%.",
   "marketplace.marketFollowing.selection":
     "Offer {offer}. Product {product}. Quantity: {quantity}. Maximum unit item amount: {amount}.",
   "marketplace.marketFollowing.evidence": "Market Price: {amount}. Estimate version: {version}. Fresh until: {until}.",
@@ -58,7 +70,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.held.target-below-minimum":
     "Held: the adjustment is below the minimum unit item amount.",
   "marketplace.marketFollowing.consent":
-    "I authorize these exact selected Offers, quantities, currency, adjustment, maximum unit item amounts and lifetime Item Commitment Allowance. Increasing the allowance or resuming requires a fresh preview and consent.",
+    "I authorize these exact selected Offers, quantities, currency, adjustment and maximum unit item amounts. Resuming requires a fresh preview and consent.",
   "marketplace.marketFollowing.authorize": "Authorize reviewed Offers",
   "marketplace.marketFollowing.pause": "Pause market following",
   "marketplace.marketFollowing.stop": "Stop market following",
@@ -108,7 +120,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.root.marketplace.error": "Marketplace error",
   "marketplace.app.root.page.not.found": "Page not found",
   "marketplace.app.root.page.not.found.description": "This marketplace page does not exist or is no longer available.",
-  "marketplace.app.root.unknown.error": "Unknown error",
+  "marketplace.app.root.unknown.error": "Something went wrong. Please try again.",
   "marketplace.app.routes.layout.exit.guest.checkout": "Exit guest checkout",
   "marketplace.app.routes.layout.sign.out": "Sign Out",
   "marketplace.app.routes.layout.add.passkey": "Add a passkey to secure your account",
@@ -160,6 +172,22 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
   "marketplace.features.reports.api.reporter.required": "Start a new report session before reporting this listing.",
   "marketplace.features.reports.api.request.failed": "Report request failed.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.controlCharacter":
+    "Remove hidden control characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.directionOverride":
+    "Remove hidden text-direction characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.unsafeLink":
+    "Links must start with https://. Remove other kinds of links, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.duplicateLink": "Include each link only once, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.rateLimited":
+    "You have sent several of these recently. Wait a few minutes, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.title": "Your text was not posted",
+  "marketplace.features.reviews.ui.authoredTextRecovery.draftKept":
+    "Your text is still here so you can edit it and try again.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.description":
+    "What you post here is public and must follow the community guidelines.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.communityGuidelines": "Community guidelines",
+  "marketplace.features.reviews.ui.authoredTextGuidance.contactSupport": "Contact support",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",
   "marketplace.features.listings.domain.domain.zero.or.greater": "zero or greater",
@@ -545,7 +573,9 @@ export const marketplaceEnglishTranslations = {
     "Search or paste a catalog item ID",
   "marketplace.features.listings.ui.listingCreatePage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "marketplace.features.listings.ui.listingCreatePage.catalog.item": "Catalog item",
+  "marketplace.features.listings.ui.listingCreatePage.product.options.changed":
+    "Product options changed since this listing was started. Choose the current options to continue.",
+  "marketplace.features.listings.ui.listingCreatePage.choose.product.option": "Choose an option",
   "marketplace.features.listings.ui.listingCreatePage.searching.catalog.items": "Searching catalog items...",
   "marketplace.features.listings.ui.listingCreatePage.select.a.catalog.item": "Select a catalog item",
   "marketplace.features.listings.ui.listingCreatePage.choose.the.visible.catalog.item":

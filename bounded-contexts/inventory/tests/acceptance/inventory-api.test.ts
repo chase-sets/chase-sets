@@ -897,7 +897,7 @@ describe("inventory api", () => {
     });
   });
 
-  it("records partial and refused offline sales without creating a second quantity source", async () => {
+  it("one movement and one audit row: boot replay and next sale preserve full, partial and refused sales", async () => {
     const createItem = async (name: string) => {
       const location = await services.storageLocations.createStorageLocation(
         {
@@ -967,8 +967,12 @@ describe("inventory api", () => {
       refusedQuantity: 1,
       collision: { mode: "protect-orders", appliedQuantity: 2, refusedQuantity: 1 },
     });
-    const partialEvents = await pools.inventory.query<{ event_type: string; payload: Record<string, unknown> }>(
-      `SELECT event_type, payload
+    const partialEvents = await pools.inventory.query<{
+      event_type: string;
+      stream_version: string;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT event_type, stream_version, payload
        FROM event_store_events
        WHERE stream_id = $1
        ORDER BY stream_version`,
@@ -991,7 +995,7 @@ describe("inventory api", () => {
     ]);
     const partialLedger = await pools.inventory.query<{
       kind: string;
-      quantity_delta: number;
+      quantity_delta: number | null;
       sale_price_amount: string | null;
       channel: string | null;
     }>(
@@ -1003,8 +1007,28 @@ describe("inventory api", () => {
     );
     expect(partialLedger.rows).toEqual([
       { kind: "adjusted", quantity_delta: -2, sale_price_amount: null, channel: null },
-      { kind: "offline-sale", quantity_delta: -2, sale_price_amount: "125.00", channel: "card-show" },
+      { kind: "offline-sale", quantity_delta: null, sale_price_amount: "125.00", channel: "card-show" },
     ]);
+    const detailResponse = await app.request(`/api/inventory/items/${partialItem.itemId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    expect(detail).toMatchObject({ total_quantity: 1, held_quantity: 1, available_quantity: 0 });
+    expect(detail.ledger.filter((row: { kind: string }) => ["adjusted", "offline-sale"].includes(row.kind))).toEqual([
+      expect.objectContaining({
+        kind: "offline-sale",
+        quantity_delta: null,
+        sale_price_amount: "125.00",
+        channel: "card-show",
+        actor: "seller",
+        account_id: "acc_inventory",
+        ledger_entry_id: `inventory.item-${partialItem.itemId}:${partialEvents.rows.at(-1)!.stream_version}`,
+        stream_version: Number(partialEvents.rows.at(-1)!.stream_version),
+        occurred_at: expect.any(String),
+        recorded_at: expect.any(String),
+      }),
+      expect.objectContaining({ kind: "adjusted", quantity_delta: -2, reason_code: "sold-offline" }),
+    ]);
+    const beforeReplay = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
     const partialEventCount = partialEvents.rows.length;
     const replay = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
       method: "POST",
@@ -1020,6 +1044,9 @@ describe("inventory api", () => {
     expect(replay.status).toBe(200);
     await expect(countStreamEvents(pools.inventory, `inventory.item-${partialItem.itemId}`)).resolves.toBe(
       partialEventCount,
+    );
+    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows).toEqual(
+      beforeReplay.rows,
     );
 
     const refusedItem = await createItem("Refused sale shelf");
@@ -1068,6 +1095,60 @@ describe("inventory api", () => {
       [refusedItem.itemId],
     );
     expect(Number(refusedLedger.rows[0]?.count ?? 0)).toBe(0);
+
+    const fullItem = await createItem("Full sale history shelf");
+    for (let index = 0; index < 51; index++) {
+      await services.items.adjustItem(
+        {
+          accountId: "acc_inventory",
+          itemId: fullItem.itemId,
+          quantityDelta: 1,
+          reason: "Ordinary intake",
+          reasonCode: "intake",
+        },
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
+      );
+    }
+    await drainContextProcesses({ subscriptionRunners });
+    const full = await app.request(`/api/inventory/items/${fullItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: 2, channel: "in-store", idempotencyKey: "full-history-sale" }),
+    });
+    expect(full.status).toBe(200);
+    await expect(full.json()).resolves.toMatchObject({ appliedQuantity: 2, refusedQuantity: 0 });
+    const snapshot = await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id");
+    expect(snapshot.rows.filter((row) => row.item_id === fullItem.itemId).length).toBeGreaterThan(50);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await drainContextProcesses({ subscriptionRunners });
+    const ledgerRunner = subscriptionRunners.find(
+      (runner) => runner.projectionName === "inventory-item-ledger-projection",
+    )!;
+    await ledgerRunner.reset();
+    await drainContextProcesses({ subscriptionRunners });
+    expect((await pools.inventory.query("SELECT * FROM inventory_item_ledger ORDER BY ledger_entry_id")).rows).toEqual(
+      snapshot.rows,
+    );
+    const next = await app.request(`/api/inventory/items/${fullItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: 1, channel: "in-store", idempotencyKey: "next-history-sale" }),
+    });
+    expect(next.status).toBe(200);
+    const history = await pools.inventory.query(`SELECT i.item_id, i.total_quantity,
+      sum(l.quantity_delta)::int AS ledger_quantity, count(*)::int AS rows
+      FROM inventory_items i JOIN inventory_item_ledger l ON l.item_id = i.item_id AND l.account_id = i.account_id
+      GROUP BY i.item_id ORDER BY i.item_id`);
+    for (const row of history.rows) expect(row.ledger_quantity).toBe(row.total_quantity);
+    const window = await app.request(`/api/inventory/items/${fullItem.itemId}`);
+    expect(window.status).toBe(200);
+    const windowBody = await window.json();
+    expect(windowBody.total_quantity).toBe(51);
+    expect(windowBody.ledger).toHaveLength(50);
+    expect(windowBody.ledger.filter((row: { kind: string }) => row.kind === "offline-sale")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ quantity_delta: null, channel: "in-store" })]),
+    );
   });
 
   it("honors an explicit manager override by atomically releasing affected order commitments", async () => {

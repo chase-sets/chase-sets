@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
+- Runtime exports indexed: 363
 - Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -40,7 +40,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Bleed` | `packages/design-system/src/primitives/layout.tsx` | Negative-margin primitive that lets edge-to-edge media break out of a padded `Container`/`Surface`/`Page`. | `No production consumer yet.` |
 | `BottomNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Bottom Nav. | `No production consumer yet.` |
 | `BottomSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Mobile-band modal panel anchored to the bottom edge. | `No production consumer yet.` |
-| `Box` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name only: Box. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/section-dirty-summary.tsx` |
+| `Box` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name only: Box. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx` |
 | `BrandFoilText` | `packages/design-system/src/brand/brand-foil-text.tsx` | The one gold-foil treatment permitted per rendered page (epic #6026, ratified 2026-07-23): an inline phrasing span consuming the canonical `--chase-logo-*` stops via the `ds-brand-foil-text` recipe. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `BrandLink` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Brand Link. | `bounded-contexts/discovery/support/shell-support/layout.tsx` |
 | `Breadcrumbs` | `packages/design-system/src/components/actions/breadcrumbs.tsx` | Purpose not documented; symbol name suggests: Breadcrumbs. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
@@ -204,6 +204,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `bounded-contexts/auth/support/ui-support/auth-form-feedback.ts` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `No production consumer yet.` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx` |
+| `NumericSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Numeric Series Chart. | `bounded-contexts/pricing/features/pricing-health/ui/what-if-panels.tsx` |
 | `NumericValue` | `packages/design-system/src/primitives/typography.tsx` | Closed inline role carrier for prices and market data: IBM Plex Mono with tabular figures. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
 | `observeEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: observe Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
