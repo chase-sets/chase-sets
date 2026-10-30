@@ -78,6 +78,8 @@ const expectedInventory = [
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   // The owner-transaction adapter forwards the complete request unchanged.
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
+  // The owner-checking lookup reader forwards the complete history request unchanged.
+  ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts#readStream#1", null],
   // Synthetic policy discovery rejects streams that reach this bounded lifecycle cap.
   ["bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts#readStream#1", "10"],
   // The existing corpus includes slice-local .test-support.ts history assertions.
@@ -106,9 +108,27 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact eighteen-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact nineteen-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the Marketplace lookup reader's complete history request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("mutation-recovery/api/lookup.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["request"]);
+    expect(site.limit).toBeNull();
+    const file = site.file;
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          readSource(file).replace("eventStore.readStream(request)", "eventStore.readStream({ ...request, limit: 1 })"),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
   });
 
   it("retains the synthetic Pricing Health lifecycle cap and truncation refusal", () => {

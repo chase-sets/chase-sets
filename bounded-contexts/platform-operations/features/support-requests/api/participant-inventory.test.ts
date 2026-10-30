@@ -29,6 +29,7 @@ function partition(source: string) {
     ...Object.values(participantActions).map((entry) => entry.path),
     "/:id/attachments",
     "/:id/resolve",
+    "/participant-attempts/:attemptId/attachments",
   ]);
   const participants = posts(source).filter(({ path }) => !path.startsWith("/ops/"));
   for (const { path, handler } of participants) {
@@ -75,13 +76,20 @@ describe("support participant mutation inventory", () => {
   it("derives nine routes, client commands, form intents and the owning context row", () => {
     expect(
       partition(route)
-        .filter((path) => path !== "/:id/attachments" && path !== "/:id/resolve")
+        .filter(
+          (path) =>
+            path !== "/:id/attachments" &&
+            path !== "/:id/resolve" &&
+            path !== "/participant-attempts/:attemptId/attachments",
+        )
         .sort(),
     ).toEqual(
       Object.values(participantActions)
         .map((entry) => entry.path)
         .sort(),
     );
+    const stagingRoutes = partition(route).filter((path) => path.startsWith("/participant-attempts/"));
+    expect(stagingRoutes).toEqual(["/participant-attempts/:attemptId/attachments"]);
     const tree = ts.createSourceFile("client.ts", client, ts.ScriptTarget.Latest, true);
     const kinds = new Set<string>();
     function walk(node: ts.Node) {
@@ -130,6 +138,9 @@ describe("support participant mutation inventory", () => {
   });
   it("new and unknown-shape mutations refuse INDETERMINATE, including a tenth executable participant", () => {
     expect(() => partition(`${route}\napp.post('/new-mutation', handler);`)).toThrow("INDETERMINATE");
+    expect(() => partition(`${route}\napp.post('/participant-attempts/:attemptId/other', handler);`)).toThrow(
+      "INDETERMINATE",
+    );
     expect(() => partition(`${route}\napp.post(dynamicPath, handler);`)).toThrow("INDETERMINATE");
     expect(partition(route)).toContain("/:id/resolve");
   });

@@ -1,4 +1,13 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
+  "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
+  "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
+  "marketplace.recovery.submitting": "Sending your Offer action...",
+  "marketplace.recovery.confirming": "Confirming your first result. Do not submit this action again.",
+  "marketplace.recovery.succeeded": "Your Offer action is confirmed.",
+  "marketplace.recovery.failedSafe": "The action was not sent. Review your inputs before trying again.",
+  "marketplace.recovery.ambiguous":
+    "We could not confirm the result. This action is disabled to avoid duplicating your work.",
   "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
   "marketplace.features.listings.capacityRecovery.waiting":
     "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",

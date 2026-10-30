@@ -156,6 +156,63 @@ function requireCommandContext(c: { get(key: "context"): SupportApiEnv["Variable
 export function createAccountSupportRequestRoutes(services: SupportRequestServices) {
   const app = new Hono<SupportApiEnv>();
 
+  app.post("/participant-attempts/:attemptId/attachments", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (
+      !context ||
+      context.tenantId !== access.actor.tenantId ||
+      context.audit.forAccountId !== access.actor.accountId ||
+      context.audit.performedByUserId !== access.actor.userId
+    )
+      return new Response(null, { status: 403 });
+    try {
+      const operationId = c.req.header(SUPPORT_ATTACHMENT_OPERATION_HEADER) ?? "";
+      validateSupportAttachmentOperationId(operationId);
+      const form = await readSupportAttachmentFormData(c.req.raw);
+      const attemptId = c.req.param("attemptId");
+      if (form.get("attemptId") !== attemptId) throw new ParticipantAttemptError(400, "invalid-participant-attempt");
+      const affectedLineIds = form.getAll("affectedLineIds").map(String);
+      const attachments = await services.stageParticipantIntakeAttachments({
+        attemptId,
+        orderId: String(form.get("orderId") ?? ""),
+        flowType: String(form.get("flowType") ?? ""),
+        affectedLineIds: affectedLineIds.length ? affectedLineIds : null,
+        operationId,
+        actor: access.actor,
+        uploads: async () => {
+          const uploads = [];
+          for (const file of form.getAll("attachments").filter(isUploadedFile))
+            uploads.push({
+              body: new Uint8Array(await file.arrayBuffer()),
+              contentType: file.type,
+              filename: file.name || null,
+            });
+          return uploads;
+        },
+      });
+      return c.json({ attachments }, 201);
+    } catch (error) {
+      if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
+      if (error instanceof ParticipantAttemptError)
+        return c.json({ error: { code: error.code, message: error.code } }, error.status);
+      if (error instanceof SupportDomainError) return c.json({ error: evidenceValidationError(error) }, 400);
+      if (error instanceof SupportAttachmentIntakeError)
+        return c.json(
+          {
+            error: { code: error.code, message: t("support.features.support_requests.api.route.evidence.unavailable") },
+          },
+          error.status,
+        );
+      const code = error instanceof SupportEvidenceAttachmentError ? error.code : "attachment_upload_failed";
+      return c.json(
+        { error: { code, message: t("support.features.support_requests.api.route.evidence.unavailable") } },
+        error instanceof SupportEvidenceAttachmentError && error.code !== "storage-unavailable" ? 400 : 503,
+      );
+    }
+  });
+
   async function executeParticipantCommand(kind: ParticipantAction, c: Context<SupportApiEnv>) {
     const access = requireSupportAccess(c, "support.manage");
     const context = c.get("context");

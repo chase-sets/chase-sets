@@ -62,12 +62,12 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 18,
+      discoveredCallCandidates: 19,
       authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 0,
+      insufficientReceiverContractSites: 1,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -101,6 +101,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [
         "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",

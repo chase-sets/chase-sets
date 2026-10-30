@@ -96,6 +96,31 @@ async function readResolvedFreshWriteToken(url: URL) {
 }
 
 describe("checkout web routes: sell checkout session", () => {
+  it.each(["selected", "match"])(
+    "Marketplace accepts the unchanged Checkout %s key; a base64url-only mutant refuses it",
+    async (kind) => {
+      const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+        "@chase-sets/marketplace/server",
+      );
+      const key = `sell-confirm:slc_chk_sell_1:sll_1:${kind}:off_1`;
+      const transport = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ id: "off_1", version: 2 }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", transport);
+      const api = actual.createMarketplaceRequestApiClient(new Request("http://localhost"));
+      expect(/^[A-Za-z0-9_-]{22,128}$/.test(key)).toBe(false);
+      await expect(api.acceptOfferMatch("off_1", { sourceActionKey: key, listingId: "lst_1" })).resolves.toMatchObject({
+        id: "off_1",
+        version: 2,
+      });
+      expect(transport).toHaveBeenCalledTimes(1);
+      vi.unstubAllGlobals();
+    },
+  );
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
   });

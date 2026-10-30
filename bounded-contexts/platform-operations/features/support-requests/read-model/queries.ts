@@ -10,6 +10,21 @@ import { normalizeFlowType } from "../domain/common";
 import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
 import type { RemedyCasePresentation, RemedyExecution } from "../domain/remedy";
 import { remedyApprovalExpired, type RemedyApprovalWorkflow } from "../domain/remedy-approval";
+import { projectCustomerRemedyStatus, type CustomerRemedyStatusProjection } from "../domain/domain";
+
+export type CustomerSupportRequestListRow = SupportRequestListRow &
+  Readonly<{
+    customerRemedyStatus: CustomerRemedyStatusProjection | null;
+    nextDeadline: string | null;
+  }>;
+
+function customerListRow(row: SupportRequestListRow, role: "buyer" | "seller"): CustomerSupportRequestListRow {
+  return {
+    ...row,
+    customerRemedyStatus: projectCustomerRemedyStatus(row, role),
+    nextDeadline: row.seller_response_due_at ?? row.support_review_due_at ?? row.seller_condition_attestation_due_at,
+  };
+}
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -262,7 +277,7 @@ function withoutBuyerReturnLabel<T extends SupportRequestListRow>(row: T): T {
 export async function listBuyerSupportRequests(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: SupportRequestListRow[]; total: number }> {
+): Promise<{ items: CustomerSupportRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
@@ -281,7 +296,7 @@ export async function listBuyerSupportRequests(
   ]);
 
   return {
-    items: itemsResult.rows.map(withCompatibleResolution),
+    items: itemsResult.rows.map((row) => customerListRow(withCompatibleResolution(row), "buyer")),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -289,7 +304,7 @@ export async function listBuyerSupportRequests(
 export async function listSellerSupportRequests(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: SupportRequestListRow[]; total: number }> {
+): Promise<{ items: CustomerSupportRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
@@ -308,7 +323,9 @@ export async function listSellerSupportRequests(
   ]);
 
   return {
-    items: itemsResult.rows.map((row) => withoutBuyerReturnLabel(withCompatibleResolution(row))),
+    items: itemsResult.rows.map((row) =>
+      customerListRow(withoutBuyerReturnLabel(withCompatibleResolution(row)), "seller"),
+    ),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }

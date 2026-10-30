@@ -116,6 +116,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     }) => {
       const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
         data: {
+          attemptId: crypto.randomUUID(),
           ...offer,
           shippingDestinationSnapshot: {
             name: "Synthetic Buyer",
@@ -310,13 +311,19 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       let created = false;
       try {
         const creation = await page.request.post(commandUrl, {
-          data: { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: crypto.randomUUID() },
+          data: {
+            type: "CreateBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
+            expectedVersion: 0,
+            operationId: crypto.randomUUID(),
+          },
         });
         expect(creation.ok()).toBe(true);
         created = true;
         const preview = await page.request.post(commandUrl, {
           data: {
             type: "PreviewBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
             expectedVersion: 1,
             operationId: crypto.randomUUID(),
             terms: {
@@ -347,6 +354,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         const authorized = await page.request.post(commandUrl, {
           data: {
             type: "AuthorizeBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
             expectedVersion: reviewed.version,
             previewId: reviewed.preview.previewId,
             consent: true,
@@ -430,7 +438,11 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             );
             expect(quote.ok()).toBe(true);
             const acceptance = await seller.request.post(`/api/marketplace/account/offers/matches/${offerId}/accept`, {
-              data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
+              data: {
+                sourceActionKey: crypto.randomUUID(),
+                listingId: match.listing_id,
+                feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint,
+              },
             });
             expect(acceptance.status()).toBe(201);
             rememberWrite(acceptance);
@@ -495,7 +507,12 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           expect(response.ok()).toBe(true);
           const current = await response.json();
           const stopped = await page.request.post(commandUrl, {
-            data: { type: "StopBuyerOfferPolicy", expectedVersion: current.version, operationId: crypto.randomUUID() },
+            data: {
+              type: "StopBuyerOfferPolicy",
+              attemptId: crypto.randomUUID(),
+              expectedVersion: current.version,
+              operationId: crypto.randomUUID(),
+            },
           });
           expect(stopped.ok()).toBe(true);
         }
@@ -514,6 +531,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             const stopped = await page.request.post(`/api/marketplace/account/offer-policies/${policyId}/commands`, {
               data: {
                 type: "StopBuyerOfferPolicy",
+                attemptId: crypto.randomUUID(),
                 expectedVersion: current.version,
                 operationId: crypto.randomUUID(),
               },
