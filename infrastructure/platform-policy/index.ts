@@ -84,7 +84,6 @@ export {
 export { createPolicyRuntime, type PolicyRuntime, type PolicyRuntimeDeps } from "./runtime";
 export {
   createPolicyHistoryReader,
-  createPolicyRevisionTimelineReader,
   PolicyHistoryReaderError,
   type PolicyHistoryContinuation,
   type PolicyHistoryPage,

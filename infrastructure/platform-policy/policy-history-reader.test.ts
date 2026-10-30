@@ -1,34 +1,44 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { StoredEvent } from "@chase-sets/event-core/storage";
+import type { GlobalPosition, StoredEvent } from "@chase-sets/event-core/storage";
 import { createPolicyHistoryReader } from "./index";
 
 const policyKey = "pricing.shipping-window";
-const horizon = "502" as never;
+const otherPolicyKey = "other.catalog";
+
+type EventOptions = Readonly<{
+  documentId?: string;
+  streamVersion?: number;
+  eventId?: string;
+  omitValue?: boolean;
+}>;
 
 function event(
   position: number,
   key = policyKey,
   overrides: Record<string, unknown> = {},
   eventType: StoredEvent["eventType"] = "platform-policy.document.created",
+  options: EventOptions = {},
 ): StoredEvent {
-  const documentId = `doc-${position}`;
+  const documentId = options.documentId ?? `doc-${position}`;
+  const payload: Record<string, unknown> = {
+    documentId,
+    policyKey: key,
+    status: "active",
+    value: { cents: position },
+    effectiveFrom: "2026-01-01T00:00:00Z",
+    effectiveUntil: null,
+    ...overrides,
+  };
+  if (options.omitValue) delete payload.value;
   return {
-    eventId: `evt-${position}` as never,
+    eventId: (options.eventId ?? `evt-${position}`) as never,
     streamId: `platform-policy.document-${documentId}`,
-    streamVersion: 1,
+    streamVersion: options.streamVersion ?? 1,
     globalPosition: String(position) as never,
     tenantId: "tenant" as never,
     eventType,
-    payload: {
-      documentId,
-      policyKey: key,
-      status: "active",
-      value: { cents: position },
-      effectiveFrom: "2026-01-01T00:00:00Z",
-      effectiveUntil: null,
-      ...overrides,
-    },
+    payload: payload as never,
     metadata: {},
     occurredAt: "2026-01-01T00:00:00.000Z" as never,
     recordedAt: "2026-01-01T00:00:00.000Z" as never,
@@ -37,71 +47,209 @@ function event(
   };
 }
 
-function readerFor(events: readonly StoredEvent[]) {
+type ReaderOptions = Readonly<{
+  horizon?: GlobalPosition;
+  readAll?: EventStore["readAll"];
+}>;
+
+function readerFor(events: readonly StoredEvent[], options: ReaderOptions = {}) {
+  const horizon = options.horizon ?? (events.length === 0 ? "0" : events.at(-1)!.globalPosition);
   const reads: unknown[] = [];
   const eventStore: EventStore = {
     appendToStream: async () => [],
     readStream: async () => [],
-    readAll: async (input) => {
-      reads.push(input);
-      return events
-        .filter((candidate) => BigInt(candidate.globalPosition) > BigInt(input?.afterGlobalPosition ?? "0"))
-        .filter((candidate) => BigInt(candidate.globalPosition) <= BigInt(input?.atOrBeforeGlobalPosition ?? horizon))
-        .slice(0, input?.limit ?? 500);
-    },
+    readAll:
+      options.readAll ??
+      (async (input) => {
+        reads.push(input);
+        return events
+          .filter((candidate) => BigInt(candidate.globalPosition) > BigInt(input?.afterGlobalPosition ?? "0"))
+          .filter((candidate) => BigInt(candidate.globalPosition) <= BigInt(input?.atOrBeforeGlobalPosition ?? horizon))
+          .slice(0, input?.limit ?? 500);
+      }),
   };
   const pool = { query: async () => ({ rows: [{ head: horizon }] }) } as never;
   return { reader: createPolicyHistoryReader({ eventStore, pool }), reads };
 }
 
-describe("bounded policy revision timeline", () => {
-  it("returns immutable identity and filters only after scanning each raw page", async () => {
-    const { reader, reads } = readerFor([
-      event(1),
-      event(2, "other.catalog"),
+describe("bounded policy history reader", () => {
+  it("returns every immutable AC1 field, including revisions, inactive and expired windows, in numeric order", async () => {
+    const { reader } = readerFor([
+      event(9, policyKey, { value: { cents: 9 }, effectiveFrom: "2026-01-01T00:00:00.000Z" }, undefined, {
+        documentId: "doc-history",
+        streamVersion: 1,
+      }),
       event(
-        3,
+        10,
         policyKey,
-        {
-          documentId: "doc-3",
-          value: { cents: 3 },
-        },
+        { value: { cents: 9 }, effectiveFrom: "2026-01-01T00:00:00.000Z" },
         "platform-policy.document.revised",
+        { documentId: "doc-history", streamVersion: 2 },
       ),
+      event(
+        11,
+        policyKey,
+        { value: { cents: 11 }, effectiveFrom: "2026-01-01T00:00:00.000Z" },
+        "platform-policy.document.revised",
+        { documentId: "doc-history", streamVersion: 3 },
+      ),
+      event(12, policyKey, { status: "inactive" }, undefined, { documentId: "doc-inactive" }),
+      event(13, policyKey, { effectiveUntil: "2026-01-02T00:00:00.000Z" }, undefined, { documentId: "doc-expired" }),
     ]);
+
     const start = await reader.start(policyKey);
     const page = await reader.readPage(start.continuation);
 
-    expect(page.records).toHaveLength(2);
-    expect(page.records.map((record) => record.globalPosition)).toEqual(["1", "3"]);
-    expect(page.records[1]).toMatchObject({ eventId: "evt-3", documentId: "doc-3", value: { cents: 3 } });
-    expect(page.complete).toBe(true);
-    expect(reads).toHaveLength(1);
+    expect(page.records).toEqual([
+      {
+        eventId: "evt-9",
+        eventType: "platform-policy.document.created",
+        policyKey,
+        documentId: "doc-history",
+        streamVersion: 1,
+        globalPosition: "9",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        status: "active",
+        value: { cents: 9 },
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+      },
+      {
+        eventId: "evt-10",
+        eventType: "platform-policy.document.revised",
+        policyKey,
+        documentId: "doc-history",
+        streamVersion: 2,
+        globalPosition: "10",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        status: "active",
+        value: { cents: 9 },
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+      },
+      {
+        eventId: "evt-11",
+        eventType: "platform-policy.document.revised",
+        policyKey,
+        documentId: "doc-history",
+        streamVersion: 3,
+        globalPosition: "11",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        status: "active",
+        value: { cents: 11 },
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+      },
+      {
+        eventId: "evt-12",
+        eventType: "platform-policy.document.created",
+        policyKey,
+        documentId: "doc-inactive",
+        streamVersion: 1,
+        globalPosition: "12",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        status: "inactive",
+        value: { cents: 12 },
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+      },
+      {
+        eventId: "evt-13",
+        eventType: "platform-policy.document.created",
+        policyKey,
+        documentId: "doc-expired",
+        streamVersion: 1,
+        globalPosition: "13",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        status: "active",
+        value: { cents: 13 },
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
   });
 
-  it("does not complete a full raw page with no target matches", async () => {
-    const first = Array.from({ length: 500 }, (_, index) => event(index + 1, "other.catalog"));
-    const { reader } = readerFor([...first, event(501)]);
+  it("keeps raw-page continuation complete across an interleaved 500-event boundary and JSON restart", async () => {
+    const events = Array.from({ length: 502 }, (_, index) =>
+      event(index + 1, index + 1 === 499 || index + 1 === 501 ? policyKey : otherPolicyKey),
+    );
+    const { reader } = readerFor(events);
     const start = await reader.start(policyKey);
-    const firstPage = await reader.readPage(start.continuation);
-    expect(firstPage.records).toEqual([]);
-    expect(firstPage.complete).toBe(false);
-    expect(firstPage.continuation.afterGlobalPosition).toBe("500");
 
-    const secondPage = await reader.readPage(firstPage.continuation);
-    expect(secondPage.records).toHaveLength(1);
-    expect(secondPage.complete).toBe(true);
+    const first = await reader.readPage(start.continuation);
+    expect(first.records.map((record) => record.globalPosition)).toEqual(["499"]);
+    expect(first.complete).toBe(false);
+    expect(first.continuation.afterGlobalPosition).toBe("500");
+
+    const restarted = JSON.parse(JSON.stringify(first.continuation)) as typeof first.continuation;
+    const second = await reader.readPage(restarted);
+    expect(second.records.map((record) => record.globalPosition)).toEqual(["501"]);
+    expect(second.complete).toBe(true);
   });
 
-  it("fails closed on poisoned identity and invalid continuations", async () => {
-    const { reader } = readerFor([event(1, policyKey, { documentId: "wrong-document" })]);
-    const start = await reader.start(policyKey);
-    await expect(reader.readPage(start.continuation)).rejects.toThrow("does not match its stream");
-    await expect(reader.readPage({ ...start.continuation, afterGlobalPosition: "01" as never })).rejects.toThrow(
-      "canonical global position",
-    );
-    await expect(reader.readPage({ ...start.continuation, afterGlobalPosition: "503" as never })).rejects.toThrow(
-      "outside its fixed horizon",
-    );
+  it("requires an empty page after an exactly-500 raw terminal page and completes empty history", async () => {
+    const full = readerFor(Array.from({ length: 500 }, (_, index) => event(index + 1, otherPolicyKey)));
+    const start = await full.reader.start(policyKey);
+    const first = await full.reader.readPage(start.continuation);
+    expect(first.records).toEqual([]);
+    expect(first.complete).toBe(false);
+    expect(first.continuation.afterGlobalPosition).toBe("500");
+    await expect(full.reader.readPage(first.continuation)).resolves.toMatchObject({ complete: true, records: [] });
+
+    const empty = readerFor([]);
+    const emptyStart = await empty.reader.start(policyKey);
+    await expect(empty.reader.readPage(emptyStart.continuation)).resolves.toMatchObject({
+      complete: true,
+      records: [],
+      continuation: { afterGlobalPosition: "0" },
+    });
+  });
+
+  it("fails closed on malformed status, window, policy key, value, source pages, replays, and version gaps", async () => {
+    const malformed: readonly [string, StoredEvent][] = [
+      ["status", event(1, policyKey, { status: "paused" })],
+      ["window", event(1, policyKey, { effectiveFrom: "not-a-timestamp" })],
+      ["policy key", event(1, "not-a-policy-key")],
+      ["value", event(1, policyKey, {}, undefined, { omitValue: true })],
+    ];
+    for (const [label, candidate] of malformed) {
+      const { reader } = readerFor([candidate]);
+      const start = await reader.start(policyKey);
+      await expect(reader.readPage(start.continuation), label).rejects.toThrow();
+    }
+
+    const nonAdvancing = readerFor([], {
+      horizon: "2" as GlobalPosition,
+      readAll: async () => [event(1), event(1, policyKey, {}, "platform-policy.document.revised")],
+    });
+    const nonAdvancingStart = await nonAdvancing.reader.start(policyKey);
+    await expect(nonAdvancing.reader.readPage(nonAdvancingStart.continuation)).rejects.toThrow("non-advancing");
+
+    const aboveHorizon = readerFor([], {
+      horizon: "2" as GlobalPosition,
+      readAll: async () => [event(3)],
+    });
+    const aboveStart = await aboveHorizon.reader.start(policyKey);
+    await expect(aboveHorizon.reader.readPage(aboveStart.continuation)).rejects.toThrow("non-advancing");
+
+    const sourceFailure = readerFor([], { readAll: async () => Promise.reject(new Error("source refused")) });
+    const sourceStart = await sourceFailure.reader.start(policyKey);
+    await expect(sourceFailure.reader.readPage(sourceStart.continuation)).rejects.toThrow("source refused");
+
+    const stable = readerFor([event(1)]);
+    const stableStart = await stable.reader.start(policyKey);
+    const first = await stable.reader.readPage(stableStart.continuation);
+    const replay = await stable.reader.readPage(stableStart.continuation);
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(first));
+
+    const gap = readerFor([
+      event(1, policyKey, {}, undefined, { documentId: "doc-gap", streamVersion: 1 }),
+      event(2, policyKey, {}, "platform-policy.document.revised", { documentId: "doc-gap", streamVersion: 3 }),
+    ]);
+    const gapStart = await gap.reader.start(policyKey);
+    expect((await gap.reader.readPage(gapStart.continuation)).records.map((record) => record.streamVersion)).toEqual([
+      1,
+      3,
+    ]);
   });
 });

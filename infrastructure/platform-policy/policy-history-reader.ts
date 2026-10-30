@@ -1,6 +1,7 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import {
   compareGlobalPosition,
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
   parseGlobalPosition,
   type GlobalPosition,
   type StoredEvent,
@@ -9,9 +10,8 @@ import { readGapSafeEventStoreHead, type PgTransactionalPool } from "@chase-sets
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { isPolicyKey } from "./define-policy";
 import { normalizePolicyEffectiveWindow, type PolicyDocumentStatus } from "./domain";
-import { POLICY_DOCUMENT_STREAM_PREFIX } from "./runtime";
+import { policyDocumentIdFromStreamId, POLICY_DOCUMENT_STREAM_PREFIX } from "./policy-document-stream";
 
-const POLICY_HISTORY_PAGE_SIZE = 500;
 const POLICY_EVENT_TYPES = ["platform-policy.document.created", "platform-policy.document.revised"] as const;
 
 export class PolicyHistoryReaderError extends Error {
@@ -21,6 +21,7 @@ export class PolicyHistoryReaderError extends Error {
   }
 }
 
+/** A canonicalized immutable source event in a policy key's history. */
 export type PolicyHistoryRecord = Readonly<{
   eventId: string;
   eventType: (typeof POLICY_EVENT_TYPES)[number];
@@ -54,13 +55,10 @@ export type PolicyHistoryPage = Readonly<{
   complete: boolean;
 }>;
 
+/** Reads bounded raw event pages through a fixed global-position horizon. */
 export type PolicyHistoryReader = Readonly<{
-  start: (policyKeyOrInput: string | Readonly<{ policyKey: string }>) => Promise<PolicyHistoryStart>;
-  readPage: (
-    input:
-      | PolicyHistoryContinuation
-      | Readonly<{ policyKey: string; horizon: GlobalPosition; afterGlobalPosition?: GlobalPosition }>,
-  ) => Promise<PolicyHistoryPage>;
+  start: (policyKey: string) => Promise<PolicyHistoryStart>;
+  readPage: (continuation: PolicyHistoryContinuation) => Promise<PolicyHistoryPage>;
 }>;
 
 export type PolicyHistoryReaderDeps = Readonly<{
@@ -70,8 +68,7 @@ export type PolicyHistoryReaderDeps = Readonly<{
 
 export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): PolicyHistoryReader {
   return {
-    start: async (policyKeyOrInput) => {
-      const policyKey = typeof policyKeyOrInput === "string" ? policyKeyOrInput : policyKeyOrInput.policyKey;
+    start: async (policyKey) => {
       assertPolicyKey(policyKey);
       const horizon = await readGapSafeEventStoreHead(deps.pool);
       return {
@@ -94,7 +91,7 @@ export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): Policy
         atOrBeforeGlobalPosition: horizon,
         eventTypes: POLICY_EVENT_TYPES,
         streamPrefixes: [POLICY_DOCUMENT_STREAM_PREFIX],
-        limit: POLICY_HISTORY_PAGE_SIZE,
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
       });
 
       let lastRawPosition = afterGlobalPosition;
@@ -116,13 +113,11 @@ export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): Policy
         records,
         horizon,
         continuation,
-        complete: rawEvents.length < POLICY_HISTORY_PAGE_SIZE,
+        complete: rawEvents.length < EVENT_STORE_READ_PAGE_SIZE_MAX,
       };
     },
   };
 }
-
-export const createPolicyRevisionTimelineReader = createPolicyHistoryReader;
 
 function assertPolicyKey(policyKey: string): void {
   if (typeof policyKey !== "string" || !isPolicyKey(policyKey)) {
@@ -145,9 +140,7 @@ function decodePolicyHistoryEvent(
   event: StoredEvent,
   full = true,
 ): PolicyHistoryRecord | Readonly<{ policyKey: string }> {
-  const documentId = event.streamId.startsWith(POLICY_DOCUMENT_STREAM_PREFIX)
-    ? event.streamId.slice(POLICY_DOCUMENT_STREAM_PREFIX.length) || null
-    : null;
+  const documentId = policyDocumentIdFromStreamId(event.streamId);
   if (documentId === null) {
     throw new PolicyHistoryReaderError("Policy history event has an invalid document stream identity.");
   }

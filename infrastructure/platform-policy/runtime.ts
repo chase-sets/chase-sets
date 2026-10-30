@@ -46,12 +46,10 @@ import {
   listPolicyRegistry,
 } from "./queries";
 import { createPolicyResolver, type ResolvedPolicy } from "./resolver";
-
-export const POLICY_DOCUMENT_STREAM_PREFIX = "platform-policy.document-";
-
-function policyDocumentStreamId(documentId: string): string {
-  return `${POLICY_DOCUMENT_STREAM_PREFIX}${documentId}`;
-}
+import {
+  policyDocumentStreamId,
+  POLICY_DOCUMENT_STREAM_PREFIX as POLICY_DOCUMENT_STREAM_PREFIX_VALUE,
+} from "./policy-document-stream";
 
 /**
  * Policy document streams are keyed by document id under this fixed,
@@ -66,6 +64,8 @@ function policyDocumentStreamId(documentId: string): string {
  * context's own read model would stay empty regardless of how many policy
  * documents are created).
  */
+const POLICY_DOCUMENT_STREAM_PREFIX = POLICY_DOCUMENT_STREAM_PREFIX_VALUE;
+
 export type PolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
