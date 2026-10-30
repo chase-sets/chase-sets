@@ -4,6 +4,7 @@ import { resolveCurrentActorPrimaryEmail } from "./request-support/identity-curr
 import type { SettlementApiEnv } from "../../../api";
 import { PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { withPayoutSetupDecision } from "../domain/setup-progress";
 
 function requirePayoutReadinessAccess(
   c: {
@@ -99,7 +100,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       return access.response;
     }
 
-    return c.json(await services.getPayoutReadiness(access.actor.accountId));
+    return c.json(withPayoutSetupDecision(await services.getPayoutReadiness(access.actor.accountId)));
   });
 
   app.get("/payout-setup/progress", async (c) => {
@@ -141,7 +142,10 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
         context,
       );
 
-      return c.json(result, 201);
+      return c.json(
+        result.readiness ? { ...result, readiness: withPayoutSetupDecision(result.readiness) } : result,
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -231,7 +235,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
         context,
       );
 
-      return c.json(readiness);
+      return c.json(withPayoutSetupDecision(readiness));
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

@@ -112,6 +112,7 @@ describe("market-following Submitted Offer real router", () => {
           body: new URLSearchParams({
             policyId: "bop_verified_buyer",
             command: JSON.stringify({
+              attemptId: String("preview_buyer").padEnd(22, "_"),
               type: "PreviewBuyerOfferPolicy",
               expectedVersion: 0,
               operationId: "preview_buyer",
@@ -344,8 +345,11 @@ describe("market-following Submitted Offer real router", () => {
       expect(f.commands.filter((command) => command.type === "PreviewBuyerOfferPolicy")).toHaveLength(2);
       expect(screen.getByRole("button", { name: "Stop market following" }).hasAttribute("disabled")).toBe(true);
       fireEvent.click(screen.getByRole("checkbox", { name: /^Stop is permanent/ }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Stop market following" }).hasAttribute("disabled")).toBe(false),
+      );
       fireEvent.click(screen.getByRole("button", { name: "Stop market following" }));
-      await waitFor(() => expect(screen.queryByRole("button", { name: "Authorize reviewed Offers" })).toBeNull());
+      await screen.findByText("Stopped", { selector: "span" });
       expect(f.commands.at(-1)?.type).toBe("StopBuyerOfferPolicy");
       const previews = f.commands.filter((command) => command.type === "PreviewBuyerOfferPolicy");
       expect(previews[1]).toMatchObject({ terms: { offers: [{ offerId: "off_one", offerVersion: 2 }] } });
@@ -1014,6 +1018,7 @@ describe("marketplace offer routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "accept-offer");
+    form.set("attemptId", "route_accept_attempt_identity");
     form.set("feeQuoteFingerprint", "quote-current");
 
     const response = await offerMatchAction({

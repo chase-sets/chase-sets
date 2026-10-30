@@ -644,11 +644,9 @@ describe("Admin page projections", () => {
       (newerEvent.data as { title: { values: { en: string } } }).title.values.en,
     );
 
-    const olderHistory = sourceEvents.filter((event) => event.streamVersion <= olderEvent.streamVersion);
+    // Replaying the older event rebuilds from the stored prefix through that event only.
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers(pool);
-    await handlers["catalog.catalog-item.metadata-revised"]?.(olderEvent, {
-      readSourceStreamHistory: async () => olderHistory,
-    });
+    await handlers["catalog.catalog-item.metadata-revised"]?.(olderEvent);
 
     const itemList = await getJson(`/api/catalog/items?limit=10&offset=0&blueprintId=${blueprintId}`);
     expect(itemList.json.items).toEqual(

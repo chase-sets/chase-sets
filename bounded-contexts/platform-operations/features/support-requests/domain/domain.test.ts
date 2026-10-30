@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideSupportRequest,
   evolveSupportRequest,
+  expectedOfferResolution,
   initialSupportRequestState,
   type SupportRequestEvent,
   type SupportRequestState,
@@ -243,6 +244,43 @@ function openWithAffectedLineItems(
 }
 
 describe("support request domain", () => {
+  it("maps offer response types to their canonical resolutions", () => {
+    expect(expectedOfferResolution("accept-return")).toBe("return-for-refund");
+    expect(expectedOfferResolution("offer-partial-refund")).toBe("partial-refund");
+    expect(expectedOfferResolution("offer-replacement")).toBe("replacement");
+    expect(expectedOfferResolution("provide-tracking")).toBeNull();
+  });
+  it.each([
+    ["accept-return", "return-for-refund"],
+    ["offer-partial-refund", "partial-refund"],
+    ["offer-replacement", "replacement"],
+  ] as const)("preserves explicit mapping and mismatch validation for %s", (responseType, offerResolutionType) => {
+    const state = fold(openProductNotAsDescribedWithLines());
+    const command = {
+      type: "RecordSupportResponse",
+      responseId: "srp_map",
+      offerId: "sof_map",
+      submittedByAccountId: "acc_seller" as never,
+      submittedByRole: "seller",
+      responseType,
+      offerResolutionType,
+      summary: "Offer",
+      submittedAt: openedAt,
+      ...(responseType === "offer-partial-refund" ? { refundAmount: "6.00" } : {}),
+    } as const;
+    expect(decideSupportRequest(state, command)[0].data).toMatchObject({
+      offer: { resolutionType: offerResolutionType },
+    });
+    expect(() =>
+      decideSupportRequest(state, {
+        ...command,
+        offerResolutionType: offerResolutionType === "replacement" ? "partial-refund" : "replacement",
+      }),
+    ).toThrow("Offer resolution does not match the response type.");
+    expect(() => decideSupportRequest(state, { ...command, offerResolutionType: null })).toThrow(
+      "Support resolution type is not supported.",
+    );
+  });
   it.each([
     "product-not-received",
     "product-not-as-described",

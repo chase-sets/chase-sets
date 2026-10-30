@@ -196,12 +196,12 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 18,
+      discoveredCallCandidates: 19,
       authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 0,
+      insufficientReceiverContractSites: 1,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -220,14 +220,17 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-seven green grammar instances across twenty-five live locations without a registry", () => {
+  it("derives twenty-nine green grammar instances across twenty-six live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(27);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(25);
+    expect(green).toHaveLength(29);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(26);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
     for (const { instance } of declarations.resolved) expect(instance.line).toBe(currentLine(instance.node));
+    const lookup = resolveGrammarSelectors(green, mutationLookupReaderSelectors);
+    expect(lookup.errors).toEqual([]);
+    expect(new Set(lookup.resolved.map(({ instance }) => `${instance.file}:${instance.line}`))).toHaveLength(1);
     const shared = resolveGrammarSelectors(green, sharedReaderSelectors);
     expect(shared.errors).toEqual([]);
     expect(new Set(shared.resolved.map(({ instance }) => `${instance.file}:${instance.line}`))).toHaveLength(1);
@@ -249,7 +252,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
   });
 
   it("keeps every declaration selector resolved when an unrelated source line moves", () => {
-    const selectors = [...memberDeclarationSelectors, ...sharedReaderSelectors];
+    const selectors = [...memberDeclarationSelectors, ...mutationLookupReaderSelectors, ...sharedReaderSelectors];
     const green = productionGrammar;
     const before = resolveGrammarSelectors(green, selectors);
     expect(before.errors).toEqual([]);
@@ -661,6 +664,11 @@ const sharedReaderSelectors = ["member-declaration", "type-position"].map((categ
   category,
   file: "contracts/event-core/complete-stream.ts",
   symbol: "CompleteStreamReader.readStream",
+}));
+const mutationLookupReaderSelectors = ["member-declaration", "type-position"].map((category) => ({
+  category,
+  file: "bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts",
+  symbol: "createMarketplaceMutationLookup.reader.readStream",
 }));
 const grammarCategories = new Set(["member-declaration", "type-position"]);
 const selectorKeys = ["category", "file", "symbol"];

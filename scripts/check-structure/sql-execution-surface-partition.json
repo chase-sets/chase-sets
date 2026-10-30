@@ -461,7 +461,6 @@
     "bounded-contexts/settlement/features/payouts/api/payout-reconciliation-jobs.ts",
     "bounded-contexts/settlement/features/payouts/read-model/projection.ts",
     "bounded-contexts/settlement/features/payouts/read-model/queries.ts",
-    "bounded-contexts/settlement/features/payouts/read-model/seller-attention-source.ts",
     "bounded-contexts/settlement/features/payouts/read-model/support-lookup.ts",
     "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts",
     "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-queries.ts",
@@ -527,7 +526,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 294,
+    "count": 297,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -589,6 +588,7 @@
       "bounded-contexts/inventory/index.ts": 2,
       "bounded-contexts/inventory/support/runtime-support/seed.ts": 1,
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
+      "bounded-contexts/marketplace/features/mutation-recovery/api/route.ts": 3,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
       "bounded-contexts/marketplace/features/offers/api/route.ts": 9,
       "bounded-contexts/marketplace/features/reviews/api/route.ts": 9,

@@ -234,6 +234,7 @@ describe("checkout confirmation support", () => {
     });
     expect(mockCreateSubmittedOffer).toHaveBeenCalledWith({
       offerId: "off_offer_1",
+      attemptId: "off_offer_1___________",
       catalogItemId: "cat_offer",
       productId: "cat_offer::form:raw",
       itemTitle: "Charizard",

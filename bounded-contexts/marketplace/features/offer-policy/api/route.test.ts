@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
+import { createMarketplaceApiClient } from "../../../client";
+import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
+import { createMarketplaceMutationLookup } from "../../mutation-recovery/api/lookup";
+import { createMarketplaceMutationRecoveryRoutes } from "../../mutation-recovery/api/route";
 import { activate, context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
 import { createBuyerOfferPolicyRoutes } from "./route";
 import type { BuyerOfferPolicyServices } from "./runtime";
+import { submittedOfferPolicyAction } from "./submitted-offer-route";
 
 function app(runtime: BuyerOfferPolicyServices, accountId: string | null = "acc_buyer") {
   const result = new Hono<MarketplaceApiEnv>();
@@ -85,6 +90,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const { runtime, store } = await fixture();
     const cleanTerms = { currency: "USD", adjustmentBps: 0, offers: terms.offers };
     const previewCommand = {
+      attemptId: String("clean_preview").padEnd(22, "_"),
       type: "PreviewBuyerOfferPolicy",
       expectedVersion: 1,
       operationId: "clean_preview",
@@ -101,6 +107,7 @@ describe("Buyer Offer Policy real account routes", () => {
     expect(response.status).toBe(200);
     const p = await response.json();
     const authorize = {
+      attemptId: String("clean_authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       operationId: "clean_authorize",
@@ -119,12 +126,82 @@ describe("Buyer Offer Policy real account routes", () => {
     expect(active.status).toBe(200);
     expect(await active.json()).toMatchObject({ status: "active", authority: cleanTerms });
   });
+  it("recovers a lost real-caller Preview by its own hash, replays the same body and conflicts on a changed one", async () => {
+    const { runtime, store } = await fixture();
+    const server = app(runtime);
+    server.route("/account/offer-policies", createBuyerOfferPolicyRoutes(runtime));
+    server.route("/", createMarketplaceMutationRecoveryRoutes(createMarketplaceMutationLookup(store)));
+    const calls: string[] = [];
+    let loseNextCommand = true;
+    const api = createMarketplaceApiClient({
+      baseUrl: "http://marketplace.test",
+      fetch: async (input, init) => {
+        const response = await server.request(String(input), init);
+        calls.push(`${init?.method ?? "GET"} ${new URL(String(input)).pathname} ${response.status}`);
+        if (loseNextCommand && String(input).endsWith("/commands")) {
+          loseNextCommand = false;
+          throw new TypeError("response lost after commit");
+        }
+        return response;
+      },
+    });
+    const attemptId = String("parity_preview").padEnd(22, "_");
+    const command = {
+      attemptId,
+      type: "PreviewBuyerOfferPolicy",
+      expectedVersion: 1,
+      operationId: "parity_preview",
+      terms: { currency: "USD", offers: terms.offers },
+    };
+    const submit = (body: unknown) => {
+      const form = new FormData();
+      form.set("policyId", "bop_one");
+      form.set("command", JSON.stringify(body));
+      return submittedOfferPolicyAction(new Request("http://marketplace.test/", { method: "POST", body: form }), api);
+    };
+
+    const recovered = await submit(command);
+    expect(recovered).toMatchObject({ error: null, policy: { version: 2, preview: { terms: { adjustmentBps: 0 } } } });
+    expect(calls).toEqual([
+      "POST /account/offer-policies/bop_one/commands 200",
+      `GET /mutation-attempts/${attemptId} 200`,
+      "GET /account/offer-policies/bop_one 200",
+    ]);
+    const { attemptId: _attemptId, ...undefaulted } = command;
+    const control = await server.request(
+      `/mutation-attempts/${attemptId}?${new URLSearchParams({
+        kind: "offer-policy.command",
+        target: "bop_one",
+        requestHash: hashMarketplaceRequest(undefaulted),
+      })}`,
+    );
+    expect(await control.json()).toMatchObject({ ownerStatus: "not-observed" });
+
+    const committed = await store.readAll();
+    expect(await submit(command)).toMatchObject({
+      error: null,
+      policy: { version: 2, preview: { previewId: recovered.policy!.preview!.previewId } },
+    });
+    expect(await submit({ ...command, terms: { ...command.terms, adjustmentBps: -100 } })).toEqual({
+      policy: null,
+      error: "invalid_authority",
+    });
+    expect(calls.at(-1)).toBe("POST /account/offer-policies/bop_one/commands 409");
+    const sent = calls.length;
+    expect(await submit({ ...command, terms: { ...command.terms, itemCommitmentAllowance: "10.00" } })).toEqual({
+      policy: null,
+      error: "invalid_authority",
+    });
+    expect(calls).toHaveLength(sent);
+    expect(await store.readAll()).toEqual(committed);
+  });
   it("exposes fresh versions only to the owner and rejects stale resume Preview with its actual 409 code", async () => {
     const { runtime, store } = await fixture();
     const active = await activate(runtime);
     const paused = await runtime.execute(
       "bop_one",
       {
+        attemptId: String("pause_route").padEnd(22, "_"),
         type: "PauseBuyerOfferPolicy",
         expectedVersion: active.version,
         operationId: "pause_route",
@@ -142,6 +219,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
       post({
+        attemptId: String("stale_resume").padEnd(22, "_"),
         type: "PreviewBuyerOfferPolicy",
         expectedVersion: paused.version,
         operationId: "stale_resume",
@@ -156,7 +234,13 @@ describe("Buyer Offer Policy real account routes", () => {
     const { runtime } = await fixture();
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
-      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview_evidence", terms }),
+      post({
+        attemptId: String("preview_evidence").padEnd(22, "_"),
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview_evidence",
+        terms,
+      }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -181,6 +265,7 @@ describe("Buyer Offer Policy real account routes", () => {
         await runtime.execute(
           "bop_one",
           {
+            attemptId: String("authorize").padEnd(22, "_"),
             type: "AuthorizeBuyerOfferPolicy",
             expectedVersion: 2,
             operationId: "authorize",
@@ -193,6 +278,7 @@ describe("Buyer Offer Policy real account routes", () => {
         await runtime.execute(
           "bop_one",
           {
+            attemptId: String(status).padEnd(22, "_"),
             type: status === "paused" ? "PauseBuyerOfferPolicy" : "StopBuyerOfferPolicy",
             expectedVersion: status === "paused" ? 3 : 4,
             operationId: status,
@@ -234,6 +320,7 @@ describe("Buyer Offer Policy real account routes", () => {
       const response = await app(runtime).request(
         "/policies/bop_one/commands",
         post({
+          attemptId: String("preview").padEnd(22, "_"),
           type: "PreviewBuyerOfferPolicy",
           expectedVersion: 1,
           operationId: "preview",
@@ -256,6 +343,7 @@ describe("Buyer Offer Policy real account routes", () => {
         method === "GET"
           ? undefined
           : post({
+              attemptId: String("attack").padEnd(22, "_"),
               type: "AuthorizeBuyerOfferPolicy",
               expectedVersion: 2,
               operationId: "attack",
@@ -293,7 +381,14 @@ describe("Buyer Offer Policy real account routes", () => {
     const before = await store.readAll();
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
-      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview", terms, ...changes }),
+      post({
+        attemptId: String("preview").padEnd(22, "_"),
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview",
+        terms,
+        ...changes,
+      }),
     );
     expect([400, 409]).toContain(response.status);
     expect(await store.readAll()).toEqual(before);
@@ -307,6 +402,7 @@ describe("Buyer Offer Policy real account routes", () => {
       const response = await app(runtime).request(
         "/policies/bop_one/commands",
         post({
+          attemptId: String("authorize").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: p.version,
           operationId: "authorize",
@@ -324,6 +420,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
       post({
+        attemptId: String("authorize").padEnd(22, "_"),
         type: "AuthorizeBuyerOfferPolicy",
         expectedVersion: p.version,
         operationId: "authorize",
