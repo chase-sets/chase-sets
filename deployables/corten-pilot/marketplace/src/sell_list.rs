@@ -1043,7 +1043,8 @@ fn listing_written(result: Result<Option<Receipt>, CommandError>, surface: Surfa
 }
 
 /// Decline selected (`decline-sell-list-offers`): each checked offer (at most 100) declined on
-/// Marketplace, then the selected-offer lines for them removed, as marketplace's action does.
+/// Marketplace (each as the attempt `decline_{id}`, padded to 22 with `_`), then the
+/// selected-offer lines for them removed, as marketplace's action does.
 async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, surface: Surface, failed: String) -> Done {
     let mut ids: Vec<String> = Vec::new();
     for id in all(raw, "bulkOfferId") {
@@ -1059,7 +1060,8 @@ async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, surface: Surface
         Err(error) => return Done::Failed(error),
     };
     for id in &ids {
-        match caller.decline_offer_match(id).await {
+        // The offer's own attempt, as marketplace's action names it, so declining it again is the same one.
+        match caller.decline_offer_match(id, &format!("{:_<22}", format!("decline_{id}"))).await {
             Ok(_) => {}
             Err(CommandError::Api(error)) => return Done::Failed(error),
             Err(other) => {

@@ -9337,14 +9337,21 @@ async fn adding_an_offer_match_sends_its_line_with_the_listing_and_goes_to_the_s
 #[tokio::test]
 async fn declining_goes_back_to_the_list_with_its_receipt_and_a_refusal_says_why() {
     let pilot = Pilot::new().await;
-    let (status, headers, _) =
-        pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer", false)).await;
+    let key = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    let (status, headers, _) = pilot
+        .send(post("/account/offers/matches/off_ready", "trader", &format!("intent=decline-offer&attemptId={key}"), false))
+        .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/offers/matches?afterWrite="), "{to}");
-    assert!(
-        list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline").iter().any(|c| c.starts_with("POST"))
-    );
+    let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
+    assert_eq!(declined, [format!(r#"POST /api/marketplace/account/offers/matches/off_ready/decline {{"attemptId":"{key}"}}"#)]);
+    // A post without the form's attempt (no field, or one the API would refuse) is still one attempt.
+    pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer&attemptId=short", false)).await;
+    let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
+    let sent: Value =
+        serde_json::from_str(declined[1].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
+    assert_eq!(sent["attemptId"].as_str().unwrap().len(), 36, "{declined:?}");
     let (status, _, html) = pilot.send(post("/account/offers/matches/off_taken", "trader", "intent=decline-offer", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Offer match has already been declined."), "{html}");
@@ -14518,7 +14525,11 @@ async fn remove_and_decline_selected_write_and_read_the_sell_list_after_them() {
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
-    assert_eq!(declined.len(), 1, "{declined:?}");
+    assert_eq!(
+        declined,
+        [r#"POST /api/marketplace/account/offers/matches/off_ready/decline {"attemptId":"decline_off_ready_____"}"#],
+        "the offer's own attempt, padded to 22 as marketplace's action pads it"
+    );
     assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
 
     // A decline the API refuses is shown on the page, and its line stays.

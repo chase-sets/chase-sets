@@ -281,6 +281,7 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
             </a>
             <form method="post" action={&open}>
                 <input type="hidden" name={f.intent} value="decline-offer">
+                {SubmitKey::field(f.attempt_id)}
                 <button
                     class={(Button, Secondary)}
                     type="submit"
@@ -465,6 +466,7 @@ fn OfferActions<'a>(t: OfferMatchesMsg, offer: &'a OfferMatch, price: &'a str, r
                 // when declining it matters most; the list's is not, and the pilot follows the list.
                 <form method="post">
                     <input type="hidden" name={f.intent} value="decline-offer">
+                    {SubmitKey::field(f.attempt_id)}
                     <button class={(Button, Secondary)} type="submit">{t.detail_decline()}</button>
                 </form>
             </div>

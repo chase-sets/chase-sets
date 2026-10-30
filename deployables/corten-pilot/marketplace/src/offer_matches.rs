@@ -10,7 +10,8 @@
 //! Writes, each a form posting an `intent` to the offer match's page, as marketplace's do:
 //! `add-selected-offer` (Accept offer match and Add selected offer to Sell List) reads the offer
 //! as Checkout's sell list does and adds its line, then goes to marketplace's sell list, which
-//! reads the write; `decline-offer` declines it and goes back to the list with its receipt. A
+//! reads the write; `decline-offer` declines it as the form's attempt (`attemptId`, a `SubmitKey`;
+//! a post without one is still one attempt) and goes back to the list with its receipt. A
 //! refusal draws the offer match's page with the API's words.
 //!
 //! The list is drawn again on each change to the account's offers (`<corten-live>` on
@@ -45,11 +46,12 @@ pub struct Place {
     pub after_write: Option<String>,
 }
 
-/// An offer match's forms.
+/// An offer match's forms: the intent and, for a decline, its attempt (a `SubmitKey`).
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferForm {
     pub intent: String,
+    pub attempt_id: String,
 }
 
 /// What an offer match's page shows.
@@ -207,7 +209,7 @@ pub(crate) async fn write(
                 Err(error) => error,
             }
         }
-        "decline-offer" => match caller.decline_offer_match(&id).await {
+        "decline-offer" => match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(&form.attempt_id)).await {
             Ok(receipt) => {
                 return req.redirect(&url::OfferMatches { place: Place { after_write: receipt.as_ref().map(Receipt::param) } });
             }

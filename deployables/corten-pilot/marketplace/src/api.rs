@@ -5721,7 +5721,8 @@ pub trait OfferMatchCalls {
     async fn acceptance_terms(&self, id: &str, listing: &str) -> Result<AcceptanceTerms, ApiError>;
     /// The offer as Checkout's sell list reads it (`getSellListOfferMatch`), for its line.
     async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
-    async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError>;
+    /// Declines the offer as `attempt` (`attemptId`): Marketplace applies an attempt once.
+    async fn decline_offer_match(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, CommandError>;
     /// Accepts the offer at its exact listing (`listingId`, `feeQuoteFingerprint`,
     /// `sourceActionKey` and a Smart Match's batch): the write's receipt.
     async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
@@ -5753,9 +5754,9 @@ impl OfferMatchCalls for Caller<'_> {
         }
     }
 
-    async fn decline_offer_match(&self, id: &str) -> Result<Option<Receipt>, CommandError> {
+    async fn decline_offer_match(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, CommandError> {
         let path = format!("{ACCOUNT}/offers/matches/{}/decline", segment(id));
-        answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({}))).await
+        answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "attemptId": attempt }))).await
     }
 
     async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
