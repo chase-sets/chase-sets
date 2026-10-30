@@ -2,6 +2,7 @@ use corten::prelude::*;
 
 use super::admin_web;
 use crate::{
+    access,
     app::url,
     auth::{self, NavItem, Viewer},
     catalog, operations, projections,
@@ -27,6 +28,12 @@ fn served(path: &str) -> Option<String> {
         (<catalog::categories::url::Categories as Route>::PATH, catalog::categories::url::Categories::default().href()),
         (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
         (<catalog::url::Scopes as Route>::PATH, catalog::url::Scopes::default().href()),
+        (<access::url::Access as Route>::PATH, access::url::Access::default().href()),
+        (<access::url::Accounts as Route>::PATH, access::url::Accounts::default().href()),
+        (<access::people::Users as Route>::PATH, access::people::Users::default().href()),
+        (<access::teams::Memberships as Route>::PATH, access::teams::Memberships::default().href()),
+        (<access::teams::Invitations as Route>::PATH, access::teams::Invitations::default().href()),
+        (<access::people::ApiKeys as Route>::PATH, access::people::ApiKeys::default().href()),
         (<operations::url::Attention as Route>::PATH, operations::url::Attention.href()),
         (<projections::url::Projections as Route>::PATH, projections::url::Projections::default().href()),
     ];
@@ -43,6 +50,12 @@ fn link(section: &str, item: &NavItem) -> Option<String> {
 fn section_of(path: &str) -> &'static str {
     let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
     auth::SECTIONS.into_iter().find(|s| *s == first).unwrap_or("commerce")
+}
+
+/// Where a section goes: the pilot's own home for it, or admin-web's.
+fn section_link(section: &str) -> String {
+    let path = format!("/{section}");
+    served(&path).or_else(|| admin_web(&path).map(|uri| uri.to_string())).unwrap_or_default()
 }
 
 /// Whether the page at `path` is the entry's or under it.
@@ -63,7 +76,7 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). The pilot serves postage policies, the catalog's dimensions, fields,
-/// items list and scopes list, and the platform's Operations Attention queue and Projection Operations; every other entry
+/// items list and scopes list, Access's home and lists, and the platform's Operations Attention queue and Projection Operations; every other entry
 /// links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {
@@ -80,7 +93,7 @@ pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render 
                         <li>
                             <a
                                 class={Section}
-                                href={admin_web(&format!("/{section}")).map(|u| u.to_string()).unwrap_or_default()}
+                                href={section_link(section)}
                                 aria-current={(*section == here).then_some("true")}
                             >
                                 {section_label(p, section)}

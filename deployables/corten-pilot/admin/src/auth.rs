@@ -84,6 +84,12 @@ rules! {
     PostageView => "postage-policies.view";
     /// Platform > Operations attention and Projection operations.
     OperationsView => "projection-operations.view";
+    /// Access's home and Accounts (admin-web's access section falls back to `accounts.view`).
+    AccountsView => "accounts.view";
+    /// Access > Users and API Keys.
+    SecurityManage => "security.manage";
+    /// Access > Memberships and Invitations.
+    MembershipsView => "memberships.view";
 }
 
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's

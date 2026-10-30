@@ -75,7 +75,11 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform_admin", "permissions": permissions } }))
                 .into_response()
         };
-        return if cookie.contains("chase_sets_session=staff") {
+        return if cookie.contains("chase_sets_session=access-staff") {
+            actor(&["accounts.view", "security.manage", "memberships.view"])
+        } else if cookie.contains("chase_sets_session=accounts-only") {
+            actor(&["accounts.view"])
+        } else if cookie.contains("chase_sets_session=staff") {
             actor(&["postage-policies.view", "catalog.view", "catalog.manage"])
         } else if cookie.contains("chase_sets_session=catalog-reader")
             || cookie.contains("chase_sets_session=catalog-viewer")
@@ -118,6 +122,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/attention-queue") {
         return attention_queue(method, rest, cookie, &headers, &body);
     }
+    if let Some(rest) = uri.path().strip_prefix("/api/identity/") {
+        return identity_api(rest);
+    }
     if uri.path() == "/api/catalog/alias-review/commands" {
         return written(StatusCode::OK, "alias");
     }
@@ -153,6 +160,60 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         }
         (Method::POST, "") => written(StatusCode::CREATED, "opp_new"),
         (Method::POST, "/opp_seed/activate") => written(StatusCode::OK, "opp_seed"),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// The Identity API's reads: Access's home with one of each attention kind, and each list as one
+/// row of 120 (so its pages show).
+fn identity_api(rest: &str) -> Response {
+    let account = |id: &str, status: &str| {
+        json!({
+            "account_id": id, "name": "Acme Cards LLC", "display_name": "Acme Cards", "account_type": "business",
+            "status": status, "badges": ["founding-account", "unknown-badge"], "founder_number": 7,
+            "updated_at": "2026-10-01T12:00:00.000Z",
+        })
+    };
+    let invitation = json!({
+        "invitation_id": "inv_1", "account_id": "acc_1", "account_display_name": "Acme Cards",
+        "email": "new@example.test", "role_key": "manager", "status": "pending", "expires_at": "2026-11-05T12:00:00.000Z",
+    });
+    let key = json!({
+        "api_key_id": "key_1", "user_id": "usr_2", "user_display_name": "Dana", "name": "Inventory sync",
+        "key_prefix": "csk_abc", "status": "active",
+    });
+    let membership = json!({
+        "membership_id": "mem_1", "user_id": "usr_2", "user_primary_email": "dana@example.test", "account_id": "acc_1",
+        "account_name": "Acme Cards LLC", "role_key": "custom-auditor", "status": "active",
+    });
+    let user = json!({
+        "user_id": "usr_2", "display_name": "Dana", "primary_email": "dana@example.test", "status": "active",
+        "auth_methods": ["password", "passkey"],
+    });
+    let page = |item: Value| Json(json!({ "items": [item], "total": 120 })).into_response();
+    match rest {
+        "access-hub" => {
+            let mut rotation = key.clone();
+            rotation["account_id"] = json!("acc_1");
+            rotation["account_display_name"] = json!("Acme Cards");
+            rotation["rotation_due_at"] = json!("2026-11-01T12:00:00.000Z");
+            Json(json!({
+                "accounts": [account("acc_1", "active")],
+                "account_total": 39,
+                "attention": {
+                    "pending_invitations": [invitation],
+                    "api_keys_needing_rotation": [rotation],
+                    "suspended_accounts": [account("acc_2", "suspended")],
+                    "memberships_awaiting_review": [membership],
+                },
+            }))
+            .into_response()
+        }
+        "accounts" => page(account("acc_1", "active")),
+        "users" => page(user),
+        "memberships" => page(membership),
+        "invitations" => page(invitation),
+        "api-keys" => page(key),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -3169,4 +3230,88 @@ async fn the_console_is_drawn_again_when_a_running_operation_changes_state() {
     }
     assert!(!html.contains(r#"method="get""#), "the filters are not drawn again: {html}");
     assert_eq!(events.last().unwrap().0, "end", "the stream ends once the operation is done: {events:?}");
+}
+
+#[tokio::test]
+async fn access_is_an_area_each_list_needs_its_nav_entrys_permission() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/access/users", None)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (
+            StatusCode::SEE_OTHER,
+            &"http://localhost:7752/access/sign-in?returnTo=%2Faccess%2Fusers".parse::<header::HeaderValue>().unwrap()
+        )
+    );
+    for (path, status) in [
+        ("/access", StatusCode::OK),
+        ("/access/accounts", StatusCode::OK),
+        ("/access/users", StatusCode::FORBIDDEN),
+        ("/access/api-keys", StatusCode::FORBIDDEN),
+        ("/access/memberships", StatusCode::FORBIDDEN),
+        ("/access/invitations", StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(pilot.send(get(path, Some("accounts-only"))).await.0, status, "{path}");
+    }
+    let (status, _, _) = pilot.send(get("/access", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "accounts.view is the section's fallback");
+    for path in ["/access/users", "/access/api-keys", "/access/memberships", "/access/invitations"] {
+        let (status, _, html) = pilot.send(get(path, Some("access-staff"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        assert!(html.contains(&format!(r#"href="{path}" aria-current="page""#)), "the nav serves it: {html}");
+    }
+}
+
+#[tokio::test]
+async fn accesss_home_shows_each_attention_kind_and_searches_accounts() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/access?search=+acme+", Some("access-staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pilot.calls_to("/api/identity/");
+    assert_eq!(calls.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), ["/api/identity/access-hub?search=acme"]);
+    assert!(calls[0].headers[header::COOKIE] == "chase_sets_session=access-staff");
+    for kind in ["Pending invitation", "API key rotation due", "Suspended account", "Membership awaiting review"] {
+        assert!(html.contains(kind), "{kind}: {html}");
+    }
+    assert!(html.contains("new@example.test · Manager · "), "{html}");
+    assert!(html.contains("Inventory sync · Dana · "), "{html}");
+    assert!(html.contains("dana@example.test · Unrecognized"), "an unknown role is named as one: {html}");
+    assert!(html.contains("/access/accounts/acc_1?tab=team&amp;invitation=inv_1"), "{html}");
+    assert!(html.contains("/access/accounts/acc_1?tab=api-access&amp;apiKey=key_1"), "{html}");
+    assert!(html.contains("/access/accounts/acc_2?tab=overview"), "{html}");
+    assert!(html.contains("39 accounts found") && html.contains(r#"value="acme""#), "{html}");
+    let section = pilot.stylesheet(&html, "sections/access").await.unwrap();
+    assert!(section.contains(".access-page__table") && !section.contains(".list-page__"), "{section}");
+
+    let mut req = get("/access", Some("access-staff"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let screen: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(screen["data"]["home"]["account_total"], 39, "{body}");
+}
+
+#[tokio::test]
+async fn an_access_list_asks_identity_as_admin_web_does_and_pages() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/access/accounts?search=acme&status=suspended&offset=50", Some("access-staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let (_, _, _) = pilot.send(get("/access/users?status=bogus&limit=900", Some("access-staff"))).await;
+    let paths: Vec<String> = pilot.calls_to("/api/identity/").into_iter().map(|c| c.path).collect();
+    assert_eq!(
+        paths,
+        ["/api/identity/accounts?limit=50&offset=50&status=suspended&search=acme", "/api/identity/users?limit=500&offset=0",]
+    );
+    assert!(html.contains("Founding Account #007") && !html.contains("unknown-badge"), "{html}");
+    assert!(html.contains(r#"href="/access/accounts?search=acme&amp;status=suspended" rel="prev""#), "{html}");
+    assert!(html.contains(r#"href="/access/accounts?search=acme&amp;status=suspended&amp;offset=100" rel="next""#), "{html}");
+    assert!(html.contains(r#"<option value="suspended" selected>"#), "{html}");
+
+    let (_, _, html) = pilot.send(get("/access/users", Some("access-staff"))).await;
+    assert!(html.contains("Password, Passkey"), "{html}");
+    let (_, _, html) = pilot.send(get("/access/memberships", Some("access-staff"))).await;
+    assert!(html.contains("dana@example.test") && html.contains("Acme Cards LLC"), "{html}");
+    assert!(html.contains("/access/accounts/acc_1?tab=team&amp;membership=mem_1"), "{html}");
+    let (_, _, html) = pilot.send(get("/access/api-keys", Some("access-staff"))).await;
+    assert!(html.contains("<code>csk_abc</code>"), "{html}");
 }

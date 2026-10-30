@@ -47,6 +47,11 @@
     "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again.",
     "blueprint_rules_unread": "This blueprint's rules could not be read, so they cannot be set here yet. Refresh in a moment and open this again."
   },
+  "access": {
+    "view": "View",
+    "item": "{count} item",
+    "items": "{count} items"
+  },
   "bulk": {
     "label": "Bulk changes",
     "select_row": "Select row {id}",

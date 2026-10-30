@@ -9,6 +9,9 @@
 // - admin/locales/operations.en.json: the platform section's English catalog: the Operations
 //   Attention queue's (platformOperations.operationsAttention.*) and Projection Operations'
 //   (platformOperations.projectionOperations.* as projections.*).
+// - admin/locales/access.en.json: the access section's English catalog: Access's home, the
+//   accounts, users, memberships, invitations and API keys lists, the identity value labels and
+//   the routes' titles.
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -596,6 +599,34 @@ const outputs = [
       await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
         ["platformOperations.operationsAttention.", "attention"],
         ["platformOperations.projectionOperations.", "projections"],
+      ]),
+    ),
+  ],
+  [
+    "admin/locales/access.en.json",
+    json(
+      await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.features.accessHub.ui.accessHome.", "home"],
+        ["identity.features.accounts.ui.accountListPage.", "accounts"],
+        ["identity.features.accounts.ui.accountBadges.", "badges"],
+        ["identity.features.users.ui.userListPage.", "users"],
+        ["identity.features.memberships.ui.membershipListPage.", "memberships"],
+        ["identity.features.memberships.ui.role.", "role"],
+        ["identity.features.invitations.ui.invitationListPage.", "invitations"],
+        ["identity.features.apiKeys.ui.apiKeyListPage.", "api_keys"],
+        ["identity.values.accountType.", "account_type"],
+        ["identity.values.authenticationMethod.", "method"],
+        ["identity.values.role.platformAdmin", "role.platform_admin"],
+        ["identity.values.family.", "family"],
+        ["identity.values.unrecognized.withValue", "value.unrecognized_with_value"],
+        ["identity.values.unrecognized", "value.unrecognized"],
+        ["identity.values.date.unavailable", "value.date_unavailable"],
+        ["identity.routes.admin.accessHome.access.identity.admin", "route.home"],
+        ["identity.routes.admin.accounts.accounts.identity.admin", "route.accounts"],
+        ["identity.routes.admin.users.users.identity.admin", "route.users"],
+        ["identity.routes.admin.memberships.memberships.identity.admin", "route.memberships"],
+        ["identity.routes.admin.invitations.invitations.identity.admin", "route.invitations"],
+        ["identity.routes.admin.apiKeys.api.keys.identity.admin", "route.api_keys"],
       ]),
     ),
   ],
