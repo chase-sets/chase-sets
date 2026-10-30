@@ -387,6 +387,71 @@ describe("RepricingPolicy validation matrix", () => {
     return () => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, ...overrides });
   }
 
+  it("normalizer output preservation", () => {
+    const events = decideRepricingPolicy(initialRepricingPolicyState, {
+      ...createCommand,
+      rules: [
+        {
+          ...defaultRule,
+          directive: {
+            ...defaultRule.directive,
+            floor: { mode: "absolute", amount: "  1.5  " },
+            ceiling: { mode: "absolute", amount: "0002.5" },
+          },
+        },
+      ],
+    });
+
+    expect(events[0]).toMatchObject({
+      data: {
+        rules: [
+          {
+            directive: {
+              floor: { amount: "1.5" },
+              ceiling: { amount: "0002.5" },
+            },
+          },
+        ],
+      },
+    });
+    expect(
+      createWith({
+        rules: [
+          {
+            ...defaultRule,
+            directive: {
+              ...defaultRule.directive,
+              ceiling: { mode: "absolute", amount: "9999999999.99" },
+            },
+          },
+        ],
+      })(),
+    ).toBeTruthy();
+  });
+
+  it("normalizer range rejection", () => {
+    for (const amount of ["10000000000.00", "-1.00", "1e2", "1.005"]) {
+      expect(
+        createWith({
+          rules: [{ ...defaultRule, directive: { ...defaultRule.directive, floor: { mode: "absolute", amount } } }],
+        }),
+      ).toThrow("Floor amount must be a valid decimal amount.");
+    }
+  });
+
+  it("normalizer zero matrix", () => {
+    expect(
+      createWith({
+        rules: [
+          {
+            ...defaultRule,
+            directive: { ...defaultRule.directive, floor: { mode: "absolute", amount: "0.00" } },
+          },
+        ],
+      }),
+    ).toThrow("Floor amount must be greater than zero.");
+  });
+
   it("rejects a blank name", () => {
     expect(createWith({ name: "   " })).toThrow("must not be blank");
   });
