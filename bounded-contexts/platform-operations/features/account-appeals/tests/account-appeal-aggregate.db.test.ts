@@ -66,13 +66,40 @@ type RuntimeAppealFixture = Readonly<{
 
 type ConcurrentFilingDiagnostic = Readonly<{
   call: "first" | "second";
-  phase: "transaction-begin" | "stream-guard" | "event-insert" | "commit" | "rollback";
+  phase: "load-rendezvous" | "transaction-begin" | "stream-guard" | "event-insert" | "commit" | "rollback";
   backendPid?: number;
   transactionId?: string;
   streamId?: string;
   observedVersion?: number;
   insertedRows?: number | null;
 }>;
+
+type ConcurrentFilingCall = ConcurrentFilingDiagnostic["call"];
+
+function createConcurrentFilingRendezvous(diagnostics: ConcurrentFilingDiagnostic[]) {
+  const arrivals = new Set<ConcurrentFilingCall>();
+  let releaseBoth: (() => void) | undefined;
+  const bothArrived = new Promise<void>((resolve) => {
+    releaseBoth = resolve;
+  });
+  const settled = {
+    first: Promise.withResolvers<void>(),
+    second: Promise.withResolvers<void>(),
+  } satisfies Record<ConcurrentFilingCall, PromiseWithResolvers<void>>;
+
+  return {
+    arrive(call: ConcurrentFilingCall): Promise<void> {
+      arrivals.add(call);
+      diagnostics.push({ call, phase: "load-rendezvous" });
+      if (arrivals.size === 2) releaseBoth?.();
+      const otherCall: ConcurrentFilingCall = call === "first" ? "second" : "first";
+      return Promise.race([bothArrived, settled[otherCall].promise]);
+    },
+    settle(call: ConcurrentFilingCall): void {
+      settled[call].resolve();
+    },
+  };
+}
 
 /**
  * Keep the concurrent proof on the real event-store transaction path while
@@ -84,15 +111,19 @@ function instrumentConcurrentFilingPool(
   pool: PgTransactionalPool,
   call: ConcurrentFilingDiagnostic["call"],
   diagnostics: ConcurrentFilingDiagnostic[],
+  rendezvous: ReturnType<typeof createConcurrentFilingRendezvous>,
 ): PgTransactionalPool {
   return {
     query: pool.query.bind(pool),
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
     connect: async () => {
+      await rendezvous.arrive(call);
       const client = await pool.connect();
       const instrumentedClient = {
         query: async (text: string, values?: readonly unknown[]) => {
           const normalized = text.trim().toLowerCase();
           const result = await client.query(text, values);
+          // These diagnostic phases intentionally follow the event-store SQL text; a storage refactor must update this proof.
           if (normalized === "begin") {
             const identity = await client.query<{ pid: number; transaction_id: string }>(
               "SELECT pg_backend_pid() AS pid, txid_current()::text AS transaction_id",
@@ -125,6 +156,25 @@ function instrumentConcurrentFilingPool(
       return instrumentedClient;
     },
   };
+}
+
+function concurrentFilingDiagnosticsMessage(
+  diagnostics: readonly ConcurrentFilingDiagnostic[],
+  race: readonly PromiseSettledResult<unknown>[],
+): string {
+  const outcomes = race.map((entry, index) => {
+    if (entry.status === "fulfilled") return { call: index === 0 ? "first" : "second", status: entry.status };
+    const reason = entry.reason as { code?: unknown; message?: unknown };
+    return {
+      call: index === 0 ? "first" : "second",
+      status: entry.status,
+      error: {
+        message: reason && typeof reason.message === "string" ? reason.message : String(entry.reason),
+        ...(reason && typeof reason.code === "string" ? { code: reason.code } : {}),
+      },
+    };
+  });
+  return JSON.stringify({ diagnostics, outcomes });
 }
 
 function identityEnforcement(
@@ -1022,39 +1072,42 @@ describeDb("account appeal aggregate DB proof", () => {
         if (resolved.status !== "resolved") throw new Error("expected resolved action");
         const input = { statement: "The closure was mistaken" };
         await expect(
-          createAccountAppealRuntime(pool, createPostgresEventStore({ pool })).file(
-            capability,
-            resolved.action,
-            input,
-            {
-              tenantId: seller.tenantId,
-              audit: { performedByUserId: createId("usr"), forAccountId: owner },
-            },
-          ),
+          runtime.file(capability, resolved.action, input, {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: createId("usr"), forAccountId: owner },
+          }),
         ).rejects.toThrow("account capability");
         const streamId = appealStreamId(resolved.action.appealableActionId);
-        const firstPool = instrumentConcurrentFilingPool(pool, "first", diagnostics);
-        const secondPool = instrumentConcurrentFilingPool(pool, "second", diagnostics);
+        const rendezvous = createConcurrentFilingRendezvous(diagnostics);
+        const firstPool = instrumentConcurrentFilingPool(pool, "first", diagnostics, rendezvous);
+        const secondPool = instrumentConcurrentFilingPool(pool, "second", diagnostics, rendezvous);
+        const run = (call: ConcurrentFilingCall, filing: () => Promise<unknown>): Promise<unknown> =>
+          filing().finally(() => rendezvous.settle(call));
         const race = await Promise.allSettled([
-          createAccountAppealRuntime(firstPool, createPostgresEventStore({ pool: firstPool })).file(
-            capability,
-            resolved.action,
-            input,
-            {
-              tenantId: seller.tenantId,
-              audit: { performedByUserId: seller.userId, forAccountId: owner },
-            },
+          run("first", () =>
+            createAccountAppealRuntime(firstPool, createPostgresEventStore({ pool: firstPool })).file(
+              capability,
+              resolved.action,
+              input,
+              {
+                tenantId: seller.tenantId,
+                audit: { performedByUserId: seller.userId, forAccountId: owner },
+              },
+            ),
           ),
-          createAccountAppealRuntime(secondPool, createPostgresEventStore({ pool: secondPool })).file(
-            capability,
-            resolved.action,
-            input,
-            {
-              tenantId: seller.tenantId,
-              audit: { performedByUserId: seller.userId, forAccountId: owner },
-            },
+          run("second", () =>
+            createAccountAppealRuntime(secondPool, createPostgresEventStore({ pool: secondPool })).file(
+              capability,
+              resolved.action,
+              input,
+              {
+                tenantId: seller.tenantId,
+                audit: { performedByUserId: seller.userId, forAccountId: owner },
+              },
+            ),
           ),
         ]);
+        const diagnosticsMessage = concurrentFilingDiagnosticsMessage(diagnostics, race);
         const exactStream = await pool.query<{
           stream_version: number | string;
           event_type: string;
@@ -1065,27 +1118,70 @@ describeDb("account appeal aggregate DB proof", () => {
             ORDER BY stream_version ASC`,
           [streamId],
         );
-        expect(race.filter((entry) => entry.status === "fulfilled")).toHaveLength(1);
-        expect(race.filter((entry) => entry.status === "rejected")).toHaveLength(1);
-        expect(exactStream.rows).toHaveLength(1);
-        expect(exactStream.rows[0]).toMatchObject({
+        expect(
+          race.filter((entry) => entry.status === "fulfilled"),
+          diagnosticsMessage,
+        ).toHaveLength(1);
+        expect(
+          race.filter((entry) => entry.status === "rejected"),
+          diagnosticsMessage,
+        ).toHaveLength(1);
+        const rejected = race.find((entry) => entry.status === "rejected");
+        expect(rejected, diagnosticsMessage).toMatchObject({
+          status: "rejected",
+          reason: { code: "concurrency_conflict", message: "Expected no stream but stream already exists." },
+        });
+        expect(exactStream.rows, diagnosticsMessage).toHaveLength(1);
+        expect(exactStream.rows[0], diagnosticsMessage).toMatchObject({
           stream_version: "1",
           event_type: "platform-operations.account-appeal.filed",
         });
-        expect(diagnostics.filter((entry) => entry.phase === "commit")).toHaveLength(1);
-        expect(diagnostics.filter((entry) => entry.phase === "rollback")).toHaveLength(1);
-        expect(diagnostics.filter((entry) => entry.phase === "event-insert" && entry.insertedRows === 1)).toHaveLength(
-          1,
-        );
-        expect(diagnostics.filter((entry) => entry.phase === "stream-guard")).toHaveLength(2);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "commit"),
+          diagnosticsMessage,
+        ).toHaveLength(1);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "rollback"),
+          diagnosticsMessage,
+        ).toHaveLength(1);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "event-insert" && entry.insertedRows === 1),
+          diagnosticsMessage,
+        ).toHaveLength(1);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "stream-guard"),
+          diagnosticsMessage,
+        ).toHaveLength(2);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "load-rendezvous"),
+          diagnosticsMessage,
+        ).toHaveLength(2);
+        expect(
+          diagnostics
+            .filter((entry) => entry.phase === "load-rendezvous")
+            .map((entry) => entry.call)
+            .sort(),
+          diagnosticsMessage,
+        ).toEqual(["first", "second"]);
+        expect(
+          diagnostics.filter((entry) => entry.phase === "stream-guard").every((entry) => entry.streamId === streamId),
+          diagnosticsMessage,
+        ).toBe(true);
         expect(
           diagnostics
             .filter((entry) => entry.phase === "stream-guard")
             .map((entry) => entry.observedVersion)
             .sort((left, right) => (left ?? 0) - (right ?? 0)),
+          diagnosticsMessage,
         ).toEqual([0, 1]);
-        expect(diagnostics.map((entry) => entry.backendPid).filter((pid) => pid !== undefined)).toHaveLength(2);
-        expect(diagnostics.map((entry) => entry.transactionId).filter((id) => id !== undefined)).toHaveLength(2);
+        expect(
+          diagnostics.map((entry) => entry.backendPid).filter((pid) => pid !== undefined),
+          diagnosticsMessage,
+        ).toHaveLength(2);
+        expect(
+          diagnostics.map((entry) => entry.transactionId).filter((id) => id !== undefined),
+          diagnosticsMessage,
+        ).toHaveLength(2);
         return resolved.action;
       });
       expect(fileResult).toBeDefined();
