@@ -13,6 +13,7 @@ import type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
+import type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
 import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 import type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 
@@ -199,7 +200,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayouts(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
+    async listPayouts(query = ""): Promise<SettlementPayoutSummary> {
       return parseJsonResponse(
         await client.payouts.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -430,6 +431,7 @@ export type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
+export type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
 export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 export type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 export const settlementApi = createSettlementApiClient();

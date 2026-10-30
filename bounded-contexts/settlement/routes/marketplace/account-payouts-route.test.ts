@@ -40,15 +40,22 @@ function formRequest(form: URLSearchParams) {
 describe("Seller Desk money route", () => {
   afterEach(() => vi.resetAllMocks());
 
-  it("loads wallet, ledger, payouts, and readiness from the owning context", async () => {
+  it("loads wallet, ledger, and the Settlement payout summary from the owning context", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue(
       actor(["payouts.view", "payouts.request", "payouts.setup", "payouts.reconcile"]),
     );
     const api = {
       getWallet: vi.fn(async () => ({ account_id: "acc_seller" })),
       listWalletEntries: vi.fn(async () => ({ items: [], total: 0 })),
-      listPayouts: vi.fn(async () => ({ items: [], total: 0 })),
-      getPayoutReadiness: vi.fn(async () => ({ account_id: "acc_seller", status: "ready" })),
+      listPayouts: vi.fn(async () => ({
+        items: [],
+        total: 0,
+        count: 0,
+        completeness: { kind: "complete", total: 0 },
+        next_payout: null,
+        blocked_payouts: [],
+        availability: { can_request: true, unavailable_reasons: [], unavailable_reason_details: [] },
+      })),
       getPayoutQuickAmounts: vi.fn(async () => ({
         currency_code: "usd",
         minimum_amount: "1.00",
@@ -65,19 +72,16 @@ describe("Seller Desk money route", () => {
     } as never);
 
     expect(result).toMatchObject({
-      canRequestPayouts: true,
       canSetupPayouts: true,
       canReconcilePayouts: true,
       wallet: { account_id: "acc_seller" },
       entries: { items: [] },
-      payouts: { items: [] },
-      payoutReadiness: { status: "ready" },
+      payoutSummary: { items: [], completeness: { kind: "complete" } },
       quickAmounts: { full_available_amount: "125.00" },
     });
     expect(api.getWallet).toHaveBeenCalledOnce();
     expect(api.listWalletEntries).toHaveBeenCalledOnce();
     expect(api.listPayouts).toHaveBeenCalledOnce();
-    expect(api.getPayoutReadiness).toHaveBeenCalledOnce();
     expect(api.getPayoutQuickAmounts).toHaveBeenCalledOnce();
   });
 

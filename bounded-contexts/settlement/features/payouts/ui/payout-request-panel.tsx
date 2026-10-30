@@ -13,27 +13,8 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutPreview, SettlementPayoutQuickAmounts } from "../../../client";
-import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import type { PayoutAvailability } from "../read-model/payout-summary";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
-import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
-
-function unavailableReasons(wallet: SettlementWalletRow, readiness: SettlementPayoutReadinessRow) {
-  const reasons: string[] = [];
-  if (readiness.status !== "ready") {
-    reasons.push(payoutUnavailableReasonLabel("payout-setup-incomplete"));
-  }
-  if (readiness.status === "ready" && !readiness.updated_at) {
-    reasons.push(payoutUnavailableReasonLabel("payout-setup-refresh-required"));
-  }
-  if (readiness.missing_requirements.length > 0) {
-    reasons.push(payoutUnavailableReasonLabel("provider-requirements-open"));
-  }
-  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
-  if (availableCents === null || availableCents <= 0n) {
-    reasons.push(payoutUnavailableReasonLabel("no-available-wallet-balance"));
-  }
-  return reasons;
-}
 
 function PayoutFeeDisclosureLinks() {
   return (
@@ -50,27 +31,19 @@ function PayoutFeeDisclosureLinks() {
 
 export function SettlementPayoutRequestPanel({
   wallet,
-  payoutReadiness,
+  availability,
   quickAmounts,
-  canRequestPayouts,
   draft,
   confirmation,
 }: {
   wallet: SettlementWalletRow;
-  payoutReadiness: SettlementPayoutReadinessRow;
+  availability: PayoutAvailability;
   quickAmounts: SettlementPayoutQuickAmounts;
-  canRequestPayouts: boolean;
   draft?: Readonly<{ amount: string; note: string | null }> | null;
   confirmation?: Readonly<{ amount: string; note: string | null; preview: SettlementPayoutPreview }> | null;
 }) {
-  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
-  const canRequest =
-    canRequestPayouts &&
-    payoutReadiness.status === "ready" &&
-    Boolean(payoutReadiness.updated_at) &&
-    availableCents !== null &&
-    availableCents > 0n;
-  const reasons = canRequest ? [] : unavailableReasons(wallet, payoutReadiness);
+  const canRequest = availability.can_request;
+  const reasons = availability.unavailable_reason_details;
   const fullAvailableCents = trySignedMoneyToCents(quickAmounts.full_available_amount);
 
   if (confirmation) {
@@ -145,14 +118,14 @@ export function SettlementPayoutRequestPanel({
         {reasons.length > 0 ? (
           <ProgressiveDisclosure
             title={t("settlement.features.moneyDashboard.ui.payoutBlocked")}
-            summary={reasons[0]}
+            summary={reasons[0]?.message}
             tone="warning"
             defaultOpen
           >
             <Stack gap={1}>
               {reasons.map((reason) => (
-                <Text key={reason} size="sm" tone="secondary">
-                  {reason}
+                <Text key={reason.code} size="sm" tone="secondary">
+                  {reason.message}
                 </Text>
               ))}
             </Stack>
