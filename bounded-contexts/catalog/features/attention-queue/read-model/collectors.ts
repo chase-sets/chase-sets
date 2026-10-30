@@ -34,7 +34,14 @@ function commandResolution(
   fields: Record<string, string>,
   requiresReason = false,
 ): CatalogAttentionResolution {
-  return { intent, mode: "command", labelKey, fields, requiresReason };
+  return {
+    intent,
+    mode: "command",
+    labelKey,
+    fields,
+    requiresReason,
+    ...("targetId" in fields && !fields.targetId ? { unavailable: true } : {}),
+  };
 }
 
 // --- Source 1: unmapped provider scopes ------------------------------------
@@ -65,7 +72,7 @@ export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow
             providerKey: row.provider_key,
             unitKey: row.unit_key,
           },
-          `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}`,
+          row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
         ),
         secondaryResolutions: [],
       } satisfies CatalogAttentionItem;
@@ -130,7 +137,9 @@ export function collectProviderHealthItems(
         "review-provider-health",
         "catalog.features.attentionQueue.action.reviewHealth",
         { providerKey: unit.providerKey, unitKey: unit.unitKey },
-        `/catalog/providers/${encodeURIComponent(unit.providerKey)}?unitKey=${encodeURIComponent(unit.unitKey)}`,
+        unit.providerKey && unit.unitKey
+          ? `/catalog/providers/${encodeURIComponent(unit.providerKey)}?unitKey=${encodeURIComponent(unit.unitKey)}`
+          : undefined,
       ),
       secondaryResolutions: [],
     }));
@@ -178,7 +187,9 @@ export function collectImportJobItems(activity: readonly CatalogIntegrationUnitA
           "review-import-job",
           "catalog.features.attentionQueue.action.reviewJob",
           { jobId: job.jobId, providerKey: job.providerKey, unitKey: job.unitKey ?? "" },
-          `/catalog/providers/${encodeURIComponent(job.providerKey)}?jobId=${encodeURIComponent(job.jobId)}`,
+          job.providerKey && job.jobId
+            ? `/catalog/providers/${encodeURIComponent(job.providerKey)}?jobId=${encodeURIComponent(job.jobId)}`
+            : undefined,
         ),
         secondaryResolutions: [],
       });
@@ -214,12 +225,20 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
       observedAt: row.first_observed_at,
       resolution: commandResolution("alias.accept", "catalog.features.attentionQueue.action.acceptAlias", {
         aliasHashes: row.alias_hash,
+        targetKind: row.target_kind,
+        targetId: row.target_id ?? "",
+        targetKey: row.target_key,
       }),
       secondaryResolutions: [
         commandResolution(
           "alias.reject",
           "catalog.features.attentionQueue.action.rejectAlias",
-          { aliasHashes: row.alias_hash },
+          {
+            aliasHashes: row.alias_hash,
+            targetKind: row.target_kind,
+            targetId: row.target_id ?? "",
+            targetKey: row.target_key,
+          },
           true,
         ),
       ],
@@ -257,7 +276,7 @@ export function collectStaleScopeSyncItems(
         "review-scope-sync",
         "catalog.features.attentionQueue.action.reviewScopeSync",
         { scopeRecordId: row.scope_record_id },
-        `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}`,
+        row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
       ),
       secondaryResolutions: [],
     }));

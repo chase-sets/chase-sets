@@ -269,7 +269,13 @@ describe("collectAliasCandidateItems", () => {
     const item = collectAliasCandidateItems([aliasCandidate({ alias_hash: "h1" })])[0]!;
     expect(item.resolution.intent).toBe("alias.accept");
     expect(item.secondaryResolutions[0]!.intent).toBe("alias.reject");
-    expect(item.resolution.fields).toEqual({ aliasHashes: "h1" });
+    expect(item.resolution.fields).toEqual({
+      aliasHashes: "h1",
+      targetKind: "catalog-item",
+      targetId: "item-1",
+      targetKey: "item-1",
+    });
+    expect(item.secondaryResolutions[0]!.fields).toEqual(item.resolution.fields);
   });
 });
 

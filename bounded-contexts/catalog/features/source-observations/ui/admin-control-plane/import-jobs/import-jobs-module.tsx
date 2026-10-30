@@ -1,9 +1,8 @@
-import { Suspense, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { Await } from "react-router";
 import {
   Badge,
   BadgeCluster,
-  Button,
   ConnectionStatusIndicator,
   DataTable,
   EmptyState,
@@ -15,14 +14,12 @@ import {
   WorkbenchDetailPanel,
   WorkbenchActionRow,
   WorkbenchDataCell,
-  WorkbenchForm,
   WorkbenchGrid,
   WorkbenchGridSpan,
   WorkbenchStack,
   WorkbenchText,
   WorkflowModule,
   OperationalStatusBanner,
-  type ButtonProps,
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
@@ -41,9 +38,8 @@ import {
   catalogPrimaryWorkbenchProviderTransportSummary,
   getCatalogPrimaryWorkbenchProviderTransportCopy,
 } from "../../primary-workbench-copy";
-import { useCatalogIntegrationCommandHref } from "../import-to-promotion/command-action-context";
 import { scopeContextFromImportScope, scopeDisplayLabel } from "../../primary-workbench-scope-context";
-import { CommandHiddenInputs, type CatalogPrimaryWorkbenchSubmitIntent } from "../import-to-promotion/command-controls";
+import { ImportJobLifecycleActions } from "./import-job-lifecycle-actions";
 import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-promotion/workbench-formatting";
 import { useLiveImportJobs } from "./use-live-import-jobs";
 
@@ -241,21 +237,7 @@ export function CatalogIntegrationImportJobsModule({
         align: "right",
         cell: (job) => (
           <WorkbenchActionRow>
-            {job.retryAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.retry">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
-              </ImportJobLifecycleAction>
-            ) : null}
-            {job.resumeAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.resume">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
-              </ImportJobLifecycleAction>
-            ) : null}
-            {job.cancelAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.cancel" tone="danger">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
-              </ImportJobLifecycleAction>
-            ) : null}
+            <ImportJobLifecycleActions readModel={readModel} job={job} />
             <LinkText href={job.sourceObservationReviewHref}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link")}
             </LinkText>
@@ -734,31 +716,6 @@ function ImportPreviewEvidence({
         </WorkbenchGrid>
       </WorkbenchStack>
     </WorkbenchDetailPanel>
-  );
-}
-
-function ImportJobLifecycleAction({
-  readModel,
-  job,
-  intent,
-  tone = "secondary",
-  children,
-}: {
-  readModel: CatalogPrimaryWorkbenchReadModel;
-  job: ImportJobRow;
-  intent: Extract<CatalogPrimaryWorkbenchSubmitIntent, "job.retry" | "job.resume" | "job.cancel">;
-  tone?: ButtonProps["tone"];
-  children: ReactNode;
-}) {
-  const actionHref = useCatalogIntegrationCommandHref({ ...readModel.routeContext, jobId: job.jobId });
-
-  return (
-    <WorkbenchForm variant="button" method="post" action={actionHref} data-catalog-primary-workbench-command={intent}>
-      <CommandHiddenInputs readModel={readModel} intent={intent} jobId={job.jobId} />
-      <Button type="submit" size="sm" tone={tone}>
-        {children}
-      </Button>
-    </WorkbenchForm>
   );
 }
 
