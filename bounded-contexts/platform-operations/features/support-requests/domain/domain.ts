@@ -895,7 +895,7 @@ function isOfferResponseType(responseType: SupportResponseType) {
   );
 }
 
-function expectedOfferResolution(responseType: SupportResponseType): SupportResolutionType | null {
+export function expectedOfferResolution(responseType: SupportResponseType): SupportResolutionType | null {
   switch (responseType) {
     case "accept-return":
       return "return-for-refund";
