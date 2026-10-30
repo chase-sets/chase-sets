@@ -212,3 +212,41 @@
   border-color: var(--color-warning, var(--color-border));
   background: var(--color-warning-soft, var(--color-surface-2));
 }
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="info"] {
+  background: var(--color-info-soft, var(--color-surface-2));
+}
+.badge[data-tone="danger"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.facts div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.facts dt {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.form {
+  grid-template-columns: minmax(0, 1fr);
+}
+.control[type="file"] {
+  width: 100%;
+  min-width: 0;
+}

@@ -1,8 +1,8 @@
 //! The channel screens (Channels' marketplace routes): the account's connections
 //! (`account-channels`, `/account/channels`) with the status filter, the next page and
 //! Connect a channel; a connection (`account-channels-connection`, `/account/channels/{id}`) with its
-//! status, Pause, Resume and Disconnect, and Activate on storage locations while it is pending
-//! setup; the publication list (`account-channels-publication`, `/account/channels/publication`);
+//! status, Pause, Resume and Disconnect, Activate on storage locations while it is pending
+//! setup, and its manual TCGplayer sync; the publication list (`account-channels-publication`, `/account/channels/publication`);
 //! and a connection's publication (`channels-publication-connection`,
 //! `/account/channels/publication/{id}`): its settings, the listings recorded as blocked, and the
 //! mappings to review with Accept, Reject and Revoke.
@@ -13,7 +13,16 @@
 //! ([chase-sets/chase-sets#10778](https://github.com/chase-sets/chase-sets/issues/10778)):
 //! `PROVIDERS` and `actions`. A write goes to the connection with its receipt; a refusal is the page
 //! with Channels' words for it (422), a failure the same with a 502. A connection's drift, health,
-//! pairing, manual sync and operation log are on marketplace for now.
+//! pairing and operation log are on marketplace for now.
+//!
+//! The manual sync panel is Channels' (`ManualSyncPanel`): which actions the run allows is its
+//! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to
+//! `{id}/manual-sync/ingest`) and go back to the connection, or draw it with what was refused; an
+//! ingest draws it with Channels' receipt. Clamp and download posts to `{id}/manual-sync/download`
+//! and answers Channels' CSV. A handler that answers a file cannot answer a page
+//! ([todd-skelton/corten#415](https://github.com/todd-skelton/corten/issues/415)), so a refused
+//! download is relayed as a redirect to the connection with `?manual=failed` (marketplace shows
+//! Channels' JSON instead, [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
 //!
 //! A publication write is made at the configuration version the page was drawn with and answers
 //! the version it made, not a receipt: the page goes to its address with that version and reads
@@ -24,7 +33,11 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    Relay,
+    axum::{
+        body::Body,
+        http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    },
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -33,11 +46,15 @@ use serde::Deserialize;
 use crate::{
     api::{
         ApiError, ChannelCalls as _, ChannelConnection, ChannelConnectionPage, ChannelPublication, ChannelPublicationSummary,
-        Inventory as _, MappingDecision, PublicationSettings,
+        ImportSummary, IngestReceipt, Inventory as _, ManualSyncCalls as _, ManualSyncPanel, MappingDecision,
+        PublicationSettings, RunAt,
     },
     app::{CHANNELS_MANAGE, Shared, read_failed, sign_in, url},
     auth::{ChannelsMember, Viewer},
+    items::Raw,
+    listing_new::first,
     text::{ChannelsMsg, Pilot},
+    uploads::{self, Limits},
     views::{self, Layout},
 };
 
@@ -110,6 +127,65 @@ impl ListPlace {
 #[route(query)]
 pub struct ConnectionPlace {
     pub after_write: Option<String>,
+    /// `failed`: a manual sync download Channels refused.
+    pub manual: Option<String>,
+}
+
+/// A manual sync write: its intent, the run and revision it was made at, and Upload attempt's
+/// and Verify's fields, in marketplace's names.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct ManualSyncForm {
+    pub intent: String,
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: String,
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[serde(rename = "verificationSnapshotId")]
+    pub verification_snapshot_id: String,
+    #[serde(rename = "dateImportedText")]
+    pub date_imported_text: String,
+    #[serde(rename = "numberOfProducts")]
+    pub number_of_products: String,
+}
+
+impl ManualSyncForm {
+    /// The run the write was made at, when the form names one.
+    fn run(&self) -> Option<RunAt<'_>> {
+        let run_id = self.run_id.trim();
+        let revision = self.expected_revision.trim().parse().ok()?;
+        (!run_id.is_empty()).then_some(RunAt { run_id, revision })
+    }
+}
+
+/// An export's ingest form: its surface (`live` or `staged`) and the file (`export`).
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct IngestForm {
+    pub surface: String,
+    pub export: String,
+}
+
+/// An export's bytes: Channels' ceiling for one (`manualSyncIngestContract.maxBytes`, 32 MiB) and
+/// its multipart body (`multipartMaxBytes`, 34 MiB). Channels refuses a Live export over 16 MiB
+/// itself.
+const INGEST_LIMITS: Limits = Limits { file: 32 << 20, files: 1, whole: 34 << 20 };
+
+/// What a manual sync write said, on the connection's page.
+#[derive(Default)]
+pub enum ManualSaid {
+    #[default]
+    Nothing,
+    /// Channels refused or failed it.
+    Failed,
+    /// Not an action the panel offers.
+    Invalid,
+    /// Compose needs a Staged export newer than the last verified run.
+    StagedBasis,
+    /// An export's ingest, with Channels' receipt.
+    Ingested(Box<IngestReceipt>),
 }
 
 /// Connect a channel.
@@ -154,6 +230,9 @@ pub struct ConnectionScreen {
     pub locations: Option<Vec<SetupLocation>>,
     /// What a write was refused for.
     pub error: Option<String>,
+    /// The manual sync panel; `None` when its read failed.
+    pub manual: Option<ManualSyncPanel>,
+    pub said: ManualSaid,
 }
 
 fn noindex() -> impl Render {
@@ -244,7 +323,7 @@ fn refusal_status(status: Option<StatusCode>) -> StatusCode {
 }
 
 fn connection_url<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::ChannelConnection<'a> {
-    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param) } }
+    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param), manual: None } }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -257,6 +336,23 @@ async fn render_connection(
     place: &ConnectionPlace,
     written: Option<ChannelConnection>,
     error: Option<String>,
+    status: StatusCode,
+) -> HtmlResult {
+    let said = if place.manual.as_deref() == Some("failed") { ManualSaid::Failed } else { ManualSaid::Nothing };
+    render_connection_with(req, viewer, config, headers, id, place, written, error, said, status).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render_connection_with(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    place: &ConnectionPlace,
+    written: Option<ChannelConnection>,
+    error: Option<String>,
+    said: ManualSaid,
     status: StatusCode,
 ) -> HtmlResult {
     let t: ChannelsMsg = req.t();
@@ -285,8 +381,11 @@ async fn render_connection(
         Err(read) => return read_failed(req, Some(viewer), read, None),
     };
     let manage = viewer.actor.can(CHANNELS_MANAGE);
-    let locations = if manage && connection.status == "pending-setup" {
-        let caller = config.platform.caller(headers, config.proto, None);
+    let caller = config.platform.caller(headers, config.proto, None);
+    let (manual, locations) = tokio::join!(caller.manual_sync(id), async {
+        if !(manage && connection.status == "pending-setup") {
+            return Some(Vec::new());
+        }
         match caller.locations().await {
             Ok(list) => Some(
                 list.items
@@ -300,10 +399,9 @@ async fn render_connection(
                 None
             }
         }
-    } else {
-        Some(Vec::new())
-    };
-    let screen = ConnectionScreen { connection, manage, locations, error };
+    });
+    let manual = manual.map_err(|read| tracing::warn!("a connection's manual sync read failed: {read}")).ok();
+    let screen = ConnectionScreen { connection, manage, locations, error, manual, said };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.connections_connection_meta_title()} head={noindex()}>
             <views::ChannelConnectionPage t={t} p={req.t()} screen={&screen} />
@@ -393,6 +491,167 @@ pub(crate) async fn command(
             }
         },
     }
+}
+
+/// The connection's page with what a manual sync write said, at `status`.
+async fn manual_page(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    said: ManualSaid,
+    status: StatusCode,
+) -> HtmlResult {
+    render_connection_with(req, viewer, config, headers, id, &ConnectionPlace::default(), None, None, said, status).await
+}
+
+/// A manual sync write Channels refused: signed out goes to sign in, a forbidden or missing
+/// connection is its status, Compose without a newer Staged export says to ingest one, and the
+/// rest is the page saying the action failed (422, or 502 when Channels failed).
+async fn manual_refused(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    error: ApiError,
+) -> HtmlResult {
+    match error.status() {
+        Some(StatusCode::UNAUTHORIZED) => sign_in(req),
+        Some(status @ (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND)) => Err(corten::Error::new(error).with_status(status)),
+        status => {
+            tracing::warn!("a manual sync write was refused: {error}");
+            let said = match error.code() {
+                Some("staged-basis-stale" | "staged-basis-unavailable") => ManualSaid::StagedBasis,
+                _ => ManualSaid::Failed,
+            };
+            manual_page(req, viewer, config, headers, id, said, refusal_status(status)).await
+        }
+    }
+}
+
+/// Compose, Retry inbound clamp, Release, Record validation cancellation, Record upload attempt
+/// and Verify: the connection again, or the page with what was refused.
+pub(crate) async fn manual_sync(
+    req: Req,
+    Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::channels::ChannelManualSync<'_>>,
+    Form(form): Form<ManualSyncForm>,
+) -> HtmlResult {
+    if !viewer.actor.can(CHANNELS_MANAGE) {
+        return Err(corten::Error::status(StatusCode::FORBIDDEN));
+    }
+    let id: &str = &route.id;
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let outcome = match (form.intent.as_str(), form.run()) {
+        ("compose", _) => caller.compose_manual_sync(id).await,
+        (step @ ("retry-clamp" | "release" | "validation-cancelled"), Some(run)) => caller.manual_sync_step(id, run, step).await,
+        ("upload-attempt", Some(run)) => caller.record_upload_attempt(id, run, form.file_name.trim()).await,
+        ("verify", Some(run)) => {
+            let Ok(number_of_products) = form.number_of_products.trim().parse() else {
+                return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::UNPROCESSABLE_ENTITY)
+                    .await;
+            };
+            let summary = ImportSummary {
+                file_name: form.file_name.trim(),
+                date_imported_text: form.date_imported_text.trim(),
+                number_of_products,
+            };
+            caller.verify_manual_sync(id, run, form.verification_snapshot_id.trim(), &summary).await
+        }
+        _ => {
+            return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Invalid, StatusCode::UNPROCESSABLE_ENTITY)
+                .await;
+        }
+    };
+    match outcome {
+        Ok(()) => req.redirect(&connection_url(id, None)),
+        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
+    }
+}
+
+/// Ingest a Live or Staged export: the connection with Channels' receipt, or the page with what
+/// was refused. A file over the ceiling is not sent (413).
+pub(crate) async fn manual_sync_ingest(
+    req: Req,
+    Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::channels::ChannelManualSyncIngest<'_>>,
+    upload: corten::Upload<Raw>,
+) -> HtmlResult {
+    if !viewer.actor.can(CHANNELS_MANAGE) {
+        return Err(corten::Error::status(StatusCode::FORBIDDEN));
+    }
+    let id: &str = &route.id;
+    let f = IngestForm::FIELDS;
+    let posted = match uploads::read(upload, INGEST_LIMITS).await {
+        Ok(posted) => posted,
+        Err(corten::UploadError::TooLarge { .. }) => {
+            return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::PAYLOAD_TOO_LARGE).await;
+        }
+        Err(other) => return Err(other.into()),
+    };
+    let surface = first(&posted.fields, f.surface.as_str());
+    let file = posted.files.into_iter().find(|file| file.field == f.export.as_str() && !file.bytes.is_empty());
+    let (Some(file), None) = (file, posted.over) else {
+        return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::UNPROCESSABLE_ENTITY).await;
+    };
+    let caller = config.platform.caller(&headers, config.proto, None);
+    match caller.ingest_export(id, &surface, &file.filename, file.bytes).await {
+        Ok(receipt) => {
+            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Ingested(Box::new(receipt)), StatusCode::OK).await
+        }
+        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
+    }
+}
+
+/// Clamp and download CSV: Channels claims the composed run and sends its Staged batch, passed on
+/// with its type, file name and the run's new revision. A refused download goes back to the
+/// connection with `?manual=failed`: a handler that answers a file cannot answer a page
+/// (todd-skelton/corten#415).
+pub(crate) async fn manual_sync_download(
+    _req: Req,
+    Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::channels::ChannelManualSyncDownload<'_>>,
+    Form(form): Form<ManualSyncForm>,
+) -> corten::Result<Relay> {
+    if !viewer.actor.can(CHANNELS_MANAGE) {
+        return Err(corten::Error::status(StatusCode::FORBIDDEN));
+    }
+    let id: &str = &route.id;
+    let refused = || {
+        let place = ConnectionPlace { after_write: None, manual: Some("failed".to_owned()) };
+        let to = url::ChannelConnection { id, place }.href();
+        let mut kept = HeaderMap::new();
+        kept.insert(header::LOCATION, HeaderValue::from_str(&to).map_err(corten::Error::new)?);
+        Ok(Relay::new(StatusCode::SEE_OTHER, kept, Body::empty()))
+    };
+    let Some(run) = form.run() else { return refused() };
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let res = match caller.download_manual_sync(id, run).await {
+        Ok(res) => res,
+        Err(error) if matches!(error.status(), Some(StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED)) => {
+            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
+        }
+        Err(error) => {
+            tracing::warn!("a manual sync download was refused: {error}");
+            return refused();
+        }
+    };
+    let mut kept = HeaderMap::new();
+    for name in ["content-type", "content-disposition", "x-channel-sync-run-revision"] {
+        if let Some(value) = res.headers().get(name).and_then(|v| HeaderValue::from_bytes(v.as_bytes()).ok()) {
+            kept.insert(HeaderName::from_static(name), value);
+        }
+    }
+    let bytes = res.bytes().await.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
+    Ok(Relay::new(StatusCode::OK, kept, Body::from(bytes)))
 }
 
 /// The publication list: each connection's settings and mappings to review.

@@ -8489,3 +8489,222 @@ impl ChannelCalls for Caller<'_> {
         Ok(self.write(self.request(Method::POST, &path, CHANNELS).json(&body)).await?.0)
     }
 }
+/// A connection's manual TCGplayer sync as Channels answers it (`ManualSyncPanel`): which actions
+/// the run allows now is Channels' answer (`actions`), not the page's.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ManualSyncPanel {
+    pub inbound_coverage: InboundCoverage,
+    pub run: Option<SyncRun>,
+    /// `compose`, `download`, `retry-clamp`, `record-upload-attempt`,
+    /// `record-validation-cancellation`, `release`, `ingest-live`, `ingest-staged`, `verify`.
+    pub actions: Vec<String>,
+    pub lease_countdown_ms: Option<u64>,
+    pub requested_listing_count: u64,
+    pub composed_listing_count: u64,
+    /// `ready`, `unknown` or `recovery`.
+    pub attention_reason: Option<String>,
+    pub verification_candidate: Option<VerificationCandidate>,
+}
+
+impl ManualSyncPanel {
+    pub fn allows(&self, action: &str) -> bool {
+        self.actions.iter().any(|a| a == action)
+    }
+}
+
+/// Whether a paired connector authorizes inbound data (`live`), and why not (`dark`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InboundCoverage {
+    pub state: String,
+    pub reason: Option<String>,
+}
+
+/// The connection's latest manual run (`ChannelSyncRun`), the fields the panel shows.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyncRun {
+    pub run_id: String,
+    pub revision: u64,
+    pub state: String,
+    pub lease_expires_at: String,
+    pub upload_attempted_at: Option<String>,
+}
+
+/// The Staged snapshot a run awaiting verification is checked against.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VerificationCandidate {
+    pub snapshot_id: String,
+    pub parsed_row_count: u64,
+    pub captured_at: String,
+}
+
+/// What an export's ingest found (`ManualSyncIngestReceipt`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IngestReceipt {
+    /// `live` or `staged`.
+    pub surface: String,
+    pub probe: IngestProbe,
+    pub outcome: IngestOutcome,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IngestProbe {
+    pub file_name: String,
+    pub byte_size: u64,
+    pub logical_rows: u64,
+    pub header_sha256: String,
+    pub observed_at: String,
+}
+
+/// `ingested` with its snapshot, or `refused` with Channels' reason.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IngestOutcome {
+    pub kind: String,
+    pub snapshot_id: Option<String>,
+    pub snapshot_generation: Option<u64>,
+    pub parsed_row_count: Option<u64>,
+    pub reason: Option<String>,
+}
+
+/// What the seller read off TCGplayer's import, for Verify.
+pub struct ImportSummary<'a> {
+    pub file_name: &'a str,
+    pub date_imported_text: &'a str,
+    pub number_of_products: u64,
+}
+
+/// A run's write: which run, at which revision.
+#[derive(Clone, Copy)]
+pub struct RunAt<'a> {
+    pub run_id: &'a str,
+    pub revision: u64,
+}
+
+/// Now, as `new Date().toISOString()` writes it.
+pub fn instant_now() -> String {
+    use time::format_description::well_known::Rfc3339;
+    let now = time::OffsetDateTime::now_utc();
+    let now = now.replace_millisecond(now.millisecond()).unwrap_or(now);
+    now.format(&Rfc3339).unwrap_or_default()
+}
+
+/// The manual sync panel's calls (Channels' `manual-sync` routes).
+pub trait ManualSyncCalls {
+    async fn manual_sync(&self, id: &str) -> Result<ManualSyncPanel, ApiError>;
+    /// Compose a Staged batch from the claimed publication work.
+    async fn compose_manual_sync(&self, id: &str) -> Result<(), ApiError>;
+    /// A run's bodiless write: `retry-clamp`, `release` or `validation-cancelled`.
+    async fn manual_sync_step(&self, id: &str, run: RunAt<'_>, step: &str) -> Result<(), ApiError>;
+    async fn record_upload_attempt(&self, id: &str, run: RunAt<'_>, file_name: &str) -> Result<(), ApiError>;
+    async fn verify_manual_sync(
+        &self,
+        id: &str,
+        run: RunAt<'_>,
+        snapshot: &str,
+        summary: &ImportSummary<'_>,
+    ) -> Result<(), ApiError>;
+    /// Ingest a TCGplayer export of `surface` (`live` or `staged`).
+    async fn ingest_export(
+        &self,
+        id: &str,
+        surface: &str,
+        file_name: &str,
+        bytes: bytes::Bytes,
+    ) -> Result<IngestReceipt, ApiError>;
+    /// Claim the composed run and its Staged CSV, as Channels sends it.
+    async fn download_manual_sync(&self, id: &str, run: RunAt<'_>) -> Result<reqwest::Response, ApiError>;
+}
+
+fn manual_sync_path(id: &str) -> String {
+    format!("{CHANNEL_CONNECTIONS}/{}/manual-sync", segment(id))
+}
+
+fn run_path(id: &str, run: RunAt<'_>, step: &str) -> String {
+    format!("{}/runs/{}/{step}", manual_sync_path(id), segment(run.run_id))
+}
+
+impl ManualSyncCalls for Caller<'_> {
+    async fn manual_sync(&self, id: &str) -> Result<ManualSyncPanel, ApiError> {
+        self.read(&manual_sync_path(id), CHANNELS).await
+    }
+
+    async fn compose_manual_sync(&self, id: &str) -> Result<(), ApiError> {
+        let path = format!("{}/compose", manual_sync_path(id));
+        self.write::<serde_json::Value>(self.request(Method::POST, &path, CHANNELS)).await.map(|_| ())
+    }
+
+    async fn manual_sync_step(&self, id: &str, run: RunAt<'_>, step: &str) -> Result<(), ApiError> {
+        let path = format!("{}?expectedRevision={}", run_path(id, run, step), run.revision);
+        self.write::<serde_json::Value>(self.request(Method::POST, &path, CHANNELS)).await.map(|_| ())
+    }
+
+    async fn record_upload_attempt(&self, id: &str, run: RunAt<'_>, file_name: &str) -> Result<(), ApiError> {
+        let body = serde_json::json!({
+            "expectedRevision": run.revision,
+            "uploadAttemptedAt": instant_now(),
+            "fileName": file_name,
+        });
+        let req = self.request(Method::POST, &run_path(id, run, "upload-attempt"), CHANNELS).json(&body);
+        self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+
+    async fn verify_manual_sync(
+        &self,
+        id: &str,
+        run: RunAt<'_>,
+        snapshot: &str,
+        summary: &ImportSummary<'_>,
+    ) -> Result<(), ApiError> {
+        let body = serde_json::json!({
+            "expectedRevision": run.revision,
+            "verificationSnapshotId": snapshot,
+            "importSummary": {
+                "fileName": summary.file_name,
+                "dateImportedText": summary.date_imported_text,
+                "numberOfProducts": summary.number_of_products,
+                "recordedAt": instant_now(),
+            },
+        });
+        let req = self.request(Method::POST, &run_path(id, run, "verify"), CHANNELS).json(&body);
+        self.write::<serde_json::Value>(req).await.map(|_| ())
+    }
+
+    async fn ingest_export(
+        &self,
+        id: &str,
+        surface: &str,
+        file_name: &str,
+        bytes: bytes::Bytes,
+    ) -> Result<IngestReceipt, ApiError> {
+        let part = reqwest::multipart::Part::stream(bytes)
+            .file_name(file_name.to_owned())
+            .mime_str("text/csv")
+            .map_err(ApiError::Transport)?;
+        let form = reqwest::multipart::Form::new().part("export", part);
+        let path = format!("{}/ingest?surface={}", manual_sync_path(id), segment(surface));
+        let req = self
+            .request(Method::POST, &path, CHANNELS)
+            .header("x-channel-export-captured-at", instant_now())
+            .timeout(UPLOAD_TIMEOUT)
+            .multipart(form);
+        Ok(self.write(req).await?.0)
+    }
+
+    async fn download_manual_sync(&self, id: &str, run: RunAt<'_>) -> Result<reqwest::Response, ApiError> {
+        let path = format!("{}?expectedRevision={}", run_path(id, run, "download"), run.revision);
+        let res = self.request(Method::POST, &path, CHANNELS).send().await?;
+        if res.status().is_success() {
+            return Ok(res);
+        }
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let code = body["error"]["code"].as_str().map(str::to_owned);
+        Err(ApiError::Status { status, message: code.clone().unwrap_or_default(), code })
+    }
+}

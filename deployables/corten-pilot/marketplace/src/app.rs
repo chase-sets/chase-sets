@@ -37,7 +37,7 @@
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
-//! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..` | the channel connections, Connect, a connection's writes, the publication list and a connection's publication with its writes (see `channels`) |
+//! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..`, `POST ../{id}/manual-sync`, `../ingest`, `../download` | the channel connections, Connect, a connection's writes and manual sync, the publication list and a connection's publication with its writes (see `channels`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
@@ -160,7 +160,10 @@ pub mod url {
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
-    pub use channels::{ChannelConnection, ChannelPublication, ChannelPublications, Channels};
+    pub use channels::{
+        ChannelConnection, ChannelManualSync, ChannelManualSyncDownload, ChannelManualSyncIngest, ChannelPublication,
+        ChannelPublications, Channels,
+    };
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use consents::Consents;
     pub use desk::Desk;
@@ -1163,6 +1166,24 @@ pub mod url {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::channels::ConnectionPlace,
+        }
+
+        /// A connection's manual sync writes, but an export's ingest and the download.
+        #[route("/account/channels/{id}/manual-sync", post = crate::channels::manual_sync)]
+        pub struct ChannelManualSync<'a> {
+            pub id: &'a str,
+        }
+
+        /// Ingest a Live or Staged export (`multipart/form-data`).
+        #[route("/account/channels/{id}/manual-sync/ingest", post = crate::channels::manual_sync_ingest)]
+        pub struct ChannelManualSyncIngest<'a> {
+            pub id: &'a str,
+        }
+
+        /// Clamp and download CSV: Channels' Staged batch for the composed run.
+        #[route("/account/channels/{id}/manual-sync/download", post = crate::channels::manual_sync_download)]
+        pub struct ChannelManualSyncDownload<'a> {
+            pub id: &'a str,
         }
     }
 

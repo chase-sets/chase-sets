@@ -2,18 +2,22 @@
 //! `ChannelPublicationListPage` and `ChannelPublicationDetailPage`): the connections with the
 //! status filter as links, the next page and Connect a channel; a connection's status with its
 //! actions and the setup's storage locations; each connection's publication summary; and a
-//! connection's publication settings, blocked listings and mappings to review. Every action is a
-//! form or a link. The cards are one column on a phone and two from 48rem; a mapping's target and
-//! its decisions wrap under its name on a phone.
+//! connection's publication settings, blocked listings and mappings to review; and a connection's
+//! manual TCGplayer sync (`ManualSyncPanelView`). Every action is a form or a link. The cards are
+//! one column on a phone and two from 48rem; a mapping's target and its decisions wrap under its
+//! name on a phone, and the manual sync's facts wrap to as many columns as fit.
 use corten::prelude::*;
 use platform::api::segment;
 
 use crate::{
-    api::{ChannelConnection, ChannelPublication, ChannelPublicationSummary, MappingCandidate},
+    api::{
+        ChannelConnection, ChannelPublication, ChannelPublicationSummary, IngestReceipt, ManualSyncPanel, MappingCandidate,
+        SyncRun,
+    },
     app::url,
     channels::{
-        ChannelsScreen, ConnectForm, ConnectionForm, ConnectionScreen, ListPlace, PublicationForm, PublicationPlace,
-        PublicationSaid, PublicationScreen, STATUSES, actions,
+        ChannelsScreen, ConnectForm, ConnectionForm, ConnectionScreen, IngestForm, ListPlace, ManualSaid, ManualSyncForm,
+        PublicationForm, PublicationPlace, PublicationSaid, PublicationScreen, STATUSES, actions,
     },
     text::{ChannelsMsg, Pilot},
     views::on_marketplace,
@@ -257,6 +261,17 @@ pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a Connectio
                         }
                     }
                 </section>
+            }
+            match &screen.manual {
+                Some(panel) => {
+                    <ManualSync t={t} id={&connection.connection_id} panel={panel} said={&screen.said} manage={screen.manage} />
+                }
+                None => {
+                    <div class={Banner} data-tone="danger" role="alert">
+                        <p class={Strong}>{t.manual_sync_error_title()}</p>
+                        <p>{t.manual_sync_error_description()}</p>
+                    </div>
+                }
             }
             <section class={Section}>
                 <p class={Muted}>{p.channels_more_on_marketplace()}</p>
@@ -628,5 +643,309 @@ fn Mapping<'a>(
                 </fieldset>
             </form>
         </li>
+    }
+}
+
+/// A run's state's words (`stateLabel`).
+fn run_state_word(t: ChannelsMsg, state: &str) -> &str {
+    match state {
+        "composed" => t.manual_sync_state_composed(),
+        "claimed" => t.manual_sync_state_claimed(),
+        "awaiting-verification" => t.manual_sync_state_awaiting_verification(),
+        "applied" => t.manual_sync_state_applied(),
+        "validation-rejected" => t.manual_sync_state_validation_rejected(),
+        "application-unknown" => t.manual_sync_state_application_unknown(),
+        "superseded" => t.manual_sync_state_superseded(),
+        "stale-basis" => t.manual_sync_state_stale_basis(),
+        "abandoned" => t.manual_sync_state_abandoned(),
+        _ => t.manual_sync_state_none(),
+    }
+}
+
+/// A run's state's badge tone (`stateTone`).
+fn run_tone(state: &str) -> &'static str {
+    match state {
+        "applied" => "success",
+        "application-unknown" | "stale-basis" => "danger",
+        "validation-rejected" | "abandoned" => "warning",
+        _ => "info",
+    }
+}
+
+/// Why inbound coverage is dark (`coverageReasonKeys`).
+fn dark_words(t: ChannelsMsg, reason: Option<&str>) -> &'static str {
+    match reason {
+        Some("inbound-authority-revoked") => t.manual_sync_coverage_revoked_description(),
+        Some("provider-has-no-inbound") => t.manual_sync_coverage_unsupported_description(),
+        Some("inbound-authority-failing") => t.manual_sync_coverage_failing_description(),
+        _ => t.manual_sync_coverage_dark_description(),
+    }
+}
+
+/// The states a run is still in progress in, whose lease the panel counts down
+/// (`channelSyncRunStates` before the terminal ones).
+const OPEN_RUN_STATES: [&str; 3] = ["composed", "claimed", "awaiting-verification"];
+
+/// A connection's manual TCGplayer sync (`ManualSyncPanelView`): the run's state, inbound
+/// coverage, the counts and the lease, and the actions Channels allows, each a form; an export's
+/// ingest posts the file. A reader sees the panel without its forms.
+#[component(css = ChannelsPage)]
+fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said: &'a ManualSaid, manage: bool) -> impl Render {
+    let run = panel.run.as_ref();
+    let state = run.map_or("none", |run| run.state.as_str());
+    let recovery = panel.attention_reason.as_deref() == Some("recovery");
+    let open = run.is_some_and(|run| OPEN_RUN_STATES.contains(&run.state.as_str()));
+    let live = panel.inbound_coverage.state == "live";
+    let write = url::ChannelManualSync { id }.href();
+    let ingest = url::ChannelManualSyncIngest { id }.href();
+    let download = url::ChannelManualSyncDownload { id }.href();
+    let f = ManualSyncForm::FIELDS;
+    let g = IngestForm::FIELDS;
+    let can = |action: &str| manage && panel.allows(action);
+    html! {
+        <section class={(Section, Card)} aria-labelledby="manual-sync">
+            <div class={Row}>
+                <h2 id="manual-sync" class={PartTitle}>{t.manual_sync_title()}</h2>
+                if recovery {
+                    <span class={Badge} data-tone="warning">{t.manual_sync_recovery_badge()}</span>
+                } else {
+                    <span class={Badge} data-tone={run_tone(state)}>{run_state_word(t, state)}</span>
+                }
+            </div>
+            <p class={Muted}>{t.manual_sync_description()}</p>
+            if recovery {
+                <div class={Banner} data-tone="warning" role="status">
+                    <p class={Strong}>{t.manual_sync_recovery_title()}</p>
+                    <p>{t.manual_sync_recovery_description()}</p>
+                </div>
+            }
+            <div class={Banner} data-tone={if live { "success" } else { "warning" }}>
+                if live {
+                    <p class={Strong}>{t.manual_sync_coverage_live()}</p>
+                    <p>{t.manual_sync_coverage_live_description()}</p>
+                } else {
+                    <p class={Strong}>{t.manual_sync_coverage_dark()}</p>
+                    <p>{dark_words(t, panel.inbound_coverage.reason.as_deref())}</p>
+                }
+            </div>
+            <dl class={Facts}>
+                <div>
+                    <dt>{t.manual_sync_metric_requested()}</dt>
+                    <dd>{panel.requested_listing_count}</dd>
+                </div>
+                <div>
+                    <dt>{t.manual_sync_metric_composed()}</dt>
+                    <dd>{panel.composed_listing_count}</dd>
+                </div>
+                if open {
+                    <div>
+                        <dt>{t.manual_sync_metric_lease()}</dt>
+                        match panel.lease_countdown_ms {
+                            Some(ms) => { <dd>{t.manual_sync_lease_value(ms / 60_000, ms % 60_000 / 1_000)}</dd> }
+                            None => { <dd>{t.manual_sync_lease_none()}</dd> }
+                        }
+                    </div>
+                }
+                if let Some(run) = run {
+                    <div>
+                        <dt>{t.manual_sync_lease_expires_at()}</dt>
+                        <dd>{&run.lease_expires_at}</dd>
+                    </div>
+                    if let Some(at) = &run.upload_attempted_at {
+                        <div>
+                            <dt>{t.manual_sync_lease_upload_attempted_at()}</dt>
+                            <dd>{at}</dd>
+                        </div>
+                    }
+                }
+            </dl>
+            match said {
+                ManualSaid::StagedBasis => {
+                    <div class={Banner} data-tone="warning" role="alert">
+                        <p class={Strong}>{t.manual_sync_compose_staged_basis_title()}</p>
+                        <p>{t.manual_sync_compose_staged_basis_description()}</p>
+                    </div>
+                }
+                ManualSaid::Failed => {
+                    <div class={Banner} data-tone="danger" role="alert">
+                        <p class={Strong}>{t.manual_sync_action_failed()}</p>
+                        <p>{t.manual_sync_action_failed_description()}</p>
+                    </div>
+                }
+                ManualSaid::Invalid => {
+                    <div class={Banner} data-tone="danger" role="alert">
+                        <p class={Strong}>{t.manual_sync_action_failed()}</p>
+                        <p>{t.manual_sync_action_invalid()}</p>
+                    </div>
+                }
+                ManualSaid::Ingested(receipt) => { <Receipt t={t} receipt={receipt} /> }
+                ManualSaid::Nothing => {}
+            }
+            if manage {
+                <div class={Row}>
+                    if can("compose") {
+                        <form class={Inline} method="post" action={&write}>
+                            <input type="hidden" name={f.intent} value="compose">
+                            <button type="submit" class={Button}>{t.manual_sync_action_compose()}</button>
+                        </form>
+                    }
+                    if let Some(run) = run {
+                        if can("retry-clamp") {
+                            <RunForm to={&write} intent="retry-clamp" label={t.manual_sync_action_retry_clamp()} run={run} />
+                        }
+                        if can("download") {
+                            <RunForm to={&download} intent="download" label={t.manual_sync_action_download()} run={run} />
+                        }
+                        if can("record-validation-cancellation") {
+                            <RunForm to={&write} intent="validation-cancelled" label={t.manual_sync_action_cancel()} run={run} />
+                        }
+                        if can("release") {
+                            <RunForm to={&write} intent="release" label={t.manual_sync_action_release()} run={run} />
+                        }
+                    }
+                </div>
+                if let Some(run) = run.filter(|_| can("record-upload-attempt")) {
+                    <form class={Form} method="post" action={&write}>
+                        <input type="hidden" name={f.intent} value="upload-attempt">
+                        <input type="hidden" name={f.run_id} value={&run.run_id}>
+                        <input type="hidden" name={f.expected_revision} value={run.revision}>
+                        <label class={Field}>
+                            <span class={Strong}>{t.manual_sync_file_staged_label()}</span>
+                            <input class={Control} name={f.file_name} required>
+                        </label>
+                        <p class={Row}><button type="submit" class={Button}>{t.manual_sync_action_upload_attempt()}</button></p>
+                    </form>
+                }
+                for (surface, allowed, label, action) in [
+                    ("live", can("ingest-live"), t.manual_sync_file_live_label(), t.manual_sync_action_ingest_live()),
+                    ("staged", can("ingest-staged"), t.manual_sync_file_staged_label(), t.manual_sync_action_ingest_staged()),
+                ] {
+                    if allowed {
+                        <form class={Form} method="post" action={&ingest} enctype="multipart/form-data">
+                            <input type="hidden" name={g.surface} value={surface}>
+                            <label class={Field}>
+                                <span class={Strong}>{label}</span>
+                                <span class={Muted}>{t.manual_sync_file_description()}</span>
+                                <input class={Control} type="file" name={g.export} accept=".csv,text/csv" required>
+                            </label>
+                            <p class={Row}><button type="submit" class={(Button, Secondary)}>{action}</button></p>
+                        </form>
+                    }
+                }
+                if let Some(run) = run.filter(|_| can("verify")) {
+                    match &panel.verification_candidate {
+                        Some(candidate) => {
+                            <form class={Form} method="post" action={&write}>
+                                <input type="hidden" name={f.intent} value="verify">
+                                <input type="hidden" name={f.run_id} value={&run.run_id}>
+                                <input type="hidden" name={f.expected_revision} value={run.revision}>
+                                <input type="hidden" name={f.verification_snapshot_id} value={&candidate.snapshot_id}>
+                                <dl class={Facts}>
+                                    <div>
+                                        <dt>{t.manual_sync_verify_snapshot()}</dt>
+                                        <dd>{&candidate.snapshot_id}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>{t.manual_sync_verify_captured_at()}</dt>
+                                        <dd>{&candidate.captured_at}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>{t.manual_sync_verify_parsed_row_count()}</dt>
+                                        <dd>{candidate.parsed_row_count}</dd>
+                                    </div>
+                                </dl>
+                                <label class={Field}>
+                                    <span class={Strong}>{t.manual_sync_verify_file_name()}</span>
+                                    <input class={Control} name={f.file_name} required>
+                                </label>
+                                <label class={Field}>
+                                    <span class={Strong}>{t.manual_sync_verify_date_imported()}</span>
+                                    <input class={Control} name={f.date_imported_text} required>
+                                </label>
+                                <label class={Field}>
+                                    <span class={Strong}>{t.manual_sync_verify_number_of_products()}</span>
+                                    <input class={Control} name={f.number_of_products} inputmode="numeric" required>
+                                </label>
+                                <p class={Row}><button type="submit" class={Button}>{t.manual_sync_action_verify()}</button></p>
+                            </form>
+                        }
+                        None => {
+                            <div class={Banner} data-tone="info" role="status">
+                                <p class={Strong}>{t.manual_sync_verify_none_title()}</p>
+                                <p>{t.manual_sync_verify_none_description()}</p>
+                            </div>
+                        }
+                    }
+                }
+            }
+        </section>
+    }
+}
+
+/// A run's bodiless write, made at the revision the panel was drawn with.
+#[component(css = ChannelsPage)]
+fn RunForm<'a>(to: &'a str, intent: &'static str, label: &'a str, run: &'a SyncRun) -> impl Render {
+    let f = ManualSyncForm::FIELDS;
+    html! {
+        <form class={Inline} method="post" action={to}>
+            <input type="hidden" name={f.intent} value={intent}>
+            <input type="hidden" name={f.run_id} value={&run.run_id}>
+            <input type="hidden" name={f.expected_revision} value={run.revision}>
+            <button type="submit" class={(Button, Secondary)}>{label}</button>
+        </form>
+    }
+}
+
+/// What an export's ingest found (`IngestReceipt`).
+#[component(css = ChannelsPage)]
+fn Receipt<'a>(t: ChannelsMsg, receipt: &'a IngestReceipt) -> impl Render {
+    let outcome = &receipt.outcome;
+    let probe = &receipt.probe;
+    html! {
+        if outcome.kind == "ingested" {
+            <div class={Banner} data-tone="success" role="status">
+                <p class={Strong}>
+                    if receipt.surface == "live" {
+                        {t.manual_sync_receipt_ingested_live()}
+                    } else {
+                        {t.manual_sync_receipt_ingested_staged()}
+                    }
+                </p>
+                <p>
+                    {t.manual_sync_receipt_ingested_description(
+                        outcome.snapshot_id.as_deref().unwrap_or_default(),
+                        outcome.snapshot_generation.unwrap_or_default(),
+                        outcome.parsed_row_count.unwrap_or_default(),
+                    )}
+                </p>
+            </div>
+        } else {
+            <div class={Banner} data-tone="danger" role="alert">
+                <p class={Strong}>{t.manual_sync_receipt_refused_title()}</p>
+                <p>{t.manual_sync_receipt_refused_description(outcome.reason.as_deref().unwrap_or_default())}</p>
+            </div>
+        }
+        <dl class={Facts}>
+            <div>
+                <dt>{t.manual_sync_receipt_file_name()}</dt>
+                <dd>{&probe.file_name}</dd>
+            </div>
+            <div>
+                <dt>{t.manual_sync_receipt_byte_size()}</dt>
+                <dd>{probe.byte_size}</dd>
+            </div>
+            <div>
+                <dt>{t.manual_sync_receipt_logical_rows()}</dt>
+                <dd>{probe.logical_rows}</dd>
+            </div>
+            <div>
+                <dt>{t.manual_sync_receipt_header_sha256()}</dt>
+                <dd>{&probe.header_sha256}</dd>
+            </div>
+            <div>
+                <dt>{t.manual_sync_receipt_observed_at()}</dt>
+                <dd>{&probe.observed_at}</dd>
+            </div>
+        </dl>
     }
 }

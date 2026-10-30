@@ -145,7 +145,7 @@
 //   bulk_route.*, the recommendations' page and route as recs.* and recs_route.*, and Pricing
 //   Health's title).
 // - marketplace/locales/channels.en.json: the channel screens' English catalog
-//   (channels.connections.* and channels.publication.*).
+//   (channels.connections.*, channels.publication.* and channels.manualSync.* as manual_sync.*).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -1138,6 +1138,7 @@ const outputs = [
       await catalog("channels.ts", "channelsEnglishTranslations", [
         ["channels.connections.", "connections"],
         ["channels.publication.", "publication"],
+        ["channels.manualSync.", "manual_sync"],
       ]),
     ),
   ],

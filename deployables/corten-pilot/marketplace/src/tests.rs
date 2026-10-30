@@ -15785,7 +15785,8 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
 /// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
 /// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
-/// publication (`channel_publication_api`).
+/// publication (`channel_publication_api`). `conn_active`'s manual sync has run `run_1` composed
+/// at revision 2 (`manual_sync_api`); `conn_pending`'s is unavailable.
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let path = uri.path();
     if !path.starts_with("/api/channels/") {
@@ -15838,6 +15839,9 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             let Some(status) = status_of(id) else {
                 return Some(refusal(StatusCode::NOT_FOUND, "not_found", "not_found"));
             };
+            if let Some(manual) = command.strip_prefix("manual-sync") {
+                return Some(manual_sync_api(method, id, manual, query, body));
+            }
             match (method, command) {
                 ("GET", "") => Json(connection(id, status)).into_response(),
                 ("POST", "pause") => transition(status != "active", id, "paused"),
@@ -15848,6 +15852,61 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             }
         }
     })
+}
+
+/// A connection's manual sync, as Channels answers it: `conn_active`'s run `run_1` is composed at
+/// revision 2 with 90 seconds of lease left and allows Download and a Staged ingest; `conn_pending`'s
+/// is unavailable (503) and `conn_paused` has no run. Download at revision 2 is Staged CSV, at any
+/// other Channels' 409; Compose needs a newer Staged export; Release applies; an ingest answers a
+/// receipt for the file it was sent.
+fn manual_sync_api(method: &str, id: &str, rest: &str, query: &str, body: &str) -> Response {
+    match (method, id, rest) {
+        ("GET", "conn_pending", "") => {
+            refusal(StatusCode::SERVICE_UNAVAILABLE, "manual-sync-unavailable", "manual-sync-unavailable")
+        }
+        ("GET", "conn_active", "") => Json(json!({
+            "connection": { "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": "active" },
+            "inboundCoverage": { "state": "dark", "reason": "no-inbound-authority" },
+            "run": { "runId": "run_1", "revision": 2, "state": "composed", "leaseExpiresAt": "2026-10-30T12:30:00.000Z",
+                     "uploadAttemptedAt": null },
+            "actions": ["download", "ingest-staged"],
+            "leaseCountdownMs": 90_000,
+            "requestedListingCount": 3,
+            "composedListingCount": 2,
+            "attentionReason": "ready",
+            "verificationCandidate": null,
+        }))
+        .into_response(),
+        ("GET", _, "") => Json(json!({
+            "inboundCoverage": { "state": "live", "reason": null }, "run": null, "actions": [],
+            "leaseCountdownMs": null, "requestedListingCount": 0, "composedListingCount": 0,
+            "attentionReason": null, "verificationCandidate": null,
+        }))
+        .into_response(),
+        ("POST", "conn_active", "/runs/run_1/download") if query == "expectedRevision=2" && body.is_empty() => (
+            [
+                (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (header::CONTENT_DISPOSITION, "attachment; filename=\"tcgplayer-staged-run_1.csv\""),
+                (header::HeaderName::from_static("x-channel-sync-run-revision"), "3"),
+                (header::SET_COOKIE, "leak=1"),
+            ],
+            "TCGplayer Id,Add to Quantity,TCG Marketplace Price\nseed-1,-1,399.99\n",
+        )
+            .into_response(),
+        ("POST", _, "/runs/run_1/download") => refusal(StatusCode::CONFLICT, "stale-revision", "stale-revision"),
+        ("POST", _, "/compose") => refusal(StatusCode::CONFLICT, "staged-basis-stale", "staged-basis-stale"),
+        ("POST", _, "/runs/run_1/release") if query == "expectedRevision=2" => {
+            Json(json!({ "runId": "run_1", "revision": 3 })).into_response()
+        }
+        ("POST", _, "/ingest") if query == "surface=staged" && body.contains("filename=\"staged.csv\"") => Json(json!({
+            "surface": "staged",
+            "probe": { "fileName": "staged.csv", "byteSize": 64, "logicalRows": 12,
+                       "headerSha256": "ab".repeat(32), "observedAt": "2026-10-30T12:00:00.000Z" },
+            "outcome": { "kind": "ingested", "snapshotId": "cis_1", "snapshotGeneration": 4, "parsedRowCount": 12 },
+        }))
+        .into_response(),
+        _ => refusal(StatusCode::BAD_REQUEST, "invalid-input", "invalid-input"),
+    }
 }
 
 /// `conn_active`'s publication, as Channels answers it: settings at configuration version 3, one
@@ -16183,4 +16242,107 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let words = text(&html);
     assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
+}
+
+const CONNECTION: &str = "/account/channels/conn_active";
+
+#[tokio::test]
+async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CONNECTION, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    for said in [
+        "Manual TCGplayer sync",
+        "Ready to download",
+        "Inbound sales visibility is dark",
+        "Requested listings 3",
+        "Composed listings 2",
+        "Lease remaining 1m 30s",
+        "Lease expires 2026-10-30T12:30:00.000Z",
+    ] {
+        assert!(words.contains(said), "{said}: {words}");
+    }
+    assert!(html.contains(r#"action="/account/channels/conn_active/manual-sync/download""#), "{html}");
+    assert!(html.contains(r#"name="runId" value="run_1""#) && html.contains(r#"name="expectedRevision" value="2""#));
+    assert!(
+        html.contains(r#"action="/account/channels/conn_active/manual-sync/ingest" enctype="multipart/form-data""#),
+        "{html}"
+    );
+    assert!(words.contains("Ingest Staged export") && !words.contains("Ingest Live export"), "Channels' actions only: {words}");
+    assert!(!html.contains(r#"value="compose""#) && !html.contains(r#"value="release""#));
+
+    // A reader sees the panel without its forms; a connection whose panel is unavailable says so.
+    let (_, _, html) = pilot.send(get(CONNECTION, Some("channel_reader"))).await;
+    assert!(text(&html).contains("Ready to download") && !html.contains("/manual-sync"), "{html}");
+    let (status, _, _) = pilot
+        .send(post(
+            &format!("{CONNECTION}/manual-sync"),
+            "channel_reader",
+            "intent=release&runId=run_1&expectedRevision=2",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) = pilot.send(get("/account/channels/conn_pending", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Manual TCGplayer sync is unavailable"), "{html}");
+
+    // Download is Channels' CSV with its file name, and none of its other headers.
+    let download = format!("{CONNECTION}/manual-sync/download");
+    let (status, headers, csv) =
+        pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=2", false)).await;
+    assert_eq!(status, StatusCode::OK, "{csv}");
+    assert_eq!(headers[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+    assert_eq!(headers[header::CONTENT_DISPOSITION], "attachment; filename=\"tcgplayer-staged-run_1.csv\"");
+    assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c == "leak=1"), "{headers:?}");
+    assert!(csv.starts_with("TCGplayer Id,Add to Quantity"), "{csv}");
+    // A refused download goes back to the connection, which says so.
+    let (status, headers, _) =
+        pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/conn_active?manual=failed");
+    let (_, _, html) = pilot.send(get("/account/channels/conn_active?manual=failed", Some("channeler"))).await;
+    assert!(text(&html).contains("Manual sync action failed Reload the current run state"), "{html}");
+
+    // Compose without a newer Staged export says to ingest one; Release goes back to the connection.
+    let write = format!("{CONNECTION}/manual-sync");
+    let (status, _, html) = pilot.send(post(&write, "channeler", "intent=compose", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Ingest a newer Staged export first"), "{html}");
+    let (status, headers, _) =
+        pilot.send(post(&write, "channeler", "intent=release&runId=run_1&expectedRevision=2", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], CONNECTION);
+    let (status, _, html) = pilot.send(post(&write, "channeler", "intent=delete&runId=run_1&expectedRevision=2", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("That manual sync action is not available."), "{html}");
+    let (status, _, html) =
+        pilot.send(post(&write, "channeler", "intent=verify&runId=run_1&expectedRevision=2&numberOfProducts=many", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Manual sync action failed"), "{html}");
+
+    // An ingest draws the connection with Channels' receipt.
+    let csv: &[u8] = b"TCGplayer Id,Quantity\nseed-1,1\n";
+    let ingest = post_multipart(
+        &format!("{CONNECTION}/manual-sync/ingest"),
+        "channeler",
+        &[("surface", "staged")],
+        &[("export", "staged.csv", "text/csv", csv)],
+    );
+    let (status, _, html) = pilot.send(ingest).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Staged export ingested Snapshot cis_1 · generation 4 · 12 rows"), "{words}");
+    assert!(words.contains("File staged.csv") && words.contains("Logical rows 12"), "{words}");
+    let sent = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.contains("/manual-sync/ingest"))
+        .map(|c| c.headers.clone());
+    assert!(sent.unwrap().contains_key("x-channel-export-captured-at"), "the capture time goes to Channels");
 }

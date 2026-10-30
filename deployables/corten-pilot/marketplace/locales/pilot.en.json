@@ -224,7 +224,7 @@
     "pending": "This connection is still updating. This page reads it again in a moment.",
     "refresh": "Refresh",
     "choose_location": "Choose at least one storage location to activate on.",
-    "more_on_marketplace": "Drift, the connection's health, pairing, manual sync and the operation log are on marketplace for now.",
+    "more_on_marketplace": "Drift, the connection's health, pairing and the operation log are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace",
     "connections": "Channel connections",
     "filter": "Connection status",
