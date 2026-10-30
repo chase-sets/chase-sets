@@ -1022,10 +1022,15 @@ describeDb("account appeal aggregate DB proof", () => {
         if (resolved.status !== "resolved") throw new Error("expected resolved action");
         const input = { statement: "The closure was mistaken" };
         await expect(
-          createAccountAppealRuntime(pool, createPostgresEventStore({ pool })).file(capability, resolved.action, input, {
-            tenantId: seller.tenantId,
-            audit: { performedByUserId: createId("usr"), forAccountId: owner },
-          }),
+          createAccountAppealRuntime(pool, createPostgresEventStore({ pool })).file(
+            capability,
+            resolved.action,
+            input,
+            {
+              tenantId: seller.tenantId,
+              audit: { performedByUserId: createId("usr"), forAccountId: owner },
+            },
+          ),
         ).rejects.toThrow("account capability");
         const streamId = appealStreamId(resolved.action.appealableActionId);
         const firstPool = instrumentConcurrentFilingPool(pool, "first", diagnostics);
@@ -1064,12 +1069,14 @@ describeDb("account appeal aggregate DB proof", () => {
         expect(race.filter((entry) => entry.status === "rejected")).toHaveLength(1);
         expect(exactStream.rows).toHaveLength(1);
         expect(exactStream.rows[0]).toMatchObject({
-          stream_version: 1,
+          stream_version: "1",
           event_type: "platform-operations.account-appeal.filed",
         });
         expect(diagnostics.filter((entry) => entry.phase === "commit")).toHaveLength(1);
         expect(diagnostics.filter((entry) => entry.phase === "rollback")).toHaveLength(1);
-        expect(diagnostics.filter((entry) => entry.phase === "event-insert" && entry.insertedRows === 1)).toHaveLength(1);
+        expect(diagnostics.filter((entry) => entry.phase === "event-insert" && entry.insertedRows === 1)).toHaveLength(
+          1,
+        );
         expect(diagnostics.filter((entry) => entry.phase === "stream-guard")).toHaveLength(2);
         expect(
           diagnostics
