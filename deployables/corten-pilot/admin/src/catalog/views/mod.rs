@@ -29,6 +29,7 @@ mod display_templates;
 mod item_list;
 mod item_page;
 mod list_page;
+mod reference_records;
 mod reference_types;
 mod scope_list;
 mod scope_page;
@@ -48,8 +49,8 @@ pub use detail_page::{
 };
 pub use dialog::{
     AttachForm, BlueprintForm, CategoryForm, ComponentForm, Dialog, DimensionForm, DimensionRuleForm, DimensionRulesForm,
-    FieldForm, FieldRuleForm, FieldRulesForm, Input, OptionForm, OrderForm, RefTypeForm, ReorderForm, TemplateForm, Toasts,
-    Trigger, value_kinds, value_types,
+    FieldForm, FieldRuleForm, FieldRulesForm, Input, Opens, OptionForm, OrderForm, RefRecordForm, RefTypeForm, ReorderForm,
+    TemplateForm, Toasts, Trigger, value_kinds, value_types,
 };
 pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
 pub use item_list::{
@@ -63,14 +64,18 @@ pub use item_page::{
 };
 pub use list_page::{
     BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick,
-    RefTypeRow, Search, Table, TemplateRow, TextFilter,
+    RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
+};
+pub use reference_records::{
+    RecordDraft, RefChoices, RefRecordCreateDialog, RefRecordEditDialog, RefRecordForms, ref_record_actions, ref_record_list,
+    ref_record_page, ref_record_rows, ref_record_transitions,
 };
 pub use reference_types::{RefTypeForms, ref_type_actions, ref_type_list, ref_type_page, ref_type_rows, ref_type_transitions};
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 
-/// The area's components: its stylesheet, and corten-ui's toaster script.
+/// The area's components: its stylesheet, and corten-ui's toaster and combobox scripts.
 pub const COMPONENTS: &[Component] = &[
     StatusPill,
     ListPage,
@@ -84,6 +89,7 @@ pub const COMPONENTS: &[Component] = &[
     ItemForm,
     ItemPage,
     corten_ui::Toaster,
+    corten_ui::ComboBox,
     corten_ui::dialog::COMPONENT,
 ];
 

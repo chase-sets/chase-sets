@@ -525,6 +525,23 @@ pub struct ReferenceType {
     pub status: String,
     pub updated_at: String,
 }
+/// `ReferenceRecord` (features/reference-data/ui/contracts.ts), which the detail is too: its
+/// attributes are a JSON object, and each relationship names another record by id.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct ReferenceRecord {
+    pub reference_record_id: String,
+    pub type_key: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub attributes: Value,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
+    pub status: String,
+    pub updated_at: String,
+}
 /// `DisplayTemplate` (features/display-templates/ui/contracts.ts), which the detail is too.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DisplayTemplate {
@@ -928,6 +945,7 @@ impl<R> Job<R> {
             "catalog.authoring.components.lifecycle" => Some(Kind::Components),
             "catalog.authoring.blueprints.lifecycle" => Some(Kind::Blueprints),
             "catalog.authoring.reference-types.lifecycle" => Some(Kind::ReferenceTypes),
+            "catalog.authoring.reference-records.lifecycle" => Some(Kind::ReferenceRecords),
             "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
         }

@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use super::api::{
     BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds,
-    DisplayTemplate, Field, FieldRuleIds, ItemDetail, ReferenceType, SelectedOption,
+    DisplayTemplate, Field, FieldRuleIds, ItemDetail, ReferenceRecord, ReferenceType, SelectedOption,
 };
 use crate::text::Pilot;
 
@@ -283,6 +283,164 @@ impl RefTypeInput {
             body["referenceTypeId"] = json!(self.reference_type_id);
         }
         body
+    }
+}
+/// A reference record's create and edit form: its type, key, name and description, its
+/// attributes as text (`parseAttributesInput`), and a row per relationship, its type and the
+/// record it names. Add Relationship and Remove post the form back (`rerow`) to be drawn with a
+/// row more or less, as a blueprint's Set dialogs do.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct RefRecordInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub reference_record_id: String,
+    pub type_key: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub attributes: String,
+    pub relationship_type: Vec<String>,
+    pub reference_id: Vec<String>,
+    pub rerow: Option<String>,
+}
+
+impl RefRecordInput {
+    /// A create form: the first active type (`referenceTypes[0]`) and one empty relationship row.
+    pub fn blank(type_key: Option<&str>) -> Self {
+        RefRecordInput {
+            reference_record_id: new_id("ref"),
+            type_key: type_key.unwrap_or_default().to_owned(),
+            relationship_type: vec![String::new()],
+            reference_id: vec![String::new()],
+            ..Default::default()
+        }
+    }
+
+    /// An edit form (`startEditing`): the attributes as JSON, and a row per relationship (one
+    /// empty row when there are none).
+    pub fn of(record: &ReferenceRecord) -> Self {
+        let rows: Vec<(String, String)> =
+            record.relationships.iter().map(|r| (r.relationship_type.clone(), r.reference_id.clone())).collect();
+        let rows = if rows.is_empty() { vec![(String::new(), String::new())] } else { rows };
+        RefRecordInput {
+            reference_record_id: String::new(),
+            type_key: record.type_key.clone(),
+            key: record.key.clone(),
+            name: record.name.clone(),
+            description: record.description.clone().unwrap_or_default(),
+            attributes: format_attributes(&record.attributes),
+            relationship_type: rows.iter().map(|(kind, _)| kind.clone()).collect(),
+            reference_id: rows.into_iter().map(|(_, id)| id).collect(),
+            rerow: None,
+        }
+    }
+
+    /// The relationship rows, a relationship type and a record id each.
+    pub fn rows(&self) -> Vec<(&str, &str)> {
+        let count = self.relationship_type.len().max(self.reference_id.len());
+        fn at(list: &[String], i: usize) -> &str {
+            list.get(i).map_or("", String::as_str)
+        }
+        (0..count).map(|i| (at(&self.relationship_type, i), at(&self.reference_id, i))).collect()
+    }
+
+    pub fn rerowed(&self) -> Option<Self> {
+        let mut rows: Vec<(String, String)> = self.rows().into_iter().map(|(k, id)| (k.to_owned(), id.to_owned())).collect();
+        match rerowed(self.rerow.as_deref(), rows.len())? {
+            Ok(()) => rows.push((String::new(), String::new())),
+            Err(i) if i < rows.len() => {
+                rows.remove(i);
+            }
+            Err(_) => {}
+        }
+        Some(RefRecordInput {
+            relationship_type: rows.iter().map(|(kind, _)| kind.clone()).collect(),
+            reference_id: rows.into_iter().map(|(_, id)| id).collect(),
+            rerow: None,
+            ..self.clone()
+        })
+    }
+
+    /// `createReferenceRecord`'s body (with the id) or `reviseReferenceRecord`'s. A row with
+    /// only one of its two values is the pilot's own check (admin-web's Add Relationship does
+    /// nothing then); empty rows are left out, and a repeated relationship is sent once.
+    pub fn body(&self, p: Pilot, create: bool) -> Result<Value, Errors> {
+        let mut relationships: Vec<(&str, &str)> = Vec::new();
+        for (kind, id) in self.rows().into_iter().map(|(k, id)| (k.trim(), id.trim())) {
+            match (kind.is_empty(), id.is_empty()) {
+                (true, true) => {}
+                (false, false) => {
+                    relationships.retain(|r| *r != (kind, id));
+                    relationships.push((kind, id));
+                }
+                _ => {
+                    let mut errors = Errors::new();
+                    errors.add(Self::FIELDS.relationship_type, p.check_relationship());
+                    return Err(errors);
+                }
+            }
+        }
+        let relationships: Vec<Value> =
+            relationships.into_iter().map(|(kind, id)| json!({ "relationshipType": kind, "referenceId": id })).collect();
+        let mut body = json!({
+            "typeKey": self.type_key,
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+            "attributes": parse_attributes(&self.attributes),
+            "relationships": relationships,
+        });
+        if create {
+            body["referenceRecordId"] = json!(self.reference_record_id);
+        }
+        Ok(body)
+    }
+}
+
+/// A record's attributes as the edit form shows them (`formatAttributesInput`): indented JSON,
+/// or nothing when there are none.
+pub fn format_attributes(attributes: &Value) -> String {
+    match attributes.as_object() {
+        Some(map) if !map.is_empty() => serde_json::to_string_pretty(attributes).unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// The attributes typed (`parseAttributesInput`): a JSON object, or one `key: value` per line,
+/// each value a boolean, null, a number or text (`parseScalar`).
+pub fn parse_attributes(text: &str) -> Value {
+    let text = text.trim();
+    if text.is_empty() {
+        return json!({});
+    }
+    if let Ok(object @ Value::Object(_)) = serde_json::from_str::<Value>(text) {
+        return object;
+    }
+    let mut map = Map::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (key, value) = line.split_once(':').unwrap_or((line, ""));
+        let key = key.trim();
+        if !key.is_empty() {
+            map.insert(key.to_owned(), scalar(value.trim()));
+        }
+    }
+    Value::Object(map)
+}
+
+/// `parseScalar`: `true`, `false`, `null`, a finite decimal number (a whole one stays whole),
+/// or the text. (JavaScript's `Number` also reads `0x1f`-style numbers; those stay text here.)
+fn scalar(text: &str) -> Value {
+    match text {
+        "true" => json!(true),
+        "false" => json!(false),
+        "null" => Value::Null,
+        "" => json!(""),
+        // `inf` and `NaN` parse but are not finite, so they stay text, as in JavaScript.
+        _ => match text.parse::<f64>() {
+            Ok(n) if n.is_finite() && n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 => json!(n as i64),
+            Ok(n) if n.is_finite() => json!(n),
+            _ => json!(text),
+        },
     }
 }
 /// A display template's create and edit form (`DisplayTemplateInput`): its key, name and

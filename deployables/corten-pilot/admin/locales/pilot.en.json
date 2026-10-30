@@ -23,7 +23,8 @@
   "check": {
     "required": "Enter a value.",
     "number": "Enter a number.",
-    "json_object": "Enter a JSON object, such as {{}}."
+    "json_object": "Enter a JSON object, such as {{}}.",
+    "relationship": "Enter both the relationship and the reference record, or neither."
   },
   "error": {
     "forbidden_title": "Not allowed",

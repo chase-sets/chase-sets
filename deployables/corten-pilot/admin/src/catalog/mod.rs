@@ -28,6 +28,7 @@
 //! | `GET /catalog/blueprints?...` and its writes | the blueprints list and a blueprint's page with its components and rules (`blueprints`) |
 //! | `GET /catalog/display-templates?...` and its writes | the display templates list and a template's page (`display_templates`) |
 //! | `GET /catalog/reference-types?...` and its writes | the reference types list and a type's page (`reference_types`) |
+//! | `GET /catalog/reference-records?...` and its writes | the reference records list and a record's page (`reference_records`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -51,6 +52,7 @@ pub mod display_templates;
 pub mod form;
 pub mod item;
 pub mod items;
+pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
 pub mod scopes;
@@ -399,6 +401,18 @@ impl Done {
         }
     }
 
+    /// The toast on a reference record's pages.
+    pub fn ref_record(self, t: Cat) -> String {
+        let lifecycle = |action: &str| t.ref_record_lifecycle_completed(action).to_string();
+        match self {
+            Done::Created => t.ref_record_list_reference_record_created().into(),
+            Done::Activated | Done::Published => lifecycle(t.ref_record_published()),
+            Done::Deprecated => lifecycle(t.ref_record_deprecated()),
+            Done::Archived => lifecycle(t.ref_record_archived()),
+            _ => t.ref_record_reference_record_revised().into(),
+        }
+    }
+
     /// The toast on a reference type's pages.
     pub fn ref_type(self, t: Cat) -> String {
         let lifecycle = |action: &str| t.ref_type_lifecycle_completed(action).to_string();
@@ -424,6 +438,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = blueprints::url::area(area, shared.clone());
     let area = display_templates::url::area(area, shared.clone());
     let area = reference_types::url::area(area, shared.clone());
+    let area = reference_records::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
@@ -1109,7 +1124,9 @@ async fn field_lifecycle(
 /// blueprint is published where the others are activated.
 fn bulk_actions_of(kind: Kind) -> [&'static str; 3] {
     match kind {
-        Kind::Categories | Kind::Blueprints | Kind::ReferenceTypes => ["publish", "deprecate", "archive"],
+        Kind::Categories | Kind::Blueprints | Kind::ReferenceTypes | Kind::ReferenceRecords => {
+            ["publish", "deprecate", "archive"]
+        }
         _ => ["activate", "deprecate", "archive"],
     }
 }
@@ -1129,6 +1146,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         Kind::Components => views::bulk_actions(t.component_activate(), t.component_deprecate(), t.component_archive()).to_vec(),
         Kind::Blueprints => views::blueprint_actions(t).to_vec(),
         Kind::ReferenceTypes => views::ref_type_actions(t).to_vec(),
+        Kind::ReferenceRecords => views::ref_record_actions(t).to_vec(),
         // admin-web labels the archive with the item page's Archive.
         Kind::Items => views::item_operations(t)
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
@@ -1136,7 +1154,6 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         // No bulk changes.
         Kind::DisplayTemplates
         | Kind::ProductContents
-        | Kind::ReferenceRecords
         | Kind::ScopeRecords
         | Kind::AttentionQueue
         | Kind::AliasReview

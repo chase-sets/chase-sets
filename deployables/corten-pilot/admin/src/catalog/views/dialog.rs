@@ -3,12 +3,14 @@ use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
-use corten_ui::{Toast, Toaster};
+use corten_ui::{ComboBox, Picker, Toast, Toaster};
 
 use crate::{
+    catalog::api::{ReferenceRow, ReferenceType},
     catalog::form::{
         AttachInput, BlueprintInput, CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, DimensionRulesInput,
-        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, RefTypeInput, ReorderInput, TemplateInput,
+        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, RefRecordInput, RefTypeInput, ReorderInput,
+        TemplateInput,
     },
     text::{Cat, Pilot},
     views::Draft,
@@ -51,6 +53,25 @@ pub fn Trigger<'a, I: Id + AttrValue + Copy>(dialog: I, label: &'a str, secondar
         } else {
             <button type="button" class={Small} command="show-modal" commandfor={dialog}>{label}</button>
         }
+    }
+}
+
+/// The button that opens a dialog the server draws with what it needs (a reference record's
+/// form, with the records it may name): a `GET` of `action` carrying `fields`, answered with the
+/// dialog, or without JavaScript the page with it open.
+#[component(css = Dialog)]
+pub fn Opens<'a>(action: &'a str, fields: &'a [(FieldName, &'a str)], label: &'a str, secondary: bool) -> impl Render {
+    html! {
+        <form class={Opens} method="get" action={action} data-patch>
+            for (name, value) in fields {
+                <input type="hidden" name={*name} value={*value}>
+            }
+            if secondary {
+                <button type="submit" class={(Small, Secondary)}>{label}</button>
+            } else {
+                <button type="submit" class={Small}>{label}</button>
+            }
+        </form>
     }
 }
 
@@ -345,6 +366,110 @@ pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
             <p class={Hint}>{t.ref_type_attribute_keys_description()}</p>
             <div class={Footer}>
                 <button type="submit">{if create { t.ref_type_list_create() } else { t.ref_type_save() }}</button>
+            </div>
+        </form>
+    }
+}
+/// A reference record's create form or its edit form. The type is picked from the active types
+/// (typed when there are none); a relationship's record is picked from `records` with
+/// corten-ui's combobox (a select without JavaScript), the record itself left out (`own`).
+#[component(css = Dialog)]
+pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<RefRecordInput>,
+    types: &'a [ReferenceType],
+    records: &'a [ReferenceRow],
+    own: &'a str,
+) -> impl Patch {
+    let f = RefRecordInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    let mut type_labels: Vec<(String, String)> =
+        types.iter().map(|ty| (ty.key.clone(), t.ref_record_reference_type_option(&ty.name, &ty.key).to_string())).collect();
+    // A record whose type is no longer active keeps it: the select does not change it unasked.
+    if !i.type_key.is_empty() && !type_labels.iter().any(|(key, _)| *key == i.type_key) {
+        type_labels.insert(0, (i.type_key.clone(), i.type_key.clone()));
+    }
+    let mut record_labels: Vec<(String, String)> = records
+        .iter()
+        .filter(|r| r.reference_record_id != own)
+        .map(|r| (r.reference_record_id.clone(), t.ref_record_reference_record_option(&r.name, &r.type_key, &r.key).to_string()))
+        .collect();
+    let rows = i.rows();
+    // A row's record that is not among the choices (past the 500 read, or not read yet) is still
+    // an option, by its id: the select would otherwise fall back to none and drop it on save.
+    for (_, picked) in &rows {
+        let picked = picked.trim();
+        if !picked.is_empty() && !record_labels.iter().any(|(value, _)| value == picked) {
+            record_labels.push((picked.to_owned(), picked.to_owned()));
+        }
+    }
+    let row_ids: Vec<String> = (0..rows.len()).map(|row| super::id_with(&id, &format!("-reference-{row}"))).collect();
+    let (choose, none) = (t.ref_record_choose_reference_record(), t.ref_record_no_reference_records_match());
+    html! {
+        let type_options: Vec<(&str, &str)> = type_labels.iter().map(|(k, l)| (k.as_str(), l.as_str())).collect();
+        let choices: Vec<corten_ui::Choice> =
+            record_labels.iter().map(|(value, label)| corten_ui::Choice { value: value.as_str(), label: label.as_str() }).collect();
+        let pickers: Vec<Picker> = rows
+            .iter()
+            .zip(&row_ids)
+            .map(|((_, value), row_id)| Picker {
+                value: Some(value.trim()).filter(|v| !v.is_empty()),
+                ..Picker::new(row_id, f.reference_id, choose, none, &choices)
+            })
+            .collect();
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            <button type="submit" class={Default} tabindex="-1" aria-hidden="true">
+                {if create { t.ref_record_list_create() } else { t.ref_record_save() }}
+            </button>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.reference_record_id} value={&i.reference_record_id}>
+            }
+            if type_options.is_empty() {
+                <Input label={t.ref_record_type_key()} name={f.type_key} value={&i.type_key} errors={&e} />
+            } else {
+                <Choice
+                    label={t.ref_record_reference_type()}
+                    name={f.type_key}
+                    options={&type_options}
+                    value={&i.type_key}
+                    errors={&e}
+                />
+            }
+            <Input label={t.ref_record_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.ref_record_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.ref_record_description()} name={f.description} value={&i.description} errors={&e} />
+            <TextArea label={t.ref_record_attributes()} name={f.attributes} value={&i.attributes} errors={&e} />
+            <p class={Hint}>{t.ref_record_attributes_description()}</p>
+            <fieldset class={Labels}>
+                <legend>{t.ref_record_relationships()}</legend>
+                for (row, ((kind, _), (picker, row_id))) in rows.iter().zip(pickers.iter().zip(&row_ids)).enumerate() {
+                    <div class={(Row, RuleRow)}>
+                        <label class={Field}>
+                            <span class={Label}>{t.ref_record_relationship()}</span>
+                            <input type="text" name={f.relationship_type} value={*kind}>
+                        </label>
+                        <div class={Field}>
+                            <label class={Label} for={row_id}>{t.ref_record_reference_record()}</label>
+                            <ComboBox field={picker} />
+                        </div>
+                        <button type="submit" class={(Small, Danger)} name={f.rerow} value={row} formnovalidate>
+                            {t.ref_record_remove()}
+                        </button>
+                    </div>
+                }
+                {e.message(f.relationship_type)}
+                <div>
+                    <button type="submit" class={(Small, Secondary)} name={f.rerow} value="add" formnovalidate>
+                        {t.ref_record_add_relationship()}
+                    </button>
+                </div>
+            </fieldset>
+            <div class={Footer}>
+                <button type="submit">{if create { t.ref_record_list_create() } else { t.ref_record_save() }}</button>
             </div>
         </form>
     }

@@ -20,6 +20,10 @@ fn served(path: &str) -> Option<String> {
             <catalog::display_templates::url::Templates as Route>::PATH,
             catalog::display_templates::url::Templates::default().href(),
         ),
+        (
+            <catalog::reference_records::url::RefRecords as Route>::PATH,
+            catalog::reference_records::url::RefRecords::default().href(),
+        ),
         (<catalog::categories::url::Categories as Route>::PATH, catalog::categories::url::Categories::default().href()),
         (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
         (<catalog::url::Scopes as Route>::PATH, catalog::url::Scopes::default().href()),

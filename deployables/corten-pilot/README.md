@@ -39,6 +39,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Catalog > Blueprints, `/catalog/blueprints` (search, status, has-components and has-rules filters, bulk changes), and a blueprint's page, `/catalog/blueprints/{id}`, with its components (attach, detach) and its field, dimension and product resolution rules (set, from dialogs the server draws when opened) |
 | `admin/` | Catalog > Display Templates, `/catalog/display-templates` (search, status and target kind filters, create), and a display template's page, `/catalog/display-templates/{id}` (edit, publish, deprecate, archive) |
 | `admin/` | Catalog > Reference Types, `/catalog/reference-types` (search, status and attribute key filters, bulk publish, deprecate and archive, create), and a reference type's page, `/catalog/reference-types/{id}` (edit, publish, deprecate, archive) |
+| `admin/` | Catalog > Reference Data, `/catalog/reference-records` (search, status, type, relationship and attribute filters, bulk publish, deprecate and archive, create), and a reference record's page, `/catalog/reference-records/{id}` (its relationships; edit, publish, deprecate, archive). The create and edit dialogs are drawn by the server when opened, with corten-ui's combobox for each relationship's record |
 | `admin/` | Commerce > a postage policy, `/commerce/postage-policies/{id}` |
 | `admin/` | Platform > Projections, `/platform/projections` |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |

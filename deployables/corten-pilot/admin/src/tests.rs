@@ -121,6 +121,17 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/catalog/alias-review/commands" {
         return written(StatusCode::OK, "alias");
     }
+    // What a reference record's form picks from (every record, as admin-web reads them).
+    if method == Method::GET && uri.path() == "/api/catalog/reference-records" && uri.query() == Some("limit=500") {
+        return Json(json!({
+            "items": [
+                { "reference_record_id": "ref_tpci", "type_key": "publisher", "key": "tpci", "name": "TPCi" },
+                { "reference_record_id": "ref_seed", "type_key": "product-line", "key": "pokemon", "name": "Pokemon TCG" },
+            ],
+            "total": 2,
+        }))
+        .into_response();
+    }
     if let Some(rest) = uri.path().strip_prefix(CATALOG) {
         return catalog_api(method, rest, &headers, &body);
     }
@@ -482,6 +493,15 @@ fn reference_type(id: &str) -> Value {
         "attribute_keys": ["release-date", "series"], "status": "draft", "updated_at": "2026-01-01T00:00:00.000Z",
     })
 }
+/// A draft reference record with one attribute and one relationship (`ReferenceRecord`).
+fn reference_record(id: &str) -> Value {
+    json!({
+        "reference_record_id": id, "type_key": "product-line", "key": "pokemon", "name": "Pokemon TCG",
+        "description": null, "attributes": { "short-name": "PTCG", "sets": 12 },
+        "relationships": [{ "relationshipType": "published-by", "referenceId": "ref_tpci" }],
+        "status": "draft", "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -770,6 +790,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/components/bulk-lifecycle/preview"
             | "/blueprints/bulk-lifecycle/preview"
             | "/reference-types/bulk-lifecycle/preview"
+            | "/reference-records/bulk-lifecycle/preview"
             | "/items/bulk-lifecycle/preview",
         ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
@@ -792,6 +813,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/components/bulk-lifecycle/confirm"
             | "/blueprints/bulk-lifecycle/confirm"
             | "/reference-types/bulk-lifecycle/confirm"
+            | "/reference-records/bulk-lifecycle/confirm"
             | "/items/bulk-lifecycle/confirm",
         ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
@@ -847,6 +869,10 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         ),
         (Method::GET, "/reference-types") => Json(json!({ "items": [reference_type("rft_seed")], "total": 1 })).into_response(),
         (Method::GET, "/reference-types/rft_seed") => Json(reference_type("rft_seed")).into_response(),
+        (Method::GET, "/reference-records") => {
+            Json(json!({ "items": [reference_record("ref_seed")], "total": 1 })).into_response()
+        }
+        (Method::GET, "/reference-records/ref_seed") => Json(reference_record("ref_seed")).into_response(),
         (Method::POST, "/reference-types/rft_seed/archive") => {
             refusal(StatusCode::CONFLICT, "invalid_transition", "Only a deprecated reference type can be archived.")
         }
@@ -1563,6 +1589,90 @@ async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_ref
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "action": "publish", "selection": { "mode": "filter", "query": { "status": "draft" } } })
     );
+}
+#[tokio::test]
+async fn reference_records_are_created_and_revised_with_attributes_and_relationship_rows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/reference-records?type_key=product-line&relationship_type=published-by", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = pilot.catalog_calls();
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.path
+                == "/api/catalog/reference-records?typeKey=product-line&relationshipType=published-by&limit=50&offset=0"),
+        "{:?}",
+        calls.iter().map(|c| &c.path).collect::<Vec<_>>()
+    );
+    assert!(html.contains("<td>product-line</td>") && html.contains("<td>Pokemon TCG</td>"), "{html}");
+    assert!(html.contains(r#"href="/catalog/reference-records/ref_seed">View</a>"#), "{html}");
+    // The list does not read the records a form picks from; opening the create dialog does,
+    // and it keeps the list's filters.
+    assert!(!calls.iter().any(|c| c.path == "/api/catalog/reference-records?limit=500"));
+    assert!(html.contains(r#"<input type="hidden" name="type_key" value="product-line">"#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/reference-records/new?type_key=product-line", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<option value="ref_tpci">TPCi (publisher: tpci)</option>"#), "{html}");
+    assert!(html.contains(r#"action="/catalog/reference-records?type_key=product-line""#), "{html}");
+
+    // Add Relationship draws a row more and writes nothing.
+    let create = "/catalog/reference-records";
+    let base = "reference_record_id=ref_01JZ&type_key=publisher&key=wotc&name=WotC&description=";
+    let (status, _, html) =
+        pilot.send(post(create, &format!("{base}&attributes=&relationship_type=&reference_id=&rerow=add"), true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(html.matches(r#"name="relationship_type""#).count(), 2, "{html}");
+    // A row with only one of its values is refused here; nothing is sent.
+    let (status, _, html) =
+        pilot.send(post(create, &format!("{base}&attributes=&relationship_type=publishes&reference_id="), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter both the relationship and the reference record, or neither."), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let attributes = "short-name%3A+MTG%0D%0Asets%3A+12%0D%0Aratio%3A+1.5%0D%0Aprinted%3A+true%0D%0Aurl%3A+https%3A%2F%2Fx";
+    let rows = "relationship_type=publishes&reference_id=ref_tpci&relationship_type=&reference_id=&relationship_type=publishes&reference_id=ref_tpci";
+    let (status, headers, _) = pilot.send(post(create, &format!("{base}&attributes={attributes}&{rows}"), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers.contains_key("corten-location"));
+    let edit = "type_key=product-line&key=pokemon&name=Pokemon+TCG&description=&attributes=%7B%22sets%22%3A+13%7D&relationship_type=published-by&reference_id=ref_tpci";
+    let (status, _, _) = pilot.send(post("/catalog/reference-records/ref_seed/edit", edit, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/reference-records"));
+    assert_eq!(body(0)["referenceRecordId"], "ref_01JZ");
+    assert_eq!(
+        body(0)["attributes"],
+        json!({ "short-name": "MTG", "sets": 12, "ratio": 1.5, "printed": true, "url": "https://x" }),
+        "key: value lines, each a scalar"
+    );
+    assert_eq!(
+        body(0)["relationships"],
+        json!([{ "relationshipType": "publishes", "referenceId": "ref_tpci" }]),
+        "the empty row left out, the repeat sent once"
+    );
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/reference-records/ref_seed"));
+    assert_eq!(body(1)["attributes"], json!({ "sets": 13 }), "a JSON object is taken as it is");
+    assert!(body(1).get("referenceRecordId").is_none());
+
+    // The page shows the attributes and relationships; Edit is drawn on a GET, filled from the
+    // record, its relationship picked and the record itself not offered.
+    let (_, _, html) = pilot.send(get("/catalog/reference-records/ref_seed", Some("staff"))).await;
+    // By key name: the pilot's JSON objects keep no order (admin-web lists the API's).
+    assert!(html.contains("<dd>sets: 12, short-name: PTCG</dd>"), "{html}");
+    assert!(html.contains(r#"<a href="/catalog/reference-records/ref_tpci">ref_tpci</a>"#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/reference-records/ref_seed/edit", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<option value="ref_tpci" selected>TPCi (publisher: tpci)</option>"#), "{html}");
+    assert!(!html.contains(r#"<option value="ref_seed""#), "{html}");
+    assert!(html.contains("&quot;sets&quot;: 12"), "{html}");
+
+    let (status, _, _) =
+        pilot.send(post("/catalog/reference-records/bulk?status=draft", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    let sent = pilot.catalog_writes().remove(2);
+    assert_eq!(sent.path, "/api/catalog/reference-records/bulk-lifecycle/preview");
 }
 #[tokio::test]
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {

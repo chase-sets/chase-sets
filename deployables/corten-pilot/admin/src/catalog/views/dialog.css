@@ -87,6 +87,43 @@
 .field textarea {
   resize: vertical;
 }
+/* A button that asks the server for its dialog: the form only carries it. */
+.opens {
+  display: contents;
+}
+/* corten-ui's combobox: its popup under the input (above it when there is no room), as wide as
+   the input, and its options. */
+.field [popover] {
+  inset: auto;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block;
+  min-width: anchor-size(width);
+  max-height: 14rem;
+  overflow: auto;
+  margin: var(--space-1) 0;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.field [role="option"] {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.field [role="option"][aria-selected="true"] {
+  font-weight: 600;
+}
+.field [role="option"][data-highlighted] {
+  background: var(--color-primary-soft);
+}
+.field [role="status"] {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+}
 .footer {
   display: flex;
   justify-content: flex-end;
