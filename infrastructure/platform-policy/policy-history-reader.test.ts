@@ -248,8 +248,7 @@ describe("bounded policy history reader", () => {
     ]);
     const gapStart = await gap.reader.start(policyKey);
     expect((await gap.reader.readPage(gapStart.continuation)).records.map((record) => record.streamVersion)).toEqual([
-      1,
-      3,
+      1, 3,
     ]);
   });
 });

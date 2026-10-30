@@ -3,6 +3,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   createPostgresEventStore,
+  readGapSafeEventStoreHead,
   type PgPoolClient,
 } from "@chase-sets/event-core-postgres";
 import {
@@ -83,7 +84,8 @@ describeDb("gap-safe policy history reader", () => {
       released = true;
 
       const oldStart = await waitingStart;
-      expect(oldStart.horizon).toBe("2");
+      const expectedOldHorizon = await readGapSafeEventStoreHead(schema.pool);
+      expect(oldStart.horizon).toBe(expectedOldHorizon);
       const oldPage = await reader.readPage(oldStart.continuation);
       expect(oldPage.records).toHaveLength(2);
       expect(oldPage.complete).toBe(true);
@@ -121,7 +123,9 @@ async function beginUncommittedPolicyAppend(
   const streamId = `platform-policy.document-${documentId}`;
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
     await client.query(
       `INSERT INTO event_store_streams (stream_id, current_version, updated_at)
        VALUES ($1, 1, $2::timestamptz)`,
