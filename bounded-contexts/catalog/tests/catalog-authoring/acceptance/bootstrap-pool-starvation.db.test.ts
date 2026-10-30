@@ -62,10 +62,10 @@ async function readCatalogResolverTuple(db: PgQueryable, itemId: string, itemStr
     [itemStreamId],
   );
   const checkpoints = await db.query(
-    `SELECT projector_name, last_global_position
-       FROM event_projection_checkpoints
-      WHERE split_part(projector_name, ':', 1) = ANY($1::text[])
-      ORDER BY projector_name`,
+    `SELECT checkpoint_key, last_global_position::text
+       FROM event_subscription_checkpoints
+      WHERE projection_name = ANY($1::text[])
+      ORDER BY checkpoint_key`,
     [catalogItemProjectorNames],
   );
   return {
