@@ -1,7 +1,7 @@
 // Reads the Seller Desk money page pilot in a browser as marketplace's seed seller, with JavaScript
 // and without it, against the real platform API, and compares it with Settlement's own answers and
-// with marketplace's page: the wallet's balance, the blocked payouts (the rule the pilot copies
-// from marketplace), one row per payout and per wallet movement in the API's order, and
+// with marketplace's page: the wallet's balance, the blocked payouts (Settlement's answer with the
+// payouts), one row per payout and per wallet movement in the API's order, and
 // Request a payout off while payout setup is unfinished. It previews a typed $5.00 (a preview writes
 // nothing) and checks Settlement's reasons and Confirm off; opens a payout's breakdown and closes it
 // with Escape; and asks for an adjustment the account does not have. Then the page at 390 px.
@@ -55,26 +55,22 @@ for (const javaScriptEnabled of [true, false]) {
   if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   check((await page.locator("h1").textContent())?.trim() === "Money", `${label}: the page renders in the shell`);
   const wallet = await settlement(page, "/wallet");
-  const payouts = (await settlement(page, "/payouts"))?.items ?? [];
+  const summary = await settlement(page, "/payouts");
+  const payouts = summary?.items ?? [];
   const entries = (await settlement(page, "/wallet/entries"))?.items ?? [];
-  const readiness = await settlement(page, "/payout-readiness");
   const figures = await page.locator("dl dd").allTextContents();
   check(
     figures[0]?.trim() === usd(wallet.available_balance_amount),
     `${label}: the balance is Settlement's (${figures[0]})`,
   );
   check(figures[1]?.includes(usd(wallet.pending_balance_amount)), `${label}: and what is pending (${figures[1]})`);
-  const failed = payouts.filter((p) => p.status === "failed").map((p) => p.payout_id);
-  const lost = payouts.filter((p) => p.status === "in-transit" && !p.provider_payout_reference).map((p) => p.payout_id);
-  const quiet = payouts
-    .filter((p) => p.status === "requested" && Date.now() - Date.parse(p.updated_at) >= 15 * 60_000)
-    .map((p) => p.payout_id);
+  const settled = (summary?.blocked_payouts ?? []).map((p) => p.payout_id);
   const blocked = await page
     .locator("[data-blocked-payout]")
     .evaluateAll((rows) => rows.map((r) => r.getAttribute("data-blocked-payout")));
   check(
-    JSON.stringify(blocked.toSorted()) === JSON.stringify([...failed, ...lost, ...quiet].toSorted()),
-    `${label}: the blocked payouts, by marketplace's rule (${blocked.join(", ") || "none"})`,
+    JSON.stringify(blocked) === JSON.stringify(settled),
+    `${label}: the blocked payouts, as Settlement answers them (${blocked.join(", ") || "none"})`,
   );
   const rows = await page
     .locator("[data-payout]")
@@ -92,8 +88,7 @@ for (const javaScriptEnabled of [true, false]) {
     activity === Math.max(entries.length, 0),
     `${label}: a row per wallet movement (${activity} of ${entries.length})`,
   );
-  const ready =
-    readiness.status === "ready" && Boolean(readiness.updated_at) && Number(wallet.available_balance_amount) > 0;
+  const ready = summary?.availability?.can_request === true;
   const preview = page.getByRole("button", { name: "Preview payout" });
   check(
     (await preview.isDisabled()) === !ready,

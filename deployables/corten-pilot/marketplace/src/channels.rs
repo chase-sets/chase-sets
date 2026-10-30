@@ -2,7 +2,10 @@
 //! (`account-channels`, `/account/channels`) with the status filter, the next page and
 //! Connect a channel; a connection (`account-channels-connection`, `/account/channels/{id}`) with its
 //! status, Pause, Resume and Disconnect, and Activate on storage locations while it is pending
-//! setup; and the publication list (`account-channels-publication`, `/account/channels/publication`).
+//! setup; the publication list (`account-channels-publication`, `/account/channels/publication`);
+//! and a connection's publication (`channels-publication-connection`,
+//! `/account/channels/publication/{id}`): its settings, the listings recorded as blocked, and the
+//! mappings to review with Accept, Reject and Revoke.
 //!
 //! Reading needs `channels.view` and writing `channels.manage` (`ChannelsMember`). Which providers a
 //! seller may connect and which actions a connection allows are copied here from marketplace's
@@ -10,9 +13,15 @@
 //! ([chase-sets/chase-sets#10778](https://github.com/chase-sets/chase-sets/issues/10778)):
 //! `PROVIDERS` and `actions`. A write goes to the connection with its receipt; a refusal is the page
 //! with Channels' words for it (422), a failure the same with a 502. A connection's drift, health,
-//! pairing, manual sync and operation log, and a connection's publication settings, are on
-//! marketplace for now.
-use std::time::Duration;
+//! pairing, manual sync and operation log are on marketplace for now.
+//!
+//! A publication write is made at the configuration version the page was drawn with and answers
+//! the version it made, not a receipt: the page goes to its address with that version and reads
+//! itself again every two seconds (`ReadAgain`) while Channels' read is behind it, its forms
+//! waiting, for at most 30 seconds, then says it is still catching up with Refresh. A write made at
+//! a version that is no longer current is Channels' 409, which the page answers with "Settings
+//! changed" (marketplace's page means to, but shows the 409's status instead).
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
     axum::http::{HeaderMap, StatusCode},
@@ -22,7 +31,10 @@ use platform::receipt::Receipt;
 use serde::Deserialize;
 
 use crate::{
-    api::{ApiError, ChannelCalls as _, ChannelConnection, ChannelConnectionPage, ChannelPublicationSummary, Inventory as _},
+    api::{
+        ApiError, ChannelCalls as _, ChannelConnection, ChannelConnectionPage, ChannelPublication, ChannelPublicationSummary,
+        Inventory as _, MappingDecision, PublicationSettings,
+    },
     app::{CHANNELS_MANAGE, Shared, read_failed, sign_in, url},
     auth::{ChannelsMember, Viewer},
     text::{ChannelsMsg, Pilot},
@@ -404,4 +416,268 @@ pub(crate) async fn publications(
         </Layout>
     };
     req.page(page)
+}
+
+/// How long a connection's publication waits for the configuration version a write was made at,
+/// reading itself again every two seconds: marketplace's page reads fifteen times, two seconds apart.
+const PUBLICATION_WAIT: Duration = Duration::from_secs(30);
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// A connection's publication address: the mappings' cursor and, after a write, the configuration
+/// version it was made at and when the page stops waiting for it (Unix seconds).
+#[derive(Clone, Debug, Default, Deserialize, Route)]
+#[route(query)]
+pub struct PublicationPlace {
+    pub cursor: Option<String>,
+    pub version: Option<u64>,
+    pub until: Option<u64>,
+}
+
+impl PublicationPlace {
+    fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref().map(str::trim).filter(|cursor| !cursor.is_empty())
+    }
+
+    /// The same mappings' page, without a version to wait for.
+    pub fn here(&self) -> PublicationPlace {
+        PublicationPlace { cursor: self.cursor().map(str::to_owned), version: None, until: None }
+    }
+
+    /// The mappings' page after `cursor`.
+    pub fn next(cursor: &str) -> PublicationPlace {
+        PublicationPlace { cursor: Some(cursor.to_owned()), version: None, until: None }
+    }
+
+    /// The same page, waiting for `version` from now.
+    fn waiting(&self, version: u64) -> PublicationPlace {
+        PublicationPlace {
+            cursor: self.cursor().map(str::to_owned),
+            version: Some(version),
+            until: Some(now_secs() + PUBLICATION_WAIT.as_secs()),
+        }
+    }
+}
+
+/// A publication write, in marketplace's names: `replace-settings` with the settings, or
+/// `decide-mapping` with the mapping and its decision; each made at `expectedStreamVersion`.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PublicationForm {
+    pub intent: String,
+    pub expected_stream_version: String,
+    pub title_prefix: String,
+    pub title_suffix: String,
+    pub description_footer: String,
+    pub publish_quantity_cap: String,
+    pub low_stock_withhold_units: String,
+    pub category_allowlist: String,
+    pub excluded_listing_ids: String,
+    pub dimension: String,
+    pub source_key: String,
+    pub target_key: String,
+    pub decision: String,
+}
+
+/// A text area's lines, trimmed, without empty ones or repeats, in order
+/// (`parseChannelPublicationSettingsForm`'s `lines`).
+fn lines(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if !out.iter().any(|seen| seen == line) {
+            out.push(line.to_owned());
+        }
+    }
+    out
+}
+
+/// An optional whole number: empty is none; anything else that is not one is `Err`. Channels
+/// decides the range.
+fn whole(text: &str) -> Result<Option<i64>, ()> {
+    match text.trim() {
+        "" => Ok(None),
+        text => text.parse().map(Some).map_err(|_| ()),
+    }
+}
+
+impl PublicationForm {
+    /// The settings the form sends, or `Err` when a number is not a whole number.
+    pub fn settings(&self) -> Result<PublicationSettings, ()> {
+        Ok(PublicationSettings {
+            title_prefix: self.title_prefix.clone(),
+            title_suffix: self.title_suffix.clone(),
+            description_footer: self.description_footer.clone(),
+            category_allowlist: lines(&self.category_allowlist),
+            excluded_listing_ids: lines(&self.excluded_listing_ids),
+            publish_quantity_cap: whole(&self.publish_quantity_cap)?,
+            low_stock_withhold_units: whole(&self.low_stock_withhold_units)?,
+        })
+    }
+}
+
+/// What the page says above the publication.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum PublicationSaid {
+    #[default]
+    Nothing,
+    /// The read is behind the write the address waits for: the forms wait too.
+    Pending,
+    /// It still is when the wait ended: Refresh.
+    Exhausted,
+    /// A write was made at a version that is no longer current.
+    Conflict,
+    /// A write was refused, in these words.
+    Refused(String),
+}
+
+/// What a connection's publication page shows.
+pub struct PublicationScreen {
+    pub id: String,
+    /// `None`: no connection by this id for the account.
+    pub detail: Option<ChannelPublication>,
+    pub place: PublicationPlace,
+    /// The seller may write (`channels.manage`).
+    pub manage: bool,
+    pub said: PublicationSaid,
+    /// The settings form as it was sent, drawn again after a refusal.
+    pub sent: Option<PublicationForm>,
+}
+
+impl PublicationScreen {
+    /// Whether the forms wait: a reader's, or while the read is behind the write.
+    pub fn disabled(&self) -> bool {
+        !self.manage || self.said == PublicationSaid::Pending
+    }
+}
+
+fn publication_url<'a>(id: &'a str, place: PublicationPlace) -> url::ChannelPublication<'a> {
+    url::ChannelPublication { id, place }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render_publication(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    place: PublicationPlace,
+    said: PublicationSaid,
+    sent: Option<PublicationForm>,
+    status: StatusCode,
+) -> HtmlResult {
+    let t: ChannelsMsg = req.t();
+    let caller = config.platform.caller(headers, config.proto, None);
+    let (detail, status) = match caller.channel_publication(id, place.cursor()).await {
+        Ok(detail) => (Some(detail), status),
+        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
+        Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => (None, StatusCode::NOT_FOUND),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    let behind = matches!((&detail, place.version), (Some(d), Some(v)) if d.configuration_stream_version < v);
+    let said = match said {
+        PublicationSaid::Nothing if behind && place.until.is_some_and(|until| now_secs() < until) => PublicationSaid::Pending,
+        PublicationSaid::Nothing if behind => PublicationSaid::Exhausted,
+        said => said,
+    };
+    let pending = said == PublicationSaid::Pending;
+    let screen = PublicationScreen { id: id.to_owned(), detail, place, manage: viewer.actor.can(CHANNELS_MANAGE), said, sent };
+    let head = html! {
+        <meta name="robots" content="noindex">
+        {pending.then_some(ReadAgain { after: Duration::from_secs(2) })}
+    };
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} title={t.publication_connection_meta_title()} head={head}>
+            <views::ChannelPublicationPage t={t} p={req.t()} screen={&screen} />
+        </Layout>
+    };
+    if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+}
+
+/// A connection's publication, its mappings from the address's cursor; after a write, read again
+/// until it shows the configuration version the write was made at.
+pub(crate) async fn publication(
+    req: Req,
+    Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::channels::ChannelPublication<'_>>,
+) -> HtmlResult {
+    render_publication(&req, &viewer, &config, &headers, &route.id, route.place, PublicationSaid::Nothing, None, StatusCode::OK)
+        .await
+}
+
+/// Save publication settings or decide a mapping, at the version the page was drawn with: the page
+/// waiting for the version the write made; or the page with what was refused (422), with the
+/// settings as sent; a version that is no longer current is a 409 that says to reload.
+pub(crate) async fn publication_write(
+    req: Req,
+    Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<url::channels::ChannelPublication<'_>>,
+    Form(form): Form<PublicationForm>,
+) -> HtmlResult {
+    if !viewer.actor.can(CHANNELS_MANAGE) {
+        return Err(corten::Error::status(StatusCode::FORBIDDEN));
+    }
+    let t: ChannelsMsg = req.t();
+    let id: &str = &route.id;
+    let place = route.place.here();
+    let sent = (form.intent == "replace-settings").then(|| form.clone());
+    let refused = |said: PublicationSaid, status: StatusCode| {
+        render_publication(&req, &viewer, &config, &headers, id, place.clone(), said, sent.clone(), status)
+    };
+    let Ok(expected) = form.expected_stream_version.trim().parse::<u64>() else {
+        return refused(PublicationSaid::Refused(t.publication_action_failed().to_owned()), StatusCode::UNPROCESSABLE_ENTITY)
+            .await;
+    };
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let answer = match form.intent.as_str() {
+        "replace-settings" => match form.settings() {
+            Ok(settings) => caller.replace_publication_settings(id, &settings, expected).await,
+            Err(()) => {
+                let p: Pilot = req.t();
+                let words = p.channels_whole_number().to_owned();
+                return refused(PublicationSaid::Refused(words), StatusCode::UNPROCESSABLE_ENTITY).await;
+            }
+        },
+        "decide-mapping" => {
+            let target = form.target_key.trim();
+            let decision = MappingDecision {
+                dimension: form.dimension.trim(),
+                source_key: &form.source_key,
+                decision: form.decision.trim(),
+                target_key: (!target.is_empty()).then_some(target),
+            };
+            caller.decide_channel_mapping(id, &decision, expected).await
+        }
+        _ => {
+            let words = t.publication_action_unknown().to_owned();
+            return refused(PublicationSaid::Refused(words), StatusCode::UNPROCESSABLE_ENTITY).await;
+        }
+    };
+    match answer {
+        Ok(answer) => match (answer.kind.as_str(), answer.stream_version) {
+            ("applied" | "unchanged", Some(version)) => req.redirect(&publication_url(id, place.waiting(version))),
+            ("applied" | "unchanged", None) => req.redirect(&publication_url(id, place)),
+            // Channels' code is its words for a refusal, as marketplace's page shows it.
+            _ => {
+                let words = answer.code.unwrap_or_else(|| t.publication_action_failed().to_owned());
+                refused(PublicationSaid::Refused(words), StatusCode::UNPROCESSABLE_ENTITY).await
+            }
+        },
+        Err(error) => match error.status() {
+            Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
+            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::CONFLICT) => refused(PublicationSaid::Conflict, StatusCode::CONFLICT).await,
+            status => {
+                tracing::warn!("a channel publication write was refused: {error}");
+                let words = error.refusal().unwrap_or(t.publication_action_failed()).to_owned();
+                refused(PublicationSaid::Refused(words), refusal_status(status)).await
+            }
+        },
+    }
 }

@@ -227,7 +227,9 @@
     "more_on_marketplace": "Drift, the connection's health, pairing, manual sync and the operation log are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace",
     "connections": "Channel connections",
-    "filter": "Connection status"
+    "filter": "Connection status",
+    "whole_number": "Enter a whole number, or leave it empty.",
+    "mapping_options": "Mapping {source}"
   },
   "bulk_reprice": {
     "pages": "Bulk reprice pages",

@@ -15784,11 +15784,15 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
 /// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
-/// Channels does (chase-sets/chase-sets#10779). One publication summary.
+/// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
+/// publication (`channel_publication_api`).
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let path = uri.path();
     if !path.starts_with("/api/channels/") {
         return None;
+    }
+    if let Some(answer) = channel_publication_api(method, uri, body) {
+        return Some(answer);
     }
     let query = uri.query().unwrap_or_default();
     let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z" });
@@ -15844,6 +15848,231 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             }
         }
     })
+}
+
+/// `conn_active`'s publication, as Channels answers it: settings at configuration version 3, one
+/// of three blocked listings, two mappings to review (one revoked) with a next page `m2` and an
+/// incomplete review. A write made at another version is Channels' 409; settings with a cap over
+/// 1,000 are invalid input; accepting a mapping without a target is refused (`target-required`);
+/// any other write applies at version 4. `conn_gone` is not found.
+fn channel_publication_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix("/api/channels/publication/")?;
+    let (id, write) = rest.split_once('/').unwrap_or((rest, ""));
+    if id != "conn_active" {
+        return Some(refusal(StatusCode::NOT_FOUND, "not_found", "not_found"));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let applied = || Json(json!({ "kind": "applied", "value": null, "streamVersion": 4 })).into_response();
+    let conflict =
+        || (StatusCode::CONFLICT, Json(json!({ "kind": "refused", "code": "stream-version-conflict" }))).into_response();
+    Some(match (method.as_str(), write) {
+        ("GET", "") => {
+            let mapping = |source: &str, status: &str| {
+                json!({ "connectionId": id, "dimension": "category", "sourceKey": source, "targetKey": null,
+                        "confidenceTier": "low", "reviewStatus": status, "provenance": "compose-discovered",
+                        "evidence": { "listingId": "lst_1", "derivedFrom": "category" }, "lastStreamVersion": 3 })
+            };
+            Json(json!({
+                "connection": { "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox",
+                                "connectionStatus": "active", "settingsState": "configured", "reviewCount": 2 },
+                "settings": { "titlePrefix": "[CS] ", "titleSuffix": "", "descriptionFooter": "Ships fast.",
+                              "categoryAllowlist": ["cat_a", "cat_b"], "excludedListingIds": [],
+                              "publishQuantityCap": 5, "lowStockWithholdUnits": null },
+                "mappingReview": {
+                    "items": [mapping("Holo Rare", "proposed"), mapping("Promo", "revoked")],
+                    "nextCursor": "m2",
+                    "completeness": { "kind": "incomplete", "reason": "More candidates than one page." },
+                },
+                "blockedListings": { "items": [{ "listingId": "lst_9", "channelListingId": "chl_9",
+                                                 "blockingReasonCodes": ["missing-category-mapping"] }], "total": 3 },
+                "configurationStreamVersion": 3,
+            }))
+            .into_response()
+        }
+        _ if sent["expectedStreamVersion"] != 3 => conflict(),
+        ("PUT", "settings") if sent["settings"]["publishQuantityCap"].as_i64().is_some_and(|cap| cap > 1_000) => {
+            refusal(StatusCode::BAD_REQUEST, "invalid_input", "invalid_input")
+        }
+        ("PUT", "settings") => applied(),
+        ("POST", decision) if decision.starts_with("mappings/") && decision.ends_with("/decision") => {
+            if sent["decision"] == "accept" && sent["targetKey"].is_null() {
+                Json(json!({ "kind": "refused", "code": "target-required" })).into_response()
+            } else {
+                applied()
+            }
+        }
+        _ => return None,
+    })
+}
+
+const PUBLICATION: &str = "/account/channels/publication/conn_active";
+
+/// The settings form as a seller sends it: `fields` over the page's.
+fn publication_form(fields: &[(&str, &str)]) -> String {
+    let mut form = vec![
+        ("intent", "replace-settings"),
+        ("expectedStreamVersion", "3"),
+        ("titlePrefix", "[CS] "),
+        ("titleSuffix", ""),
+        ("descriptionFooter", "Ships fast."),
+        ("publishQuantityCap", "5"),
+        ("lowStockWithholdUnits", ""),
+        ("categoryAllowlist", "cat_a\r\ncat_b"),
+        ("excludedListingIds", ""),
+    ];
+    for (key, value) in fields {
+        match form.iter_mut().find(|(k, _)| k == key) {
+            Some(field) => field.1 = value,
+            None => form.push((key, value)),
+        }
+    }
+    form.iter().map(|(k, v)| format!("{k}={}", crate::api::segment(v))).collect::<Vec<_>>().join("&")
+}
+
+/// Whether every form on the page waits (its `<fieldset>` is disabled), and there is one.
+fn forms_off(html: &str) -> bool {
+    let tags: Vec<&str> = html.split("<fieldset").skip(1).map(|rest| &rest[..rest.find('>').unwrap_or(rest.len())]).collect();
+    !tags.is_empty() && tags.iter().all(|tag| tag.contains("disabled"))
+}
+
+fn forms_on(html: &str) -> bool {
+    let tags: Vec<&str> = html.split("<fieldset").skip(1).map(|rest| &rest[..rest.find('>').unwrap_or(rest.len())]).collect();
+    !tags.is_empty() && tags.iter().all(|tag| !tag.contains("disabled"))
+}
+
+fn publication_writes(pilot: &Pilot) -> Vec<(String, Value)> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path.starts_with("/api/channels/publication/") && c.method != Method::GET)
+        .map(|c| (format!("{} {}", c.method, c.path), serde_json::from_str(&c.body).unwrap_or_default()))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_connections_publication_shows_its_settings_blocked_listings_and_mappings() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(PUBLICATION, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(
+        words.contains("Sales Channels tcgplayer Review publication settings") && words.contains("Back to publication"),
+        "{words}"
+    );
+    assert!(
+        html.contains(r#"name="titlePrefix" value="[CS] ""#) && html.contains(r#"name="publishQuantityCap" value="5""#),
+        "{html}"
+    );
+    assert!(html.contains(">cat_a\ncat_b</textarea>"), "one category a line: {html}");
+    assert!(html.contains(r#"name="expectedStreamVersion" value="3""#), "made at the version read: {html}");
+    assert!(
+        words.contains("Showing the first 1 of 3 blocked listings.") && words.contains("missing-category-mapping"),
+        "{words}"
+    );
+    assert!(words.contains("Mapping results are incomplete More candidates than one page."), "{words}");
+    assert!(words.contains("Holo Rare category · proposed · low") && words.contains("Promo category · revoked · low"), "{words}");
+    assert_eq!(html.matches(r#"value="revoke""#).count(), 1, "a revoked mapping has no Revoke: {html}");
+    assert!(html.contains(r#"href="/account/channels/publication/conn_active?cursor=m2""#), "the next mappings: {html}");
+    assert!(forms_on(&html), "a manager's forms are on: {html}");
+
+    let (_, _, _) = pilot.send(get(&format!("{PUBLICATION}?cursor=m2"), Some("channeler"))).await;
+    assert!(
+        pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == "/api/channels/publication/conn_active?cursor=m2"),
+        "the cursor goes to Channels"
+    );
+
+    // The list's Manage publication is this page now.
+    let (_, _, html) = pilot.send(get("/account/channels/publication", Some("channeler"))).await;
+    assert!(html.contains(r#"href="/account/channels/publication/conn_active""#), "{html}");
+
+    // A reader sees it with the forms off and may not write.
+    let (status, _, html) = pilot.send(get(PUBLICATION, Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(forms_off(&html), "a reader's forms are off: {html}");
+    let (status, _, _) = pilot.send(post(PUBLICATION, "channel_reader", &publication_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(publication_writes(&pilot).is_empty(), "nothing sent");
+
+    let (status, _, html) = pilot.send(get("/account/channels/publication/conn_gone", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(text(&html).contains("Channel connection not found"), "{html}");
+    let (status, headers, _) = pilot.send(get(PUBLICATION, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("/sign-in?returnTo="), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_publication_write_waits_for_its_version_and_says_what_was_refused() {
+    let pilot = Pilot::new().await;
+    let form = publication_form(&[("categoryAllowlist", "cat_b\r\n cat_a \r\n\r\ncat_b"), ("publishQuantityCap", "")]);
+    let (status, headers, _) = pilot.send(post(PUBLICATION, "channeler", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/channels/publication/conn_active?version=4&until="), "{to}");
+    let (sent_to, sent) = publication_writes(&pilot).remove(0);
+    assert_eq!(sent_to, "PUT /api/channels/publication/conn_active/settings");
+    assert_eq!(sent["expectedStreamVersion"], 3);
+    assert_eq!(sent["settings"]["categoryAllowlist"], json!(["cat_b", "cat_a"]), "trimmed, once each, in order");
+    assert_eq!(sent["settings"]["publishQuantityCap"], Value::Null, "empty is no cap");
+
+    // Channels still reads version 3: the page waits, its forms off, and reads itself again.
+    let (status, _, html) = pilot.send(get(&to, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Loading channel publication settings"), "{html}");
+    assert!(html.contains(r#"<meta http-equiv="refresh" content="2">"#) && forms_off(&html), "{html}");
+    // Past the wait: still catching up, with Refresh.
+    let (_, _, html) = pilot.send(get(&format!("{PUBLICATION}?version=4&until=1"), Some("channeler"))).await;
+    assert!(text(&html).contains("Still catching up") && !html.contains("http-equiv=\"refresh\""), "{html}");
+    assert!(html.contains(r#"href="/account/channels/publication/conn_active">Refresh"#), "{html}");
+    // The version read: nothing to say.
+    let (_, _, html) = pilot.send(get(&format!("{PUBLICATION}?version=3&until=99999999999"), Some("channeler"))).await;
+    assert!(!text(&html).contains("Loading channel publication settings"), "{html}");
+
+    // Made at a version no longer current: Settings changed, with what was typed.
+    let form = publication_form(&[("expectedStreamVersion", "2"), ("titlePrefix", "[New] ")]);
+    let (status, _, html) = pilot.send(post(PUBLICATION, "channeler", &form, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("Settings changed Reload the latest settings"), "{html}");
+    assert!(html.contains(r#"name="titlePrefix" value="[New] ""#), "{html}");
+
+    // A cap that is not a whole number is not sent.
+    let before = publication_writes(&pilot).len();
+    let (status, _, html) =
+        pilot.send(post(PUBLICATION, "channeler", &publication_form(&[("publishQuantityCap", "2.5")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Enter a whole number, or leave it empty."), "{html}");
+    assert!(html.contains(r#"name="publishQuantityCap" value="2.5""#), "{html}");
+    assert_eq!(publication_writes(&pilot).len(), before);
+    // Channels decides the range.
+    let (status, _, html) =
+        pilot.send(post(PUBLICATION, "channeler", &publication_form(&[("publishQuantityCap", "5000")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Publication could not be updated invalid_input"), "{html}");
+
+    // A mapping: accept needs a target (Channels' code), and its source key is one path segment.
+    let decide = |target: &str| {
+        format!(
+            "intent=decide-mapping&expectedStreamVersion=3&dimension=category&sourceKey=Holo%20Rare&targetKey={target}&decision=accept"
+        )
+    };
+    let (status, _, html) = pilot.send(post(PUBLICATION, "channeler", &decide(""), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Publication could not be updated target-required"), "{html}");
+    let (status, headers, _) = pilot.send(post(&format!("{PUBLICATION}?cursor=m2"), "channeler", &decide("holo"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .starts_with("/account/channels/publication/conn_active?cursor=m2&version=4&until=")
+    );
+    let (sent_to, sent) = publication_writes(&pilot).pop().unwrap();
+    assert_eq!(sent_to, "POST /api/channels/publication/conn_active/mappings/category/Holo%20Rare/decision");
+    assert_eq!(sent, json!({ "decision": "accept", "targetKey": "holo", "expectedStreamVersion": 3 }));
+
+    let (status, _, html) = pilot.send(post(PUBLICATION, "channeler", "intent=forget&expectedStreamVersion=3", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Unknown publication action."), "{html}");
 }
 
 #[tokio::test]

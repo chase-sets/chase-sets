@@ -8291,6 +8291,99 @@ struct ChannelPublicationList {
     items: Vec<ChannelPublicationSummary>,
 }
 
+/// A connection's publication (`ChannelPublicationConnectionDetail`): its summary, its settings
+/// (`None` until the seller saves some), a page of mappings to review, the listings recorded as
+/// blocked, and the configuration's stream version, which a write is made at and the page waits for.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelPublication {
+    pub connection: ChannelPublicationSummary,
+    pub settings: Option<PublicationSettings>,
+    pub mapping_review: MappingReview,
+    pub blocked_listings: BlockedListings,
+    pub configuration_stream_version: u64,
+}
+
+/// A connection's publication settings (`ChannelPublicationSettings`), as Channels reads and
+/// replaces them.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PublicationSettings {
+    pub title_prefix: String,
+    pub title_suffix: String,
+    pub description_footer: String,
+    pub category_allowlist: Vec<String>,
+    pub excluded_listing_ids: Vec<String>,
+    pub publish_quantity_cap: Option<i64>,
+    pub low_stock_withhold_units: Option<i64>,
+}
+
+/// A page of mappings to review (`ChannelMappingReviewPage`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MappingReview {
+    pub items: Vec<MappingCandidate>,
+    pub next_cursor: Option<String>,
+    pub completeness: MappingCompleteness,
+}
+
+/// Whether the review read every mapping: `complete`, or `incomplete` with Channels' reason.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct MappingCompleteness {
+    pub kind: String,
+    pub reason: Option<String>,
+}
+
+/// A mapping to review (`ChannelMappingReviewQueueItem`), the fields the page shows and decides.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MappingCandidate {
+    /// `category`, `condition` or `attribute`.
+    pub dimension: String,
+    pub source_key: String,
+    pub target_key: Option<String>,
+    pub confidence_tier: String,
+    /// `proposed`, `rejected` or `revoked`.
+    pub review_status: String,
+}
+
+/// The listings recorded as blocked from publishing (`ChannelPublicationBlockedListingPage`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct BlockedListings {
+    pub items: Vec<BlockedChannelListing>,
+    pub total: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BlockedChannelListing {
+    pub listing_id: String,
+    pub channel_listing_id: String,
+    pub blocking_reason_codes: Vec<String>,
+}
+
+/// A mapping's decision: `accept`, `reject` or `revoke`, with the channel's key for it.
+#[derive(Clone, Debug)]
+pub struct MappingDecision<'a> {
+    pub dimension: &'a str,
+    pub source_key: &'a str,
+    pub decision: &'a str,
+    pub target_key: Option<&'a str>,
+}
+
+/// What a publication write answered (`ChannelCommandResult`): `applied` or `unchanged` at a
+/// stream version, or `refused` with Channels' code. A write made at a version that is no longer
+/// current is Channels' 409, not an answer.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelCommandAnswer {
+    pub kind: String,
+    pub stream_version: Option<u64>,
+    pub code: Option<String>,
+}
+
 /// The channel screens' calls.
 pub trait ChannelCalls {
     /// A page of connections, of one status (`None`: Channels' default, every one not
@@ -8304,6 +8397,22 @@ pub trait ChannelCalls {
     /// Activate a connection pending setup on the storage locations `locations`.
     async fn activate_channel(&self, id: &str, locations: &[String]) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
     async fn channel_publications(&self) -> Result<Vec<ChannelPublicationSummary>, ApiError>;
+    /// A connection's publication, its mappings to review from `cursor`.
+    async fn channel_publication(&self, id: &str, cursor: Option<&str>) -> Result<ChannelPublication, ApiError>;
+    /// Replace a connection's publication settings, made at the configuration version `expected`.
+    async fn replace_publication_settings(
+        &self,
+        id: &str,
+        settings: &PublicationSettings,
+        expected: u64,
+    ) -> Result<ChannelCommandAnswer, ApiError>;
+    /// Decide a mapping, made at the configuration version `expected`.
+    async fn decide_channel_mapping(
+        &self,
+        id: &str,
+        decision: &MappingDecision<'_>,
+        expected: u64,
+    ) -> Result<ChannelCommandAnswer, ApiError>;
 }
 
 impl ChannelCalls for Caller<'_> {
@@ -8342,5 +8451,41 @@ impl ChannelCalls for Caller<'_> {
 
     async fn channel_publications(&self) -> Result<Vec<ChannelPublicationSummary>, ApiError> {
         Ok(self.read::<ChannelPublicationList>(CHANNEL_PUBLICATION, CHANNELS).await?.items)
+    }
+
+    async fn channel_publication(&self, id: &str, cursor: Option<&str>) -> Result<ChannelPublication, ApiError> {
+        let query = cursor.map(|c| format!("?cursor={}", segment(c))).unwrap_or_default();
+        self.read(&format!("{CHANNEL_PUBLICATION}/{}{query}", segment(id)), CHANNELS).await
+    }
+
+    async fn replace_publication_settings(
+        &self,
+        id: &str,
+        settings: &PublicationSettings,
+        expected: u64,
+    ) -> Result<ChannelCommandAnswer, ApiError> {
+        let body = serde_json::json!({ "settings": settings, "expectedStreamVersion": expected });
+        let path = format!("{CHANNEL_PUBLICATION}/{}/settings", segment(id));
+        Ok(self.write(self.request(Method::PUT, &path, CHANNELS).json(&body)).await?.0)
+    }
+
+    async fn decide_channel_mapping(
+        &self,
+        id: &str,
+        decision: &MappingDecision<'_>,
+        expected: u64,
+    ) -> Result<ChannelCommandAnswer, ApiError> {
+        let body = serde_json::json!({
+            "decision": decision.decision,
+            "targetKey": decision.target_key,
+            "expectedStreamVersion": expected,
+        });
+        let path = format!(
+            "{CHANNEL_PUBLICATION}/{}/mappings/{}/{}/decision",
+            segment(id),
+            segment(decision.dimension),
+            segment(decision.source_key)
+        );
+        Ok(self.write(self.request(Method::POST, &path, CHANNELS).json(&body)).await?.0)
     }
 }

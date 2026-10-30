@@ -80,7 +80,7 @@ pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
 };
-pub use channels_page::{ChannelConnectionPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
+pub use channels_page::{ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};

@@ -37,7 +37,7 @@
 //! | `GET /account/shipping-addresses`, `POST ..`, `../{id}`, `../{id}/default`, `../{id}/archive` | the account's shipping addresses (see `addresses`) |
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
-//! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication` | the channel connections, Connect, a connection's writes and the publication list (see `channels`) |
+//! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..` | the channel connections, Connect, a connection's writes, the publication list and a connection's publication with its writes (see `channels`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
@@ -160,7 +160,7 @@ pub mod url {
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
-    pub use channels::{ChannelConnection, ChannelPublications, Channels};
+    pub use channels::{ChannelConnection, ChannelPublication, ChannelPublications, Channels};
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use consents::Consents;
     pub use desk::Desk;
@@ -1142,6 +1142,20 @@ pub mod url {
         #[derive(Clone, Debug, Default)]
         #[route("/account/channels/publication", get = crate::channels::publications)]
         pub struct ChannelPublications;
+
+        /// A connection's publication: its settings, blocked listings and mappings to review, the
+        /// mappings from a cursor, waiting for the configuration version a write was made at; its
+        /// writes post to it.
+        #[route(
+            "/account/channels/publication/{id}",
+            get = crate::channels::publication,
+            post = crate::channels::publication_write
+        )]
+        pub struct ChannelPublication<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::channels::PublicationPlace,
+        }
 
         /// A connection, after the write whose receipt the address carries; its writes post to it.
         #[route("/account/channels/{id}", get = crate::channels::connection, post = crate::channels::command)]
