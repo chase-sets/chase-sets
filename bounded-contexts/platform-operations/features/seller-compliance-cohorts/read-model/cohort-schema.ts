@@ -47,8 +47,15 @@ export const sellerComplianceCohortSchemaStatements: readonly string[] = [
     pass_started_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
+  `CREATE TABLE IF NOT EXISTS platform_operations_seller_compliance_policy_evidence (
+    policy_version text PRIMARY KEY,
+    effective_from timestamptz NOT NULL,
+    value jsonb NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now()
+  )`,
   `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_cohorts_due_idx ON platform_operations_seller_compliance_cohorts (next_reevaluation_at) WHERE next_reevaluation_at IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_transitions_unpublished_idx ON platform_operations_seller_compliance_cohort_transitions (recorded_at) WHERE published_at IS NULL`,
+  `CREATE INDEX IF NOT EXISTS platform_operations_seller_compliance_transitions_seller_idx ON platform_operations_seller_compliance_cohort_transitions (seller_account_id, transition_version)`,
 ];
 
 export const sellerComplianceCohortSchemaSql = `${sellerComplianceCohortSchemaStatements.join(";\n\n")};\n`;

@@ -14,6 +14,7 @@ export type CohortEvaluation = Readonly<{
   state: CohortState;
   band: DisclosureBand;
   entryEffectiveAt: string | null;
+  /** Effective instant of the band transition this evaluation produces; null when the band does not change. */
   bandEffectiveAt: string | null;
   exitEffectiveAt: string | null;
   windowStart: string | null;
@@ -106,18 +107,19 @@ type Candidate = Readonly<{
   count: number;
   gross: bigint;
 }>;
+/** `amounts[i]` is the qualifying gross of `sales[i]`, or null when that sale does not qualify. */
 function candidateAt(
   start: string,
   sales: readonly SellerSaleFact[],
+  amounts: readonly (bigint | null)[],
   policy: SellerComplianceCohortPolicyValue,
 ): Candidate {
   const end = addUtcMonths(start, policy.windowMonths ?? 1);
   const qualifying: SellerSaleFact[] = [];
   let total = 0n;
-  for (const sale of sales) {
-    if (sale.occurredAt < start || sale.occurredAt >= end || classify(sale, policy) !== "qualifying") continue;
-    const amount = gross(sale, policy);
-    if (amount === null) continue;
+  for (const [index, sale] of sales.entries()) {
+    const amount = amounts[index] ?? null;
+    if (sale.occurredAt < start || sale.occurredAt >= end || amount === null) continue;
     qualifying.push(sale);
     total += amount;
   }
@@ -156,22 +158,46 @@ function thresholdEffectiveAt(
   }
   return null;
 }
-function evaluateAt(sales: readonly SellerSaleFact[], policy: SellerComplianceCohortPolicyValue, evaluationAt: string) {
+/**
+ * No span of `months` calendar months exceeds 31 days each, so a sale older than that can never be admissible and
+ * skips the calendar check; every other sale is decided by the shared #7144 lookback rule.
+ */
+function withinCalendarHorizon(occurred: number, at: number, months: number): boolean {
+  return at - occurred <= months * 31 * 86_400_000;
+}
+/** Canonical ISO-8601 UTC instants order chronologically by code unit; ids break ties. */
+function bySaleKey(a: SellerSaleFact, b: SellerSaleFact): number {
+  if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1;
+  return a.paymentId.localeCompare(b.paymentId) || a.orderId.localeCompare(b.orderId);
+}
+/** `includeSalesAt` counts a sale occurring exactly at the instant, which dates a sale-caused change at that sale. */
+function evaluateAt(
+  sales: readonly SellerSaleFact[],
+  policy: SellerComplianceCohortPolicyValue,
+  evaluationAt: string,
+  includeSalesAt = false,
+) {
   const at = Date.parse(evaluationAt);
   const lookbackMonths = policy.lookbackMonths ?? 60;
-  const eligible = [...sales]
-    .filter(
-      (sale) =>
-        Date.parse(sale.occurredAt) < at && isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, evaluationAt),
-    )
-    .sort(
-      (a, b) =>
-        a.occurredAt.localeCompare(b.occurredAt) ||
-        a.paymentId.localeCompare(b.paymentId) ||
-        a.orderId.localeCompare(b.orderId),
-    );
-  const candidates = eligible.map((sale) => candidateAt(sale.occurredAt, eligible, policy));
-  const winner = candidates.find((candidate) => qualifies(candidate, policy)) ?? null;
+  const eligible = sales
+    .filter((sale) => {
+      const occurred = Date.parse(sale.occurredAt);
+      return (
+        (includeSalesAt ? occurred <= at : occurred < at) &&
+        withinCalendarHorizon(occurred, at, lookbackMonths) &&
+        isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, evaluationAt)
+      );
+    })
+    .sort(bySaleKey);
+  const amounts = eligible.map((sale) => (classify(sale, policy) === "qualifying" ? gross(sale, policy) : null));
+  let winner: Candidate | null = null;
+  for (const sale of eligible) {
+    const candidate = candidateAt(sale.occurredAt, eligible, amounts, policy);
+    if (qualifies(candidate, policy)) {
+      winner = candidate;
+      break;
+    }
+  }
   return {
     at,
     eligible,
@@ -180,36 +206,126 @@ function evaluateAt(sales: readonly SellerSaleFact[], policy: SellerComplianceCo
   };
 }
 
-export function evaluateSellerComplianceCohort(
-  input: Readonly<{
-    sales: readonly SellerSaleFact[];
-    policy: SellerComplianceCohortPolicyValue;
-    evaluationAt: string;
-    previous?: Readonly<{
-      state: CohortState;
-      band: DisclosureBand;
-      entryEffectiveAt: string | null;
-      exitEffectiveAt?: string | null;
-    }>;
-    revisionEffectiveAt?: string;
-  }>,
-): CohortEvaluation {
+function isConfigured(policy: SellerComplianceCohortPolicyValue): boolean {
+  return (
+    policy.activated &&
+    policy.currencyCode !== null &&
+    policy.windowMonths !== null &&
+    policy.lookbackMonths !== null &&
+    policy.qualifyingTransactionCount !== null &&
+    policy.qualifyingGrossCents !== null &&
+    policy.classificationRules !== null &&
+    policy.saleUnit !== null &&
+    policy.qualifyingGrossBasis !== null &&
+    policy.refundTreatment !== null &&
+    policy.postCaptureCancellationTreatment !== null &&
+    policy.mixedLineTreatment !== null &&
+    policy.unclassifiableTreatment !== null
+  );
+}
+
+/** A policy in force from `effectiveFrom` until the next segment or the evaluated revision. */
+export type CohortPolicySegment = Readonly<{ effectiveFrom: string; policy: SellerComplianceCohortPolicyValue }>;
+
+export type CohortEvaluationInput = Readonly<{
+  sales: readonly SellerSaleFact[];
+  policy: SellerComplianceCohortPolicyValue;
+  evaluationAt: string;
+  previous?: Readonly<{
+    state: CohortState;
+    band: DisclosureBand;
+    entryEffectiveAt: string | null;
+    exitEffectiveAt?: string | null;
+    /** Effective instant of the seller's latest recorded transition; every new transition lies strictly after it. */
+    transitionEffectiveAt?: string | null;
+  }>;
+  /** The instant from which `policy` is in force, when it differs from the policy that produced `previous`. */
+  revisionEffectiveAt?: string;
+  /** The policies in force before `revisionEffectiveAt`, each from its own effective instant. */
+  priorPolicies?: readonly CohortPolicySegment[];
+}>;
+
+function policyTimeline(input: CohortEvaluationInput) {
+  const revisionAt = input.revisionEffectiveAt === undefined ? null : Date.parse(input.revisionEffectiveAt);
+  const prior = [...(input.priorPolicies ?? [])].sort(
+    (a, b) => Date.parse(a.effectiveFrom) - Date.parse(b.effectiveFrom),
+  );
+  return (instant: string): SellerComplianceCohortPolicyValue => {
+    const at = Date.parse(instant);
+    if (revisionAt === null || at >= revisionAt) return input.policy;
+    // The earliest known policy also governs older history, as it does for a first admission.
+    const segment = prior.filter((candidate) => Date.parse(candidate.effectiveFrom) <= at).at(-1) ?? prior[0];
+    if (segment === undefined || !isConfigured(segment.policy))
+      throw new Error(
+        "The policy in force before the revision is unavailable, so the transition's cause cannot be determined.",
+      );
+    return segment.policy;
+  };
+}
+
+/**
+ * The earliest instant strictly after `lower` and no later than the evaluation instant at which `holds` is true,
+ * judging each instant under the policy then in force. Membership and band are step functions of time that change
+ * only at a sale instant, an anchor's lookback expiry, or a policy boundary, so those instants plus `lower + 1 ms`
+ * (a correction already in effect) are a complete candidate set. A sale never removes membership and an expiry
+ * never grants it, so `change` narrows the set for a membership loss or gain; a band change keeps every instant.
+ * A change found at the revision boundary is caused by the revision; one found before it happened under the old
+ * policy, whatever revision is evaluated later.
+ */
+function firstInstant(
+  input: CohortEvaluationInput,
+  lower: string | null,
+  change: "membership-loss" | "membership-gain" | "band",
+  holds: (state: Readonly<{ member: boolean; band: DisclosureBand }>) => boolean,
+): string | null {
+  if (lower === null)
+    throw new Error("The seller's latest transition instant is unavailable, so the transition cannot be dated.");
+  const lowerAt = Date.parse(lower);
+  const upperAt = Date.parse(input.evaluationAt);
+  if (Number.isNaN(lowerAt) || Number.isNaN(upperAt)) return null;
+  const policyAt = policyTimeline(input);
+  const policies = [input.policy, ...(input.priorPolicies ?? []).map((segment) => segment.policy)];
+  // A sale no longer admissible just after `lower` stays inadmissible at every later candidate instant.
+  const firstCandidate = new Date(lowerAt + 1).toISOString();
+  const sales = input.sales.filter((sale) => {
+    const occurred = Date.parse(sale.occurredAt);
+    return (
+      occurred < upperAt &&
+      policies.some(
+        (candidate) =>
+          withinCalendarHorizon(occurred, lowerAt + 1, candidate.lookbackMonths ?? 60) &&
+          isLookbackAnchorEligible(sale.occurredAt, candidate.lookbackMonths ?? 60, firstCandidate),
+      )
+    );
+  });
+  const instants = new Set<number>([lowerAt + 1, upperAt]);
+  if (input.revisionEffectiveAt !== undefined) instants.add(Date.parse(input.revisionEffectiveAt));
+  for (const segment of input.priorPolicies ?? []) instants.add(Date.parse(segment.effectiveFrom));
+  for (const sale of sales) {
+    if (change !== "membership-loss") instants.add(Date.parse(sale.occurredAt));
+    if (change !== "membership-gain")
+      for (const candidate of policies)
+        instants.add(Date.parse(addUtcMonths(sale.occurredAt, candidate.lookbackMonths ?? 60)) + 1);
+  }
+  const ordered = [...instants].filter((at) => at > lowerAt && at <= upperAt).sort((a, b) => a - b);
+  for (const at of ordered) {
+    const instant = new Date(at).toISOString();
+    const state = evaluateAt(sales, policyAt(instant), instant, at !== upperAt);
+    if (holds({ member: state.winner !== null, band: state.bandWinner ? "disclosure" : "none" })) return instant;
+  }
+  return null;
+}
+
+function required(instant: string | null, transition: string): string {
+  if (instant === null) throw new Error(`The ${transition} has no effective instant after the latest transition.`);
+  return instant;
+}
+
+export function evaluateSellerComplianceCohort(unordered: CohortEvaluationInput): CohortEvaluation {
+  // Ordered once by the (occurred_at, payment_id, order_id) key, so the verdict is independent of input order.
+  const input = { ...unordered, sales: [...unordered.sales].sort(bySaleKey) };
   const { sales, policy, evaluationAt } = input;
-  if (
-    !policy.activated ||
-    policy.currencyCode === null ||
-    policy.windowMonths === null ||
-    policy.lookbackMonths === null ||
-    policy.qualifyingTransactionCount === null ||
-    policy.qualifyingGrossCents === null ||
-    policy.classificationRules === null ||
-    policy.saleUnit === null ||
-    policy.qualifyingGrossBasis === null ||
-    policy.refundTreatment === null ||
-    policy.postCaptureCancellationTreatment === null ||
-    policy.mixedLineTreatment === null ||
-    policy.unclassifiableTreatment === null
-  )
+  if (!isConfigured(policy))
     return {
       state: "outside",
       band: "none",
@@ -225,62 +341,77 @@ export function evaluateSellerComplianceCohort(
     };
   const result = evaluateAt(sales, policy, evaluationAt);
   const winner = result.winner;
-  const previousMember = input.previous?.state === "member";
+  const band: DisclosureBand = result.bandWinner ? "disclosure" : "none";
+  const previous = input.previous;
   const windowMonths = policy.windowMonths as number;
   const lookbackMonths = policy.lookbackMonths as number;
-  const expiries = result.eligible
-    .flatMap((sale) => [
-      addUtcMonths(sale.occurredAt, windowMonths),
-      new Date(Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1).toISOString(),
-    ])
-    .filter((instant) => Date.parse(instant) > Date.parse(evaluationAt))
-    .sort();
+  const expiries =
+    winner === null
+      ? []
+      : result.eligible
+          .flatMap((sale) => [
+            addUtcMonths(sale.occurredAt, windowMonths),
+            new Date(Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1).toISOString(),
+          ])
+          .filter((instant) => Date.parse(instant) > Date.parse(evaluationAt))
+          .sort();
+  // Every transition lies strictly after the latest recorded one; without the ledger instant the row's own applies.
+  const since = (fallback: string | null | undefined) => previous?.transitionEffectiveAt ?? fallback ?? null;
+  let entryEffectiveAt: string | null = null;
+  let bandEffectiveAt: string | null = null;
   let exitEffectiveAt: string | null = null;
-  if (previousMember && winner === null) {
-    const entry = input.previous?.entryEffectiveAt ?? "";
-    const candidates = sales
-      .flatMap((sale) => [
-        addUtcMonths(sale.occurredAt, windowMonths),
-        (() => {
-          const firstInadmissible = new Date(
-            Date.parse(addUtcMonths(sale.occurredAt, lookbackMonths)) + 1,
-          ).toISOString();
-          return firstInadmissible;
-        })(),
-      ])
-      .concat(entry ? [new Date(Date.parse(entry) + 1).toISOString()] : [])
-      .filter((instant): instant is string => instant !== null)
-      .filter((instant) => Date.parse(instant) > Date.parse(entry) && Date.parse(instant) <= Date.parse(evaluationAt))
-      .sort();
-    for (const instant of candidates) {
-      const at = evaluateAt(sales, policy, instant);
-      if (!at.winner || !qualifies(at.winner, policy)) {
-        exitEffectiveAt = instant;
-        break;
-      }
-    }
-    if (input.revisionEffectiveAt !== undefined) exitEffectiveAt = input.revisionEffectiveAt;
+  if (previous?.state === "member" && winner === null) {
+    exitEffectiveAt = firstInstant(input, since(previous.entryEffectiveAt), "membership-loss", (at) => !at.member);
     if (exitEffectiveAt === null) {
       throw new Error("A member without a qualifying window must have an exit effective instant.");
     }
+  } else if (previous?.state === "member" && winner !== null) {
+    entryEffectiveAt =
+      previous.entryEffectiveAt ?? thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents));
+    // A band change keeps the same-winning-window predicate; a loss is dated where that predicate stops holding.
+    if (band !== previous.band)
+      bandEffectiveAt = required(
+        firstInstant(
+          input,
+          since(previous.band === "none" ? previous.entryEffectiveAt : null),
+          "band",
+          (at) => at.band === band,
+        ),
+        "band change",
+      );
+  } else if (winner !== null) {
+    const lastExit = since(previous?.exitEffectiveAt);
+    if (lastExit === null) {
+      // First admission, including history admitted by an activating revision, dates at the qualifying sales.
+      entryEffectiveAt = thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents));
+      bandEffectiveAt =
+        band === "disclosure" ? thresholdEffectiveAt(winner, policy, threshold(policy.disclosureGrossCents)) : null;
+    } else {
+      // Re-entry: window sums keep pre-exit sales, but only instants after the exit are candidates.
+      entryEffectiveAt = required(
+        firstInstant(input, lastExit, "membership-gain", (at) => at.member),
+        "re-entry",
+      );
+      if (band === "disclosure")
+        bandEffectiveAt = required(
+          firstInstant(
+            input,
+            new Date(Date.parse(entryEffectiveAt) - 1).toISOString(),
+            "band",
+            (at) => at.band === "disclosure",
+          ),
+          "re-entry band",
+        );
+    }
+  } else {
+    exitEffectiveAt = previous?.exitEffectiveAt ?? null;
   }
-  const entryEffectiveAt =
-    winner === null
-      ? null
-      : previousMember
-        ? (input.previous?.entryEffectiveAt ??
-          thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents)))
-        : thresholdEffectiveAt(winner, policy, threshold(policy.qualifyingGrossCents));
-  const bandEffectiveAt =
-    winner === null || !result.bandWinner
-      ? null
-      : thresholdEffectiveAt(winner, policy, threshold(policy.disclosureGrossCents));
   return {
     state: winner === null ? "outside" : "member",
-    band: result.bandWinner ? "disclosure" : "none",
+    band,
     entryEffectiveAt,
     bandEffectiveAt,
-    exitEffectiveAt: winner === null && !previousMember ? (input.previous?.exitEffectiveAt ?? null) : exitEffectiveAt,
+    exitEffectiveAt,
     windowStart: winner?.start ?? null,
     windowEnd: winner?.end ?? null,
     nextReevaluationAt: winner === null ? null : (expiries[0] ?? null),

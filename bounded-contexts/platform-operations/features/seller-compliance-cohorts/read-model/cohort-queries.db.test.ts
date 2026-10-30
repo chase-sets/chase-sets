@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -8,7 +8,8 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as platformOperationsModule } from "../../../index";
-import { writeSellerComplianceCohort } from "./cohort-store";
+import { readSellerComplianceCohortLedgerHead, writeSellerComplianceCohort } from "./cohort-store";
+import { readSellerComplianceCohortState, readSellerComplianceUnclassifiableCoverage } from "./cohort-queries";
 import { createSellerComplianceCohortRuntime } from "../api/cohort-evaluation-runtime";
 import {
   SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
@@ -54,17 +55,26 @@ describeDatabase("seller compliance cohort persistence", () => {
     await closeMultiContextTestPools(pools);
   });
 
+  /** Node-postgres may hand timestamptz back as Date; compare every column as its ISO string. */
+  const isoRow = (row: Record<string, unknown> | null) =>
+    row === null
+      ? null
+      : Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [key, value instanceof Date ? value.toISOString() : value]),
+        );
+
   it("converges under repeated ticks and leaves an unchanged seller byte-identical", async () => {
     const input = {
       sellerAccountId: "seller-1",
       policyVersion: "policy@1",
       observedAt: "2025-01-03T00:00:00.000Z",
       evaluation: evaluation("member"),
+      expectedVersion: "0",
     };
     await writeSellerComplianceCohort(pool, input);
     const first = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohorts`);
     const transitions = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohort_transitions`);
-    await writeSellerComplianceCohort(pool, { ...input, observedAt: "2025-01-04T00:00:00.000Z" });
+    await writeSellerComplianceCohort(pool, { ...input, observedAt: "2025-01-04T00:00:00.000Z", expectedVersion: "1" });
     const second = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohorts`);
     const transitionsAgain = await pool.query(`SELECT * FROM platform_operations_seller_compliance_cohort_transitions`);
     expect(second.rows).toEqual(first.rows);
@@ -98,11 +108,14 @@ describeDatabase("seller compliance cohort persistence", () => {
       (await pool.query("SELECT count(*)::int AS count FROM platform_operations_seller_compliance_cohorts")).rows[0]
         .count,
     ).toBe(0);
+    // The inert default retains no policy evidence either.
+    expect((await pool.query("SELECT * FROM platform_operations_seller_compliance_policy_evidence")).rows).toEqual([]);
     await writeSellerComplianceCohort(pool, {
       sellerAccountId: "seller-1",
       policyVersion: "policy@1",
       observedAt: "2025-01-03T00:00:00.000Z",
       evaluation: evaluation("member"),
+      expectedVersion: "0",
     });
     const malformedRuntime = createSellerComplianceCohortRuntime({
       db: pool,
@@ -114,10 +127,103 @@ describeDatabase("seller compliance cohort persistence", () => {
       } as never,
     });
     expect(await malformedRuntime.sweep({ now: "2025-01-03T00:00:00.000Z", limit: 10 })).toBe(1);
-    const result = await pool.query(
-      `SELECT failure_kind, policy_version FROM platform_operations_seller_compliance_evaluation_failures`,
+    const result = await pool.query(`SELECT * FROM platform_operations_seller_compliance_evaluation_failures`);
+    expect(result.rows.map(isoRow)).toEqual([
+      {
+        seller_account_id: "seller-1",
+        evaluation_at: "2025-01-03T00:00:00.000Z",
+        failure_kind: "policy-decode",
+        detail: "malformed stored revision",
+        policy_version: null,
+        recorded_at: expect.any(String),
+      },
+    ]);
+    expect((await pool.query("SELECT * FROM platform_operations_seller_compliance_policy_evidence")).rows).toEqual([]);
+  });
+
+  it("reads the stored cohort state and unclassifiable coverage for missing and existing sellers", async () => {
+    expect(await readSellerComplianceCohortState(pool, "seller-q")).toBeNull();
+    expect(await readSellerComplianceUnclassifiableCoverage(pool, "seller-q")).toEqual({
+      unclassifiable_count: "0",
+      total_count: "0",
+    });
+    await writeSellerComplianceCohort(pool, {
+      sellerAccountId: "seller-q",
+      policyVersion: "policy@1",
+      observedAt: "2025-01-03T00:00:00.000Z",
+      evaluation: { ...evaluation("member"), unclassifiableCount: 1 },
+      expectedVersion: "0",
+    });
+    expect(isoRow(await readSellerComplianceCohortState(pool, "seller-q"))).toEqual({
+      seller_account_id: "seller-q",
+      state: "member",
+      disclosure_band: "none",
+      entry_effective_at: "2025-01-01T00:00:00.000Z",
+      exit_effective_at: null,
+      window_start: "2025-01-01T00:00:00.000Z",
+      window_end: "2025-02-01T00:00:00.000Z",
+      qualifying_count: 2,
+      qualifying_gross_cents: "500000",
+      unclassifiable_count: 1,
+      policy_version: "policy@1",
+      version: "1",
+      next_reevaluation_at: "2025-02-01T00:00:00.000Z",
+    });
+    expect(await readSellerComplianceUnclassifiableCoverage(pool, "seller-q")).toEqual({
+      unclassifiable_count: "1",
+      total_count: "3",
+    });
+    expect(await readSellerComplianceCohortState(pool, "seller-other")).toBeNull();
+  });
+
+  it("restores a lost row past nine transitions on the ledger's numerically latest version", async () => {
+    const states = [
+      "member",
+      "outside",
+      "member",
+      "outside",
+      "member",
+      "outside",
+      "member",
+      "outside",
+      "member",
+      "outside",
+    ];
+    for (const [index, state] of states.entries())
+      await writeSellerComplianceCohort(pool, {
+        sellerAccountId: "seller-10",
+        policyVersion: "policy@1",
+        observedAt: `2025-01-${String(index + 3).padStart(2, "0")}T00:00:00.000Z`,
+        evaluation: evaluation(state as "member" | "outside"),
+        expectedVersion: String(index),
+      });
+    await pool.query("DELETE FROM platform_operations_seller_compliance_cohorts");
+    expect(await readSellerComplianceCohortLedgerHead(pool, "seller-10")).toEqual({
+      version: "10",
+      state: "outside",
+      band: "none",
+      policyVersion: "policy@1",
+      effectiveAt: "2025-02-01T00:00:00.000Z",
+      observedAt: "2025-01-12T00:00:00.000Z",
+      entryEffectiveAt: null,
+      exitEffectiveAt: "2025-02-01T00:00:00.000Z",
+    });
+    await writeSellerComplianceCohort(pool, {
+      sellerAccountId: "seller-10",
+      policyVersion: "policy@1",
+      observedAt: "2025-01-13T00:00:00.000Z",
+      evaluation: evaluation("member"),
+      expectedVersion: "10",
+    });
+    const ledger = await pool.query<{ transition_id: string }>(
+      `SELECT transition_id FROM platform_operations_seller_compliance_cohort_transitions ORDER BY transition_version`,
     );
-    expect(result.rows).toEqual([{ failure_kind: "policy-decode", policy_version: null }]);
+    expect(ledger.rows.map((row) => row.transition_id).slice(-3)).toEqual([
+      "seller-10:9:entered",
+      "seller-10:10:exited",
+      "seller-10:11:entered",
+    ]);
+    expect((await readSellerComplianceCohortState(pool, "seller-10"))?.version).toBe("11");
   });
 
   it("appends one immutable transition per state change with an injective identity", async () => {
@@ -126,6 +232,7 @@ describeDatabase("seller compliance cohort persistence", () => {
       policyVersion: "policy@1",
       observedAt: "2025-01-03T00:00:00.000Z",
       evaluation: evaluation("member", "disclosure"),
+      expectedVersion: "0",
     });
     const rows = await pool.query(
       `SELECT transition_id,transition_version,kind,effective_at,observed_at,target_band FROM platform_operations_seller_compliance_cohort_transitions ORDER BY transition_version`,
@@ -144,24 +251,28 @@ describeDatabase("seller compliance cohort persistence", () => {
       policyVersion: "policy@1",
       observedAt: "2025-01-01T00:00:00.000Z",
       evaluation: evaluation("outside"),
+      expectedVersion: "0",
     });
     await writeSellerComplianceCohort(pool, {
       sellerAccountId: "seller-reentry",
       policyVersion: "policy@1",
       observedAt: "2025-01-01T12:00:00.000Z",
       evaluation: evaluation("member"),
+      expectedVersion: "0",
     });
     await writeSellerComplianceCohort(pool, {
       sellerAccountId: "seller-reentry",
       policyVersion: "policy@1",
       observedAt: "2025-01-02T00:00:00.000Z",
       evaluation: evaluation("outside"),
+      expectedVersion: "1",
     });
     await writeSellerComplianceCohort(pool, {
       sellerAccountId: "seller-reentry",
       policyVersion: "policy@1",
       observedAt: "2025-01-02T00:00:00.000Z",
       evaluation: evaluation("member", "disclosure"),
+      expectedVersion: "2",
     });
     const rows = await pool.query(
       `SELECT transition_id,kind,transition_version FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id = $1 ORDER BY transition_version`,
@@ -200,10 +311,10 @@ describeDatabase("seller compliance cohort persistence", () => {
     unclassifiableTreatment: "exclude-unclassifiable" as const,
     classificationRules: [{ source: "productId" as const, value: "card" }],
   };
-  const sweepRuntime = (documentId: string) =>
+  const sweepRuntime = (documentId: string, writePool: PgTransactionalPool = pool) =>
     createSellerComplianceCohortRuntime({
       db: pool,
-      pool,
+      pool: writePool,
       policies: {
         resolvePolicy: async () => ({ value: sweepPolicy, documentId, effectiveFrom: "2025-01-01T00:00:00.000Z" }),
       } as never,
@@ -225,7 +336,7 @@ describeDatabase("seller compliance cohort persistence", () => {
     return result.rows[0]!.snapshot;
   }
   const iso = (column: string) => `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ${column}`;
-  /** The complete ordered cohort-slice state: rows, ledger, sweep checkpoints and failures. */
+  /** Every column of the cohort slice's tables: rows, the immutable ledger, sweep checkpoints and failures. */
   async function sweepState() {
     const [cohorts, transitions, checkpoints, failures] = await Promise.all([
       pool.query(
@@ -236,7 +347,8 @@ describeDatabase("seller compliance cohort persistence", () => {
       ),
       pool.query(
         `SELECT transition_id,seller_account_id,transition_version::text,kind,${iso("effective_at")},
-                ${iso("observed_at")},policy_version,target_state,target_band,${iso("published_at")}
+                ${iso("observed_at")},policy_version,target_state,target_band,${iso("recorded_at")},
+                ${iso("published_at")}
          FROM platform_operations_seller_compliance_cohort_transitions ORDER BY seller_account_id,transition_version`,
       ),
       pool.query(
@@ -245,8 +357,9 @@ describeDatabase("seller compliance cohort persistence", () => {
          FROM platform_operations_seller_compliance_sweep_checkpoints ORDER BY trigger_name`,
       ),
       pool.query(
-        `SELECT seller_account_id,failure_kind,detail
-         FROM platform_operations_seller_compliance_evaluation_failures ORDER BY seller_account_id,failure_kind`,
+        `SELECT seller_account_id,${iso("evaluation_at")},failure_kind,detail,policy_version,${iso("recorded_at")}
+         FROM platform_operations_seller_compliance_evaluation_failures
+         ORDER BY seller_account_id,evaluation_at,failure_kind`,
       ),
     ]);
     return {
@@ -288,6 +401,8 @@ describeDatabase("seller compliance cohort persistence", () => {
     policy_version: policyVersion,
     target_state: kind === "entered" ? "member" : "outside",
     target_band: "none",
+    // Recorded by the database clock once; replays compare the exact value, never a re-recorded one.
+    recorded_at: expect.any(String),
     published_at: null,
   });
 
@@ -324,6 +439,14 @@ describeDatabase("seller compliance cohort persistence", () => {
     expect(await sweepState()).toEqual(afterEntry);
     expect(await runtime.sweep({ now: tickA, limit: 10 })).toBe(0);
     expect(await sweepState()).toEqual(afterEntry);
+    // The activated policy's content is retained by version for later revisions to judge the time before them.
+    expect(
+      (
+        await pool.query(
+          `SELECT policy_version,${iso("effective_from")},value FROM platform_operations_seller_compliance_policy_evidence`,
+        )
+      ).rows,
+    ).toEqual([{ policy_version: version, effective_from: "2025-01-01T00:00:00.000Z", value: sweepPolicy }]);
 
     // The due seller is processed on the next advancing tick; an unchanged verdict moves only its next instant.
     expect(await runtime.sweep({ now: tickB, limit: 10 })).toBe(1);
@@ -363,7 +486,8 @@ describeDatabase("seller compliance cohort persistence", () => {
     expect(await runtime.sweep({ now: tickC, limit: 10 })).toBe(0);
     expect(await sweepState()).toEqual(afterExit);
 
-    // Emptying the cohort slice's state and replaying the same ticks converges to the identical row set.
+    // Control only (cohort-only loss is proven separately): emptying every derived table and replaying the same ticks
+    // rebuilds the same rows and a re-recorded ledger.
     await pool.query(
       `TRUNCATE platform_operations_seller_compliance_cohorts,
                 platform_operations_seller_compliance_cohort_transitions,
@@ -372,6 +496,82 @@ describeDatabase("seller compliance cohort persistence", () => {
     expect(await sweepState()).toEqual(emptyState);
     for (const tick of [tickA, tickB, tickC]) expect(await runtime.sweep({ now: tick, limit: 10 })).toBe(1);
     expect(await sweepState()).toEqual(afterExit);
+  });
+
+  it("restores cohort-only loss after entry, steady and exit ticks from the retained ledger", async () => {
+    await recordSale("p3-seller", "2025-01-01T00:00:00.000Z");
+    const runtime = sweepRuntime("p3");
+    const ticks = ["2025-01-15T00:00:00.000Z", "2025-02-02T00:00:00.000Z", "2025-03-02T00:00:00.000Z"];
+    for (const [index, tick] of ticks.entries()) {
+      expect(await runtime.sweep({ now: tick, limit: 10 })).toBe(1);
+      const expected = await sweepState();
+      // Only the cohort rows are lost; sales, the ledger, checkpoints and failures are retained.
+      await pool.query("DELETE FROM platform_operations_seller_compliance_cohorts");
+      for (const replayed of ticks.slice(0, index + 1)) await runtime.sweep({ now: replayed, limit: 10 });
+      // Identical rows and every ledger column, recorded_at included: no transition was re-recorded or duplicated.
+      expect(await sweepState()).toEqual(expected);
+    }
+    const final = await sweepState();
+    expect(final.transitions.map((row) => [row.transition_id, row.effective_at, row.observed_at])).toEqual([
+      ["p3-seller:1:entered", "2025-01-01T00:00:00.000Z", ticks[0]],
+      ["p3-seller:2:exited", "2025-03-01T00:00:00.001Z", ticks[2]],
+    ]);
+    expect(final.cohorts).toEqual([
+      expect.objectContaining({ state: "outside", version: "2", exit_effective_at: "2025-03-01T00:00:00.001Z" }),
+    ]);
+  });
+
+  it("restores partial cohort loss in bounded pages, retries an interrupted restore and then does nothing", async () => {
+    for (const seller of ["p3-a", "p3-b", "p3-c"]) await recordSale(seller, "2025-01-01T00:00:00.000Z");
+    const tick = "2025-01-15T00:00:00.000Z";
+    const version = "p3@2025-01-01T00:00:00.000Z";
+    expect(await sweepRuntime("p3").sweep({ now: tick, limit: 10 })).toBe(3);
+    const expected = await sweepState();
+    await pool.query("DELETE FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id <> 'p3-b'");
+    // The first restoring write is cut off inside its transaction.
+    let interrupt = true;
+    const interrupting: PgTransactionalPool = {
+      query: pool.query.bind(pool),
+      connect: async () => {
+        const client = await pool.connect();
+        return {
+          query: (async (text: string, values?: readonly unknown[]) => {
+            if (interrupt && text.startsWith("INSERT INTO platform_operations_seller_compliance_cohorts ")) {
+              interrupt = false;
+              throw new Error("connection lost during restore");
+            }
+            return client.query(text, values);
+          }) as PgPoolClient["query"],
+          release: (error?: unknown) => client.release(error),
+        };
+      },
+    };
+    expect(await sweepRuntime("p3", interrupting).sweep({ now: tick, limit: 1 })).toBe(1);
+    const interrupted = await sweepState();
+    expect(interrupted.cohorts.map((row) => row.seller_account_id)).toEqual(["p3-b"]);
+    expect(interrupted.transitions).toEqual(expected.transitions);
+    expect(interrupted.checkpoints).toContainEqual(
+      expect.objectContaining({ trigger_name: "recovery", after_seller_account_id: "p3-a" }),
+    );
+    const failure = {
+      seller_account_id: "p3-a",
+      evaluation_at: tick,
+      failure_kind: "evaluation",
+      detail: "connection lost during restore",
+      policy_version: version,
+      recorded_at: expect.any(String),
+    };
+    expect(interrupted.failures).toEqual([failure]);
+    // A restarted runtime resumes the page after the interruption, then a new pass retries the interrupted seller.
+    const restarted = sweepRuntime("p3");
+    const restored: number[] = [];
+    for (let run = 0; run < 4; run += 1) restored.push(await restarted.sweep({ now: tick, limit: 1 }));
+    expect(restored).toEqual([1, 0, 1, 0]);
+    // Intact rows make a completed no-op: nothing is evaluated or written again.
+    expect(await restarted.sweep({ now: tick, limit: 10 })).toBe(0);
+    const final = await sweepState();
+    expect(final).toEqual({ ...expected, failures: [failure] });
+    expect(final.failures[0]!.recorded_at).toBe(interrupted.failures[0]!.recorded_at);
   });
 
   it("AC11 and AC12 resume ordered pages and admit a sale on the next production tick", async () => {

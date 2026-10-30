@@ -1,6 +1,6 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
-import type { CohortEvaluation } from "../domain/cohort-window";
+import type { CohortEvaluation, CohortState, DisclosureBand } from "../domain/cohort-window";
 
 export type StoredCohort = Readonly<{
   sellerAccountId: string;
@@ -44,9 +44,68 @@ export async function readSellerComplianceCohort(
   return result.rows[0] ? normalize(result.rows[0] as StoredCohort & Record<string, unknown>) : null;
 }
 
+/** The seller's latest recorded transition, plus the latest entry and exit, from the immutable ledger. */
+export type CohortLedgerHead = Readonly<{
+  version: string;
+  state: CohortState;
+  band: DisclosureBand;
+  policyVersion: string;
+  effectiveAt: string;
+  observedAt: string;
+  entryEffectiveAt: string | null;
+  exitEffectiveAt: string | null;
+}>;
+
+export async function readSellerComplianceCohortLedgerHead(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<CohortLedgerHead | null> {
+  // The text alias differs from the column name, so ORDER BY compares the bigint column, never its text.
+  const result = await db.query<{
+    kind: string;
+    version: string;
+    effective_at: Date | string;
+    observed_at: Date | string;
+    policy_version: string;
+    target_state: CohortState;
+    target_band: DisclosureBand;
+  }>(
+    `SELECT DISTINCT ON (kind) kind, transition_version::text AS version, effective_at, observed_at, policy_version, target_state, target_band FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id = $1 ORDER BY kind, transition_version DESC`,
+    [sellerAccountId],
+  );
+  if (result.rows.length === 0) return null;
+  const latest = result.rows.reduce((head, row) => (BigInt(row.version) > BigInt(head.version) ? row : head));
+  const latestOf = (kind: string) => {
+    const row = result.rows.find((candidate) => candidate.kind === kind);
+    return row ? timestampToIso(row.effective_at) : null;
+  };
+  return {
+    version: latest.version,
+    state: latest.target_state,
+    band: latest.target_band,
+    policyVersion: latest.policy_version,
+    effectiveAt: timestampToIso(latest.effective_at)!,
+    observedAt: timestampToIso(latest.observed_at)!,
+    entryEffectiveAt: latest.target_state === "member" ? latestOf("entered") : null,
+    exitEffectiveAt: latest.target_state === "outside" ? latestOf("exited") : null,
+  };
+}
+
+/**
+ * Writes one evaluation atomically with its transitions. `expectedVersion` is the cohort version the evaluation was
+ * based on; a missing row's version is the retained ledger's latest transition, so a cohort-only restore continues
+ * that seller's transition ids instead of restarting them. Nothing is written when the base has moved, or when the
+ * evidence is unchanged: a newer policy version alone never rewrites the row.
+ */
 export async function writeSellerComplianceCohort(
   pool: PgTransactionalPool,
-  input: Readonly<{ sellerAccountId: string; policyVersion: string; observedAt: string; evaluation: CohortEvaluation }>,
+  input: Readonly<{
+    sellerAccountId: string;
+    policyVersion: string;
+    observedAt: string;
+    evaluation: CohortEvaluation;
+    expectedVersion: string;
+  }>,
 ): Promise<void> {
   await withPgTransaction(pool, async (db) => {
     const current = await db.query<StoredCohort>(
@@ -54,11 +113,24 @@ export async function writeSellerComplianceCohort(
       [input.sellerAccountId],
     );
     const old = current.rows[0] ? normalize(current.rows[0] as StoredCohort & Record<string, unknown>) : undefined;
+    const ledger = old
+      ? undefined
+      : (
+          await db.query<{ version: string; target_state: string; target_band: string }>(
+            `SELECT transition_version::text AS version, target_state, target_band FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id = $1 ORDER BY transition_version DESC LIMIT 1`,
+            [input.sellerAccountId],
+          )
+        ).rows[0];
+    const prior =
+      old ??
+      (ledger
+        ? { state: ledger.target_state, band: ledger.target_band, version: ledger.version }
+        : { state: "outside", band: "none", version: "0" });
+    if (prior.version !== input.expectedVersion) return;
     const derivedChanged =
       !old ||
       old.state !== input.evaluation.state ||
       old.band !== input.evaluation.band ||
-      old.policyVersion !== input.policyVersion ||
       old.entryEffectiveAt !== input.evaluation.entryEffectiveAt ||
       old.exitEffectiveAt !== input.evaluation.exitEffectiveAt ||
       old.windowStart !== input.evaluation.windowStart ||
@@ -68,7 +140,6 @@ export async function writeSellerComplianceCohort(
       old.unclassifiableCount !== input.evaluation.unclassifiableCount ||
       old.nextReevaluationAt !== input.evaluation.nextReevaluationAt;
     if (!derivedChanged) return;
-    const prior = old ?? { state: "outside", band: "none", version: "0" };
     const kinds: readonly string[] =
       prior.state !== input.evaluation.state
         ? input.evaluation.state === "member"
@@ -77,7 +148,19 @@ export async function writeSellerComplianceCohort(
         : prior.band !== input.evaluation.band
           ? ["disclosure-band-changed"]
           : [];
-    const version = BigInt(old?.version ?? "0") + BigInt(kinds.length);
+    // A transition is dated by its own cause; the observation instant is never a stand-in for it.
+    const effectiveAts = kinds.map((kind) => {
+      const effectiveAt =
+        kind === "exited"
+          ? input.evaluation.exitEffectiveAt
+          : kind === "disclosure-band-changed"
+            ? input.evaluation.bandEffectiveAt
+            : input.evaluation.entryEffectiveAt;
+      if (effectiveAt === null)
+        throw new Error(`A ${kind} transition for ${input.sellerAccountId} requires an effective instant.`);
+      return effectiveAt;
+    });
+    const version = BigInt(prior.version) + BigInt(kinds.length);
     const values = [
       input.sellerAccountId,
       input.evaluation.state,
@@ -106,13 +189,7 @@ export async function writeSellerComplianceCohort(
           );
     if (result.rowCount !== 1) return;
     for (const [index, kind] of kinds.entries()) {
-      const transitionVersion = BigInt(old?.version ?? "0") + BigInt(index + 1);
-      const effectiveAt =
-        kind === "exited"
-          ? input.evaluation.exitEffectiveAt
-          : kind === "disclosure-band-changed"
-            ? input.evaluation.bandEffectiveAt
-            : input.evaluation.entryEffectiveAt;
+      const transitionVersion = BigInt(prior.version) + BigInt(index + 1);
       await db.query(
         `INSERT INTO platform_operations_seller_compliance_cohort_transitions (transition_id,seller_account_id,transition_version,kind,effective_at,observed_at,policy_version,target_state,target_band) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (transition_id) DO NOTHING`,
         [
@@ -120,7 +197,7 @@ export async function writeSellerComplianceCohort(
           input.sellerAccountId,
           transitionVersion.toString(),
           kind,
-          effectiveAt ?? input.observedAt,
+          effectiveAts[index],
           input.observedAt,
           input.policyVersion,
           input.evaluation.state,

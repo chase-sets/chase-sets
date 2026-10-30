@@ -652,11 +652,11 @@ describeDatabase("registered platform-worker scheduled runners", () => {
   });
 
   const cohortPolicyKey = "platform-operations.seller-compliance-cohort";
-  const cohortPolicy = (qualifyingGrossCents = "1") => ({
+  const cohortPolicy = (overrides: Readonly<Record<string, unknown>> = {}) => ({
     activated: true,
     currencyCode: "USD",
     qualifyingTransactionCount: 1,
-    qualifyingGrossCents,
+    qualifyingGrossCents: "1",
     disclosureGrossCents: "1000000",
     windowMonths: 1,
     lookbackMonths: 2,
@@ -668,11 +668,10 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     mixedLineTreatment: "exclude-mixed",
     unclassifiableTreatment: "exclude-unclassifiable",
     classificationRules: [{ source: "productId", value: "card" }],
+    ...overrides,
   });
-  const cohortRunner = () => {
-    const runner = registeredRunners.find(
-      (candidate) => candidate.name === "platform-operations.seller-compliance-cohort-sweep",
-    );
+  const cohortRunner = (runners: readonly WorkerRunner[] = registeredRunners) => {
+    const runner = runners.find((candidate) => candidate.name === "platform-operations.seller-compliance-cohort-sweep");
     expect(runner).toBeDefined();
     return runner!;
   };
@@ -682,6 +681,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
                 platform_operations_seller_compliance_cohort_transitions,
                 platform_operations_seller_compliance_evaluation_failures,
                 platform_operations_seller_compliance_sweep_checkpoints,
+                platform_operations_seller_compliance_policy_evidence,
                 platform_operations_seller_compliance_sales RESTART IDENTITY CASCADE`,
     );
   }
@@ -696,7 +696,13 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     );
     (runtime.services["platform-operations"] as PlatformOperationsServices).policies.invalidateCache(cohortPolicyKey);
   }
-  async function seedCohortSale(sellerAccountId: string, occurredAt: string, changedAt = occurredAt, gross = "1") {
+  async function seedCohortSale(
+    sellerAccountId: string,
+    occurredAt: string,
+    changedAt = occurredAt,
+    gross = "1",
+    saleId = sellerAccountId,
+  ) {
     await pools["platform-operations"].query(
       `INSERT INTO platform_operations_seller_compliance_sales
        (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,
@@ -704,7 +710,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         revision,change_sequence,recorded_at,changed_at)
        VALUES ($1,$2,$3,'captured',$4,'USD',$5,$5,0,$5,$5,'[{"productId":"card"}]'::jsonb,1,
                nextval('platform_operations_seller_compliance_sales_change_seq'),$6,$6)`,
-      [`payment-${sellerAccountId}`, `order-${sellerAccountId}`, sellerAccountId, occurredAt, gross, changedAt],
+      [`payment-${saleId}`, `order-${saleId}`, sellerAccountId, occurredAt, gross, changedAt],
     );
   }
   async function seedMemberCohort(
@@ -733,8 +739,8 @@ describeDatabase("registered platform-worker scheduled runners", () => {
    * One registered cohort tick. The suite-wide registered pass above leaves this runner claimed for its whole
    * interval, so each tick releases that claim first and then proves the runner claimed, ran and completed.
    */
-  async function runCohortTick() {
-    const runner = cohortRunner();
+  async function runCohortTick(runners: readonly WorkerRunner[] = registeredRunners) {
+    const runner = cohortRunner(runners);
     await pools.control.query("DELETE FROM platform_scheduled_runners WHERE runner_name = $1", [runner.name]);
     const startedAt = new Date().toISOString();
     const [result] = await runRegisteredRunnerSetOnce([runner]);
@@ -817,87 +823,254 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(exitAt < transitions[0]!.observed_at!).toBe(true);
   });
 
-  it("reevaluates historical sellers on a registered policy revision without a new sale", async () => {
-    await clearCohortRows();
-    const now = Date.now();
-    const effectiveFrom = new Date(now - 86_400_000).toISOString();
-    await installCohortPolicy(cohortPolicy(), effectiveFrom);
-    const saleAt = new Date(now - 172_800_000).toISOString();
-    await seedCohortSale("cohort-revision", saleAt, saleAt);
-    // Not due, so only the revision pass can reach this row stamped by an older policy.
-    await seedMemberCohort("cohort-revision", "old-policy@2025-01-01T00:00:00.000Z", saleAt, {
-      nextReevaluationAt: new Date(now + 30 * 86_400_000).toISOString(),
-    });
-    // Its only sale predates the activation; it has no cohort row and makes no new sale.
-    await seedCohortSale("cohort-history", saleAt, saleAt);
-    expect((await runCohortTick()).processed).toBe(2);
-    const row = await pools["platform-operations"].query(
-      `SELECT policy_version,state FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-revision'`,
-    );
-    expect(row.rows[0]).toMatchObject({ policy_version: `cohort-current@${effectiveFrom}`, state: "member" });
-    const checkpoint = await pools["platform-operations"].query(
-      `SELECT policy_version,after_seller_account_id FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name='t3-revision'`,
-    );
-    expect(checkpoint.rows[0]).toMatchObject({
-      policy_version: `cohort-current@${effectiveFrom}`,
-      after_seller_account_id: null,
-    });
-    // The unchanged member is restamped without a transition; the historical seller enters at its sale instant.
-    const policyVersion = `cohort-current@${effectiveFrom}`;
-    const member = {
-      state: "member",
-      disclosure_band: "none",
-      entry_effective_at: saleAt,
-      exit_effective_at: null,
-      policy_version: policyVersion,
-      version: "1",
+  /** Runs `work` with the registered runner's clock (`new Date()`) frozen at instants the test sets. */
+  async function atFrozenClock(work: (at: (instant: string) => void) => Promise<void>) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await work((instant) => vi.setSystemTime(new Date(instant)));
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+  async function cohortTables() {
+    const db = pools["platform-operations"];
+    return {
+      cohorts: (
+        await db.query(`SELECT * FROM platform_operations_seller_compliance_cohorts ORDER BY seller_account_id`)
+      ).rows,
+      transitions: (
+        await db.query(
+          `SELECT * FROM platform_operations_seller_compliance_cohort_transitions ORDER BY seller_account_id,transition_version`,
+        )
+      ).rows,
     };
-    expect(await cohortRow("cohort-revision")).toEqual(member);
-    expect(await cohortRow("cohort-history")).toEqual(member);
-    expect(await cohortTransitions()).toEqual([
-      {
-        transition_id: "cohort-history:1:entered",
+  }
+
+  it("leaves cohort rows byte-identical under a non-material registered revision and keeps that pass complete", async () => {
+    await clearCohortRows();
+    await atFrozenClock(async (at) => {
+      await installCohortPolicy(cohortPolicy(), "2025-01-01T00:00:00.000Z");
+      await seedCohortSale("cohort-steady", "2025-05-10T00:00:00.000Z");
+      at("2025-05-11T00:00:00.000Z");
+      expect((await runCohortTick()).processed).toBe(1);
+      const before = await cohortTables();
+      expect(before.transitions.map((row) => row.transition_id)).toEqual(["cohort-steady:1:entered"]);
+      // The identical value under a new revision effective May 15; no sale or other evidence changes.
+      await installCohortPolicy(cohortPolicy(), "2025-05-15T00:00:00.000Z");
+      const revision = "cohort-current@2025-05-15T00:00:00.000Z";
+      at("2025-05-20T00:00:00.000Z");
+      // The revision pass reaches the seller once and writes nothing: SELECT * is identical, stamp included.
+      expect((await runCohortTick()).processed).toBe(1);
+      expect(await cohortTables()).toEqual(before);
+      const completion = async () =>
+        (
+          await pools["platform-operations"].query(
+            `SELECT policy_version,after_seller_account_id FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger_name='t3-revision'`,
+          )
+        ).rows;
+      expect(await completion()).toEqual([{ policy_version: revision, after_seller_account_id: null }]);
+      // The completed pass stays complete on a repeated tick and on a restarted worker host.
+      at("2025-05-20T00:05:00.000Z");
+      expect((await runCohortTick()).processed).toBe(0);
+      const restarted = registeredRunnersOf(
+        createWorkerHost(workerContextRegistry, "platform-worker", {
+          pools,
+          runtimeProfile,
+          hostPorts: workerHostPorts(),
+        }),
+      );
+      at("2025-05-20T00:10:00.000Z");
+      expect((await runCohortTick(restarted)).processed).toBe(0);
+      expect(await cohortTables()).toEqual(before);
+      expect(await completion()).toEqual([{ policy_version: revision, after_seller_account_id: null }]);
+      // A historical seller and a changed seller stay discoverable after the revision pass completed.
+      await seedCohortSale("cohort-historical", "2025-04-01T00:00:00.000Z");
+      await seedCohortSale("cohort-changed", "2025-05-19T12:00:00.000Z", "2025-05-20T00:12:00.000Z");
+      at("2025-05-20T00:15:00.000Z");
+      expect((await runCohortTick(restarted)).processed).toBe(2);
+      const after = await cohortTables();
+      expect(after.cohorts.find((row) => row.seller_account_id === "cohort-steady")).toEqual(before.cohorts[0]);
+      const entered = (seller: string, effectiveAt: string, observedAt: string, policyVersion: string) => ({
+        transition_id: `${seller}:1:entered`,
         kind: "entered",
-        effective_at: saleAt,
-        observed_at: expect.any(String),
+        effective_at: effectiveAt,
+        observed_at: observedAt,
         policy_version: policyVersion,
         target_state: "member",
         target_band: "none",
-      },
-    ]);
+      });
+      expect(await cohortTransitions()).toEqual([
+        entered("cohort-changed", "2025-05-19T12:00:00.000Z", "2025-05-20T00:15:00.000Z", revision),
+        entered("cohort-historical", "2025-04-01T00:00:00.000Z", "2025-05-20T00:15:00.000Z", revision),
+        entered(
+          "cohort-steady",
+          "2025-05-10T00:00:00.000Z",
+          "2025-05-11T00:00:00.000Z",
+          "cohort-current@2025-01-01T00:00:00.000Z",
+        ),
+      ]);
+    });
   });
 
-  it("exits on the registered sweep at a threshold-raising revision effective instant", async () => {
+  it("dates a late band-only loss at the disclosure boundary on the registered sweep", async () => {
+    const bandPolicy = cohortPolicy({
+      qualifyingTransactionCount: 2,
+      qualifyingGrossCents: "500000",
+      disclosureGrossCents: "2000000",
+    });
+    const lifecycle = async (at: (instant: string) => void, late: string) => {
+      await clearCohortRows();
+      await installCohortPolicy(bandPolicy, "2025-01-01T00:00:00.000Z");
+      for (const [saleId, occurredAt, gross] of [
+        ["band-1", "2025-01-01T00:00:00.000Z", "1000000"],
+        ["band-2", "2025-01-10T00:00:00.000Z", "1000000"],
+        ["band-3", "2025-02-01T00:00:00.000Z", "250000"],
+        ["band-4", "2025-02-10T00:00:00.000Z", "250000"],
+      ] as const)
+        await seedCohortSale("cohort-band", occurredAt, occurredAt, gross, saleId);
+      at("2025-01-11T00:00:00.000Z");
+      expect((await runCohortTick()).processed).toBe(1);
+      at(late);
+      expect((await runCohortTick()).processed).toBe(1);
+    };
+    const version = "cohort-current@2025-01-01T00:00:00.000Z";
+    const transition = (id: string, effectiveAt: string, observedAt: string, state: string, band: string) => ({
+      transition_id: id,
+      kind: id.split(":")[2],
+      effective_at: effectiveAt,
+      observed_at: observedAt,
+      policy_version: version,
+      target_state: state,
+      target_band: band,
+    });
+    // Entry and disclosure share the qualifying sale's instant.
+    const entered = [
+      transition(
+        "cohort-band:1:entered",
+        "2025-01-10T00:00:00.000Z",
+        "2025-01-11T00:00:00.000Z",
+        "member",
+        "disclosure",
+      ),
+      transition(
+        "cohort-band:2:disclosure-band-changed",
+        "2025-01-10T00:00:00.000Z",
+        "2025-01-11T00:00:00.000Z",
+        "member",
+        "disclosure",
+      ),
+    ];
+    await atFrozenClock(async (at) => {
+      // At the boundary the January window still carries the disclosure.
+      await lifecycle(at, "2025-03-01T00:00:00.000Z");
+      expect(await cohortTransitions()).toEqual(entered);
+      // One millisecond later and on two late ticks, the loss is dated at the boundary; only observation moves.
+      for (const late of ["2025-03-01T00:00:00.001Z", "2025-03-12T00:00:00.000Z", "2025-03-20T00:00:00.000Z"]) {
+        await lifecycle(at, late);
+        expect(await cohortTransitions()).toEqual([
+          ...entered,
+          transition("cohort-band:3:disclosure-band-changed", "2025-03-01T00:00:00.001Z", late, "member", "none"),
+        ]);
+        expect(await cohortRow("cohort-band")).toMatchObject({
+          state: "member",
+          disclosure_band: "none",
+          version: "3",
+        });
+      }
+      // The later exit is one exited row that clears the band.
+      at("2025-04-20T00:00:00.000Z");
+      expect((await runCohortTick()).processed).toBe(1);
+      expect((await cohortTransitions()).slice(3)).toEqual([
+        transition("cohort-band:4:exited", "2025-04-01T00:00:00.001Z", "2025-04-20T00:00:00.000Z", "outside", "none"),
+      ]);
+    });
+  });
+
+  it("keeps an ordinary roll-off before a later registered revision and exits at a material revision instant", async () => {
+    const version = (effectiveFrom: string) => `cohort-current@${effectiveFrom}`;
+    await atFrozenClock(async (at) => {
+      // A due seller reached only after an identical or raised revision keeps its earlier ordinary expiry.
+      for (const revision of [cohortPolicy(), cohortPolicy({ qualifyingGrossCents: "2" })]) {
+        await clearCohortRows();
+        await installCohortPolicy(cohortPolicy(), "2025-01-01T00:00:00.000Z");
+        await seedCohortSale("cohort-late", "2025-01-01T00:00:00.000Z");
+        at("2025-01-02T00:00:00.000Z");
+        expect((await runCohortTick()).processed).toBe(1);
+        await installCohortPolicy(revision, "2025-03-10T00:00:00.000Z");
+        at("2025-03-20T00:00:00.000Z");
+        expect((await runCohortTick()).processed).toBe(1);
+        expect((await cohortTransitions()).at(-1)).toEqual({
+          transition_id: "cohort-late:2:exited",
+          kind: "exited",
+          effective_at: "2025-03-01T00:00:00.001Z",
+          observed_at: "2025-03-20T00:00:00.000Z",
+          policy_version: version("2025-03-10T00:00:00.000Z"),
+          target_state: "outside",
+          target_band: "none",
+        });
+      }
+      // Paired control: while the old policy still admits the seller, a threshold-raising revision causes the exit,
+      // whether the revision pass (evaluated at the revision) or the due pass (evaluated at the tick) reaches it first.
+      for (const [effectiveFrom, tick, observedAt] of [
+        ["2025-04-10T00:00:00.000Z", "2025-04-20T00:00:00.000Z", "2025-04-10T00:00:00.000Z"],
+        ["2025-05-10T00:00:00.000Z", "2025-05-20T00:00:00.000Z", "2025-05-20T00:00:00.000Z"],
+      ] as const) {
+        await clearCohortRows();
+        await installCohortPolicy(cohortPolicy(), "2025-01-01T00:00:00.000Z");
+        await seedCohortSale("cohort-raise", "2025-04-01T00:00:00.000Z");
+        at("2025-04-02T00:00:00.000Z");
+        expect((await runCohortTick()).processed).toBe(1);
+        await installCohortPolicy(cohortPolicy({ qualifyingGrossCents: "999999" }), effectiveFrom);
+        at(tick);
+        expect((await runCohortTick()).processed).toBe(1);
+        expect(await cohortRow("cohort-raise")).toEqual({
+          state: "outside",
+          disclosure_band: "none",
+          entry_effective_at: null,
+          exit_effective_at: effectiveFrom,
+          policy_version: version(effectiveFrom),
+          version: "2",
+        });
+        expect((await cohortTransitions()).at(-1)).toEqual({
+          transition_id: "cohort-raise:2:exited",
+          kind: "exited",
+          effective_at: effectiveFrom,
+          observed_at: observedAt,
+          policy_version: version(effectiveFrom),
+          target_state: "outside",
+          target_band: "none",
+        });
+      }
+    });
+  });
+
+  it("fails closed on the registered sweep when the policy that produced a row was never retained", async () => {
     await clearCohortRows();
     const now = Date.now();
     const effectiveFrom = new Date(now - 86_400_000).toISOString();
-    await installCohortPolicy(cohortPolicy("999999"), effectiveFrom);
+    await installCohortPolicy(cohortPolicy({ qualifyingGrossCents: "999999" }), effectiveFrom);
     const saleAt = new Date(now - 172_800_000).toISOString();
-    await seedCohortSale("cohort-raise", saleAt, saleAt, "1");
-    await seedMemberCohort("cohort-raise", "old-policy@2025-01-01T00:00:00.000Z", saleAt);
-    expect((await runCohortTick()).processed).toBe(1);
-    const row = await pools["platform-operations"].query(
-      `SELECT state,exit_effective_at FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id='cohort-raise'`,
+    await seedCohortSale("cohort-blind", saleAt, saleAt, "1");
+    await seedMemberCohort("cohort-blind", "old-policy@2025-01-01T00:00:00.000Z", saleAt);
+    const before = await cohortTables();
+    const tick = await runCohortTick();
+    expect(tick.processed).toBe(1);
+    expect(await cohortTables()).toEqual(before);
+    const failures = await pools["platform-operations"].query(
+      `SELECT seller_account_id,failure_kind,detail,policy_version,
+              evaluation_at >= $1::timestamptz AND evaluation_at <= $2::timestamptz AS at_tick,
+              recorded_at IS NOT NULL AS recorded
+       FROM platform_operations_seller_compliance_evaluation_failures`,
+      [tick.startedAt, tick.finishedAt],
     );
-    expect(row.rows[0]?.state).toBe("outside");
-    const policyVersion = `cohort-current@${effectiveFrom}`;
-    expect(await cohortRow("cohort-raise")).toEqual({
-      state: "outside",
-      disclosure_band: "none",
-      entry_effective_at: null,
-      exit_effective_at: effectiveFrom,
-      policy_version: policyVersion,
-      version: "2",
-    });
-    expect(await cohortTransitions()).toEqual([
+    expect(failures.rows).toEqual([
       {
-        transition_id: "cohort-raise:2:exited",
-        kind: "exited",
-        effective_at: effectiveFrom,
-        observed_at: expect.any(String),
-        policy_version: policyVersion,
-        target_state: "outside",
-        target_band: "none",
+        seller_account_id: "cohort-blind",
+        failure_kind: "evaluation",
+        detail: expect.stringMatching(/old-policy@2025-01-01T00:00:00\.000Z/),
+        policy_version: `cohort-current@${effectiveFrom}`,
+        at_tick: true,
+        recorded: true,
       },
     ]);
   });
