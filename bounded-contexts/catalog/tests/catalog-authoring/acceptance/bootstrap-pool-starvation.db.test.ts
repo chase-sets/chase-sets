@@ -8,7 +8,12 @@ import {
   createMultiContextTestDatabaseUrls,
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPgPool, type PgPoolClient, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPgPool,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
 import { areCatalogIntegrationSeedProjectionsCurrent } from "../../../support/authoring-support/seed";
 import { createCatalogServices } from "../../../support/authoring-support/services";
@@ -30,6 +35,67 @@ const lockedProjectionTables = [
   "catalog_blueprints",
   "catalog_categories",
 ].join(", ");
+
+const catalogItemProjectorNames = ["catalog-admin-catalog-item-projection", "catalog-item-projection"];
+
+function exceptionClassAndCode(error: unknown) {
+  const code = (error as { code?: unknown } | null)?.code;
+  return {
+    class: error instanceof Error ? error.constructor.name : typeof error,
+    code: typeof code === "string" || typeof code === "number" ? String(code).slice(0, 32) : null,
+  };
+}
+
+async function readCatalogResolverTuple(db: PgQueryable, itemId: string, itemStreamId: string) {
+  const admin = await db.query(
+    `SELECT catalog_item_id, status, blueprint_id, updated_at
+       FROM catalog_admin_catalog_item_detail_pages
+      WHERE catalog_item_id = $1`,
+    [itemId],
+  );
+  const base = await db.query(
+    `SELECT catalog_item_id, status, blueprint_id, updated_at FROM catalog_items WHERE catalog_item_id = $1`,
+    [itemId],
+  );
+  const sourcePrefix = await db.query(
+    `SELECT stream_version, event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version LIMIT 12`,
+    [itemStreamId],
+  );
+  const checkpoints = await db.query(
+    `SELECT projector_name, last_global_position
+       FROM event_projection_checkpoints
+      WHERE split_part(projector_name, ':', 1) = ANY($1::text[])
+      ORDER BY projector_name`,
+    [catalogItemProjectorNames],
+  );
+  return {
+    admin: admin.rows[0] ?? null,
+    base: base.rows[0] ?? null,
+    sourcePrefix: sourcePrefix.rows,
+    checkpoints: checkpoints.rows,
+  };
+}
+
+// Prints one bounded [catalog-resolver-tuple] line for the seeded item: the resolver branch, its admin detail and base
+// rows, the ordered source prefix and the item projection checkpoints. It prints ids, statuses, timestamps, event types
+// and positions only. The assertions stay the verdict: a resolver failure is rethrown after printing, and a failed
+// diagnostic read prints its exception class and code instead of failing the test.
+async function printCatalogResolverTuple(
+  db: PgQueryable,
+  itemId: string,
+  itemStreamId: string,
+  resolution: Promise<Readonly<{ availability: string }>>,
+): Promise<void> {
+  const settled = await resolution.then(
+    (resolved) => ({ resolver: { branch: resolved.availability } }),
+    (error: unknown) => ({ resolver: { exception: exceptionClassAndCode(error) }, error }),
+  );
+  const tuple = await readCatalogResolverTuple(db, itemId, itemStreamId).catch((error: unknown) => ({
+    diagnostic: { exception: exceptionClassAndCode(error) },
+  }));
+  console.info("[catalog-resolver-tuple]", JSON.stringify({ resolver: settled.resolver, ...tuple }));
+  if ("error" in settled) throw settled.error;
+}
 
 describeDb("Catalog bootstrap pool ownership", () => {
   let pool: PgTransactionalPool;
@@ -243,13 +309,13 @@ describeDb("Catalog bootstrap pool ownership", () => {
       await services.items.commandHandler({ streamId: itemStreamId, command: { type: "PublishCatalogItem" }, context });
       await drainLocalProjectionHandlerSets("catalog", seedPool, services.items.projectors);
 
-      await expect(
-        resolveCatalogProductSelection(services.db, {
-          catalogItemId: itemId as never,
-          productId: `${itemId}::` as never,
-          selectedOptions: [],
-        }),
-      ).resolves.toMatchObject({ availability: "active", product: { catalogItemId: itemId } });
+      const resolution = resolveCatalogProductSelection(services.db, {
+        catalogItemId: itemId as never,
+        productId: `${itemId}::` as never,
+        selectedOptions: [],
+      });
+      await printCatalogResolverTuple(services.db, itemId, itemStreamId, resolution);
+      await expect(resolution).resolves.toMatchObject({ availability: "active", product: { catalogItemId: itemId } });
       const blockedStreams = await services.db.query<{ projection_key: string }>(
         `SELECT projection_key FROM event_projection_blocked_streams WHERE stream_id = $1`,
         [itemStreamId],
