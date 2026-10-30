@@ -627,16 +627,24 @@ describeDb("marketplace schema upgrades", () => {
       pause = () =>
         f.policies.execute(
           "bop_one",
-          { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "racing_pause" },
+          {
+            attemptId: String("racing_pause").padEnd(22, "_"),
+            type: "PauseBuyerOfferPolicy",
+            expectedVersion: 4,
+            operationId: "racing_pause",
+          },
           context,
         );
+      const sellerContext = { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } };
       if (racePause) {
         pauseAtAppend = true;
-        await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "managed_offer_conflict" });
+        await expect(f.offers.acceptOffer(params, sellerContext)).rejects.toMatchObject({
+          code: "managed_offer_conflict",
+        });
         expect((await store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toEqual([]);
         expect((await f.policies.get("bop_one", "acc_buyer")).status).toBe("paused");
       } else {
-        await f.offers.acceptOffer(params, context);
+        await f.offers.acceptOffer(params, sellerContext);
         expect((await store.readStream({ streamId: "marketplace.offer-off_one" })).at(-1)).toMatchObject({
           eventType: "marketplace.offer.accepted",
           payload: { priceAmount: "5.00" },

@@ -72,6 +72,10 @@ dbDescribe("Offer attempt first results on PostgreSQL", () => {
     await pools.marketplace.query(
       "INSERT INTO marketplace_catalog_items(catalog_item_id,title,status) VALUES ('cat_one','Item','active')",
     );
+    await pools.marketplace.query(
+      `INSERT INTO marketplace_account_pages (account_id, display_name, status)
+       VALUES ('acc_buyer', 'Buyer', 'active'), ('acc_seller', 'Seller', 'active')`,
+    );
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);

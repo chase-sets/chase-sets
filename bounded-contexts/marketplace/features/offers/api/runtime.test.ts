@@ -10,6 +10,7 @@ import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountSubmittedOfferRoutes } from "./route";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
 import { createMarketplaceMutationLookup } from "../../mutation-recovery/api/lookup";
 import { marketplaceOfferCanonicalRequest } from "../../mutation-recovery/domain/contracts";
@@ -196,6 +197,7 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "channel_only_accept_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_1",
@@ -670,18 +672,24 @@ describe("marketplace offer runtime", () => {
       managedOfferPricing: { evaluateTargets },
       commercialTermsResolver: {} as never,
     });
+    const before = await eventStore.readAll();
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "suspended_buyer_accept_identity",
           offerId: "off_suspended" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_1",
           feeQuoteFingerprint: "x",
         },
-        {} as never,
+        {
+          tenantId: "tnt_marketplace",
+          audit: { performedByUserId: "usr_seller", forAccountId: "acc_seller" },
+        } as never,
       ),
     ).rejects.toMatchObject({ code: "offer_not_open" });
     expect(evaluateTargets).not.toHaveBeenCalled();
+    expect(await eventStore.readAll()).toEqual(before);
   });
 
   it("rejects same-account offer acceptance before quoting terms", async () => {
@@ -955,6 +963,89 @@ describe("marketplace offer runtime", () => {
         { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).rejects.toMatchObject({ code: "offer_already_accepted" });
+    expect(resolveListingTerms).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a committed acceptance after its buyer becomes inactive without re-deciding it, behind key, hash and actor fences", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) };
+    const resolveListingTerms = vi.fn(async () => ({
+      accountType: "personal",
+      basisAmount: "350.00",
+      marketplaceSalesFeeUnitAmount: "17.50",
+      sellerNetUnitAmount: "332.50",
+      shippingAllowancePercentageBps: 500,
+      scheduleId: "sch_standard",
+      agreementId: null,
+      resolvedAt: "2026-03-31T00:00:00.000Z",
+    }));
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      listingEvidencePolicyEvaluator: { evaluate: vi.fn(async () => noEvidenceRequirementsEvaluation) },
+    });
+    const seller = {
+      tenantId: "tnt_marketplace" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    await seedActiveListing(eventStore, seller);
+    for (const offerId of ["off_1", "off_2"])
+      await services.commandHandler({
+        streamId: `marketplace.offer-${offerId}`,
+        command: {
+          type: "SubmitOffer",
+          offerId,
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+          priceAmount: "350.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+        context: seller,
+      } as never);
+    const params = {
+      sourceActionKey: "inactive_buyer_replay_identity",
+      offerId: "off_1" as never,
+      sellerAccountId: "acc_seller" as never,
+      listingId: "lst_1",
+      feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
+    };
+    const first = await services.acceptOffer(params, seller);
+    expect(getMutationResultCommandReceipt(first)?.commitEventIds).toHaveLength(1);
+    db.query.mockClear();
+    db.query.mockResolvedValue({ rows: [{ ...acceptedOfferMatch, account_status: "suspended" }] });
+    const committed = await eventStore.readAll();
+
+    const replay = await services.acceptOffer(params, seller);
+    expect(replay).toEqual(first);
+    expect(getMutationResultCommandReceipt(replay)).toEqual(getMutationResultCommandReceipt(first));
+    for (const [changed, context] of [
+      [{ feeQuoteFingerprint: "changed" }, seller],
+      [{ sellerAccountId: "acc_other" as never }, { ...seller, audit: { ...seller.audit, forAccountId: "acc_other" } }],
+    ] as const)
+      await expect(services.acceptOffer({ ...params, ...changed }, context as never)).rejects.toMatchObject({
+        code: "attempt_conflict",
+      });
+    await expect(services.acceptOffer({ ...params, sourceActionKey: "" }, seller)).rejects.toMatchObject({
+      code: "invalid_attempt",
+    });
+    expect(db.query).not.toHaveBeenCalled();
+    await expect(
+      services.acceptOffer(
+        { ...params, sourceActionKey: "inactive_buyer_fresh_identity", offerId: "off_2" as never },
+        seller,
+      ),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(await eventStore.readAll()).toEqual(committed);
     expect(resolveListingTerms).toHaveBeenCalledTimes(1);
   });
 

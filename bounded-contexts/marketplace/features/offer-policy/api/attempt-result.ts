@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { buyerOfferPolicyTermsSchema, buyerOfferPolicyOutcomeSchema } from "../domain/contracts";
 import type { serializeBuyerOfferPolicy } from "./runtime";
-import { centsToMoneyAmount, moneyToCents, isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 
 export const offerPolicyAttemptResultSchema: z.ZodType<ReturnType<typeof serializeBuyerOfferPolicy>> = z.strictObject({
   policyId: z.string().min(1).max(128).nullable(),
@@ -11,12 +10,6 @@ export const offerPolicyAttemptResultSchema: z.ZodType<ReturnType<typeof seriali
   currency: z
     .string()
     .regex(/^[A-Z]{3}$/)
-    .nullable(),
-  consumedItemAmount: z.string().refine(isCanonicalMoneyAmount),
-  remainingItemAllowance: z
-    .string()
-    .refine(isCanonicalMoneyAmount)
-    .transform((amount) => centsToMoneyAmount(moneyToCents(amount)))
     .nullable(),
   authority: buyerOfferPolicyTermsSchema.nullable(),
   preview: z

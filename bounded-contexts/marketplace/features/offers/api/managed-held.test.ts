@@ -205,7 +205,10 @@ describe("held managed Offer explanation boundaries", () => {
     await f.offers.applyManagedOffer("off_one" as never, "after_acceptance", context);
     expect(await stream(f)).toEqual(recorded);
     f.setTarget({ status: "target", unitItemAmount: "10.00", evidence: {} });
-    await f.offers.acceptOffer(await f.acceptance(), { ...context, audit: { ...context.audit, forAccountId: "acc_one" } });
+    await f.offers.acceptOffer(await f.acceptance(), {
+      ...context,
+      audit: { ...context.audit, forAccountId: "acc_one" },
+    });
     expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
     expect((await f.store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toHaveLength(
       2,

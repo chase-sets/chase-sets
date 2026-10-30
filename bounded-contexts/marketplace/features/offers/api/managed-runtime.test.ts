@@ -15,7 +15,9 @@ describe("managed Offer application and commitment", () => {
     const fixtureRow = (await f.db.query()).rows[0]!;
     f.db.query.mockResolvedValue({ rows: [{ ...fixtureRow, account_status: "suspended" }], rowCount: 1 });
 
-    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "offer_not_open" });
+    await expect(
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
     expect(f.evaluateTargets).not.toHaveBeenCalled();
     const policyAfter = await f.policies.get("bop_one", "acc_buyer");
     expect(policyAfter.version).toBe(policyBefore.version);

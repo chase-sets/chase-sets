@@ -209,6 +209,8 @@ export const marketplaceOfferCallerPartition = new Map([
   ["contracts/catalog-seed/representative-commerce-state.ts::acceptOffer", "sourceActionKey"],
   ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts::http-submit-offer", "attemptId"],
   ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts::http-accept-offer", "sourceActionKey"],
+  ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-submit-offer", "attemptId"],
+  ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-accept-offer", "sourceActionKey"],
   ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-offer-policy-command", "attemptId"],
 ]);
 

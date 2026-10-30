@@ -829,6 +829,7 @@ describe("buyer Offer lifecycle routes", () => {
     const accept = await post(seller, "/offers/matches/off_1/accept", {
       listingId: "lst_1",
       feeQuoteFingerprint: "x",
+      sourceActionKey: "lifecycle_route_attempt_identity_01",
     });
     expect(accept.status).toBe(409);
     const body = await accept.json();
@@ -841,6 +842,7 @@ describe("buyer Offer lifecycle routes", () => {
     const accept = await post(seller, "/offers/matches/off_1/accept", {
       listingId: "lst_1",
       feeQuoteFingerprint: "x",
+      sourceActionKey: "lifecycle_route_attempt_identity_01",
     });
     expect(accept.status).toBe(409);
     await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
