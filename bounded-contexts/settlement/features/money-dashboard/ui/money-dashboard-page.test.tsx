@@ -6,6 +6,11 @@ import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import {
+  selectBlockedPayoutSummaryRows,
+  selectNextPayoutSummary,
+  type SettlementPayoutSummary,
+} from "../../payouts/read-model/payout-summary";
 import type { SettlementPayoutRow } from "../../payouts/read-model/queries";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { SettlementWalletAdjustmentAccountDetailRow } from "../../wallets/read-model/wallet-adjustment-queries";
@@ -47,6 +52,13 @@ const readiness: SettlementPayoutReadinessRow = {
   updated_at: "2026-07-15T00:00:00.000Z",
 };
 
+const quickAmounts = {
+  currency_code: "usd",
+  minimum_amount: "7.25",
+  maximum_amount: "250.00",
+  full_available_amount: "42.50",
+} as const;
+
 function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutRow {
   return {
     payout_id: "pay-1",
@@ -80,13 +92,32 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
   };
 }
 
+function dashboardSummary(
+  items: readonly SettlementPayoutRow[],
+  availability: SettlementPayoutSummary["availability"] = {
+    can_request: true,
+    unavailable_reasons: [],
+    unavailable_reason_details: [],
+  },
+): SettlementPayoutSummary {
+  return {
+    items,
+    total: items.length,
+    count: items.length,
+    completeness: { kind: "complete", total: items.length },
+    next_payout: selectNextPayoutSummary(items),
+    blocked_payouts: selectBlockedPayoutSummaryRows(items, "2026-07-15T12:00:00.000Z"),
+    availability,
+  };
+}
+
 describe("SettlementMoneyDashboardPage", () => {
   it("renders money actions and keeps the payout-request entity elevated", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[
+        payoutSummary={dashboardSummary([
           payout(),
           payout({
             payout_id: "next",
@@ -101,10 +132,8 @@ describe("SettlementMoneyDashboardPage", () => {
             failed_at: null,
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
-        ]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
+        ])}
+        quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts
       />,
@@ -131,10 +160,14 @@ describe("SettlementMoneyDashboardPage", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[]}
-        payoutReadiness={{ ...readiness, status: "not-started", provider_reference: null }}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
+        payoutSummary={dashboardSummary([], {
+          can_request: false,
+          unavailable_reasons: ["payout-setup-incomplete"],
+          unavailable_reason_details: [
+            { code: "payout-setup-incomplete", message: "Finish payout setup in Chase Sets before requesting funds." },
+          ],
+        })}
+        quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
       />,
@@ -144,15 +177,35 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("/account/desk/settings");
   });
 
+  it("does not present a bounded payout summary as definitive empty state", () => {
+    const html = renderToString(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[]}
+        payoutSummary={{
+          ...dashboardSummary([]),
+          completeness: { kind: "bounded-incomplete", total: 251, cap: 250, reason: "payout-summary-cap-exceeded" },
+          next_payout: null,
+          blocked_payouts: [],
+        }}
+        quickAmounts={quickAmounts}
+        canSetupPayouts
+        canReconcilePayouts={false}
+      />,
+    );
+
+    expect(html).toContain("Payout history is incomplete");
+    expect(html).not.toContain("None scheduled");
+    expect(html).not.toContain("0 payouts need attention");
+  });
+
   it("shows requested amount, payout fee, and net payout before confirmation", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
+        payoutSummary={dashboardSummary([])}
+        quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
         actionState={{
@@ -191,22 +244,23 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("$12.21");
   });
 
-  it("caps the full-available shortcut label through the payout policy", () => {
+  it("renders API-provided bounds and full-available shortcut label", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={{ ...wallet, available_balance_amount: "999999.00" }}
         entries={[]}
-        payouts={[]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
+        payoutSummary={dashboardSummary([])}
+        quickAmounts={{ ...quickAmounts, full_available_amount: "999.99" }}
         canSetupPayouts
         canReconcilePayouts={false}
       />,
     );
 
-    expect(html).toContain('name="availableAmount" value="999999.00"');
-    expect(html).toContain("Full available · $10,000.00");
+    expect(html).not.toContain('name="availableAmount"');
+    expect(html).toContain("Minimum · $7.25");
+    expect(html).toContain("Full available · $999.99");
+    expect(html).toContain('min="7.25"');
+    expect(html).toContain('max="250"');
   });
 });
 
@@ -279,10 +333,8 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
             adjustment_display_reference: null,
           },
         ]}
-        payouts={[]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts={false}
+        payoutSummary={dashboardSummary([])}
+        quickAmounts={quickAmounts}
         canSetupPayouts={false}
         canReconcilePayouts={false}
       />,
@@ -298,7 +350,7 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[ledgerEntry]}
-        payouts={[
+        payoutSummary={dashboardSummary([
           payout({
             payout_id: "next",
             display_reference: "PYO-NEXT",
@@ -307,11 +359,9 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
             failed_at: null,
             sent_at: "2026-07-15T12:00:00.000Z",
           }),
-        ]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
+        ])}
+        quickAmounts={quickAmounts}
         selectedWalletAdjustment={selectedWalletAdjustment}
-        canRequestPayouts
         canSetupPayouts
         canReconcilePayouts={false}
       />,
@@ -349,10 +399,8 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
       <SettlementMoneyDashboardPage
         wallet={wallet}
         entries={[]}
-        payouts={[payout()]}
-        payoutReadiness={readiness}
-        evaluatedAt="2026-07-15T12:00:00.000Z"
-        canRequestPayouts
+        payoutSummary={dashboardSummary([payout()])}
+        quickAmounts={quickAmounts}
         canSetupPayouts
         canReconcilePayouts={false}
       />,

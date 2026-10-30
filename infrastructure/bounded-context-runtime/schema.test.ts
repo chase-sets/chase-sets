@@ -127,6 +127,7 @@ describe("bounded context runtime schema", () => {
         "20260710_event_store_write_hot_fillfactor",
         "20260710_projection_recovery_marker_backfill",
         "20261015_subscription_reaction_output_positions",
+        "20261022_configuration_epoch_closure",
         "20260703_example_pages_concurrent_indexes",
       ]),
     );

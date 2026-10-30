@@ -231,11 +231,32 @@ describe("platform ephemeral verification workflow", () => {
     }
     expect(evidence).toContain("persistentStagingRetained: targetsDisposableNamespace");
     expect(evidence).not.toContain("persistentStagingRetained: false");
-    expect(/^chase-sets-verify-[1-9][0-9]*-[1-9][0-9]*$/.test("chase-sets-verify-123-1")).toBe(true);
+    const namespaceGuard = evidence.match(/\/(\^chase-sets-verify-[^/]+)\//u)?.[1];
+    expect(namespaceGuard).toBe("^chase-sets-verify-[1-9][0-9]*-[1-9][0-9]*$");
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123-1")).toBe(true);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-0-1")).toBe(false);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123-0")).toBe(false);
+    expect(new RegExp(namespaceGuard).test("chase-sets-verify-123x-1")).toBe(false);
     expectStepBefore(verification, "Delete verification provider webhooks", "Write ephemeral verification evidence");
     expectStepBefore(verification, "Delete verification Kubernetes namespace", "Write ephemeral verification evidence");
     expectStepBefore(verification, "Write ephemeral verification evidence", "Upload ephemeral verification evidence");
     expect(step(verification, "Upload ephemeral verification evidence")).toContain("if-no-files-found: error");
+  });
+
+  it("uses one numeric gate host label while retaining the verify namespace", () => {
+    expect(verification).toContain("VERIFICATION_SLUG: gate-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(verification).toContain("PREVIEW_IDENTIFIER: gate-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(verification).toContain(
+      "CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(verification).toContain('--runtime-env "PREVIEW_IDENTIFIER=${VERIFICATION_SLUG}"');
+    expect(verification).toContain("https://${VERIFICATION_SLUG}.preview.chasesets.com");
+    expect(verification).toContain("https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com");
+    expect(verification).not.toContain("VERIFICATION_SLUG: verify-");
+    expect(verification).not.toContain("PREVIEW_IDENTIFIER: verify-");
+    expect(step(verification, "Deploy verification Kubernetes release")).not.toContain(
+      "PREVIEW_IDENTIFIER=verify-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
   });
 
   it("reuses preview deployment and always tears down attempted mutations", () => {
@@ -268,6 +289,55 @@ describe("platform ephemeral verification workflow", () => {
     }
   });
 
+  it("threads every required preview provider secret into the runtime apply step", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    for (const environmentName of [
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "SES_AWS_ACCESS_KEY_ID",
+      "SES_AWS_SECRET_ACCESS_KEY",
+      "SES_SOURCE_ARN",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}: \${{ secrets.${environmentName} || '' }}`);
+      expect(runtimeSecrets).toContain(`export ${environmentName}="\${${environmentName}:-}"`);
+    }
+  });
+
+  it("passes an inert historical keyring and keeps the five existing provider secret names", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    expect(runtimeSecrets).toContain('CATALOG_OPERATOR_SESSION_KEYRING_JSON: ""');
+    expect(runtimeSecrets).not.toContain("CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.");
+    for (const environmentName of [
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "SES_AWS_ACCESS_KEY_ID",
+      "SES_AWS_SECRET_ACCESS_KEY",
+      "SES_SOURCE_ARN",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}: \${{ secrets.${environmentName} || '' }}`);
+    }
+  });
+
+  it("holds only manual verification runs for the bounded census window", () => {
+    const hold = step(verification, "Hold for preview census");
+    expect(hold).toContain("id: census_hold");
+    expect(hold).toContain("if: success() && inputs.dispatch_source == 'manual'");
+    expect(hold).toContain("timeout-minutes: 70");
+    expect(hold).toContain("hold_start");
+    expect(hold).toContain("idle_end");
+    expect(hold).toContain("hold_end");
+    expect(hold).toContain("sleep 3900");
+    expectStepBefore(verification, "Delete verification provider webhooks", "Hold for preview census");
+    expectStepBefore(verification, "Hold for preview census", "Delete verification Kubernetes namespace");
+    expect(verification).toContain("timeout-minutes: 150");
+    const evidence = step(verification, "Write ephemeral verification evidence");
+    expect(evidence).toContain("CENSUS_HOLD_OUTCOME");
+    expect(evidence).toContain('["census-hold", process.env.CENSUS_HOLD_OUTCOME]');
+    expect(evidence.indexOf('["census-hold", process.env.CENSUS_HOLD_OUTCOME]')).toBeLessThan(
+      evidence.indexOf('["namespace-teardown", process.env.NAMESPACE_TEARDOWN_OUTCOME]'),
+    );
+  });
+
   it("backstops verification namespaces and provider webhooks through independent authorities", () => {
     const namespaceDiscovery = job(cleanup, "discover-stale-verification");
     const namespaceDestroy = job(cleanup, "destroy-stale-verification");
@@ -279,7 +349,8 @@ describe("platform ephemeral verification workflow", () => {
     const webhookDelete = job(cleanup, "delete-stale-verification-webhooks");
     expect(webhookDiscovery).toContain("platform-ephemeral-verification.yml/runs?status=completed");
     expect(webhookDiscovery).not.toContain("kubectl");
-    expect(webhookDiscovery).toContain("verify-");
+    expect(webhookDiscovery).toContain('("gate-" + (.id | tostring) + "-" + (.run_attempt | tostring))');
+    expect(webhookDiscovery).not.toContain('("verify-" + (.id | tostring) + "-" + (.run_attempt | tostring))');
     expect(webhookDelete).toContain("needs: discover-stale-verification-webhooks");
     expect(webhookDelete).toContain("provider-webhook-lifecycle.mjs delete");
     expect(webhookDelete).not.toContain("discover-stale-verification.outputs");

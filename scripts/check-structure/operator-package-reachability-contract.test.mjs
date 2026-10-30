@@ -58,20 +58,17 @@ const authorityRules = [
   "Authenticated checks use existing custody/Phase A authority, never secret collection or new login.",
   "Reachability is necessary, not an execution GO, account admission, public launch or certification of private data.",
 ];
-const consumerTargets = [
-  "/account/channels",
-  "/account/channels/<connectionId>",
-  "/account/channels/publication",
-  "/account/channels/publication/<connectionId>",
-  "/account/channels/<connectionId>/manual-sync/download",
-  "/api/channels/connections/<id>",
-  "/api/channels/connections/<connectionId>/manual-sync",
-  "/api/channels/publication/<connectionId>",
-  "/catalog/catalog-items/<id>",
-  "https://store.tcgplayer.com/admin/pricing",
-  "/catalog/providers/tcgplayer",
-  "/api/public/catalog/operator-session/grant",
-  "/api/public/catalog/operator-session/tcgplayer",
+const deletedWorkSpecificFragments = [
+  "#7728",
+  "#9374-production",
+  "Consumer Target Inventory",
+  "Historical negative",
+  "Whether to set `PRODUCTION_MARKETPLACE_SERVED=true`",
+  "f5cbef2cb094a1935841c1a10db0310ac0284442",
+  "sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea",
+  "38406890844/115345684026",
+  "459dc3fd",
+  "PRODUCT_QUESTION",
 ];
 
 function assertRules(text, rules) {
@@ -109,18 +106,10 @@ describe.each(skillPaths)("operator package reachability: %s", (path) => {
     assertRefusals(text);
   });
 
-  it("retains the historical landing failure at both gates, including the release-only checks", () => {
-    assertRules(text, [
-      "Historical negative (#7728 r4, 2026-10-13; not a current-production observation)",
-      "`PRODUCTION_MARKETPLACE_SERVED` absent; ingress serving chasesets.com/www/admin only; marketplace.chasesets.com without an A record; `/account/channels` returning 404 on chasesets.com and admin.",
-      "Despite closed #8070 and green deploy, package READY and host signal both FAIL.",
-      "The release-only 14:39Z host signal check and 14:55Z window-open check prove no target reachability and both FAIL this gate.",
-      "`f5cbef2cb094a1935841c1a10db0310ac0284442`",
-      "`sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea`",
-      "38406890844/115345684026",
-      "Do not combine the report's `459dc3fd` binding with that release.",
-      "6148588435",
-    ]);
+  it("removes stale package-specific targets and historical evidence", () => {
+    for (const fragment of deletedWorkSpecificFragments) {
+      expect(text, `stale work-specific fragment remains: ${fragment}`).not.toContain(fragment);
+    }
   });
 
   it("labels served-not-public success synthetic and rejects reused captures", () => {
@@ -132,19 +121,6 @@ describe.each(skillPaths)("operator package reachability: %s", (path) => {
       "Reused-capture negative (synthetic)",
       "Reusing the synthetic packaging observations at signal FAILS host signal; reusing signal observations at window-open STOPS the window.",
       "Even unchanged release/posture and formerly passing targets do not make reused observations fresh.",
-    ]);
-  });
-
-  it("inventories both consumers while preserving independent staging and existing safety gates", () => {
-    assertRules(text, consumerTargets);
-    assertRules(text, [
-      "#7728",
-      "#9374-production",
-      "External targets use permitted read-only routes only; no provider traffic is authorized by this contract.",
-      "Staging is independently gated and cannot establish production reachability.",
-      "Production authorization, performer/custody, no-redelivery and read-only Phase A gates remain unchanged.",
-      "Whether to set `PRODUCTION_MARKETPLACE_SERVED=true` remains Todd's separate `PRODUCT_QUESTION`",
-      "#9292 identity-term receipt remains required before admission",
     ]);
   });
 });

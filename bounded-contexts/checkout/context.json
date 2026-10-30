@@ -5,7 +5,7 @@
   "ownedNouns": ["cart", "sell list", "checkout session"],
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["cart", "sell-list", "sessions", "support-lookup"],
+  "slices": ["cart", "command-attempts", "sell-list", "sessions", "support-lookup"],
   "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
@@ -170,10 +170,13 @@
     {
       "sourceContextName": "identity",
       "projectionName": "checkout-seller-accounts-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
         "identity.shipping-address.added",
         "identity.shipping-address.updated",
         "identity.shipping-address.default-set",
@@ -811,9 +814,16 @@
       "risk": "important",
       "strategy": "optimistic-with-correction",
       "surfaces": [
-        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/optimistic-correction.ts:Hc481875f8ef5#1",
+        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/optimistic-correction.ts:H7f1ccc11975d#1",
+        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/optimistic-correction.ts:H40318e7a1ffd#1",
         "route-action:bounded-contexts/checkout/routes/account-cart.tsx"
       ],
+      "commandAttempt": {
+        "writes": [{ "surface": "route-action:account-cart", "kind": "cart.commands", "target": "cart" }],
+        "stream": "checkout.command-attempt-v1-<fingerprint> appended with the touched checkout.cart-<owner> streams in one appendToStreams",
+        "lookup": "GET /account|/guest/command-attempts/:attemptId?kind=&target=&requestHash=",
+        "replay": "The controller mints one attempt id per submit; an explicit resend of an ambiguous submission reuses it and the owner returns the first result with zero appends."
+      },
       "visibleDestination": {
         "routeId": "account-cart",
         "description": "Buy Cart quantity, remove, and preferred-listing lock controls update visible rows, line totals, subtotal, cart count, seller context, and readiness immediately, then reconcile to the authoritative cart loader state."
@@ -823,7 +833,8 @@
         "tests": [
           "bounded-contexts/checkout/features/cart/ui/optimistic-correction.test.tsx",
           "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
-          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+          "bounded-contexts/checkout/routes/account-cart-route.test.ts",
+          "bounded-contexts/checkout/routes/account-cart-recovery.test.tsx"
         ]
       }
     },
@@ -838,18 +849,46 @@
         "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/:lineId/quantity",
         "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/:lineId/remove",
         "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/bulk",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/commands",
         "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/merge-to-account",
         "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/readiness"
       ],
+      "commandAttempt": {
+        "writes": [
+          { "surface": "POST /cart", "kind": "cart.add-line", "target": "cart" },
+          { "surface": "POST /cart/bulk", "kind": "cart.add-lines", "target": "cart" },
+          { "surface": "POST /cart/commands", "kind": "cart.commands", "target": "cart" },
+          { "surface": "POST /cart/:lineId/quantity", "kind": "cart.set-quantity", "target": "lineId" },
+          { "surface": "POST /cart/:lineId/fulfillment", "kind": "cart.set-fulfillment", "target": "lineId" },
+          { "surface": "POST /cart/:lineId/remove", "kind": "cart.remove-line", "target": "lineId" },
+          { "surface": "mcp:checkout.add-cart-line", "kind": "cart.add-line", "target": "cart" },
+          { "surface": "mcp:checkout.update-cart-line", "kind": "cart.update-line", "target": "lineId" },
+          { "surface": "mcp:checkout.remove-cart-line", "kind": "cart.remove-line", "target": "lineId" },
+          { "surface": "session-order-cart-cleanup", "kind": "cart.session-cleanup", "target": "lineId|checkout" }
+        ],
+        "exempt": [
+          {
+            "surface": "POST /cart/merge-to-account",
+            "reason": "Cart Claim merge is idempotent by line id (decision 7)."
+          },
+          { "surface": "seed", "reason": "Seed reconciles from the authoritative cart stream; boot-twice proof." }
+        ],
+        "stream": "checkout.command-attempt-v1-<fingerprint> appended with the touched checkout.cart-<owner> streams in one appendToStreams",
+        "lookup": "GET /account|/guest/command-attempts/:attemptId?kind=&target=&requestHash=",
+        "replay": "Same attempt and request hash returns the first result with zero appends; a changed hash is 409 checkout_attempt_conflict; a cart that keeps changing is recorded failed-safe (409 cart_changed)."
+      },
       "visibleDestination": {
         "description": "Buy Cart API commands return Checkout-owned command snapshots: line id/version/status for single-line commands, bulk and merge counts for batch commands, and checkout.cart-readiness.v1 for readiness."
       },
       "proof": {
-        "authoritativeResponse": "The cart route responds from the command result before projection reads: add, quantity, fulfillment, and remove return id/version/status; bulk and merge return command-owned counts; readiness returns the checkout.cart-readiness.v1 snapshot consumed by session start.",
+        "authoritativeResponse": "The cart route responds from the attempt result before projection reads: add, quantity, fulfillment, and remove return id/version/status plus the closed attempt result; bulk returns counts derived from the committed vector; /cart/commands returns the vector; merge returns command-owned counts; readiness returns the checkout.cart-readiness.v1 snapshot consumed by session start.",
         "tests": [
           "bounded-contexts/checkout/features/cart/api/route.test.ts",
           "bounded-contexts/checkout/features/cart/domain/readiness.test.ts",
-          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+          "bounded-contexts/checkout/routes/account-cart-route.test.ts",
+          "bounded-contexts/checkout/features/command-attempts/api/cart-attempt.db.test.ts",
+          "bounded-contexts/checkout/features/command-attempts/api/lookup.test.ts",
+          "bounded-contexts/checkout/features/command-attempts/api/attempt-caller-inventory.test.ts"
         ]
       }
     },
@@ -1311,10 +1350,19 @@
       "purpose": "Own support-safe lookup of Checkout-owned pending and committed checkout facts.",
       "expectedConsumers": ["Internal checkout module composition"]
     },
+    "command-attempts": {
+      "classification": "slice",
+      "purpose": "Own Checkout Command Attempts: apply each deliberate Cart change at most once, record its result with the Cart events, and answer lookups and replays from that record.",
+      "expectedConsumers": [
+        "Internal checkout module composition",
+        "Account cart route",
+        "Discovery item detail and search cart actions"
+      ]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide checkout request API clients and Checkout-owned Ordering/Payments confirmation adapters for routes and external purchase-intent entry points.",
-      "expectedConsumers": ["cart", "sell-list", "sessions"],
+      "expectedConsumers": ["cart", "command-attempts", "sell-list", "sessions"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1325,7 +1373,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide checkout runtime service and schema composition until runtime composition can be generated.",
-      "expectedConsumers": ["cart", "sell-list", "sessions"]
+      "expectedConsumers": ["cart", "command-attempts", "sell-list", "sessions"]
     },
     "seed-support": {
       "classification": "support",

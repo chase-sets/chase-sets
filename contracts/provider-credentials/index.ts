@@ -56,10 +56,13 @@ const credentialSensitiveValuePattern =
 export function redactProviderCredentialReadinessScope(
   scope: ProviderCredentialReadinessScope,
 ): ProviderCredentialReadinessScope {
+  const environmentKey = safeString(scope.environmentKey);
+  const accountKey = safeString(scope.accountKey);
+  const secretReference = safeSecretReference(scope.secretReference);
   return {
-    ...(safeString(scope.environmentKey) ? { environmentKey: safeString(scope.environmentKey) } : {}),
-    ...(safeString(scope.accountKey) ? { accountKey: safeString(scope.accountKey) } : {}),
-    ...(safeString(scope.secretReference) ? { secretReference: safeSecretReference(scope.secretReference) } : {}),
+    ...(environmentKey ? { environmentKey } : {}),
+    ...(accountKey ? { accountKey } : {}),
+    ...(secretReference ? { secretReference } : {}),
   };
 }
 

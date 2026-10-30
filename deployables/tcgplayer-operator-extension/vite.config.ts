@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { acquireHeavySlot } from "../../scripts/lib/heavy-slot.mjs";
@@ -7,6 +8,9 @@ import { operatorManifest } from "./src/manifest-contract";
 
 acquireHeavySlot("build");
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildIdentity()),
+  },
   resolve: { alias: createWorkspaceSourceAliases() },
   build: {
     outDir: "dist",
@@ -47,3 +51,13 @@ export default defineConfig({
     },
   ],
 });
+
+function buildIdentity() {
+  const cwd = resolve(import.meta.dirname, "../..");
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+  const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
+  return dirty ? `${commit}-dirty` : commit;
+}

@@ -5,7 +5,9 @@ name: Catalog Completion Report
 # read-only repeatable-read transaction through the Catalog context URL only;
 # it never writes and never calls a provider. With a frozen manifest artifact
 # the report can prove completion; without one the universe comes from the
-# batch plan and the report carries `completionProof: false`.
+# batch plan and the report carries `completionProof: false`. With a
+# sample_seed the report adds a seeded audit sample of the batch's published
+# Catalog Items under the fixed audit allocation (#9223).
 on:
   workflow_dispatch:
     inputs:
@@ -31,6 +33,11 @@ on:
         required: false
         default: ""
         type: string
+      sample_seed:
+        description: Optional audit sample seed; when set the report carries a seeded sample of published Catalog Items.
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -52,6 +59,9 @@ jobs:
       BATCH_ID: ${{ inputs.batch_id }}
       MANIFEST_RUN_ID: ${{ inputs.manifest_run_id }}
       MANIFEST_ARTIFACT: ${{ inputs.manifest_artifact }}
+      SAMPLE_SEED: ${{ inputs.sample_seed }}
+      # Singles/sealed per game, fixed for the audit; changing it is a new issue.
+      AUDIT_SAMPLE_ALLOCATION: magic=40/10,pokemon:en=40/10,pokemon:ja=20/5,yugioh=40/10,one-piece=40/10,lorcana=40/10
       REPORT_DIR: artifacts/catalog-completion-report
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -65,6 +75,10 @@ jobs:
           fi
           if [ -n "$MANIFEST_ARTIFACT" ] && ! printf '%s' "$MANIFEST_RUN_ID" | grep -Eq '^[0-9]{1,20}$'; then
             echo "manifest-run-id-invalid: manifest_artifact requires a numeric manifest_run_id." >&2
+            exit 1
+          fi
+          if [ -n "$SAMPLE_SEED" ] && ! printf '%s' "$SAMPLE_SEED" | grep -Eq '^[A-Za-z0-9._-]{1,64}$'; then
+            echo "sample-seed-invalid: sample_seed must be 1-64 letters, digits, '.', '_' or '-'." >&2
             exit 1
           fi
 
@@ -126,12 +140,17 @@ jobs:
             fi
             manifest_args=(--manifest "$manifest_path")
           fi
+          sample_args=()
+          if [ -n "$SAMPLE_SEED" ]; then
+            sample_args=(--sample "$AUDIT_SAMPLE_ALLOCATION" --sample-seed "$SAMPLE_SEED")
+          fi
           set +e
           pnpm run ops catalog:production-completion-report -- \
             --facts database \
             --batch-id "$BATCH_ID" \
             --environment "$TARGET_ENVIRONMENT" \
             "${manifest_args[@]}" \
+            "${sample_args[@]}" \
             --out "$REPORT_DIR/catalog-completion-report.json"
           status=$?
           set -e
@@ -172,6 +191,13 @@ jobs:
           console.log(`- Completion proof: ${record.completionProof ? "yes" : "no"}`);
           console.log(`- Blockers: ${record.report.blockers.length}`);
           console.log(`- Unknown facts: ${record.unknownFacts.length}`);
+          if (record.sample) {
+            console.log(`- Audit sample seed: ${record.sample.seed} (${record.sample.items.length} items)`);
+            for (const stratum of record.sample.strata) {
+              const key = `${stratum.productDomain}${stratum.languageCode ? `:${stratum.languageCode}` : ""}/${stratum.productForm}`;
+              console.log(`  - ${key}: ${stratum.sampled}/${stratum.allocated}, shortfall ${stratum.shortfall}`);
+            }
+          }
           NODE
 
       - name: Upload catalog completion report

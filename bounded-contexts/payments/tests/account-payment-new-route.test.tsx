@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compareMoneyAmounts, sumMoneyAmounts, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import { jsonResponse, requestUrl } from "./test-support/http";
+import type { PaymentsPaymentDetail } from "../client";
 
 type PurchaseDetail = Readonly<{
   order_id: string;
@@ -58,6 +59,7 @@ vi.mock("react-router", async () => {
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useNavigation: mockUseNavigation,
+    useFormAction: () => "/",
     useSubmit: mockUseSubmit,
   };
 });
@@ -170,6 +172,43 @@ const checkoutStatus = {
   unavailable_reasons: [],
   unavailable_reason_details: [],
 };
+
+const createdPayment = {
+  payment_id: "pay_1",
+  buyer_account_id: "acc_buyer",
+  order_ids: ["ord_1", "ord_2"],
+  amount: "22.00",
+  balance_credit_amount: "12.50",
+  processor_amount: "10.10",
+  marketplace_sales_fee_amount: "1.00",
+  marketplace_checkout_fee_amount: "0.60",
+  marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
+  marketplace_checkout_fee_quote_fingerprint: "quote_card",
+  payment_method_category: "card",
+  saved_checkout_instrument_id: null,
+  seller_net_amount: "21.00",
+  seller_payout_amount: "21.00",
+  seller_payouts: [],
+  currency_code: "usd",
+  processor_name: "stripe",
+  processor_payment_kind: "payment-intent",
+  processor_payment_reference: "pi_1",
+  processor_client_secret: null,
+  processor_redirect_url: null,
+  processor_status: "requires_payment_method",
+  source_context: null,
+  source_reference_id: null,
+  status: "pending-confirmation",
+  failure_code: null,
+  failure_message: null,
+  created_at: "2026-04-01T00:00:00.000Z",
+  updated_at: "2026-04-01T00:00:00.000Z",
+  captured_at: null,
+  failed_at: null,
+  cancelled_at: null,
+  processor_publishable_key: null,
+  provider_events: [],
+} satisfies PaymentsPaymentDetail;
 
 const paymentCommitSource = {
   sourceContextName: "payments",
@@ -301,7 +340,7 @@ describe("marketplace account payment start route", () => {
         if (url.includes("/account/payments") && requestMethod(input, init) === "POST") {
           expect(JSON.parse(String(init?.body)).requestedBalanceCreditAmount).toBe(expected);
           return Promise.resolve(
-            jsonResponse({ payment_id: "pay_1" }, 201, {
+            jsonResponse(createdPayment, 201, {
               "Chase-Sets-Consistency": "eventual",
               "Chase-Sets-Commit-Receipt": encodeCommitReceipt([paymentCommitSource]),
               "Chase-Sets-Commit-Event-Ids": paymentCommitSource.eventIds.join(","),
@@ -435,7 +474,7 @@ describe("marketplace account payment start route", () => {
           statusRequests.push(new URL(url));
           return Promise.resolve(jsonResponse(checkoutStatus));
         }
-        return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));
+        return Promise.resolve(jsonResponse(createdPayment, 201));
       }),
     );
     const response = await action({
@@ -571,7 +610,7 @@ describe("marketplace account payment start route", () => {
 
         if (url.includes("/api/marketplace/account/payments") && requestMethod(input, init) === "POST") {
           return Promise.resolve(
-            jsonResponse({ payment_id: "pay_1" }, 201, {
+            jsonResponse(createdPayment, 201, {
               "Chase-Sets-Consistency": "eventual",
               "Chase-Sets-Commit-Receipt": encodeCommitReceipt([paymentCommitSource]),
               "Chase-Sets-Commit-Event-Ids": paymentCommitSource.eventIds.join(","),

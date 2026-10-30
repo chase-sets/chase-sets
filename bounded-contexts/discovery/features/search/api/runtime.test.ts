@@ -126,6 +126,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("lexical and final zero states: nonempty hybrid candidates survive later retrieval failure", async () => {
     const recordSearchQuery = vi.fn();
+    const recordSearchRetrievalFailure = vi.fn();
     const failure = new Error("synthetic hydration failure");
     const db = interpretationDb((sql, values) => {
       if (sql.startsWith("SELECT * FROM (")) return [{ catalog_item_id: "synthetic-candidate", title: "Candidate" }];
@@ -146,12 +147,41 @@ describe("Discovery search runtime telemetry", () => {
         cache: createQueryEmbeddingCache(),
         hybridEnabled: true,
         recordSearchQuery,
+        recordSearchRetrievalFailure,
       },
     );
-    await expect(runtime.searchItems({ search: "dragon" })).rejects.toBe(failure);
+    await expect(
+      runtime.searchItems({ search: "dragon" }, { correlationId: "0123456789abcdef0123456789abcdef" }),
+    ).rejects.toBe(failure);
+    expect(recordSearchRetrievalFailure).toHaveBeenCalledExactlyOnceWith({
+      correlationId: "0123456789abcdef0123456789abcdef",
+      error: failure,
+    });
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ lexicalZero: false, zeroResults: null, interpretation: "unknown", outcome: "failure" }),
     );
+  });
+
+  it("rethrows the original retrieval error when the failure observer throws", async () => {
+    const failure = new Error("synthetic retrieval failure");
+    const observer = vi.fn(() => {
+      throw new Error("synthetic observer failure");
+    });
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db: { query: vi.fn().mockRejectedValue(failure) } },
+      { recordSearchRetrievalFailure: observer },
+    );
+
+    await expect(runtime.searchItems({ search: "query" })).rejects.toBe(failure);
+    expect(observer).toHaveBeenCalledExactlyOnceWith({ correlationId: undefined, error: failure });
+  });
+
+  it("does not invoke the failure observer after a successful retrieval", async () => {
+    const observer = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchRetrievalFailure: observer });
+
+    await expect(runtime.searchItems({ search: "" })).resolves.toMatchObject({ retrievalMode: "lexical" });
+    expect(observer).not.toHaveBeenCalled();
   });
 
   it("privacy sentinels never enter query signals or logs", async () => {
@@ -365,6 +395,27 @@ describe("Discovery search runtime telemetry", () => {
     expect(absentMarker.resultSetKey).toBe(unmarked.resultSetKey);
     expect(marked.resultSetKey).not.toBe(unmarked.resultSetKey);
     expect(marked.queryHash).toBe(unmarked.queryHash);
+  });
+
+  it("Result Set identity tracks the effective category set and price currency", async () => {
+    const recordSearchQuery = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+    const a = await runtime.searchItems({ categories: ["B", "A", "A", " "] });
+    const b = await runtime.searchItems({ categories: ["A", "B"] });
+    const emptyCategories = await runtime.searchItems({ search: "zard", categories: [] });
+    const omittedCategories = await runtime.searchItems({ search: "zard" });
+    const eur = await runtime.searchItems({ priceCurrency: "EUR" });
+    const usd = await runtime.searchItems({ priceCurrency: "USD" });
+    const scalar = await runtime.searchItems({ category: "cards" });
+    const categoryAndScalar = await runtime.searchItems({ categories: ["A"], category: "ignored" });
+    const categoryOnly = await runtime.searchItems({ categories: ["A"] });
+    expect(a.resultSetKey).toBe(b.resultSetKey);
+    expect(emptyCategories.resultSetKey).toBe(omittedCategories.resultSetKey);
+    expect(eur.resultSetKey).not.toBe(usd.resultSetKey);
+    expect(recordSearchQuery).toHaveBeenNthCalledWith(1, expect.objectContaining({ filterState: "category" }));
+    expect(recordSearchQuery).toHaveBeenNthCalledWith(5, expect.objectContaining({ filterState: "price-currency" }));
+    expect(scalar.resultSetKey).toBe("cc1f7884e6194dd1b0eaff1bc2768816dcfe7f7c2b46fb40a31f65f4ae2d2ca0");
+    expect(categoryAndScalar.resultSetKey).toBe(categoryOnly.resultSetKey);
   });
 
   it("outcome/timing matrix separates owner, joined, and warm reuse", async () => {

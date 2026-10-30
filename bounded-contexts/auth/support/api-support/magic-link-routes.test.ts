@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -15,6 +16,12 @@ import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-s
 import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
 import type { AuthApiEnv } from "./support";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
+import { buildAuthSessionTransactionalEmailProjectionHandlers } from "../../features/sessions/integrations/transactional-email/transactional-email-projector";
 
 const {
   mockConsumeMagicLinkToken,
@@ -37,12 +44,14 @@ vi.mock("../runtime-support/services", () => ({
   startInteractiveAuth: mockStartInteractiveAuth,
 }));
 
-vi.mock("@chase-sets/identity/server", () => ({
-  isRegistrationConsentRejectionCode: (value: unknown) =>
-    typeof value === "string" && value.startsWith("registration_consent_"),
-  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
-    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
-}));
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+  return {
+    ...actual,
+    createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+      withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
+  };
+});
 
 function buildApp(services: unknown) {
   return createTestApp<AuthApiEnv>({
@@ -59,6 +68,7 @@ function buildApp(services: unknown) {
     ),
     routes: (app) => {
       registerMagicLinkRoutes(app, services as AuthServices);
+      app.onError(errorHandler);
     },
   });
 }
@@ -98,6 +108,144 @@ afterEach(() => {
 });
 
 describe("magic link auth routes", () => {
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "Auth same-site URL boundary: request-to-projector %j",
+    async (path) => {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const index = [...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS].indexOf(path);
+      const services = createServices();
+      const append = vi.fn(async (_input: { events: readonly { payload: Record<string, unknown> }[] }) => ({
+        version: 1,
+      }));
+      const app = buildApp({ ...services, eventStore: { appendToStream: append } });
+      const response = await app.request(`${SAME_SITE_TEST_ORIGIN}/magic-link/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `203.0.120.${index + 1}` },
+        body: JSON.stringify({ email: `boundary-${index}@example.test`, landingPath: path, returnTo: path }),
+      });
+      expect(response.status).toBe(200);
+      const data = append.mock.calls[0]![0].events[0]!.payload;
+      const valid = VALID_AUTH_PATHS.includes(path);
+      expect(data.landingPath).toBe(valid ? path : "/sign-in/magic");
+      expect(data.returnTo).toBe(valid ? path : null);
+      expect(data).not.toHaveProperty("token");
+      const outbox = {
+        enqueueNotification: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
+      };
+      const delivery = {
+        getMagicLinkDeliveryToken: vi.fn(async () => "synthetic-boundary-token"),
+        clearMagicLinkDeliveryToken: vi.fn(async () => undefined),
+      };
+      const handlers = buildAuthSessionTransactionalEmailProjectionHandlers(outbox, delivery);
+      await handlers["auth.magic-link.requested"]!({
+        id: "evt_boundary",
+        type: "auth.magic-link.requested",
+        globalPosition: "1",
+        trace: { traceId: "boundary" },
+        timing: { occurredAt: "2026-10-28T00:00:00.000Z", recordedAt: "2026-10-28T00:00:01.000Z" },
+        data,
+      } as never);
+      const template = outbox.enqueueNotification.mock.calls[0]![0].message.templateData as { magicLink: string };
+      const url = new URL(template.magicLink);
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe(new URL(valid ? path : "/sign-in/magic", SAME_SITE_TEST_ORIGIN).pathname);
+      expect(url.searchParams.get("token")).toBe("synthetic-boundary-token");
+      expect(url.searchParams.get("returnTo")).toBe(valid ? path : null);
+      expect(delivery.clearMagicLinkDeliveryToken).toHaveBeenCalledWith(data.tokenId);
+    },
+  );
+
+  let contractRequestId = 0;
+  const consentRejections = [
+    {
+      code: "registration_consent_not_server_minted",
+      reason: "absent",
+      message: "A server-minted registration consent resolution is required.",
+    },
+    {
+      code: "registration_consent_expired",
+      reason: "superseded",
+      message: "The registration consent resolution no longer matches the current required bundle.",
+    },
+    {
+      code: "registration_consent_affirmation_required",
+      reason: "affirmation-required",
+      message: "Registration consent must be affirmed before identity creation.",
+    },
+  ] as const;
+  const conflicts = [
+    { code: "registration_operation_consent_disagreement", message: "Consent disagreement." },
+    { code: "registration_operation_participant_disagreement", message: "Participant disagreement." },
+    { code: "conflict", message: "Conflict." },
+    { code: "display_name_already_taken", message: "Display name is already taken." },
+  ] as const;
+
+  function identityError(status: number, body: unknown) {
+    return Object.assign(new Error("synthetic Identity failure"), { status, body });
+  }
+
+  async function requestWithIdentityError(status: number, body: unknown) {
+    contractRequestId += 1;
+    const token = `magic_token_contract_${contractRequestId}`;
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_contract",
+      user_id: null,
+      email: "contract@chasesets.test",
+      token_hash: `hashed:${token}`,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw identityError(status, body);
+      }),
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_contract", snapshots: [] })),
+    });
+    return buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": `203.0.117.${contractRequestId}`,
+      },
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  it.each(consentRejections)("relays the recognized $code rejection body unchanged", async (rejection) => {
+    const response = await requestWithIdentityError(400, { error: rejection });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: rejection });
+  });
+
+  it.each(conflicts)("relays the listed $code conflict body unchanged", async (conflict) => {
+    const response = await requestWithIdentityError(409, { error: conflict });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: conflict });
+  });
+
+  it("redacts an unknown consent-like rejection instead of accepting a prefix match", async () => {
+    const response = await requestWithIdentityError(400, {
+      error: { code: "registration_consent_unrecognized", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
+  it("redacts a 5xx Identity failure instead of exposing its source message", async () => {
+    const response = await requestWithIdentityError(500, {
+      error: { code: "unknown", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
   it("requests a magic link without returning the bearer token to the browser", async () => {
     vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
     const services = createServices();

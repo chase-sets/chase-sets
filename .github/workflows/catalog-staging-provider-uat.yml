@@ -24,7 +24,6 @@ on:
         options:
           - one-piece-launch
           - lorcana-launch
-          - tcgplayer-pokemon-targeted
           - all-provider-regression
           - staging-representative-catalog
           - pokemon-matrix
@@ -37,6 +36,25 @@ on:
           - scope-sync-batch-preview-probe
           - full-game-start
           - full-game-settle
+          - scope-sync-count-lifecycle
+          - scrydex-cache-capture
+          - scrydex-coordinate-preview
+          - scrydex-force-refresh-bounded
+      capture_dispatch_id:
+        description: Count lifecycle only. Canonical host dispatch with server-bound spend and review authority.
+        required: false
+        default: ""
+        type: string
+      capture_scope_record_id:
+        description: Count lifecycle only. Existing admitted Romance Dawn OP01 English scope record.
+        required: false
+        default: ""
+        type: string
+      capture_authority:
+        description: Count lifecycle only. JSON host authority envelope bound to this reviewed dispatch.
+        required: false
+        default: ""
+        type: string
       product_domain:
         description: full-game-start only. Catalog Scope product domain to batch, e.g. one-piece.
         required: false
@@ -96,9 +114,9 @@ jobs:
                 expected.toLowerCase() !== process.env.RUN_SHA) {
               core.setFailed('Confirmation and exact immutable expected_sha are required.');
             }
-            if (['full-game-start', 'full-game-settle'].includes(process.env.JOURNEY_SCOPE) &&
+            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-coordinate-preview', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
                 process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
-              core.setFailed('Whole-game journeys require the exact staging origin.');
+              core.setFailed('Whole-game and capture journeys require the exact staging origin.');
             }
 
   refuse-unconfirmed:
@@ -115,7 +133,7 @@ jobs:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
     needs: admit-reviewed-sha
-    if: needs.admit-reviewed-sha.result == 'success'
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -130,7 +148,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
+            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -146,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success'
+    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -225,5 +243,239 @@ jobs:
         with:
           name: catalog-whole-game-rehearsal-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/catalog-whole-game-rehearsal/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  scope-sync-count-lifecycle:
+    name: Scope Sync Count Lifecycle
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scope-sync-count-lifecycle'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scope-sync-count-lifecycle
+      CATALOG_CAPTURE_DISPATCH_ID: ${{ inputs.capture_dispatch_id }}
+      CATALOG_CAPTURE_SCOPE_RECORD_ID: ${{ inputs.capture_scope_record_id }}
+      CATALOG_CAPTURE_AUTHORITY: ${{ inputs.capture_authority }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Capture count lifecycle without confirmation
+        id: capture
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-count-lifecycle.mjs capture
+      - name: Validate exact runner-scanned receipt
+        id: capture-receipt
+        if: ${{ always() && steps.capture.outcome != 'skipped' }}
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-count-lifecycle.mjs validate
+      - name: Upload only the validated count lifecycle receipt
+        if: ${{ always() && steps.capture-receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-count-lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-count-lifecycle/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Dedicated Scrydex coordinate preview: one isolated read/preview journey,
+  # no refresh or retry. Only a complete validated receipt is canonical;
+  # a governed-unknown receipt is published under a separate diagnostic name.
+  scrydex-coordinate-preview:
+    name: Scrydex Coordinate Preview
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-coordinate-preview
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Capture Scrydex coordinate preview
+        id: capture
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-coordinate-preview.mjs capture
+      - name: Validate exact runner-sealed coordinate preview
+        id: receipt
+        if: ${{ always() && steps.capture.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          validation_output="$RUNNER_TEMP/catalog-scrydex-coordinate-preview-validation.json"
+          pnpm exec tsx scripts/catalog-staging-scrydex-coordinate-preview.mjs validate > "$validation_output"
+          VALIDATION_OUTPUT="$validation_output" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const result = JSON.parse(readFileSync(process.env.VALIDATION_OUTPUT, "utf8"));
+          if (result.captureStatus !== "complete" && result.captureStatus !== "governed-unknown") {
+            throw new Error("unexpected coordinate-preview capture status");
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `capture_status=${result.captureStatus}\n`);
+          NODE
+          mv artifacts/catalog-scrydex-coordinate-preview/capture.json artifacts/catalog-scrydex-coordinate-preview/receipt.json
+      - name: Upload the complete Scrydex coordinate preview
+        if: ${{ always() && steps.capture.outcome == 'success' && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-coordinate-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-coordinate-preview/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload the governed-unknown Scrydex coordinate preview diagnostic
+        if: ${{ always() && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'governed-unknown' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-coordinate-preview-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-coordinate-preview/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Cache-only Scrydex option-cache capture: GETs only after the shared sign-in,
+  # no refresh, preview or TCGplayer request. The Actions read token binds the
+  # deployed revision from its owning Deploy Staging job. Only a complete,
+  # validated capture is the canonical artifact; a governed-unknown capture is
+  # published under a separate diagnostic name.
+  scrydex-cache-capture:
+    name: Scrydex Cache Capture
+    needs: [admit-reviewed-sha, scrydex-force-refresh-bounded]
+    if: ${{ !cancelled() && needs.admit-reviewed-sha.result == 'success' && (inputs.journey_scope == 'scrydex-cache-capture' || (inputs.journey_scope == 'scrydex-force-refresh-bounded' && needs.scrydex-force-refresh-bounded.result == 'success' && needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-cache-capture
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Capture Scrydex option cache without refresh
+        id: capture
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs capture
+      - name: Validate exact runner-sealed capture
+        id: capture-receipt
+        if: ${{ always() && steps.capture.outcome != 'skipped' }}
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs validate
+      - name: Upload the complete Scrydex cache capture
+        if: ${{ always() && steps.capture.outcome == 'success' && steps.capture-receipt.outcome == 'success' && steps.capture-receipt.outputs.capture_status == 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-cache-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-cache-capture/capture.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload the governed-unknown Scrydex cache diagnostic
+        if: ${{ always() && steps.capture-receipt.outcome == 'success' && steps.capture-receipt.outputs.capture_status == 'governed-unknown' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-cache-capture-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-cache-capture/capture.json
+          if-no-files-found: error
+          retention-days: 30
+
+  scrydex-force-refresh-bounded:
+    name: Scrydex Force Refresh (bounded)
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-force-refresh-bounded'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      refresh_outcome: ${{ steps.refresh-receipt.outputs.refresh_outcome }}
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-force-refresh-bounded
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run bounded Scrydex force refresh
+        id: refresh
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-option-refresh.mjs
+      - name: Validate bounded refresh receipt
+        id: refresh-receipt
+        if: ${{ always() && steps.refresh.outcome != 'skipped' }}
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; import { validateScrydexOptionRefreshReceipt } from './bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-option-refresh.ts'; const p = fs.existsSync('artifacts/catalog-scrydex-option-refresh/receipt.json') ? 'artifacts/catalog-scrydex-option-refresh/receipt.json' : 'artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json'; const r = JSON.parse(fs.readFileSync(p)); const e = validateScrydexOptionRefreshReceipt(r); if (e.length) throw new Error(e.join(';')); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'refresh_outcome=' + r.outcome + '\\n');"
+      - name: Upload complete bounded refresh receipt
+        if: ${{ always() && steps.refresh-receipt.outcome == 'success' && steps.refresh-receipt.outputs.refresh_outcome == 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-option-refresh-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-option-refresh/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload diagnostic bounded refresh receipt
+        if: ${{ always() && steps.refresh-receipt.outcome == 'success' && steps.refresh-receipt.outputs.refresh_outcome != 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-option-refresh-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json
           if-no-files-found: error
           retention-days: 30

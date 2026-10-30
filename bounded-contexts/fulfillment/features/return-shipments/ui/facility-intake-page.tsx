@@ -126,7 +126,7 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
 
   function resolveScan(identifier: string) {
     const params = new URLSearchParams({ facilityId: props.facilityId, identifier: identifier.trim() });
-    navigate(`/return-intake?${params.toString()}`);
+    void navigate(`/return-intake?${params.toString()}`);
   }
 
   const intakeSummary = props.resolved ? facilityIntakeSummary(props.resolved) : null;

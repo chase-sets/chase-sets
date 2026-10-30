@@ -20,6 +20,7 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockGetCheckoutSession,
+  mockListSellListShipFromAddresses,
   MockMarketplaceApiError,
   mockPreviewCheckoutFulfillment,
   mockRecordFulfillmentPreview,
@@ -146,6 +147,23 @@ function reviewedFulfillmentPreview(revision = "fulfillment_rev_2") {
   };
 }
 
+function confirmCheckoutForm(overrides: Record<string, string> = {}) {
+  return new URLSearchParams({
+    intent: "confirm-checkout",
+    shippingOption: "standard",
+    paymentMethodCategory: "card",
+    previewPaymentMethodCategory: "card",
+    marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+    shippingName: "Jane Smith",
+    shippingLine1: "100 Market Street",
+    shippingCity: "Chicago",
+    shippingState: "IL",
+    shippingPostalCode: "60601",
+    shippingCountry: "US",
+    ...overrides,
+  });
+}
+
 describe("checkout web routes: checkout session action", () => {
   it("AC6 refuses an expired covered handoff before confirm or checkout mutations", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
@@ -187,7 +205,503 @@ describe("checkout web routes: checkout session action", () => {
     vi.unstubAllEnvs();
   });
 
-  it("prepares signed-in payment and returns to checkout for inline confirmation", async () => {
+  it.each(["shipping_address_required", "shipping_address_unsupported", "shipping_address_restricted"])(
+    "does not save a new address when the Checkout pre-call returns %s",
+    async (code) => {
+      const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey: "owner",
+        permissions: ["accounts.view", "accounts.manage"],
+      });
+      mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+      mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+      mockSelectShippingAddress.mockRejectedValue(
+        new MockCheckoutApiError(400, { error: { code, message: "Address refused by Checkout." } }),
+      );
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCheckoutSession: mockGetCheckoutSession,
+        listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+        selectShippingAddress: mockSelectShippingAddress,
+        selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+        confirmCheckoutSession: mockConfirmCheckoutSession,
+      });
+      mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+      const form = new URLSearchParams({
+        intent: "confirm-checkout",
+        shippingOption: "standard",
+        addressBookAction: "save-new",
+        paymentMethodCategory: "card",
+        previewPaymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        shippingName: "Jane Smith",
+        shippingLine1: "100 Market Street",
+        shippingCity: "Chicago",
+        shippingState: "IL",
+        shippingPostalCode: "60601",
+        shippingCountry: "US",
+      });
+
+      const response = (await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          body: form,
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never)) as { error: string; editSection: string };
+
+      expect(response.editSection).toBe("delivery");
+      expect(mockSelectShippingAddress).toHaveBeenCalledTimes(1);
+      expect(createShippingAddress).not.toHaveBeenCalled();
+      expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not update a selected address when the Checkout pre-call refuses it", async () => {
+    const updateShippingAddress = vi.fn(async () => undefined);
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ updateShippingAddress });
+    mockListSellListShipFromAddresses.mockResolvedValue({
+      items: [
+        {
+          shipping_address_id: "adr_home",
+          account_id: "acc_buyer",
+          label: "Home",
+          recipient_name: "Jane Smith",
+          company: null,
+          line1: "100 Market Street",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postal_code: "60601",
+          country: "US",
+          phone: null,
+          email: null,
+          is_default: true,
+          updated_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: { code: "shipping_address_restricted", message: "Address refused by Checkout." },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams({
+      intent: "confirm-checkout",
+      shippingOption: "standard",
+      shippingAddressId: "adr_home",
+      addressBookAction: "update-selected",
+      paymentMethodCategory: "card",
+      previewPaymentMethodCategory: "card",
+      marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+      shippingName: "Jane Smith",
+      shippingLine1: "100 Market Street",
+      shippingCity: "Chicago",
+      shippingState: "IL",
+      shippingPostalCode: "60601",
+      shippingCountry: "US",
+    });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string; editSection: string };
+
+    expect(response.editSection).toBe("delivery");
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(1);
+    expect(updateShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("pre-calls Checkout before saving a new accepted address and confirming", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const form = new URLSearchParams({
+      intent: "confirm-checkout",
+      shippingOption: "standard",
+      addressBookAction: "save-new",
+      paymentMethodCategory: "card",
+      previewPaymentMethodCategory: "card",
+      marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+      shippingName: "Jane Smith",
+      shippingLine1: "100 Market Street",
+      shippingCity: "Chicago",
+      shippingState: "IL",
+      shippingPostalCode: "60601",
+      shippingCountry: "US",
+    });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockSelectShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      createShippingAddress.mock.invocationCallOrder[0],
+    );
+    expect(createShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      mockConfirmCheckoutSession.mock.invocationCallOrder[0],
+    );
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({ shippingAddress: expect.objectContaining({ shippingAddressId: "adr_new_checkout" }) }),
+    );
+  });
+
+  it("pre-calls and reselects a saved new address around the review refresh", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectAuthenticityCheckOptIn.mockResolvedValue({});
+    mockRecordFulfillmentPreview.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({
+          addressBookAction: "save-new",
+          previewPaymentMethodCategory: "bank-account",
+        }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(2);
+    expect(mockSelectShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      createShippingAddress.mock.invocationCallOrder[0],
+    );
+    expect(createShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSelectShippingAddress.mock.invocationCallOrder[1],
+    );
+    expect(mockSelectShippingAddress).toHaveBeenLastCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({ shippingAddressId: "adr_new_checkout" }),
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("pre-calls and reselects a saved new address when only a payment quote is needed", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectAuthenticityCheckOptIn.mockResolvedValue({});
+    mockRecordFulfillmentPreview.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const form = confirmCheckoutForm({ addressBookAction: "save-new" });
+    form.delete("marketplaceCheckoutFeeQuoteFingerprint");
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(2);
+    expect(mockSelectShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      createShippingAddress.mock.invocationCallOrder[0],
+    );
+    expect(createShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSelectShippingAddress.mock.invocationCallOrder[1],
+    );
+    expect(mockSelectShippingAddress).toHaveBeenLastCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({ shippingAddressId: "adr_new_checkout" }),
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("pre-calls and reselects an updated address around the review refresh", async () => {
+    const updateShippingAddress = vi.fn(async () => undefined);
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ updateShippingAddress });
+    mockListSellListShipFromAddresses.mockResolvedValue({
+      items: [
+        {
+          shipping_address_id: "adr_home",
+          account_id: "acc_buyer",
+          label: "Home",
+          recipient_name: "Jane Smith",
+          company: null,
+          line1: "100 Market Street",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postal_code: "60601",
+          country: "US",
+          phone: null,
+          email: null,
+          is_default: true,
+          updated_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectAuthenticityCheckOptIn.mockResolvedValue({});
+    mockRecordFulfillmentPreview.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({
+          shippingAddressId: "adr_home",
+          addressBookAction: "update-selected",
+          previewPaymentMethodCategory: "bank-account",
+        }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(2);
+    expect(mockSelectShippingAddress).toHaveBeenNthCalledWith(1, "chk_1", {
+      shippingAddress: expect.objectContaining({ shippingAddressId: "adr_home" }),
+    });
+    expect(mockSelectShippingAddress).toHaveBeenLastCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({ shippingAddressId: "adr_home" }),
+    });
+    expect(mockSelectShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      updateShippingAddress.mock.invocationCallOrder[0],
+    );
+    expect(updateShippingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSelectShippingAddress.mock.invocationCallOrder[1],
+    );
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("returns a generic error for a pre-call address-choice response without saving", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockRejectedValue(
+      new MockCheckoutApiError(409, { error: { code: "address_standardization_suggested" } }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({ addressBookAction: "save-new" }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string };
+
+    expect(response.error).toBe("Checkout API error 409");
+    expect(createShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("returns an expired handoff before a pending address-book write", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({
+      source_type: "cart",
+      payment_id: null,
+      order_ids: [],
+      handoff_expires_at: "2000-01-01T00:00:00Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({ addressBookAction: "save-new" }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { code: string };
+
+    expect(response.code).toBe("checkout_expired");
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(createShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("does not confirm after an accepted pre-call when Identity persistence fails", async () => {
+    const createShippingAddress = vi.fn(async () => {
+      throw new Error("Identity unavailable");
+    });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({ addressBookAction: "save-new" }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string };
+
+    expect(response.error).toBe("Identity unavailable");
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(1);
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("skips the pre-call but saves a pending address on a committed session", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: "pay_1", order_ids: ["ord_1"] });
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        body: confirmCheckoutForm({ addressBookAction: "save-new" }),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(createShippingAddress).toHaveBeenCalledTimes(1);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({ shippingAddress: expect.objectContaining({ shippingAddressId: "adr_new_checkout" }) }),
+    );
+  });
+
+  it("only Pay commits a fresh checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
@@ -468,7 +982,12 @@ describe("checkout web routes: checkout session action", () => {
         postalCode: "60601",
       }),
     );
-    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({
+        shippingAddressId: null,
+        line1: "100 Market Street",
+      }),
+    });
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
       "chk_1",
       expect.objectContaining({
@@ -616,14 +1135,23 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("returns delivery correction before checkout mutations when the address is restricted", async () => {
+  it.each([
+    ["shipping_address_required", "Enter a shipping address before continuing to payment."],
+    ["shipping_address_unsupported", "Use a supported US delivery address before continuing to payment."],
+    [
+      "shipping_address_restricted",
+      "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
+    ],
+  ] as const)("maps a Checkout API refusal for %s to a delivery correction", async (code, error) => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(400, { error: { code, message: "Address refused by Checkout." } }),
+    );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
       selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
-      selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -634,7 +1162,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("previewPaymentMethodCategory", "card");
     form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
     form.set("shippingName", "Jane Smith");
-    form.set("shippingLine1", "PO Box 100");
+    form.set("shippingLine1", "100 Market Street");
     form.set("shippingCity", "Chicago");
     form.set("shippingState", "IL");
     form.set("shippingPostalCode", "60601");
@@ -651,29 +1179,38 @@ describe("checkout web routes: checkout session action", () => {
     } as never)) as { error: string; editSection: string };
 
     expect(response).toEqual({
-      error: "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
+      error,
       editSection: "delivery",
     });
-    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", { shippingOption: "standard" });
     expect(mockSelectShippingAddress).not.toHaveBeenCalled();
-    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
   });
 
-  it("returns delivery correction before checkout mutations when required address fields are missing", async () => {
+  it.each([
+    ["shipping_address_required", "Enter a shipping address before continuing to payment."],
+    ["shipping_address_unsupported", "Use a supported US delivery address before continuing to payment."],
+    [
+      "shipping_address_restricted",
+      "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
+    ],
+  ] as const)("maps a Checkout API refusal during refresh for %s to a delivery correction", async (code, error) => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
-    mockSelectShippingAddress.mockResolvedValue({});
+    mockSelectShippingAddress.mockRejectedValue(
+      new MockCheckoutApiError(400, { error: { code, message: "Address refused by Checkout." } }),
+    );
+    mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
       selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
-      confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
     const form = new URLSearchParams();
-    form.set("intent", "confirm-checkout");
+    form.set("intent", "refresh-checkout-preview");
     form.set("shippingOption", "standard");
-    form.set("paymentMethodCategory", "card");
     form.set("previewPaymentMethodCategory", "card");
     form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
     form.set("shippingName", "Jane Smith");
@@ -692,12 +1229,9 @@ describe("checkout web routes: checkout session action", () => {
       context: undefined,
     } as never)) as { error: string; editSection: string };
 
-    expect(response).toEqual({
-      error: "Enter a shipping address before continuing to payment.",
-      editSection: "delivery",
-    });
-    expect(mockSelectShippingOption).not.toHaveBeenCalled();
-    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(response).toEqual({ error, editSection: "delivery" });
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", { shippingOption: "standard" });
+    expect(mockSelectShippingAddress).toHaveBeenCalledTimes(1);
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
@@ -1271,7 +1805,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
-  it("resumes payment start instead of refreshing quote once checkout orders are committed", async () => {
+  it("committed continuation keeps identity", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),

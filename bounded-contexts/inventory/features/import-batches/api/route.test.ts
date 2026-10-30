@@ -24,6 +24,21 @@ describe("inventory import batch routes", () => {
     return app;
   }
 
+  it.each(["Import commit is already running.", "Import batch has no accepted rows waiting to commit."])(
+    "retains the validation_failed envelope for commit refusal: %s",
+    async (message) => {
+      const enqueueCommitBatchJob = vi.fn<InventoryImportBatchServices["enqueueCommitBatchJob"]>(async () => {
+        throw new Error(message);
+      });
+      const response = await privateApp({ enqueueCommitBatchJob }).request("/imb_synthetic/commit", {
+        method: "POST",
+        headers: { "Inventory-Mutation-Attempt": "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07" },
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: { code: "validation_failed", message } });
+    },
+  );
+
   it.each(["account", "user", "tenant"])(
     "issue-7169-c3-upload-recovery: %s mismatch hides both job and SSE",
     async (kind) => {
@@ -64,6 +79,31 @@ describe("inventory import batch routes", () => {
     expect(getBatch).toHaveBeenCalledWith("imb_synthetic", "acc_synthetic", { limit: 100, offset: 10000 });
     expect((await app.request("/imb_synthetic?limit=101")).status).toBe(400);
     expect((await app.request("/imb_synthetic?offset=NaN")).status).toBe(400);
+  });
+
+  it("requires and forwards the caller attempt for commit acceptance", async () => {
+    const enqueueCommitBatchJob = vi.fn(
+      async (_params, context) =>
+        ({
+          jobId: "job_commit",
+          jobKind: "commit",
+          payload: { accountId: "acc_synthetic", batchId: "imb_synthetic" },
+          progress: { phase: "queued", completed: 0, total: 0, currentRowId: null, message: null },
+          eventContext: context,
+          status: "queued",
+        }) as unknown as InventoryImportBatchJob,
+    );
+    const app = privateApp({ enqueueCommitBatchJob });
+    expect((await app.request("/imb_synthetic/commit", { method: "POST" })).status).toBe(400);
+    const response = await app.request("/imb_synthetic/commit", {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": "d4f4f6bc-6e5f-4f8f-9cc1-6c5f2e4a4f3a" },
+    });
+    expect(response.status).toBe(202);
+    expect(enqueueCommitBatchJob).toHaveBeenCalledWith(
+      { accountId: "acc_synthetic", batchId: "imb_synthetic" },
+      expect.objectContaining({ tenantId: "tnt_synthetic" }),
+    );
   });
   it("downloads the account native CSV template as an attachment", async () => {
     const getNativeCsvTemplate = vi.fn(async () => "catalogItemId,storageLocationId\ncat_example,loc_1");

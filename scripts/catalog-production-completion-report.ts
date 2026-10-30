@@ -7,7 +7,8 @@
 // reconciles the facts into a deterministic completion report, optionally
 // reconciles a repeat execution against a previously accepted manifest, and
 // exits nonzero when the launch is blocked. Output is asserted support-safe
-// before it is emitted.
+// before it is emitted. In database mode `--sample <strata> --sample-seed <s>`
+// adds a seeded audit sample of the batch's published Catalog Items.
 //
 // Exit codes: 0 = complete and convergent, 2 = launch blockers, unknown facts,
 // or a non-convergent repeat run, 1 = the check itself could not run.
@@ -18,10 +19,14 @@ import pg from "pg";
 import { postgresClientConfig } from "./lib/postgres-connection.mjs";
 import {
   assertSupportSafe,
+  CatalogAuditSampleRequestError,
+  parseCatalogAuditSampleRequest,
   parseProductionCatalogCompletionManifest,
   reconcileProductionCatalogCompletion,
   reconcileRepeatRun,
   renderCompletionSummary,
+  type CatalogAuditSample,
+  type CatalogAuditSampleRequest,
   type ProductionCatalogCompletionManifest,
 } from "../bounded-contexts/catalog/features/completion-report/domain/index.ts";
 import {
@@ -41,6 +46,7 @@ export type CatalogCompletionVerifierOptions = Readonly<{
   manifestPath: string | null;
   acceptedManifestPath: string | null;
   outPath: string | null;
+  sample: CatalogAuditSampleRequest | null;
 }>;
 
 // A database-mode precondition that failed before any connection was opened.
@@ -51,7 +57,8 @@ export class CatalogCompletionPreflightError extends Error {
     | "batch-id-missing"
     | "catalog-database-url-missing"
     | "catalog-database-url-invalid"
-    | "managed-postgres-ca-missing";
+    | "managed-postgres-ca-missing"
+    | "sample-invalid";
   constructor(code: CatalogCompletionPreflightError["code"], message: string) {
     super(`[${code}] ${message}`);
     this.name = "CatalogCompletionPreflightError";
@@ -63,6 +70,7 @@ export function parseCatalogCompletionArgs(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
 ): CatalogCompletionVerifierOptions {
+  const facts = parseFactsSource(readOption(argv, "--facts"));
   return {
     environment:
       readOption(argv, "--environment") ??
@@ -70,7 +78,7 @@ export function parseCatalogCompletionArgs(
       readEnv(env, "DEPLOYMENT_ENVIRONMENT") ??
       "unknown",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
-    facts: parseFactsSource(readOption(argv, "--facts")),
+    facts,
     batchId: readOption(argv, "--batch-id"),
     launchCutoff: readOption(argv, "--launch-cutoff"),
     catalogDatabaseUrl:
@@ -80,7 +88,30 @@ export function parseCatalogCompletionArgs(
     manifestPath: readOption(argv, "--manifest"),
     acceptedManifestPath: readOption(argv, "--accepted"),
     outPath: readOption(argv, "--out"),
+    sample: parseSampleRequest(facts, readOption(argv, "--sample"), readOption(argv, "--sample-seed")),
   };
+}
+
+function parseSampleRequest(
+  facts: CatalogCompletionVerifierOptions["facts"],
+  strata: string | null,
+  seed: string | null,
+): CatalogAuditSampleRequest | null {
+  if (strata === null && seed === null) return null;
+  if (strata === null || seed === null) {
+    throw new CatalogCompletionPreflightError("sample-invalid", "--sample and --sample-seed are required together.");
+  }
+  if (facts !== "database") {
+    throw new CatalogCompletionPreflightError("sample-invalid", "--sample requires --facts database.");
+  }
+  try {
+    return parseCatalogAuditSampleRequest({ strata, seed });
+  } catch (error) {
+    if (error instanceof CatalogAuditSampleRequestError) {
+      throw new CatalogCompletionPreflightError("sample-invalid", error.message);
+    }
+    throw error;
+  }
 }
 
 export function buildCatalogCompletionRecord(input: {
@@ -135,6 +166,7 @@ export function buildCatalogCompletionDatabaseRecord(input: {
     completionProof: input.facts.completionProof,
     unknownFacts,
     reportedFacts: input.facts.reportedFacts,
+    ...(input.facts.sample ? { sample: input.facts.sample } : {}),
     convergent: repeatRun ? repeatRun.convergent : null,
     report,
     ...(repeatRun ? { repeatRun } : {}),
@@ -194,6 +226,7 @@ export async function runCatalogCompletionDatabaseVerifier(
       observedAt: options.checkedAt,
       frozenManifest,
       launchCutoff: options.launchCutoff,
+      sample: options.sample,
     });
     return buildCatalogCompletionDatabaseRecord({
       facts,
@@ -302,7 +335,20 @@ function renderDatabaseFactsSummary(record: ReturnType<typeof buildCatalogComple
     `  publication by status: ${statuses.join(", ") || "none"}`,
   ];
   for (const fact of record.unknownFacts) lines.push(`    - unknown: ${fact}`);
+  if ("sample" in record && record.sample) lines.push(...renderSampleSummary(record.sample));
   return lines.join("\n");
+}
+
+function renderSampleSummary(sample: CatalogAuditSample): string[] {
+  const lines = [
+    `  audit sample (seed ${sample.seed}): ${sample.items.length} items, ${sample.unclassifiedItemCount} unclassified`,
+  ];
+  for (const stratum of sample.strata) {
+    const key = `${stratum.productDomain}${stratum.languageCode ? `:${stratum.languageCode}` : ""}/${stratum.productForm}`;
+    const shortfall = stratum.shortfall > 0 ? `, shortfall ${stratum.shortfall}` : "";
+    lines.push(`    - ${key}: ${stratum.sampled}/${stratum.allocated} of ${stratum.available}${shortfall}`);
+  }
+  return lines;
 }
 
 // Run as a CLI both when this module is the process entry and when it is loaded

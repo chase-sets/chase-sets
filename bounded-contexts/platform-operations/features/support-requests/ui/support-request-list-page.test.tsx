@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { supportFlowCatalog } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
 import AccountSupportDetailRoute, { loader as detailLoader } from "../../../routes/marketplace/account-support-detail";
-import { supportParticipantDetailFixture } from "./participant-router.test-data";
+import { supportParticipantDetailFixture, withParticipantPolicy } from "./participant-router.test-data";
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
@@ -88,7 +88,7 @@ describe("SupportRequestListPage", () => {
   });
 
   for (const failure of ["ambiguous", "denied", "rejected", "conflict", "submit-conflict"] as const) {
-    it(`actual action-loader-form renders ${failure}, retains one batch and changes it only explicitly`, async () => {
+    it(`participant form busies only its own submission: ${failure} retains one batch and changes it only explicitly`, async () => {
       vi.stubGlobal("File", NodeFile);
       const user = userEvent.setup();
       const uploadIds: string[] = [];
@@ -111,25 +111,31 @@ describe("SupportRequestListPage", () => {
           if (url.endsWith("/flows")) return json({ items: supportFlowCatalog });
           if (url.endsWith("/purchases") || url.endsWith("/sales")) return json({ items: [] });
           if (url.endsWith("/support-requests/sup_1"))
-            return json({
-              ...supportParticipantDetailFixture(),
-              support_request_id: "sup_1",
-              order_id: "ord_1",
-              display_reference: "SUP-OPENED",
-              flow_type: "product-damaged",
-              status: "waiting-on-seller",
-              checklist: [],
-              evidence: [
+            return json(
+              withParticipantPolicy(
                 {
-                  evidenceId: "sev_opening",
-                  evidenceType: "photo",
-                  summary: "Opening photos recorded",
-                  submittedByRole: "buyer",
-                  submittedAt: "2026-10-12T12:01:00.000Z",
-                  attachments: [],
+                  ...supportParticipantDetailFixture(),
+                  support_request_id: "sup_1",
+                  order_id: "ord_1",
+                  display_reference: "SUP-OPENED",
+                  flow_type: "product-damaged",
+                  flow: getSupportFlowDefinition("product-damaged"),
+                  status: "waiting-on-seller",
+                  checklist: [],
+                  evidence: [
+                    {
+                      evidenceId: "sev_opening",
+                      evidenceType: "photo",
+                      summary: "Opening photos recorded",
+                      submittedByRole: "buyer",
+                      submittedAt: "2026-10-12T12:01:00.000Z",
+                      attachments: [],
+                    },
+                  ],
                 },
-              ],
-            });
+                "acc_buyer",
+              ),
+            );
           if (url.endsWith("/orders/ord_1"))
             return json({
               ...buyerOrder,
@@ -189,7 +195,7 @@ describe("SupportRequestListPage", () => {
                     reader.onerror = reject;
                     reader.readAsArrayBuffer(value);
                   });
-                  native.append(key, new NodeFile([bytes], value.name, { type: value.type }) as File);
+                  native.append(key, new File([bytes], value.name, { type: value.type }));
                 }
               }
               return action({ ...args, request: await multipartRequest(args.request.url, native) });
@@ -220,7 +226,9 @@ describe("SupportRequestListPage", () => {
         await act(() => uploadDispatched);
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
-        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(false);
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        expect(uploadIds).toEqual([originalId]);
         const released = navigationSettled(router);
         await act(async () => {
           releaseUpload!();

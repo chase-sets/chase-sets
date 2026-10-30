@@ -61,11 +61,14 @@ export function createListingActionAttentionSourceFromReadModel(db: PgQueryable)
         item_title: string | null;
         status: string;
         updated_at: string;
+        pause_reason: string | null;
+        inventory_capacity_recovery_block: string | null;
       }>(
-        `SELECT listing_id, item_title, status, updated_at
+        `SELECT listing_id, item_title, status, updated_at, pause_reason, inventory_capacity_recovery_block
          FROM marketplace_listing_pages
          WHERE account_id = $1
            AND status IN ('draft', 'paused')
+           AND (pause_reason IS DISTINCT FROM 'inventory-capacity' OR inventory_capacity_recovery_block IS NOT NULL)
          ORDER BY updated_at ASC, listing_id ASC`,
         [context.accountId],
       );
@@ -73,7 +76,10 @@ export function createListingActionAttentionSourceFromReadModel(db: PgQueryable)
       return result.rows.map((row) => ({
         listingId: row.listing_id,
         reference: row.item_title ?? row.listing_id,
-        action: row.status,
+        action:
+          row.pause_reason === "inventory-capacity" && row.inventory_capacity_recovery_block
+            ? `inventory-capacity:${row.inventory_capacity_recovery_block}`
+            : row.status,
         observedAt: row.updated_at,
       }));
     },

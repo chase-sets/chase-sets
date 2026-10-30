@@ -47,4 +47,42 @@ describe("DOKS preview node pool", () => {
     expect(doksOperationsRunbook).toContain("`chase-sets.com/pool=preview` nodeSelector");
     expect(doksOperationsRunbook).toContain("min_nodes = 0");
   });
+
+  it("documents interim requests, release isolation, overflow and measured-memory handover", () => {
+    const section = doksOperationsRunbook.split("## Preview Node Pool\n")[1].split("### Idle Draft Retirement")[0];
+    for (const request of [
+      "public-web 1024Mi",
+      "marketplace 1152Mi",
+      "admin-web 832Mi",
+      "platform-api 640Mi",
+      "platform-worker 832Mi",
+      "preview-postgres 448Mi",
+      "platform-bootstrap 1152Mi",
+    ]) {
+      expect(section).toContain(request);
+    }
+    for (const behavior of [
+      "no CPU requests or limits",
+      "cross-namespace, other-release pod anti-affinity",
+      "one stack per node",
+      "three-stack ceiling",
+      "hook-phase requests total 1600Mi",
+      "steady-state requests total 4928Mi",
+      "A fourth stack stays Pending",
+      "postgres does not block Helm",
+      "bootstrap Job fails on its `activeDeadlineSeconds: 890`",
+      "IgnoredDuringExecution",
+      "Pending postgres hook survives rollback",
+      "next PR deploy resets its namespace",
+      "platform-preview-cleanup.yml -f pr_number=<n>",
+      "counts only scheduled pods' committed requests",
+      "10752Mi headroom",
+      "not a required check",
+      "Older BestEffort previews remain first to be evicted",
+      "issues/9963",
+      "rollback for this interim is a revert",
+    ]) {
+      expect(section).toContain(behavior);
+    }
+  });
 });

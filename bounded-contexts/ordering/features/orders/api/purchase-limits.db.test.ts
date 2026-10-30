@@ -89,6 +89,12 @@ describeDb("ordering purchase limits db", () => {
       updatedAt: "2026-09-01T00:00:00.000Z",
     };
     await pools.ordering.query(
+      `INSERT INTO ordering_account_pages (account_id, display_name, status)
+       VALUES ($1, $1, 'active')
+       ON CONFLICT (account_id) DO UPDATE SET status = 'active'`,
+      [candidate.sellerAccountId],
+    );
+    await pools.ordering.query(
       `INSERT INTO ordering_inventory_item_inputs
        (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version)
        VALUES ($1, $2, $3, $4, 10, now(), 1)`,

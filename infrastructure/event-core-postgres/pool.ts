@@ -70,14 +70,10 @@ export function normalizePgPoolConnectionString(connectionString: string): strin
 
 export function createPgPool(connectionString: string, options: PgPoolOptions = {}): PgTransactionalPool {
   const normalizedConnectionString = normalizePgPoolConnectionString(connectionString);
-
-  const pool = new pg.Pool({
-    connectionString: normalizedConnectionString,
-    ssl: resolvePgPoolSslConfig(normalizedConnectionString),
-    max: options.max,
-    idleTimeoutMillis: options.idleTimeoutMillis,
-    connectionTimeoutMillis: options.connectionTimeoutMillis,
-    onConnect: async (client: pg.ClientBase) => {
+  // @types/pg declares onConnect as void, but pg-pool awaits the returned promise
+  // before handing out the client, so session setup completes or rejects acquisition.
+  const sessionSetup: { onConnect: (client: pg.ClientBase) => Promise<void> } = {
+    onConnect: async (client) => {
       const activeClient = client as PgActiveClient;
       activeClient.on("error", (error: unknown) => {
         reportActiveClientError(options, error);
@@ -90,6 +86,15 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
         throw error;
       }
     },
+  };
+
+  const pool = new pg.Pool({
+    connectionString: normalizedConnectionString,
+    ssl: resolvePgPoolSslConfig(normalizedConnectionString),
+    max: options.max,
+    idleTimeoutMillis: options.idleTimeoutMillis,
+    connectionTimeoutMillis: options.connectionTimeoutMillis,
+    ...sessionSetup,
   });
 
   pool.on("error", (error: unknown) => {

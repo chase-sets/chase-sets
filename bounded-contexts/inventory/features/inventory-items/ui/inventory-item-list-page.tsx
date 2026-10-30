@@ -1,11 +1,13 @@
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useNavigation } from "react-router";
 import {
   HiddenInput,
   Button,
   Badge,
+  Banner,
   Card,
+  Combobox,
   DataTable,
   Grid,
   Inset,
@@ -23,24 +25,372 @@ import {
   ProductOptions,
   ResponsiveEditSheet,
   productOptionsFromSummary,
+  type SelectItem,
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
   normalizeSelectedOptionsForSchema,
+  getOptionLabel,
+  isDimensionActive,
   recordToSelectionEntries,
   toInventoryProductSelectionFields,
+  validateSelectedOptions,
 } from "../integrations/catalog/versioning";
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
-import type { InventoryItemListItem } from "./contracts";
+import type { InventoryGradedCardDetails, InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
-import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
+import { InventoryMutationRouterForm as Form } from "../../../support/request-support/mutation-form";
 
-const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const CATALOG_ITEM_SUGGESTIONS_URL = "/api/marketplace/items/suggest";
+const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const CATALOG_ITEM_SUGGESTION_SETTLE_MS = 250;
+const CATALOG_ITEM_SUGGESTION_MIN_LENGTH = 2;
+const CATALOG_ITEM_ID_PATTERN = /^cat_\S+$/;
 
-type CatalogItemSearchResponse = Readonly<{
-  items?: readonly InventoryCatalogItemSnapshot[];
+type CatalogItemSuggestion = Readonly<{
+  catalogItemId: string;
+  title: string;
+  subtitle: string | null;
 }>;
+
+// "draft" restores the create-item handoff; "candidate" loads a pasted ID that stays unselected;
+// "choice" loads an explicitly chosen catalog item before its Options render.
+type CatalogItemLookup =
+  | Readonly<{ kind: "suggestions"; query: string }>
+  | Readonly<{ kind: "draft" | "candidate" | "choice"; catalogItemId: string }>;
+
+type CatalogItemPickerStatus =
+  | "idle"
+  | "loading"
+  | "populated"
+  | "empty"
+  | "candidate"
+  | "hydrating"
+  | "selected"
+  | "error";
+
+type CatalogItemPickerState = Readonly<{
+  query: string;
+  status: CatalogItemPickerStatus;
+  errorMessage: string | null;
+  suggestions: readonly CatalogItemSuggestion[];
+  candidate: InventoryCatalogItemSnapshot | null;
+  choice: Readonly<{ catalogItemId: string; label: string }> | null;
+  catalogItem: InventoryCatalogItemSnapshot | null;
+  selectedOptions: Record<string, string>;
+  draft: Readonly<{ catalogItemId: string; selectedOptions: Record<string, string> }> | null;
+  lookup: CatalogItemLookup | null;
+}>;
+
+type CatalogItemPickerAction =
+  | Readonly<{ type: "input-changed"; text: string }>
+  | Readonly<{ type: "catalog-item-chosen"; catalogItemId: string; label: string }>
+  | Readonly<{ type: "suggestions-loaded"; lookup: CatalogItemLookup; items: readonly CatalogItemSuggestion[] }>
+  | Readonly<{ type: "catalog-item-loaded"; lookup: CatalogItemLookup; item: InventoryCatalogItemSnapshot }>
+  | Readonly<{ type: "lookup-failed"; lookup: CatalogItemLookup; message: string }>
+  | Readonly<{ type: "option-changed"; dimensionId: string; optionId: string }>;
+
+function initialCatalogItemPickerState(
+  draft: Readonly<{ catalogItemId: string; selectedOptions: Record<string, string> }> | null,
+): CatalogItemPickerState {
+  return {
+    query: "",
+    status: draft ? "hydrating" : "idle",
+    errorMessage: null,
+    suggestions: [],
+    candidate: null,
+    choice: null,
+    catalogItem: null,
+    selectedOptions: {},
+    draft,
+    lookup: draft ? { kind: "draft", catalogItemId: draft.catalogItemId } : null,
+  };
+}
+
+function selectCatalogItem(
+  state: CatalogItemPickerState,
+  item: InventoryCatalogItemSnapshot,
+  selectedOptions: Record<string, string>,
+): CatalogItemPickerState {
+  const label = catalogItemOptionLabel(item);
+  return {
+    ...state,
+    query: label,
+    status: "selected",
+    errorMessage: null,
+    candidate: null,
+    choice: { catalogItemId: item.catalog_item_id, label },
+    catalogItem: item,
+    selectedOptions: item.product_schema ? normalizeSelectedOptionsForSchema(item.product_schema, selectedOptions) : {},
+  };
+}
+
+function failCatalogItemLookup(
+  state: CatalogItemPickerState,
+  lookup: CatalogItemLookup,
+  message: string,
+): CatalogItemPickerState {
+  const failed = { ...state, status: "error" as const, errorMessage: message, candidate: null };
+  if (lookup.kind === "suggestions" || lookup.kind === "candidate") {
+    return failed;
+  }
+  return {
+    ...failed,
+    query: lookup.kind === "draft" ? "" : state.query,
+    choice: null,
+    catalogItem: null,
+    selectedOptions: {},
+  };
+}
+
+function hasStaleSelectedOptions(item: InventoryCatalogItemSnapshot, savedOptions: Record<string, string>) {
+  const saved = Object.entries(savedOptions);
+  if (saved.length === 0) {
+    return false;
+  }
+  if (!item.product_schema) {
+    return true;
+  }
+  const normalized = normalizeSelectedOptionsForSchema(item.product_schema, savedOptions);
+  return (
+    Object.keys(normalized).length !== saved.length ||
+    saved.some(([dimensionId, optionId]) => normalized[dimensionId] !== optionId)
+  );
+}
+
+function catalogItemPickerReducer(
+  state: CatalogItemPickerState,
+  action: CatalogItemPickerAction,
+): CatalogItemPickerState {
+  switch (action.type) {
+    case "input-changed": {
+      // The combobox echoes the chosen label into the input; only a different text is an edit.
+      if (state.choice && action.text === state.choice.label) {
+        return state.query === action.text ? state : { ...state, query: action.text };
+      }
+      const text = action.text.trim();
+      const lookup: CatalogItemLookup | null = CATALOG_ITEM_ID_PATTERN.test(text)
+        ? { kind: "candidate", catalogItemId: text }
+        : text.length >= CATALOG_ITEM_SUGGESTION_MIN_LENGTH
+          ? { kind: "suggestions", query: text }
+          : null;
+      // An edit also drops the draft's saved Options, so only the initial restore reuses them.
+      return {
+        ...state,
+        query: action.text,
+        status: lookup ? "loading" : "idle",
+        errorMessage: null,
+        suggestions: [],
+        candidate: null,
+        choice: null,
+        catalogItem: null,
+        selectedOptions: {},
+        draft: null,
+        lookup,
+      };
+    }
+    case "catalog-item-chosen": {
+      if (state.choice?.catalogItemId === action.catalogItemId) {
+        return state;
+      }
+      const restoredOptions = state.draft?.catalogItemId === action.catalogItemId ? state.draft.selectedOptions : {};
+      if (state.candidate?.catalog_item_id === action.catalogItemId) {
+        return selectCatalogItem(state, state.candidate, restoredOptions);
+      }
+      return {
+        ...state,
+        query: action.label,
+        status: "hydrating",
+        errorMessage: null,
+        choice: { catalogItemId: action.catalogItemId, label: action.label },
+        catalogItem: null,
+        selectedOptions: {},
+        lookup: { kind: "choice", catalogItemId: action.catalogItemId },
+      };
+    }
+    case "suggestions-loaded":
+      if (action.lookup !== state.lookup) {
+        return state;
+      }
+      return { ...state, suggestions: action.items, status: action.items.length > 0 ? "populated" : "empty" };
+    case "catalog-item-loaded": {
+      const { lookup, item } = action;
+      if (lookup !== state.lookup || lookup.kind === "suggestions") {
+        return state;
+      }
+      if (item.status !== "active") {
+        return failCatalogItemLookup(
+          state,
+          lookup,
+          t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.not.active"),
+        );
+      }
+      if (lookup.kind === "candidate") {
+        return { ...state, status: "candidate", candidate: item };
+      }
+      if (lookup.kind === "draft" && state.draft && hasStaleSelectedOptions(item, state.draft.selectedOptions)) {
+        return {
+          ...state,
+          query: catalogItemOptionLabel(item),
+          status: "error",
+          errorMessage: t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.options.stale"),
+          candidate: item,
+          draft: null,
+        };
+      }
+      return selectCatalogItem(
+        state,
+        item,
+        state.draft?.catalogItemId === item.catalog_item_id ? state.draft.selectedOptions : {},
+      );
+    }
+    case "lookup-failed":
+      return action.lookup === state.lookup ? failCatalogItemLookup(state, action.lookup, action.message) : state;
+    case "option-changed":
+      if (!state.catalogItem?.product_schema) {
+        return state;
+      }
+      return {
+        ...state,
+        selectedOptions: normalizeSelectedOptionsForSchema(state.catalogItem.product_schema, {
+          ...state.selectedOptions,
+          [action.dimensionId]: action.optionId,
+        }),
+      };
+  }
+}
+
+async function catalogItemLookupError(response: Response) {
+  const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+  const message = typeof body?.error === "string" ? body.error : body?.error?.message;
+  return new Error(
+    message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+  );
+}
+
+async function fetchCatalogItemSuggestions(query: string, signal: AbortSignal) {
+  const response = await fetch(`${CATALOG_ITEM_SUGGESTIONS_URL}?${new URLSearchParams({ q: query }).toString()}`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw await catalogItemLookupError(response);
+  }
+  const body = (await response.json()) as { items?: readonly CatalogItemSuggestion[] };
+  return body.items ?? [];
+}
+
+async function fetchCatalogItem(catalogItemId: string, signal: AbortSignal) {
+  const response = await fetch(`${CATALOG_ITEM_API_BASE_URL}/${encodeURIComponent(catalogItemId)}`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw await catalogItemLookupError(response);
+  }
+  return (await response.json()) as InventoryCatalogItemSnapshot;
+}
+
+function useCatalogItemPicker(
+  draft: Readonly<{ catalogItemId: string; selectedOptions: Record<string, string> }> | null,
+) {
+  const [state, dispatch] = useReducer(catalogItemPickerReducer, draft, initialCatalogItemPickerState);
+
+  useEffect(() => {
+    const lookup = state.lookup;
+    if (!lookup) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const run = () => {
+      const request: Promise<CatalogItemPickerAction> =
+        lookup.kind === "suggestions"
+          ? fetchCatalogItemSuggestions(lookup.query, controller.signal).then((items) => ({
+              type: "suggestions-loaded",
+              lookup,
+              items,
+            }))
+          : fetchCatalogItem(lookup.catalogItemId, controller.signal).then((item) => ({
+              type: "catalog-item-loaded",
+              lookup,
+              item,
+            }));
+      request.then(dispatch, (error: unknown) => {
+        if (!controller.signal.aborted) {
+          dispatch({
+            type: "lookup-failed",
+            lookup,
+            message:
+              error instanceof Error
+                ? error.message
+                : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+          });
+        }
+      });
+    };
+
+    // Typed text settles before it requests; restored and chosen IDs load at once.
+    if (lookup.kind === "draft" || lookup.kind === "choice") {
+      run();
+      return () => controller.abort();
+    }
+    const timer = window.setTimeout(run, CATALOG_ITEM_SUGGESTION_SETTLE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [state.lookup]);
+
+  return [state, dispatch] as const;
+}
+
+function catalogItemPickerEntries(state: CatalogItemPickerState): SelectItem[] {
+  const suggestions = state.suggestions.map((suggestion) => ({
+    value: suggestion.catalogItemId,
+    label:
+      state.choice?.catalogItemId === suggestion.catalogItemId
+        ? state.choice.label
+        : [suggestion.title, suggestion.subtitle].filter(Boolean).join(" - "),
+  }));
+  const pinned = [
+    state.choice ? { value: state.choice.catalogItemId, label: state.choice.label } : null,
+    state.candidate ? { value: state.candidate.catalog_item_id, label: catalogItemOptionLabel(state.candidate) } : null,
+  ].filter(
+    (entry): entry is SelectItem =>
+      entry !== null && !suggestions.some((suggestion) => suggestion.value === entry.value),
+  );
+  return [...pinned, ...suggestions];
+}
+
+function catalogItemPickerStatusMessage(status: CatalogItemPickerStatus) {
+  switch (status) {
+    case "loading":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items");
+    case "hydrating":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item");
+    case "populated":
+    case "candidate":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item");
+    case "empty":
+      return t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched");
+    default:
+      return undefined;
+  }
+}
+
+function hasCompleteSelectedOptions(item: InventoryCatalogItemSnapshot, selectedOptions: Record<string, string>) {
+  try {
+    validateSelectedOptions(
+      item.product_schema,
+      item.product_schema ? recordToSelectionEntries(item.product_schema, selectedOptions) : [],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function displayItemLabel(item: InventoryItemListItem) {
   return item.item_title ?? item.catalog_catalog_item_id;
@@ -82,7 +432,6 @@ export function InventoryItemListPage({
   locations,
   errorMessage,
   offlineSaleErrorMessage,
-  catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   createItemDraft,
   currentPath,
   canRecordOfflineSale = false,
@@ -97,7 +446,6 @@ export function InventoryItemListPage({
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
   offlineSaleErrorMessage?: string | null;
-  catalogItemApiBaseUrl?: string;
   createItemDraft?: {
     catalogItemId?: string | null;
     selectedOptions?: readonly { dimensionId: string; optionId: string }[];
@@ -112,19 +460,20 @@ export function InventoryItemListPage({
   offlineSaleAuthoritativeAvailableQuantity?: number;
 }) {
   const navigation = useNavigation();
+  const [certificationNumber, setCertificationNumber] = useState("");
   const pageSize = pagination?.limit ?? data.items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
   const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
-  const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
-  const [initialSelectedOptions] = useState(() => selectedOptionsFromEntries(createItemDraft?.selectedOptions ?? []));
-  const [catalogItemSearch, setCatalogItemSearch] = useState(initialCatalogItemId);
-  const [catalogSearchResults, setCatalogSearchResults] = useState<readonly InventoryCatalogItemSnapshot[]>([]);
-  const [catalogItemId, setCatalogItemId] = useState(initialCatalogItemId);
-  const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
-  const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
-  const [catalogLookupPending, setCatalogLookupPending] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const draftCatalogItemId = createItemDraft?.catalogItemId?.trim() ?? "";
+  const [picker, dispatchPicker] = useCatalogItemPicker(
+    draftCatalogItemId
+      ? {
+          catalogItemId: draftCatalogItemId,
+          selectedOptions: selectedOptionsFromEntries(createItemDraft?.selectedOptions ?? []),
+        }
+      : null,
+  );
   const [openOfflineSaleItemId, setOpenOfflineSaleItemId] = useState<string | null>(null);
   const [invokingOfflineSaleItemId, setInvokingOfflineSaleItemId] = useState<string | null>(null);
   const invokingOfflineSaleTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -161,105 +510,36 @@ export function InventoryItemListPage({
     invokingOfflineSaleTriggerRef.current?.focus();
   }, [openOfflineSaleItemId]);
 
-  useEffect(() => {
-    const search = catalogItemSearch.trim();
-    if (search.length < 2) {
-      setCatalogSearchResults([]);
-      setCatalogLookupError(null);
-      setCatalogLookupPending(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setCatalogLookupPending(true);
-    const query = new URLSearchParams({ search, status: "active", limit: "10" });
-
-    void fetch(`${catalogItemApiBaseUrl}?${query.toString()}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-          const message = typeof body?.error === "string" ? body.error : body?.error?.message;
-          throw new Error(
-            message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
-          );
-        }
-
-        return response.json() as Promise<CatalogItemSearchResponse>;
-      })
-      .then((result) => {
-        const items = result.items ?? [];
-        setCatalogSearchResults(items);
-        setCatalogLookupError(
-          items.length === 0
-            ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched")
-            : null,
-        );
-
-        if (catalogItemId) {
-          const selectedItem = items.find((item) => item.catalog_item_id === catalogItemId);
-          if (selectedItem) {
-            setCatalogItem(selectedItem);
-            if (catalogItemSearch.trim() === catalogItemId) {
-              setCatalogItemSearch(selectedItem.title);
-              setSelectedOptions(
-                selectedItem.product_schema
-                  ? normalizeSelectedOptionsForSchema(
-                      selectedItem.product_schema,
-                      catalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
-                    )
-                  : {},
-              );
-            }
-          }
-        }
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setCatalogSearchResults([]);
-        setCatalogLookupError(
-          error instanceof Error
-            ? error.message
-            : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
-        );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setCatalogLookupPending(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialCatalogItemId, initialSelectedOptions]);
-
-  function resetCatalogItemSelection(nextSearch: string) {
-    setCatalogItemSearch(nextSearch);
-    setCatalogItemId("");
-    setCatalogItem(null);
-    setSelectedOptions({});
-  }
-
-  function selectCatalogItem(nextCatalogItemId: string) {
-    const item = catalogSearchResults.find((candidate) => candidate.catalog_item_id === nextCatalogItemId);
-    setCatalogItemId(nextCatalogItemId);
-    setCatalogItem(item ?? null);
-    setCatalogLookupError(null);
-    setCatalogItemSearch(item?.title ?? catalogItemSearch);
-    setSelectedOptions(
-      item?.product_schema
-        ? normalizeSelectedOptionsForSchema(
-            item.product_schema,
-            nextCatalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
-          )
-        : {},
+  const { catalogItem, selectedOptions } = picker;
+  const catalogItemEntries = catalogItemPickerEntries(picker);
+  const pickerStatusMessage = catalogItemPickerStatusMessage(picker.status);
+  function selectedOptionLabel(dimensionName: string) {
+    const dimension = catalogItem?.product_schema?.dimensions.find(
+      (candidate) => candidate.dimensionName === dimensionName && isDimensionActive(candidate, selectedOptions),
     );
+    const option = dimension?.allowedOptions.find(
+      (candidate) => candidate.optionId === selectedOptions[dimension.dimensionId],
+    );
+    return option ? getOptionLabel(option) : "";
   }
-
+  const isGraded = selectedOptionLabel("Form") === "Graded";
+  const gradingCompany = selectedOptionLabel("Grading Company");
+  const grade = selectedOptionLabel("Grade");
+  const gradedError =
+    isGraded && (!gradingCompany.trim() || !grade.trim())
+      ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required")
+      : null;
+  const gradedCard: InventoryGradedCardDetails | null = isGraded
+    ? {
+        gradingCompany,
+        grade,
+        certificationNumber: certificationNumber.trim() || null,
+        population: null,
+        conditionDescriptors: [],
+      }
+    : null;
+  const canCreateItem =
+    catalogItem !== null && hasCompleteSelectedOptions(catalogItem, selectedOptions) && !gradedError;
   const productSelectionFields = toInventoryProductSelectionFields(
     catalogItem?.product_schema ?? null,
     selectedOptions,
@@ -304,51 +584,64 @@ export function InventoryItemListPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form family="item-create" targetId="draft" spacing="none" method="post">
+          <Form
+            family="item-create"
+            targetId="draft"
+            spacing="none"
+            method="post"
+            onSubmit={(event) => {
+              if (gradedError) event.preventDefault();
+            }}
+          >
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <HiddenInput type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
                 {createItemDraft?.returnTo ? (
                   <HiddenInput type="hidden" name="returnTo" value={createItemDraft.returnTo} />
                 ) : null}
-                <TextInput
-                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog")}
+                <Combobox
+                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item")}
+                  required
                   placeholder={t(
                     "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item",
                   )}
-                  value={catalogItemSearch}
-                  onChange={(event) => resetCatalogItemSelection(event.target.value)}
                   description={t(
                     "inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog",
                   )}
-                />
-                <NativeSelect
-                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item")}
-                  name="catalogItemId"
-                  required
-                  value={catalogItemId}
-                  onChange={(event) => selectCatalogItem(event.target.value)}
-                  disabled={catalogSearchResults.length === 0}
-                  placeholder={
-                    catalogLookupPending
-                      ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")
-                      : t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item")
+                  items={catalogItemEntries}
+                  value={picker.choice?.catalogItemId ?? ""}
+                  onValueChange={(catalogItemId) =>
+                    dispatchPicker({
+                      type: "catalog-item-chosen",
+                      catalogItemId,
+                      label: catalogItemEntries.find((entry) => entry.value === catalogItemId)?.label ?? catalogItemId,
+                    })
                   }
-                  items={catalogSearchResults.map((item) => ({
-                    value: item.catalog_item_id,
-                    label: catalogItemOptionLabel(item),
-                  }))}
-                  description={t(
-                    "inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item",
-                  )}
+                  inputValue={picker.query}
+                  onInputValueChange={(text) => dispatchPicker({ type: "input-changed", text })}
+                  filterItems={false}
+                  openOnInputClick
+                  noMatchesLabel={
+                    pickerStatusMessage ??
+                    picker.errorMessage ??
+                    t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog")
+                  }
+                  status={pickerStatusMessage}
+                  error={picker.status === "error" ? picker.errorMessage : undefined}
                 />
+                <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
                 <HiddenInput type="hidden" name="selectedOptions" value={serializedVersionSelection} />
-                {catalogLookupPending ? (
-                  <Text size="sm" tone="secondary">
-                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")}
-                  </Text>
+                {gradedCard ? (
+                  <>
+                    <HiddenInput type="hidden" name="gradedCard" value={JSON.stringify(gradedCard)} />
+                    <TextInput
+                      label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number")}
+                      value={certificationNumber}
+                      onChange={(event) => setCertificationNumber(event.target.value)}
+                    />
+                  </>
                 ) : null}
-                {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
+                {gradedError ? <Banner tone="danger" title={gradedError} /> : null}
                 <NativeSelect
                   label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
                   name="storageLocationId"
@@ -383,7 +676,7 @@ export function InventoryItemListPage({
                   />
                 </Grid>
                 <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>
-                  <Button type="submit">
+                  <Button type="submit" disabled={!canCreateItem}>
                     {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}
                   </Button>
                   <LinkButton href="/account/inventory/locations" tone="ghost">
@@ -405,12 +698,7 @@ export function InventoryItemListPage({
                         fields={productSelectionFields}
                         fieldName={(dimensionId) => `selectedOptions:${dimensionId}`}
                         onFieldChange={(dimensionId, optionId) =>
-                          setSelectedOptions((current) =>
-                            normalizeSelectedOptionsForSchema(catalogItem.product_schema!, {
-                              ...current,
-                              [dimensionId]: optionId,
-                            }),
-                          )
+                          dispatchPicker({ type: "option-changed", dimensionId, optionId })
                         }
                       />
                     ) : (

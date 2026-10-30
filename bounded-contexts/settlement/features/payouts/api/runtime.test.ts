@@ -17,7 +17,8 @@ import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
 import { SettlementDomainError } from "../../../support/runtime-support/common";
-import type { SettlementPayoutFeePolicyValue } from "../domain/payout-policy";
+import type { SettlementPayoutBoundsPolicyValue, SettlementPayoutFeePolicyValue } from "../domain/payout-policy";
+import type { SettlementOperationsRecorder } from "./operations";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -116,6 +117,7 @@ function createPayoutArithmeticRuntime(
     spendHoldAmount?: string;
     platformAvailableAmount?: string;
     inTransitAmounts?: readonly string[];
+    boundsPolicy?: SettlementPayoutBoundsPolicyValue;
     feePolicy?: SettlementPayoutFeePolicyValue;
     moneyMovementGateway?: MoneyMovementGateway;
   }> = {},
@@ -218,17 +220,25 @@ function createPayoutArithmeticRuntime(
     moneyMovementGateway:
       options.moneyMovementGateway ??
       createSyntheticPlatformBalanceGateway(options.platformAvailableAmount ?? "999999.00"),
-    ...(options.feePolicy
+    ...(options.feePolicy || options.boundsPolicy
       ? {
           policies: {
             resolvePolicy: async (definition: { policyKey: string }, input?: { at?: string }) => ({
               policyKey: definition.policyKey,
               value:
                 definition.policyKey === "settlement.payout-fee"
-                  ? options.feePolicy
-                  : { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+                  ? (options.feePolicy ?? {
+                      label: "Payout fee",
+                      percentageBps: 25,
+                      fixedAmount: "0.25",
+                      firstPayoutOfMonthFixedAmount: "0.00",
+                    })
+                  : (options.boundsPolicy ?? { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" }),
               source: "policy",
-              documentId: "pol_synthetic_payout_fee",
+              documentId:
+                definition.policyKey === "settlement.payout-fee"
+                  ? "pol_synthetic_payout_fee"
+                  : "pol_synthetic_payout_bounds",
               resolvedAt: input?.at ?? new Date().toISOString(),
             }),
           } as never,
@@ -382,6 +392,130 @@ function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknow
 }
 
 describe("settlement payout runtime", () => {
+  it("returns policy bounds and the capped payable balance for quick amounts", async () => {
+    const runtime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "500.00",
+      supportHoldAmount: "30.00",
+      spendHoldAmount: "20.00",
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+    });
+
+    await expect(runtime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never })).resolves.toEqual({
+      currency_code: "usd",
+      minimum_amount: "7.00",
+      maximum_amount: "250.00",
+      full_available_amount: "250.00",
+    });
+
+    for (const holdCase of [
+      { supportHoldAmount: "30.00", spendHoldAmount: "20.00", expected: "150.00" },
+      { supportHoldAmount: "30.00", spendHoldAmount: "0.00", expected: "170.00" },
+      { supportHoldAmount: "0.00", spendHoldAmount: "20.00", expected: "180.00" },
+    ]) {
+      const holdRuntime = createPayoutArithmeticRuntime({
+        walletAvailableAmount: "200.00",
+        supportHoldAmount: holdCase.supportHoldAmount,
+        spendHoldAmount: holdCase.spendHoldAmount,
+        boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+      });
+      await expect(
+        holdRuntime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never }),
+      ).resolves.toMatchObject({ full_available_amount: holdCase.expected });
+    }
+
+    for (const walletAvailableAmount of ["0.00", "-5.00"]) {
+      const zeroRuntime = createPayoutArithmeticRuntime({
+        walletAvailableAmount,
+        boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "250.00" },
+      });
+      await expect(
+        zeroRuntime.payouts.getPayoutQuickAmounts({ accountId: "acc_seller" as never }),
+      ).resolves.toMatchObject({
+        full_available_amount: "0.00",
+      });
+    }
+  });
+
+  it("resolves preview amount selections after policy and holds and ignores a posted available balance", async () => {
+    const options = {
+      walletAvailableAmount: "180.00",
+      supportHoldAmount: "30.00",
+      spendHoldAmount: "20.00",
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "7.00", maximumAmount: "100.00" } as const,
+    };
+    const runtime = createPayoutArithmeticRuntime(options);
+    const minimum = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "minimum" },
+      context,
+    );
+    const directMinimum = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "7.00" },
+      context,
+    );
+    expect(minimum).toEqual(directMinimum);
+
+    const available = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+      context,
+    );
+    const directAvailable = await runtime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "100.00" },
+      context,
+    );
+    expect(available).toEqual(directAvailable);
+    expect(available.requested_amount).toBe("100.00");
+
+    for (const amountSelection of [null, ""] as const) {
+      const selected = await runtime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "12.50", amountSelection },
+        context,
+      );
+      const direct = await runtime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "12.50" },
+        context,
+      );
+      expect(selected).toEqual(direct);
+    }
+
+    const zeroRuntime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "20.00",
+      supportHoldAmount: "20.00",
+      boundsPolicy: options.boundsPolicy,
+    });
+    await expectNamedSettlementRejection(
+      zeroRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+
+    const negativeRuntime = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "10.00",
+      supportHoldAmount: "15.00",
+      spendHoldAmount: "5.00",
+      boundsPolicy: options.boundsPolicy,
+    });
+    await expectNamedSettlementRejection(
+      negativeRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "available" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+
+    const zeroMinimumRuntime = createPayoutArithmeticRuntime({
+      boundsPolicy: { currencyCode: "usd", minimumAmount: "0.00", maximumAmount: "100.00" },
+    });
+    await expectNamedSettlementRejection(
+      zeroMinimumRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "1.00", amountSelection: "minimum" },
+        context,
+      ),
+      "Payout amount must be greater than zero.",
+    );
+  });
+
   it("settlement payout money consolidation preserves in-range and negative results", async () => {
     const schedules = [
       {
@@ -2788,5 +2922,665 @@ describe("settlement payout runtime", () => {
     ).rejects.toThrow("claim was lost");
     expect(gateway.usedIdempotencyKeys).toEqual([]);
     expect(jobContext.checkpointProgress).not.toHaveBeenCalled();
+  });
+});
+
+const RELOCATED_PAYOUT = "<payout>";
+
+function sqlEffect(sql: string) {
+  const text = sql.replace(/\s+/g, " ").trim();
+  const keyword = text.split(" ", 1)[0]!.toUpperCase();
+  const target = /^WITH (\w+)/.exec(text)?.[1] ?? /\b(?:INTO|UPDATE|FROM) (\w+)/.exec(text)?.[1];
+  return target ? `${keyword} ${target}` : keyword;
+}
+
+function recordGatewayEffects(effects: string[], gateway: MoneyMovementGateway): MoneyMovementGateway {
+  return {
+    ...gateway,
+    async retrievePlatformBalance(input) {
+      effects.push(`gateway retrievePlatformBalance ${JSON.stringify(input)}`);
+      return gateway.retrievePlatformBalance(input);
+    },
+    async transferPlatformBalanceToConnectedAccount(input) {
+      effects.push(`gateway transferPlatformBalanceToConnectedAccount ${JSON.stringify(input)}`);
+      return gateway.transferPlatformBalanceToConnectedAccount(input);
+    },
+    async createConnectedAccountPayout(input) {
+      effects.push(`gateway createConnectedAccountPayout ${JSON.stringify(input)}`);
+      return gateway.createConnectedAccountPayout(input);
+    },
+    async retrieveConnectedAccountPayout(input, options) {
+      const optionKeys = options === undefined ? "undefined" : Object.keys(options).join("+") || "{}";
+      const signal = options?.signal instanceof AbortSignal ? "live" : "none";
+      effects.push(
+        `gateway retrieveConnectedAccountPayout ${JSON.stringify(input)} options=${optionKeys} signal=${signal}`,
+      );
+      return gateway.retrieveConnectedAccountPayout(input, options);
+    },
+    async parseMoneyMovementWebhook(input) {
+      effects.push("gateway parseMoneyMovementWebhook");
+      return gateway.parseMoneyMovementWebhook(input);
+    },
+  };
+}
+
+function relocationPayoutRow(payoutId: string, overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    payout_id: payoutId,
+    account_id: "acc_seller",
+    amount: "12.21",
+    requested_amount: "12.50",
+    fee_amount: "0.29",
+    net_amount: "12.21",
+    currency_code: "usd",
+    destination_reference: null,
+    note: null,
+    status: "in-transit",
+    provider_transfer_reference: `tr_${payoutId}`,
+    provider_payout_reference: `po_${payoutId}`,
+    provider_status: "pending",
+    provider_failure_code: null,
+    provider_failure_message: null,
+    requested_at: "2026-04-02T00:00:00.000Z",
+    updated_at: "2026-04-02T00:00:00.000Z",
+    sent_at: "2026-04-02T00:00:00.000Z",
+    completed_at: null,
+    failed_at: null,
+    failure_reason: null,
+    last_provider_event_at: null,
+    last_reconciled_at: null,
+    retry_count: 0,
+    next_retry_at: null,
+    retry_reason: null,
+    ...overrides,
+  };
+}
+
+function createRelocationHarness(
+  options: Readonly<{
+    payoutRows?: () => Record<string, unknown>[];
+    gateway?: MoneyMovementGateway;
+    renewWorkClaims?: boolean;
+  }> = {},
+) {
+  const effects: string[] = [];
+  const { eventStore: memoryEventStore, readAllEvents } = createInMemoryEventStore();
+  const eventStore: EventStore = {
+    ...memoryEventStore,
+    readStream: async (input) => {
+      effects.push(`read ${input.streamId.replace(/-\d{4}-\d{2}$/, "-<month>")}`);
+      return memoryEventStore.readStream(input);
+    },
+    appendToStream: async (input) => {
+      const stored = await memoryEventStore.appendToStream(input);
+      effects.push(...stored.map((event) => `event ${event.eventType}`));
+      return stored;
+    },
+    appendToStreams: async (inputs) => {
+      const results = await memoryEventStore.appendToStreams!(inputs);
+      effects.push(...results.flatMap((result) => result.storedEvents.map((event) => `event ${event.eventType}`)));
+      return results;
+    },
+  };
+  const { db: operationDb } = createPayoutProviderOperationDb(options.payoutRows ?? (() => []));
+  const db = {
+    query: async (sql: string, values?: readonly unknown[]) => {
+      effects.push(`db ${sqlEffect(sql)}`);
+      if (options.renewWorkClaims !== undefined && sql.includes("UPDATE settlement_work_claims")) {
+        return { rows: [], rowCount: options.renewWorkClaims ? 1 : 0 };
+      }
+      return operationDb.query(sql, values);
+    },
+  };
+  const readiness = createPayoutReadiness("ready");
+  const payoutReadiness: PayoutReadinessServices = {
+    ...readiness,
+    getPayoutReadiness: async (...args) => {
+      effects.push("readiness getPayoutReadiness");
+      return readiness.getPayoutReadiness(...args);
+    },
+  };
+  const operationsRecorder: SettlementOperationsRecorder = {
+    record: (event) => {
+      effects.push(`operation ${event.kind}${event.reason ? `: ${event.reason}` : ""}`);
+    },
+  };
+  const wallets = createWalletRuntime({ eventStore, checkpointStore: createCheckpointStore(), db: db as never });
+  const payouts = createPayoutRuntime({
+    eventStore,
+    checkpointStore: createCheckpointStore(),
+    db: db as never,
+    wallets,
+    payoutReadiness,
+    moneyMovementGateway: recordGatewayEffects(effects, options.gateway ?? createFakeMoneyMovementGateway()),
+    operationsRecorder,
+  });
+
+  return {
+    payouts,
+    wallets,
+    readAllEvents,
+    takeEffects(payoutId?: string) {
+      return effects.splice(0).map((effect) => (payoutId ? effect.replaceAll(payoutId, RELOCATED_PAYOUT) : effect));
+    },
+  };
+}
+
+function createReconciliationJobPool(
+  effects: string[],
+  options: Readonly<{ payoutRow: Record<string, unknown>; failFirstParentUpdate?: boolean }>,
+) {
+  const at = "2026-04-02T00:00:00.000Z";
+  const job = {
+    job_id: "job_relocation",
+    job_kind: "payout-reconciliation",
+    status: "running",
+    payload: { accountId: "acc_seller", limit: 1 },
+    progress: { phase: "queued", completed: 0, total: 1, message: "Payout reconciliation queued." },
+    result: null,
+    error_message: null,
+    event_context: context,
+    claim_owner_id: null,
+    claimed_until: null,
+    attempt_count: 0,
+    next_eligible_at: at,
+    created_at: at,
+    started_at: at,
+    completed_at: null,
+    updated_at: at,
+  };
+  const unit = {
+    job_id: job.job_id,
+    unit_id: String(options.payoutRow.payout_id),
+    unit_kind: "payout-reconciliation",
+    state: "running",
+    payload: {
+      payoutId: options.payoutRow.payout_id,
+      providerPayoutReference: options.payoutRow.provider_payout_reference,
+    },
+    result: null,
+    error_message: null,
+    claim_owner_id: "worker_relocation:lane-0",
+    claim_token: "claim_relocation",
+    claimed_until: at,
+    attempt_count: 1,
+    created_at: at,
+    updated_at: at,
+    completed_at: null,
+  };
+  const prefixed = (prefix: string, row: Readonly<Record<string, unknown>>) =>
+    Object.fromEntries(Object.entries(row).map(([key, value]) => [`${prefix}${key}`, value]));
+  let parentUpdates = 0;
+  const answer = async (sql: string) => {
+    if (sql.includes("WITH workflow_budget")) {
+      return { rows: [{ ...prefixed("job_", job), ...prefixed("unit_", unit) }], rowCount: 1 };
+    }
+    if (sql.includes("WITH terminal_unit")) {
+      return { rows: [{ job_id: job.job_id }], rowCount: 1 };
+    }
+    if (sql.includes("FROM settlement_payout_reconciliation_jobs WHERE job_id = $1 AND status IN")) {
+      return { rows: [{ job_id: job.job_id }], rowCount: 1 };
+    }
+    if (sql.includes("FROM settlement_payout_reconciliation_work_units") && sql.includes("ORDER BY created_at ASC")) {
+      const completed = {
+        ...unit,
+        state: "completed",
+        result: { payoutId: unit.unit_id, status: "ignored", message: null },
+      };
+      return { rows: [completed], rowCount: 1 };
+    }
+    if (sql.trim().startsWith("UPDATE settlement_payout_reconciliation_jobs AS job")) {
+      parentUpdates += 1;
+      if (options.failFirstParentUpdate && parentUpdates === 1) {
+        throw new Error("Synthetic parent job update failure.");
+      }
+      return { rows: [prefixed("job_", { ...job, status: "completed" })], rowCount: 1 };
+    }
+    if (sql.includes("FROM settlement_payout_pages")) {
+      return { rows: [options.payoutRow], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  };
+  let transactions = 0;
+
+  return {
+    query: async (sql: string) => {
+      effects.push(`pool ${sqlEffect(sql)}`);
+      return answer(sql);
+    },
+    connect: async () => {
+      transactions += 1;
+      const transaction = `tx${transactions}`;
+      return {
+        query: async (sql: string) => {
+          effects.push(`${transaction} ${sqlEffect(sql)}`);
+          return answer(sql);
+        },
+        release: () => {
+          effects.push(`${transaction} release`);
+        },
+      };
+    },
+  };
+}
+
+describe("payout relocation preserves ordered effects and transaction rollback", () => {
+  it("keeps request commit, ledger posting, provider submission and in-transit marking in order", async () => {
+    const harness = createRelocationHarness();
+    await seedAvailableWallet(harness.wallets);
+    harness.takeEffects();
+
+    const requested = await harness.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50" },
+      context,
+    );
+
+    expect(requested.payout).toMatchObject({
+      status: "in-transit",
+      requested_amount: "12.50",
+      fee_amount: "0.29",
+      net_amount: "12.21",
+      provider_transfer_reference: `tr_${requested.payoutId}`,
+      provider_payout_reference: `po_${requested.payoutId}`,
+    });
+    expect(harness.takeEffects(requested.payoutId)).toEqual([
+      "db SELECT settlement_wallet_pages",
+      "readiness getPayoutReadiness",
+      "db SELECT settlement_payout_pages",
+      "db SELECT settlement_ledger_entry_pages",
+      "db SELECT settlement_wallet_spend_holds",
+      "read settlement.payout-month-acc_seller-<month>",
+      "db SELECT event_store_events",
+      'gateway retrievePlatformBalance {"currencyCode":"usd"}',
+      "read settlement.payout-<payout>",
+      "read settlement.payout-month-acc_seller-<month>",
+      "db SELECT event_store_events",
+      "event settlement.payout.monthly-baseline-recorded",
+      "event settlement.payout.monthly-request-counted",
+      "event settlement.payout.requested",
+      "operation payout-requested",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "db INSERT settlement_provider_operations",
+      'gateway transferPlatformBalanceToConnectedAccount {"payoutId":"<payout>","accountId":"acc_seller","providerReference":"acct_test","amount":"12.21","currencyCode":"usd","idempotencyKey":"settlement:payout:<payout>:transfer"}',
+      "db UPDATE settlement_provider_operations",
+      "db INSERT settlement_provider_idempotency_keys",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.provider-references-recorded",
+      "operation provider-transfer-submitted",
+      "db INSERT settlement_provider_operations",
+      'gateway createConnectedAccountPayout {"payoutId":"<payout>","accountId":"acc_seller","providerReference":"acct_test","amount":"12.21","currencyCode":"usd","idempotencyKey":"settlement:payout:<payout>:payout"}',
+      "db UPDATE settlement_provider_operations",
+      "db INSERT settlement_provider_idempotency_keys",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.provider-references-recorded",
+      "operation provider-payout-submitted",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.in-transit-recorded",
+    ]);
+  });
+
+  it("reverses a terminal transfer decline with the fixed net and fee reversal identities", async () => {
+    const fakeGateway = createFakeMoneyMovementGateway();
+    const harness = createRelocationHarness({
+      gateway: {
+        ...fakeGateway,
+        async transferPlatformBalanceToConnectedAccount() {
+          throw Object.assign(new Error("Provider transfer declined."), { statusCode: 400, code: "invalid_transfer" });
+        },
+      },
+    });
+    await seedAvailableWallet(harness.wallets);
+    harness.takeEffects();
+
+    const requested = await harness.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50" },
+      context,
+    );
+
+    expect(requested.payout).toMatchObject({ status: "failed", failure_reason: "Payout account details need review." });
+    expect(harness.takeEffects(requested.payoutId)).toEqual([
+      "db SELECT settlement_wallet_pages",
+      "readiness getPayoutReadiness",
+      "db SELECT settlement_payout_pages",
+      "db SELECT settlement_ledger_entry_pages",
+      "db SELECT settlement_wallet_spend_holds",
+      "read settlement.payout-month-acc_seller-<month>",
+      "db SELECT event_store_events",
+      'gateway retrievePlatformBalance {"currencyCode":"usd"}',
+      "read settlement.payout-<payout>",
+      "read settlement.payout-month-acc_seller-<month>",
+      "db SELECT event_store_events",
+      "event settlement.payout.monthly-baseline-recorded",
+      "event settlement.payout.monthly-request-counted",
+      "event settlement.payout.requested",
+      "operation payout-requested",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "db INSERT settlement_provider_operations",
+      'gateway transferPlatformBalanceToConnectedAccount {"payoutId":"<payout>","accountId":"acc_seller","providerReference":"acct_test","amount":"12.21","currencyCode":"usd","idempotencyKey":"settlement:payout:<payout>:transfer"}',
+      "db UPDATE settlement_provider_operations",
+      "operation payout-failed: Provider transfer declined.",
+      "db SELECT settlement_payout_pages",
+      "read settlement.payout-<payout>",
+      "read settlement.payout-month-acc_seller-<month>",
+      "event settlement.payout.monthly-request-released",
+      "event settlement.payout.failed",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "operation payout-reversal-posted: Payout account details need review.",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "read settlement.wallet-acc_seller",
+      "event settlement.wallet.ledger-entry-posted",
+      "operation payout-reversal-posted: Payout account details need review.",
+    ]);
+    expect(
+      harness
+        .readAllEvents()
+        .filter(
+          (event) =>
+            event.eventType === "settlement.wallet.ledger-entry-posted" &&
+            (event.payload as { payoutId?: string }).payoutId === requested.payoutId,
+        )
+        .map((event) => (event.payload as { ledgerEntryId: string }).ledgerEntryId),
+    ).toEqual([
+      `led_payout_${requested.payoutId}`,
+      `led_payout_fee_${requested.payoutId}`,
+      `led_payout_reversal_${requested.payoutId}`,
+      `led_payout_fee_reversal_${requested.payoutId}`,
+    ]);
+  });
+
+  it("records provider references before completing from webhook metadata and dedupes the redelivery", async () => {
+    const harness = createRelocationHarness({ gateway: createFakeMoneyMovementGateway({ failPayout: true }) });
+    await seedAvailableWallet(harness.wallets);
+    const requested = await harness.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50" },
+      context,
+    );
+    expect(requested.payout).toMatchObject({ status: "requested", provider_payout_reference: null });
+    harness.takeEffects();
+    const delivery = {
+      rawBody: JSON.stringify({
+        kind: "payout-completed",
+        providerEventId: "evt_relocation_paid",
+        payoutId: requested.payoutId,
+        providerPayoutReference: `po_${requested.payoutId}`,
+        providerStatus: "paid",
+      }),
+      signatureHeader: null,
+    };
+
+    const first = await harness.payouts.processMoneyMovementWebhook(delivery, context);
+    const firstEffects = harness.takeEffects(requested.payoutId);
+    const redelivery = await harness.payouts.processMoneyMovementWebhook(delivery, context);
+
+    expect(first).toEqual({ received: true, ignored: false });
+    expect(firstEffects).toEqual([
+      "gateway parseMoneyMovementWebhook",
+      "db SELECT settlement_money_movement_webhook_events",
+      "db SELECT settlement_payout_pages",
+      "db SELECT settlement_payout_pages",
+      "read settlement.payout-<payout>",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.provider-references-recorded",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.completed",
+      "operation payout-completed",
+      "db INSERT settlement_money_movement_webhook_events",
+    ]);
+    expect(redelivery).toEqual({ received: true, ignored: true, failure_class: "inbox-conflict" });
+    expect(harness.takeEffects(requested.payoutId)).toEqual([
+      "gateway parseMoneyMovementWebhook",
+      "db SELECT settlement_money_movement_webhook_events",
+      "operation money-movement-webhook-ignored: Provider webhook event was already processed.",
+    ]);
+  });
+
+  it("renews each reconciliation claim and passes the side-effect signal to the provider read", async () => {
+    let payoutRow: Record<string, unknown> | null = null;
+    const fakeGateway = createFakeMoneyMovementGateway();
+    const harness = createRelocationHarness({
+      payoutRows: () => (payoutRow ? [payoutRow] : []),
+      renewWorkClaims: true,
+      gateway: {
+        ...fakeGateway,
+        async retrieveConnectedAccountPayout(input) {
+          return {
+            providerPayoutReference: input.providerPayoutReference,
+            providerStatus: "paid",
+            failureCode: null,
+            failureMessage: null,
+          };
+        },
+      },
+    });
+    await seedAvailableWallet(harness.wallets);
+    const requested = await harness.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50" },
+      context,
+    );
+    payoutRow = relocationPayoutRow(requested.payoutId);
+    harness.takeEffects();
+    const checkpoints: unknown[] = [];
+    const jobContext = {
+      signal: new AbortController().signal,
+      throwIfCancelled: vi.fn(),
+      renew: vi.fn(async () => undefined),
+      checkpointProgress: vi.fn(async (progress: unknown, result?: unknown) => {
+        checkpoints.push({ progress, result });
+      }),
+    };
+
+    const result = await harness.payouts.reconcilePayoutsNeedingAttention(
+      { accountId: "acc_seller", limit: 1, claimOwnerId: "worker_relocation", claimTtlMs: 60_000 },
+      context,
+      jobContext,
+    );
+
+    expect(result).toEqual({ checked: 1, reconciled: 1, ignored: 0, skipped: 0, errors: [] });
+    expect(harness.takeEffects(requested.payoutId)).toEqual([
+      "db WITH candidates",
+      "db UPDATE settlement_work_claims",
+      "db SELECT settlement_payout_pages",
+      "readiness getPayoutReadiness",
+      'gateway retrieveConnectedAccountPayout {"providerReference":"acct_test","providerPayoutReference":"po_<payout>"} options=signal signal=live',
+      "read settlement.payout-<payout>",
+      "event settlement.payout.completed",
+      "operation payout-completed",
+      "db INSERT settlement_reconciliation_runs",
+    ]);
+    expect(jobContext.throwIfCancelled).toHaveBeenCalledTimes(2);
+    expect(checkpoints).toEqual([
+      {
+        progress: { phase: "processing", completed: 1, total: 1, message: "Reconciled payout." },
+        result: { checked: 1, reconciled: 1, ignored: 0, skipped: 0, errors: [] },
+      },
+    ]);
+  });
+
+  it("stops before provider I/O when the payout work claim cannot be renewed", async () => {
+    const harness = createRelocationHarness({
+      payoutRows: () => [relocationPayoutRow("pyo_relocation_claim")],
+      renewWorkClaims: false,
+    });
+
+    await expectNamedSettlementRejection(
+      harness.payouts.reconcilePayoutsNeedingAttention(
+        { accountId: "acc_seller", limit: 1, claimOwnerId: "worker_relocation", claimTtlMs: 60_000 },
+        context,
+      ),
+      "Payout reconciliation work claim was lost before processing completed.",
+    );
+    expect(harness.takeEffects()).toEqual(["db WITH candidates", "db UPDATE settlement_work_claims"]);
+  });
+
+  it("resubmits a missing transfer and payout through reconciliation with the recorded idempotency identities", async () => {
+    let payoutRow: Record<string, unknown> | null = null;
+    const fakeGateway = createFakeMoneyMovementGateway();
+    let transferAttempts = 0;
+    const harness = createRelocationHarness({
+      payoutRows: () => (payoutRow ? [payoutRow] : []),
+      gateway: {
+        ...fakeGateway,
+        async transferPlatformBalanceToConnectedAccount(input) {
+          transferAttempts += 1;
+          if (transferAttempts === 1) {
+            throw Object.assign(new Error("Provider transfer timed out."), { code: "timeout" });
+          }
+          return fakeGateway.transferPlatformBalanceToConnectedAccount(input);
+        },
+      },
+    });
+    await seedAvailableWallet(harness.wallets);
+    const requested = await harness.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50" },
+      context,
+    );
+    expect(requested.payout).toMatchObject({ status: "requested", provider_transfer_reference: null });
+    payoutRow = relocationPayoutRow(requested.payoutId, {
+      status: "requested",
+      provider_transfer_reference: null,
+      provider_payout_reference: null,
+      provider_status: null,
+      sent_at: null,
+    });
+    harness.takeEffects();
+
+    const result = await harness.payouts.reconcilePayoutsNeedingAttention(
+      { accountId: "acc_seller", limit: 1 },
+      context,
+    );
+
+    expect(result).toEqual({ checked: 1, reconciled: 1, ignored: 0, skipped: 0, errors: [] });
+    expect(harness.takeEffects(requested.payoutId)).toEqual([
+      "db SELECT settlement_payout_pages",
+      "readiness getPayoutReadiness",
+      "db SELECT settlement_provider_operations",
+      "db INSERT settlement_provider_operations",
+      'gateway transferPlatformBalanceToConnectedAccount {"payoutId":"<payout>","accountId":"acc_seller","providerReference":"acct_test","amount":"12.21","currencyCode":"usd","idempotencyKey":"settlement:payout:<payout>:transfer"}',
+      "db UPDATE settlement_provider_operations",
+      "db INSERT settlement_provider_idempotency_keys",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.provider-references-recorded",
+      "db INSERT settlement_provider_operations",
+      'gateway createConnectedAccountPayout {"payoutId":"<payout>","accountId":"acc_seller","providerReference":"acct_test","amount":"12.21","currencyCode":"usd","idempotencyKey":"settlement:payout:<payout>:payout"}',
+      "db UPDATE settlement_provider_operations",
+      "db INSERT settlement_provider_idempotency_keys",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.provider-references-recorded",
+      "read settlement.payout-<payout>",
+      "event settlement.payout.in-transit-recorded",
+      "db INSERT settlement_reconciliation_runs",
+    ]);
+  });
+
+  it("keeps the completed-run write inside the work-unit transaction that rolls back", async () => {
+    const effects: string[] = [];
+    const pool = createReconciliationJobPool(effects, {
+      payoutRow: relocationPayoutRow("pyo_relocation_rollback"),
+      failFirstParentUpdate: true,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: pool as never,
+      wallets: {} as never,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: recordGatewayEffects(effects, createFakeMoneyMovementGateway()),
+    });
+
+    const processed = await payouts.processNextPayoutReconciliationJob({
+      claimOwnerId: "worker_relocation:lane-0",
+      claimTtlMs: 60_000,
+    });
+
+    expect(processed).toBe(1);
+    expect(effects).toEqual([
+      "tx1 BEGIN",
+      "tx1 WITH workflow_budget",
+      "tx1 INSERT settlement_payout_reconciliation_job_events",
+      "tx1 SELECT",
+      "tx1 COMMIT",
+      "tx1 release",
+      "pool SELECT settlement_payout_pages",
+      'gateway retrieveConnectedAccountPayout {"providerReference":"acct_test","providerPayoutReference":"po_pyo_relocation_rollback"} options=signal signal=none',
+      "tx2 BEGIN",
+      "tx2 WITH terminal_unit",
+      "tx2 SELECT settlement_payout_reconciliation_jobs",
+      "tx2 SELECT settlement_payout_reconciliation_work_units",
+      "tx2 INSERT settlement_reconciliation_runs",
+      "tx2 UPDATE settlement_payout_reconciliation_jobs",
+      "tx2 ROLLBACK",
+      "tx2 release",
+      "tx3 BEGIN",
+      "tx3 WITH terminal_unit",
+      "tx3 SELECT settlement_payout_reconciliation_jobs",
+      "tx3 SELECT settlement_payout_reconciliation_work_units",
+      "tx3 INSERT settlement_reconciliation_runs",
+      "tx3 UPDATE settlement_payout_reconciliation_jobs",
+      "tx3 INSERT settlement_payout_reconciliation_job_events",
+      "tx3 SELECT",
+      "tx3 COMMIT",
+      "tx3 release",
+    ]);
+    expect(effects.filter((effect) => effect.includes("settlement_reconciliation_runs"))).toEqual([
+      "tx2 INSERT settlement_reconciliation_runs",
+      "tx3 INSERT settlement_reconciliation_runs",
+    ]);
+  });
+
+  it("releases the claimed work unit without provider I/O when the worker lease is lost", async () => {
+    const effects: string[] = [];
+    const pool = createReconciliationJobPool(effects, { payoutRow: relocationPayoutRow("pyo_relocation_lease") });
+    const payouts = createPayoutRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: pool as never,
+      wallets: {} as never,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: recordGatewayEffects(effects, createFakeMoneyMovementGateway()),
+    });
+
+    const processed = await payouts.processNextPayoutReconciliationJob({
+      claimOwnerId: "worker_relocation:lane-0",
+      claimTtlMs: 60_000,
+      throwIfLeaseLost: () => {
+        throw new Error("Lost lease worker_relocation:lane-0.");
+      },
+    });
+
+    expect(processed).toBe(0);
+    expect(effects).toEqual([
+      "tx1 BEGIN",
+      "tx1 WITH workflow_budget",
+      "tx1 INSERT settlement_payout_reconciliation_job_events",
+      "tx1 SELECT",
+      "tx1 COMMIT",
+      "tx1 release",
+      "tx2 BEGIN",
+      "tx2 UPDATE settlement_payout_reconciliation_work_units",
+      "tx2 COMMIT",
+      "tx2 release",
+      "pool SELECT settlement_payout_reconciliation_work_units",
+      "tx3 BEGIN",
+      "tx3 WITH exhausted",
+      "tx3 WITH claimable",
+      "tx3 COMMIT",
+      "tx3 release",
+    ]);
   });
 });

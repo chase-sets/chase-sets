@@ -190,7 +190,7 @@ describe("marketplace catalog projection", () => {
 });
 
 describe("marketplace account projection", () => {
-  it("accepts modern account enforcement payloads without changing its pre-slice status shape", async () => {
+  it("projects modern account enforcement payloads with stream-version fencing", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
     for (const [type, status, reason] of [
@@ -212,11 +212,27 @@ describe("marketplace account projection", () => {
           "identity.account-acc_compat",
         ),
       );
-      expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining(`status = '${status}'`), [
-        "acc_compat",
-        "2026-05-09T00:00:00.000Z",
-      ]);
+      expect(db.query).toHaveBeenLastCalledWith(
+        expect.stringContaining("status_stream_version = EXCLUDED.status_stream_version"),
+        ["acc_compat", status, 1, "2026-05-09T00:00:00.000Z"],
+      );
     }
+  });
+
+  it("fires lifecycle fan-out only after a winning fenced status write", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [{ account_id: "acc_compat" }] })) };
+    const onAccountStatusChanged = vi.fn(async () => undefined);
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never, { onAccountStatusChanged });
+    await handlers["identity.account.suspended"]!(
+      event("identity.account.suspended", {}, "identity.account-acc_compat"),
+    );
+    expect(onAccountStatusChanged).toHaveBeenCalledOnce();
+    onAccountStatusChanged.mockClear();
+    db.query.mockResolvedValue({ rows: [] });
+    await handlers["identity.account.reactivated"]!(
+      event("identity.account.reactivated", {}, "identity.account-acc_compat"),
+    );
+    expect(onAccountStatusChanged).not.toHaveBeenCalled();
   });
 
   it("projects account badges used by high-dollar listing publication policy", async () => {

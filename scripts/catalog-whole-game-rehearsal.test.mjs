@@ -113,6 +113,82 @@ describe("whole-game repair regressions", () => {
     );
   });
 
+  it("AC2 bounds a collapsed review-stage expansion before promotion", async () => {
+    const declarations = ["expandWorkflowStage", "submitPromoteAllReady"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    let expanded = false;
+    let posted = false;
+    const trigger = {
+      or: () => trigger,
+      first: () => trigger,
+      getByRole: () => trigger,
+      getAttribute: async (name) => (name === "aria-expanded" && expanded ? "true" : "false"),
+      click: async () => {},
+    };
+    const promoteButton = {};
+    const form = {
+      filter: () => form,
+      getByRole: () => promoteButton,
+    };
+    const page = {
+      url: () => rehearsal.wholeGameStagingOrigin,
+      locator: (selector) => (selector.includes("workflow-stage") ? trigger : form),
+      waitForTimeout: async () => {},
+      getByRole: () => trigger,
+    };
+    const runtime = { deadlineAt: Date.now() + 1_000, pollMs: 1 };
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      Set,
+      URLSearchParams,
+      cssString: JSON.stringify,
+      workflowStageNames: { "review-changes": /^Review changes\\b/i },
+      pageReadyTimeoutMs: 1_000,
+      syncTimeoutMs: 1_000,
+      page,
+      expect: () => ({
+        toBeVisible: async () => {},
+        toHaveAttribute: async () => {
+          if (!expanded) {
+            throw new Error("review-changes stage did not expand before its deadline");
+          }
+        },
+        toHaveCount: async () => {},
+      }),
+      readAllCompletedPromoteJobs: async () => [],
+      readWholeGameJson: async () => ({ items: [] }),
+      gotoWholeGamePage: async () => {},
+      wholeGameRemainingMs: () => 1_000,
+      clickWholeGameControl: async (_page, control) => {
+        if (control === promoteButton && !expanded) throw new Error("click timeout");
+        posted = true;
+      },
+      readActivePromoteJobs: async () => [],
+    });
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    await expect(context.submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    expect(posted).toBe(false);
+  });
+
+  it("AC1 orders the origin assertion, review expansion, and promotion click", () => {
+    const source = journeyFunction("submitPromoteAllReady").getText(journeySource);
+    const count = source.indexOf("await expect(form).toHaveCount(1");
+    const origin = source.indexOf("assertWholeGameOrigin(page.url())", count);
+    const expansion = source.indexOf('expandWorkflowStage(page, "review-changes"', origin);
+    const click = source.indexOf(
+      'clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready"',
+      expansion,
+    );
+    expect(count).toBeGreaterThanOrEqual(0);
+    expect(origin).toBeGreaterThan(count);
+    expect(expansion).toBeGreaterThan(origin);
+    expect(click).toBeGreaterThan(expansion);
+  });
+
   it.each(["full-game-start", "full-game-settle"])(
     "refuses automatic retries of %s before navigation or credentials",
     async (scope) => {

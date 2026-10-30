@@ -89,7 +89,61 @@ const supplyPreview: orderingServer.CheckoutFulfillmentPreview = {
   optimizationGoal: "lowest-total",
   readyLineKeys: ["lst_synthetic"],
   unavailableLineKeys: [],
-  sellerGroups: [],
+  sellerGroups: [
+    {
+      sellerAccountId: "seller_synthetic",
+      sellerDisplayName: null,
+      itemSubtotalAmount: "20.00",
+      shippingChargeAmount: "0.00",
+      salesTaxAmount: "0.00",
+      totalAmount: "20.00",
+      postageRequirements: {
+        policyVersion: "synthetic",
+        parcelRequired: false,
+        parcelReasons: [],
+        signatureRequired: false,
+        signatureReasons: [],
+        insuranceRequired: false,
+        insuranceReasons: [],
+        insuredValueAmount: null,
+        shippingEvidenceTier: "synthetic",
+      },
+      deliveryEstimate: {
+        earliestDate: "2026-10-17",
+        latestDate: "2026-10-20",
+        minimumTransitDays: 1,
+        maximumTransitDays: 3,
+        handlingDays: 1,
+        packageCount: 1,
+        shipFromRegion: "US-IL",
+        serviceLevel: "standard",
+        promiseOwner: "fulfillment",
+        promiseSource: "fulfillment-promise-policy",
+        promiseConfidence: "estimated",
+        cutoffTimeLocal: "17:00",
+        packingStartDate: "2026-10-16",
+        carrierHandoffDate: "2026-10-17",
+        basis: "synthetic",
+      },
+      lines: [
+        {
+          lineKey: "lst_synthetic",
+          listingId: "lst_synthetic",
+          sellerAccountId: "seller_synthetic",
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "prod_synthetic",
+          itemTitle: "Synthetic item",
+          productSummary: null,
+          quantity: 1,
+          estimatedUnitPriceAmount: "20.00",
+          estimatedLineTotalAmount: "20.00",
+          priceState: "available",
+          materialChangeReasons: [],
+        },
+      ],
+    },
+  ],
   totals: {
     itemSubtotalAmount: "20.00",
     shippingAmount: "0.00",
@@ -131,6 +185,7 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
   const checkout =
     checkoutServices ??
     checkoutModule.createServices(pool, { checkoutObservabilityTelemetry: { recordCheckoutEvent } });
+  vi.spyOn(checkout.sessions, "getLastRecordedQuote").mockResolvedValue(supplyPreview);
   const ordering = orderingModule.createServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const createAccountPayment = vi.spyOn(payments.payments, "createAccountPayment");
   const recoverCheckoutPayment = vi.spyOn(payments.payments, "recoverCheckoutPayment");
@@ -289,6 +344,20 @@ function retainedCartLine(lineId: string): CartLine {
     updated_at: "2026-09-22T00:00:00.000Z",
   };
 }
+/** One synthetic locked-listing cart line, added through a Cart attempt. */
+const syntheticCartLine = {
+  catalogItemId: "cat_synthetic",
+  productId: "cat_synthetic::",
+  itemTitle: "Synthetic item",
+  itemSubtitle: null,
+  itemImageUrl: null,
+  productSummary: null,
+  quantity: 1,
+  selectedOptions: [],
+  fulfillmentMode: "locked-listing",
+  lockedListingId: "lst_synthetic",
+} as const;
+
 const closedRoutes = [
   "/account/checkout-sessions",
   ...[
@@ -306,7 +375,7 @@ const closedRoutes = [
 ].map((path) => `POST /api/marketplace${path}`);
 const preservedRoutes = [
   ...["account", "guest"].flatMap((actor) => [
-    ...["", "/readiness", "/bulk", "/:lineId/quantity", "/:lineId/fulfillment", "/:lineId/remove"].map(
+    ...["", "/readiness", "/bulk", "/commands", "/:lineId/quantity", "/:lineId/fulfillment", "/:lineId/remove"].map(
       (suffix) => `POST /api/marketplace/${actor}/cart${suffix}`,
     ),
     ...["", "/readiness", "/:lineId/remove"].map((suffix) => `POST /api/marketplace/${actor}/sell-list${suffix}`),
@@ -522,7 +591,7 @@ describe("checkout-closed-agent-rails", () => {
     const read = vi.spyOn(f.ordering.orders, "getPurchase").mockResolvedValue(order);
     for (const transport of ["rest", "mcp"] as const) {
       expect(await ucpReadOrCancel(f.closed, "get_order", order.order_id, transport)).toMatchObject({
-        ucp: { status: "ok" },
+        ucp: { status: "success" },
         id: order.order_id,
       });
     }
@@ -556,7 +625,7 @@ describe("checkout-closed-agent-rails", () => {
     expect(rest.status).toBe(200);
     expect(await rest.json()).toMatchObject({
       ucp: { status: "error" },
-      messages: [{ severity: "error", code: "checkout_closed" }],
+      messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
     });
     const mcpBody = JSON.stringify({
       jsonrpc: "2.0",
@@ -572,7 +641,10 @@ describe("checkout-closed-agent-rails", () => {
     expect(mcp.status).toBe(200);
     expect(await mcp.json()).toMatchObject({
       result: {
-        structuredContent: { ucp: { status: "error" }, messages: [{ severity: "error", code: "checkout_closed" }] },
+        structuredContent: {
+          ucp: { status: "error" },
+          messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
+        },
       },
     });
     expect(create).not.toHaveBeenCalled();
@@ -831,23 +903,18 @@ describe("checkout-closed-session-lifecycle", () => {
       return paymentRow;
     });
     cartLineId = (
-      await checkoutServices.cart.addLine(
+      await checkoutServices.cart.executeCartAttempt(
         {
-          accountId: "acc_synthetic",
-          catalogItemId: "cat_synthetic",
-          productId: "cat_synthetic::",
-          itemTitle: "Synthetic item",
-          itemSubtitle: null,
-          itemImageUrl: null,
-          productSummary: null,
-          quantity: 1,
-          selectedOptions: [],
-          fulfillmentMode: "locked-listing",
-          lockedListingId: "lst_synthetic",
+          ownerKey: "acc_synthetic",
+          attemptId: "matrix-synthetic-cart-add-open",
+          kind: "cart.add-line",
+          target: "cart",
+          requestHash: "a".repeat(64),
+          commands: [{ type: "add", ...syntheticCartLine }],
         },
         context,
       )
-    ).lineId;
+    ).result.vector![0]!.lineId!;
     const readiness = await checkoutServices.cart.createReadinessSnapshot({ accountId: "acc_synthetic" });
     expect(readiness.status, JSON.stringify(readiness)).toBe("ready");
     stubOrderingTransport().preview.mockResolvedValue({ ...supplyPreview, readyLineKeys: [cartLineId] });
@@ -1012,23 +1079,18 @@ describe("checkout-closed-session-lifecycle", () => {
     const sessions = checkoutServices.sessions;
     const f = fixture(checkoutServices);
     retainedLineId = (
-      await f.checkout.cart.addLine(
+      await f.checkout.cart.executeCartAttempt(
         {
-          accountId: "acc_synthetic",
-          catalogItemId: "cat_synthetic",
-          productId: "cat_synthetic::",
-          itemTitle: "Synthetic item",
-          itemSubtitle: null,
-          itemImageUrl: null,
-          productSummary: null,
-          quantity: 1,
-          selectedOptions: [],
-          fulfillmentMode: "locked-listing",
-          lockedListingId: "lst_synthetic",
+          ownerKey: "acc_synthetic",
+          attemptId: "matrix-synthetic-cart-add-retained",
+          kind: "cart.add-line",
+          target: "cart",
+          requestHash: "b".repeat(64),
+          commands: [{ type: "add", ...syntheticCartLine }],
         },
         { tenantId: "tnt_synthetic", audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" } },
       )
-    ).lineId;
+    ).result.vector![0]!.lineId!;
     const orderingTransport = stubOrderingTransport();
     const source = {
       type: "buy-now",
@@ -1057,6 +1119,7 @@ describe("checkout-closed-session-lifecycle", () => {
     const [a, b] = started;
     expect(a).not.toBe(b);
     const savedAddressId = createId("adr");
+    const restrictedAddressId = createId("adr");
     const savedAddresses = vi.spyOn(f.checkout.sellList, "listShipFromAddresses").mockResolvedValue([
       {
         shipping_address_id: savedAddressId,
@@ -1075,6 +1138,23 @@ describe("checkout-closed-session-lifecycle", () => {
         is_default: true,
         updated_at: "2026-09-22T00:00:00.000Z",
       },
+      {
+        shipping_address_id: restrictedAddressId,
+        account_id: "acc_synthetic",
+        label: "Synthetic PO box",
+        recipient_name: "Synthetic Buyer",
+        company: null,
+        line1: "PO Box 100",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postal_code: "60601",
+        country: "US",
+        phone: null,
+        email: null,
+        is_default: false,
+        updated_at: "2026-09-22T00:00:00.000Z",
+      },
     ]);
     const setAddress = vi.spyOn(sessions, "setShippingAddress");
     const select = await nativeTool(
@@ -1088,6 +1168,32 @@ describe("checkout-closed-session-lifecycle", () => {
     });
     expect(savedAddresses).toHaveBeenCalledTimes(1);
     expect(setAddress).toHaveBeenCalledTimes(1);
+    const beforeRestrictedAddressEvents = store.allEvents.filter(
+      (event) => event.eventType === "checkout.session.shipping-address-set",
+    ).length;
+    const restrictedSelect = await nativeTool(
+      buildPlatformApiApp(f.runtime, f.options),
+      "checkout.select-saved-address",
+      { sessionId: a, shippingAddressId: restrictedAddressId },
+      "lifecycle-open-restricted-select",
+    );
+    const restrictedBody = await restrictedSelect.json();
+    expect(restrictedBody).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+          },
+        ],
+      },
+    });
+    expect(store.allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(
+      beforeRestrictedAddressEvents,
+    );
+    expect(restrictedBody.result).not.toHaveProperty("structuredContent");
+    await expect(setAddress.mock.results[1]!.value).rejects.toMatchObject({ code: "shipping_address_restricted" });
     const closedSelect = await nativeTool(
       f.closed,
       "checkout.select-saved-address",
@@ -1097,8 +1203,8 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(await closedSelect.json()).toMatchObject({
       result: { isError: true, content: [{ type: "text", text: "checkout_closed" }] },
     });
-    expect(savedAddresses).toHaveBeenCalledTimes(1);
-    expect(setAddress).toHaveBeenCalledTimes(1);
+    expect(savedAddresses).toHaveBeenCalledTimes(2);
+    expect(setAddress).toHaveBeenCalledTimes(2);
     const cartRead = vi.spyOn(f.checkout.cart, "listAuthorizedCartLines");
     const retainedCart = await nativeTool(
       buildPlatformApiApp(f.runtime, { ...f.options, checkoutClosed: true }),
@@ -1123,7 +1229,9 @@ describe("checkout-closed-session-lifecycle", () => {
         { line_id: retainedLineId, quantity: 1 },
       ]);
       for (const transport of ["rest", "mcp"] as const) {
-        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({ ucp: { status: "ok" } });
+        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({
+          ucp: { status: "success" },
+        });
       }
     }
     expect(store.allEvents).toHaveLength(beforeClosure);
@@ -1132,7 +1240,10 @@ describe("checkout-closed-session-lifecycle", () => {
     expect((await sessions.getSession(b, "acc_synthetic"))?.cancelled_at).toBeTruthy();
     expect((await sessions.getSession(a, "acc_synthetic"))?.cancelled_at).toBeNull();
     for (const transport of ["rest", "mcp"] as const) {
-      expect(await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport)).toMatchObject({ ucp: { status: "ok" } });
+      const cancelledRead = await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport);
+      expect(cancelledRead).toMatchObject({
+        ucp: { status: "success" },
+      });
     }
     const reopened = buildPlatformApiApp(f.runtime, { ...f.options, checkoutClosed: false });
     const address = {

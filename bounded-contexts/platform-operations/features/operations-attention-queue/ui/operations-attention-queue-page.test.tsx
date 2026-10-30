@@ -15,43 +15,52 @@ async function fixtureQueue(): Promise<OperationsAttentionQueue> {
     [
       {
         id: "support-request-deadline",
-        load: async () => [
-          buildOperationsAttentionItem({
-            source: "support-request-deadline",
-            entityId: "req-1",
-            severity: "critical",
-            summary: { code: "supportRequest", params: { reference: "CASE-1" } },
-            observedAt: "2026-07-13T00:00:00.000Z",
-            dueAt: "2026-07-14T09:00:00.000Z",
-          }),
-        ],
+        load: async () => ({
+          items: [
+            buildOperationsAttentionItem({
+              source: "support-request-deadline",
+              entityId: "req-1",
+              severity: "critical",
+              summary: { code: "supportRequest", params: { reference: "CASE-1" } },
+              observedAt: "2026-07-13T00:00:00.000Z",
+              dueAt: "2026-07-14T09:00:00.000Z",
+            }),
+          ],
+          total: 1,
+        }),
       },
       {
         id: "projection-poison-event",
-        load: async () => [
-          buildOperationsAttentionItem({
-            source: "projection-poison-event",
-            entityId: "evt-1",
-            severity: "critical",
-            summary: {
-              code: "poisonEvent",
-              params: { eventType: "order.placed", projectionKey: "ordering.orders", retryCount: 2 },
-            },
-            observedAt: "2026-07-14T06:00:00.000Z",
-          }),
-        ],
+        load: async () => ({
+          items: [
+            buildOperationsAttentionItem({
+              source: "projection-poison-event",
+              entityId: "evt-1",
+              severity: "critical",
+              summary: {
+                code: "poisonEvent",
+                params: { eventType: "order.placed", projectionKey: "ordering.orders", retryCount: 2 },
+              },
+              observedAt: "2026-07-14T06:00:00.000Z",
+            }),
+          ],
+          total: 1,
+        }),
       },
       {
         id: "platform-feedback-unreviewed",
-        load: async () => [
-          buildOperationsAttentionItem({
-            source: "platform-feedback-unreviewed",
-            entityId: "fb-1",
-            severity: "info",
-            summary: { code: "feedbackUnreviewed", params: { topic: "checkout" } },
-            observedAt: "2026-07-14T10:00:00.000Z",
-          }),
-        ],
+        load: async () => ({
+          items: [
+            buildOperationsAttentionItem({
+              source: "platform-feedback-unreviewed",
+              entityId: "fb-1",
+              severity: "info",
+              summary: { code: "feedbackUnreviewed", params: { topic: "checkout" } },
+              observedAt: "2026-07-14T10:00:00.000Z",
+            }),
+          ],
+          total: 1,
+        }),
       },
     ],
     CONTEXT,

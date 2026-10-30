@@ -147,12 +147,18 @@ export async function captureResponsiveEvidence(input: {
   page: Page;
   testInfo: TestInfo;
   claimId: string;
+  /** Optional exact route when a fixture selects a generated query value. */
+  routePath?: string;
 }): Promise<void> {
   const claim = findClaim(input.claimId);
+  const expectedRoute = input.routePath ?? claim.route.path;
+  if (!expectedRoute.startsWith("/")) {
+    throw new Error(`Responsive evidence claim '${claim.id}' has an invalid expected route.`);
+  }
 
   await test.step(`responsive evidence: ${claim.id}`, async () => {
     await input.page.setViewportSize(claim.viewport);
-    assertExactRoute(input.page, claim);
+    assertExactRoute(input.page, claim, expectedRoute);
 
     const target = input.page.locator(claim.target.selector);
     await requireExactVisibleTarget(target, claim);
@@ -182,6 +188,7 @@ export async function captureResponsiveEvidence(input: {
       claimId: claim.id,
       route: {
         ...claim.route,
+        path: expectedRoute,
         observed: routePath(input.page),
       },
       fixture: claim.fixture,
@@ -295,10 +302,10 @@ function validateMeasurement(claim: ResponsiveEvidenceClaim, measurement: Measur
   }
 }
 
-function assertExactRoute(page: Page, claim: ResponsiveEvidenceClaim) {
+function assertExactRoute(page: Page, claim: ResponsiveEvidenceClaim, expectedRoute: string) {
   const observed = routePath(page);
-  if (observed !== claim.route.path) {
-    fail(claim, `route-mismatch(expected=${claim.route.path}, observed=${observed})`, observed);
+  if (observed !== expectedRoute) {
+    fail(claim, `route-mismatch(expected=${expectedRoute}, observed=${observed})`, observed);
   }
 }
 

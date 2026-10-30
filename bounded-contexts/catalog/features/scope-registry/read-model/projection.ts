@@ -232,7 +232,7 @@ async function upsertScopeRecord(
        language_editions = EXCLUDED.language_editions,
        attributes = EXCLUDED.attributes,
        relationships = EXCLUDED.relationships,
-       lifecycle_status = COALESCE(EXCLUDED.lifecycle_status, catalog_scope_records.lifecycle_status),
+       lifecycle_status = COALESCE($17, catalog_scope_records.lifecycle_status),
        updated_at = EXCLUDED.updated_at`,
     [
       projection.scopeRecordId,

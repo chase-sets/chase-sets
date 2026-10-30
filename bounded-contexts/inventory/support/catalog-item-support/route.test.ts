@@ -16,7 +16,6 @@ const catalogItem = {
 function services(overrides: Partial<InventoryCatalogItemServices> = {}): InventoryCatalogItemServices {
   return {
     getCatalogItem: vi.fn(async () => catalogItem),
-    searchCatalogItems: vi.fn(async () => ({ items: [catalogItem], total: 1 })),
     getExternalProductReference: vi.fn(async () => null),
     getExternalCatalogItemReference: vi.fn(async () => null),
     getCatalogItemByGtin: vi.fn(async () => null),
@@ -26,25 +25,6 @@ function services(overrides: Partial<InventoryCatalogItemServices> = {}): Invent
 }
 
 describe("inventory catalog item routes", () => {
-  it("returns searchable catalog items for picker requests", async () => {
-    const searchCatalogItems = vi.fn<InventoryCatalogItemServices["searchCatalogItems"]>(async () => ({
-      items: [catalogItem],
-      total: 1,
-    }));
-    const app = inventoryCatalogItemRoutes(services({ searchCatalogItems }));
-
-    const response = await app.request("/?search=Air&limit=7");
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(searchCatalogItems).toHaveBeenCalledWith({ search: "Air", status: undefined, limit: 7 });
-    expect(body).toMatchObject({
-      count: 1,
-      total: 1,
-      items: [expect.objectContaining({ title: "Air Balloon" })],
-    });
-  });
-
   it("preserves direct canonical item lookup", async () => {
     const getCatalogItem = vi.fn<InventoryCatalogItemServices["getCatalogItem"]>(async () => catalogItem);
     const app = inventoryCatalogItemRoutes(services({ getCatalogItem }));

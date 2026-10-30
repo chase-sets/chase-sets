@@ -34,6 +34,7 @@ export type CatalogSyncAcceptedScopeMapping = Readonly<{
   seriesId?: string | null;
   setId?: string | null;
   setName?: string | null;
+  languageCode?: string | null;
   mappingId: string;
   mappingVersion: string;
   reviewStatus: string;
@@ -66,6 +67,7 @@ export function catalogSyncAcceptedScopeMappingFromRow(row: {
   series_id: string | null;
   set_id: string | null;
   set_name: string | null;
+  language_coordinates?: unknown;
   mapping_id: string;
   review_status: string;
   updated_at: string;
@@ -78,6 +80,7 @@ export function catalogSyncAcceptedScopeMappingFromRow(row: {
     seriesId: normalizeOptionalKey(row.series_id),
     setId: normalizeOptionalKey(row.set_id),
     setName: row.set_name?.trim() || null,
+    languageCode: readLanguageCode(row.language_coordinates),
     mappingId: row.mapping_id,
     mappingVersion: row.updated_at,
     reviewStatus: row.review_status,
@@ -88,7 +91,6 @@ export type CatalogSyncProviderParticipationBlocker = Readonly<{
   code:
     | "provider-adapter-missing"
     | "provider-adapter-diagnostics"
-    | "provider-transport-unavailable"
     | "inactive-profile-unit"
     | "scope-product-domain-mismatch"
     | "scope-product-form-mismatch"
@@ -194,8 +196,14 @@ export async function previewCatalogSyncProviderParticipation(input: {
   const excludedUnitKeys = new Set(scope.providerParticipation?.excludedUnitKeys ?? []);
   const requiredUnitKeys = new Set(scope.providerParticipation?.requiredUnitKeys ?? []);
   const restrictToExplicitParticipation = selectedUnitKeys.size > 0 || requiredUnitKeys.size > 0;
-  const activeCandidates = input.providerProfileVersions.filter((version) =>
-    version.profile.capabilities.includes("source-observation-import"),
+  // A unit whose registered adapter declares no import planning is never
+  // enrolled: it is not planned, selected or required, contributes no blocker,
+  // and its adapter is never called. An explicitly required one is refused below
+  // as missing.
+  const activeCandidates = input.providerProfileVersions.filter(
+    (version) =>
+      version.profile.capabilities.includes("source-observation-import") &&
+      !declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey),
   );
   const matchingCandidates = activeCandidates
     .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }))
@@ -240,7 +248,7 @@ export async function previewCatalogSyncProviderParticipation(input: {
       scope,
       version,
       unitKey,
-      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
+      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey, scope.languageCode),
       registry: input.providerAdapterRegistry,
       rolloutControlPolicy: input.rolloutControlPolicy,
       includeOperationalGates: input.includeOperationalGates ?? false,
@@ -397,15 +405,6 @@ async function planProviderUnit(input: {
         providerKey: input.version.providerKey,
       }),
       action: "Register and configure this provider adapter before selecting the unit.",
-    });
-  } else if (!adapter.capabilities.supportsImportPlanning) {
-    blockers.push({
-      code: "provider-transport-unavailable",
-      severity: "error",
-      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable", {
-        providerKey: input.version.providerKey,
-      }),
-      action: "Enable import planning on the provider adapter or deselect this unit.",
     });
   } else if (input.includeOperationalGates) {
     readinessEvidence = await appendProviderReadinessBlockers(adapter, input.unitKey, blockers);
@@ -571,6 +570,13 @@ function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfi
   return version.active && version.lifecycle === "active" && version.profile.status === "active";
 }
 
+// The registered adapter's capability declaration is the single signal, never a
+// provider-key branch. A provider with no registered adapter does not declare
+// anything, so its units stay planned and fail closed as provider-adapter-missing.
+function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey: string): boolean {
+  return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
+}
+
 function eligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
@@ -683,7 +689,7 @@ function childScopeForProviderUnit(
     provider: version.providerKey,
     profileKey: version.profileKey,
     ingestionUnitKey: unitKey,
-    language: scope.languageCode ?? undefined,
+    language: scope.languageCode ?? normalizeOptionalKey(mapping?.languageCode) ?? undefined,
     productLineId: mapping?.productLineId ?? undefined,
     seriesId: mapping?.seriesId ?? undefined,
     setId: mapping?.setId ?? undefined,
@@ -795,13 +801,18 @@ function acceptedMappingFor(
   mappings: readonly CatalogSyncAcceptedScopeMapping[],
   providerKey: string,
   unitKey: CatalogIntegrationUnitKey,
+  scopeLanguageCode: string | null | undefined,
 ): CatalogSyncAcceptedScopeMapping | null {
   const providerMappings = mappings.filter((mapping) => mapping.providerKey === providerKey);
-  return (
+  const mapping =
     providerMappings.find((mapping) => mapping.unitKey === unitKey) ??
     providerMappings.find((mapping) => !mapping.unitKey) ??
-    null
-  );
+    null;
+  const mappingLanguageCode = normalizeOptionalKey(mapping?.languageCode);
+  if (!mapping || !scopeLanguageCode || !mappingLanguageCode || mappingLanguageCode === scopeLanguageCode) {
+    return mapping;
+  }
+  return { ...mapping, productLineId: null, seriesId: null, setId: null, setName: null };
 }
 
 function unitMatchesProductDomain(unitKey: CatalogIntegrationUnitKey, productDomain: string): boolean {
@@ -836,4 +847,10 @@ function normalizeRequiredKey(
 function normalizeOptionalKey(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function readLanguageCode(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const languageCode = (value as { languageCode?: unknown }).languageCode;
+  return typeof languageCode === "string" && languageCode.trim() ? languageCode.trim().toLowerCase() : null;
 }

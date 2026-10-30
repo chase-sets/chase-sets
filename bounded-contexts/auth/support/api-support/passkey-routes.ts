@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { insertCreatedAuthIdentityAccountMirror } from "../auth-support/identity-projection";
 import {
   consumeChallenge,
@@ -179,7 +179,6 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             accountId,
             authenticationMethod: "passkey",
             context: getBootstrapContext(c),
-            publishAuthenticationOutcome: true,
             membershipsOverride: membershipId
               ? [
                   {
@@ -187,7 +186,7 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
                     accountId,
                     roleKey: "owner",
                     status: "active",
-                    rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+                    rolePermissions: ROLE_PERMISSIONS.owner,
                   },
                 ]
               : undefined,
@@ -248,7 +247,6 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "passkey",
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     return c.json(authResult);

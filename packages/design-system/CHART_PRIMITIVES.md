@@ -1,10 +1,10 @@
 # Chart Primitives
 
-`Sparkline` and `TimeSeriesChart` are the design system's only charting components (`packages/design-system/src/components/data-display/chart.tsx`). They are hand-rolled SVG rather than a charting dependency: a bundled library would add supply-chain and CSP surface for a shape this small. No context should own local chart code — build once here, consume everywhere.
+`Sparkline`, `TimeSeriesChart` and `NumericSeriesChart` are the design system's charting components (`packages/design-system/src/components/data-display/chart.tsx`). They are hand-rolled SVG rather than a charting dependency: a bundled library would add supply-chain and CSP surface for a shape this small. No context should own local chart code — build once here, consume everywhere.
 
 ## Decision: no charting dependency
 
-`Sparkline` and `TimeSeriesChart` cover the whole current need: inline trend lines and a multi-series line/step/band/marker workhorse. Both are small enough to hand-roll in plain SVG with no measurement dependencies (no `getBBox`/`getTotalLength`), which keeps them safe to render in tests and server environments alike. Reconsider only if a future surface needs interaction models a hand-rolled primitive cannot reasonably provide (pan/zoom, canvas-scale point counts).
+`Sparkline`, `TimeSeriesChart` and `NumericSeriesChart` cover the whole current need: inline trends, timestamp series, and finite numeric x/y series. They are small enough to hand-roll in plain SVG with no measurement dependencies (no `getBBox`/`getTotalLength`), which keeps them safe to render in tests and server environments alike. Reconsider only if a future surface needs interaction models a hand-rolled primitive cannot reasonably provide (pan/zoom, canvas-scale point counts).
 
 ## Sparkline
 
@@ -28,6 +28,15 @@ The workhorse for market-analytics surfaces: multiple series, each with its own 
 - `minChartWidth`: opt-in minimum pixel width for dense series; the plot then scrolls horizontally inside its own container instead of compressing illegibly or overflowing the page (m76 responsive contract).
 - Legend renders automatically from series tone + name whenever more than one series is present (`showLegend` overrides).
 - Every series contributes a sentence to the generated screen-reader summary (`{name}: {count} points, from {min} to {max}`), plus one sentence per marker; `summary` overrides the whole thing.
+
+## NumericSeriesChart
+
+Use for numeric x/y domains such as horizon days versus value or hurdle versus daily return. Non-finite points are discarded before scaling, and the accessible sample table contains the same finite samples as the rendered line.
+
+- `series`: array of `{ id, name, points: [{ x, y, label? }], tone?, markers? }`.
+- `minimumSamples` (default `2`) keeps empty and insufficient data distinct from a plotted line; `error` renders an explicit unavailable state.
+- `showTable` (default `true`) exposes every finite sample in an accessible table; `formatX` and `formatY` provide localized axis/table values.
+- Markers use the same tone tokens as `TimeSeriesChart`; no raw colors or timestamp masquerading.
 
 ## Accessibility
 

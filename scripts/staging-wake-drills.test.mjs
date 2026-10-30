@@ -20,6 +20,7 @@ import {
   deriveLoadReadinessDecision,
   evaluateConvergenceSample,
   evaluateWakeRuntimeReadiness,
+  fetchWakeStatusSnapshot,
   parseStagingWakeDrillArgs,
   pollForConvergence,
   renderDrillStepSummary,
@@ -111,6 +112,27 @@ function noWorkerWakeStatus(overrides = {}) {
       activeWakeCapableWorkerCount: 0,
     },
     ...overrides,
+  });
+}
+
+const wakeStatusAdminOptions = {
+  adminBaseUrl: "https://admin.staging.chasesets.com",
+  adminEmail: "ops@example.test",
+  adminPassword: "test-password",
+};
+
+function wakeStatusFetchImpl({ signIn, wakeStatus }) {
+  return async (url) => {
+    if (String(url).endsWith("/api/auth/password-sign-in")) {
+      return signIn();
+    }
+    return wakeStatus();
+  };
+}
+
+function connectTimeoutError(message = "fetch failed", causeMessage = "Connect Timeout Error") {
+  return new TypeError(message, {
+    cause: Object.assign(new Error(causeMessage), { code: "UND_ERR_CONNECT_TIMEOUT" }),
   });
 }
 
@@ -745,6 +767,138 @@ describe("wake runtime preflight", () => {
       ready: false,
     });
   });
+
+  it("treats a wake-status fetch failure as a not-ready sample that resets the ready streak", async () => {
+    const leaseRenewedAt = (renewedAt) => ({
+      relay: { available: true, lease: { state: "active", ownerId: "worker-a", renewedAt } },
+    });
+    const responses = [
+      () => readyWakeStatus(leaseRenewedAt("2026-10-18T14:39:00.000Z")),
+      () => Promise.reject(new Error("transient")),
+      () => readyWakeStatus(leaseRenewedAt("2026-10-18T14:39:10.000Z")),
+      () => readyWakeStatus(leaseRenewedAt("2026-10-18T14:39:20.000Z")),
+    ];
+    const deps = fakeDeps({ fetchWakeStatus: async () => responses.shift()() });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 10_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    const unknownFailure = { stage: "unknown", status: null, code: null };
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 3_000,
+      sampleCount: 4,
+      readySampleCount: 2,
+      fetchFailureCount: 1,
+      lastFetchFailure: unknownFailure,
+      samples: [
+        { sampleNumber: 1, elapsedMs: 0, ready: true, fetchFailure: null, stability: { stable: false } },
+        {
+          sampleNumber: 2,
+          elapsedMs: 1_000,
+          ready: false,
+          reasons: ["wake-status-preflight-fetch-failed"],
+          fetchFailure: unknownFailure,
+          stability: null,
+        },
+        { sampleNumber: 3, elapsedMs: 2_000, ready: true, fetchFailure: null, stability: { stable: false } },
+        { sampleNumber: 4, elapsedMs: 3_000, ready: true, fetchFailure: null, stability: { stable: true } },
+      ],
+      stability: {
+        stable: true,
+        observedRelayLeaseRenewal: true,
+        firstRelayLeaseRenewedAt: "2026-10-18T14:39:10.000Z",
+        finalRelayLeaseRenewedAt: "2026-10-18T14:39:20.000Z",
+      },
+    });
+  });
+
+  it("keeps polling through wake-status fetch failures until the preflight budget expires", async () => {
+    let calls = 0;
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => {
+        calls += 1;
+        throw new Error("still unreachable");
+      },
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 3_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(calls).toBe(4);
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: false,
+      readyAfterMs: null,
+      sampleCount: 4,
+      readySampleCount: 0,
+      fetchFailureCount: 4,
+      lastFetchFailure: { stage: "unknown", status: null, code: null },
+      final: { ready: false, reasons: ["wake-status-preflight-fetch-failed"] },
+    });
+    expect(result.samples.map((sample) => sample.sampleNumber)).toEqual([1, 2, 3, 4]);
+    expect(deps.now()).toBe(3_000);
+  });
+
+  it.each([
+    {
+      name: "a sign-in HTTP 502",
+      signIn: () => new Response("{}", { status: 502 }),
+      expected: { stage: "sign-in", status: 502, code: null },
+    },
+    {
+      name: "a sign-in without a session token",
+      signIn: () => Response.json({}),
+      expected: { stage: "sign-in", status: null, code: null },
+    },
+    {
+      name: "a wake-status HTTP 503",
+      signIn: () => Response.json({ sessionToken: "session-token" }),
+      wakeStatus: () => new Response("{}", { status: 503 }),
+      expected: { stage: "wake-status", status: 503, code: null },
+    },
+    {
+      name: "a sign-in connect timeout",
+      signIn: () => Promise.reject(connectTimeoutError()),
+      expected: { stage: "sign-in", status: null, code: "UND_ERR_CONNECT_TIMEOUT" },
+    },
+  ])("records the closed fetch-failure class for $name", async ({ signIn, wakeStatus, expected }) => {
+    const fetchImpl = wakeStatusFetchImpl({
+      signIn,
+      wakeStatus: wakeStatus ?? (() => Response.json(readyWakeStatus())),
+    });
+    const deps = fakeDeps({ fetchWakeStatus: () => fetchWakeStatusSnapshot(wakeStatusAdminOptions, fetchImpl) });
+
+    const result = await waitForWakeRuntimeReady({ wakeRuntimeReadyBudgetMs: 0 }, deps);
+
+    expect(result).toMatchObject({
+      ready: false,
+      sampleCount: 1,
+      fetchFailureCount: 1,
+      lastFetchFailure: expected,
+      samples: [
+        { sampleNumber: 1, ready: false, reasons: ["wake-status-preflight-fetch-failed"], fetchFailure: expected },
+      ],
+    });
+  });
+
+  it("records an unknown fetch-failure class when an injected wake-status fetcher throws a plain error", async () => {
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => {
+        throw new Error("Wake-status request failed with HTTP 503.");
+      },
+    });
+
+    const result = await waitForWakeRuntimeReady({ wakeRuntimeReadyBudgetMs: 0 }, deps);
+
+    expect(result.lastFetchFailure).toEqual({ stage: "unknown", status: null, code: null });
+    expect(result.samples[0].fetchFailure).toEqual({ stage: "unknown", status: null, code: null });
+  });
 });
 
 describe("canary write classification", () => {
@@ -1337,6 +1491,46 @@ describe("drill orchestration", () => {
     expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-before-drill");
     expect(evidence.canaryWrite.attempted).toBe(false);
     expect(evidence.convergence).toBeNull();
+  });
+
+  it("keeps raw wake-status fetch error text out of drill evidence", async () => {
+    const leakMarkers = [
+      "Bearer adv-secret-token-10012",
+      "leaked.operator@example.com",
+      "https://admin.staging.chasesets.com/api/platform/projections/wake-status?token=adv",
+      "SENTINEL-10012-LEAK",
+    ];
+    const leakyMessage = `connect failed: ${leakMarkers.join(" ")}`;
+    const leakyFetchImpl = wakeStatusFetchImpl({
+      signIn: () => Promise.reject(connectTimeoutError(leakyMessage, leakyMessage)),
+    });
+    let wakeStatusCalls = 0;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        wakeRuntimeReadyBudgetMs: 2_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () =>
+          wakeStatusCalls++ === 0
+            ? noWorkerWakeStatus()
+            : fetchWakeStatusSnapshot(wakeStatusAdminOptions, leakyFetchImpl),
+      },
+    );
+
+    expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-before-drill");
+    expect(evidence.wakeRuntimePreflight).toMatchObject({
+      sampleCount: 3,
+      fetchFailureCount: 2,
+      lastFetchFailure: { stage: "sign-in", status: null, code: "UND_ERR_CONNECT_TIMEOUT" },
+    });
+    const serialized = JSON.stringify(evidence);
+    for (const marker of leakMarkers) {
+      expect(serialized).not.toContain(marker);
+    }
+    expect(assertRedactedDrillEvidence(evidence)).toEqual([]);
   });
 
   it("fails the drill when durable positions never converge", async () => {

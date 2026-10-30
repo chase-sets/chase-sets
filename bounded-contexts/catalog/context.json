@@ -7,7 +7,6 @@
     "category",
     "blueprint",
     "field",
-    "operator-session",
     "component",
     "dimension",
     "display-template",
@@ -18,7 +17,8 @@
     "reference-type",
     "reference-record",
     "scope-record",
-    "scope-sync-batch"
+    "scope-sync-batch",
+    "operator-session"
   ],
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
@@ -61,19 +61,9 @@
   "seedRequirements": [],
   "hostPorts": [
     {
-      "portName": "catalogOperatorSessionConfiguration",
-      "providedBy": "platform-api",
-      "purpose": "Supplies the existing operator custody factory configuration and keyring; Catalog owns grant authority."
-    },
-    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
-    },
-    {
-      "portName": "tcgplayerAutomationCatalogClient",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
     },
     {
       "portName": "sourceObservationTelemetry",
@@ -137,6 +127,7 @@
     {
       "projectionName": "catalog-scope-registry-projection",
       "sourceContextNames": ["catalog"],
+      "projectionRevision": 2,
       "ownedTables": ["catalog_scope_records"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
@@ -156,6 +147,32 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.resume-provider-refresh", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.list-scope-observations", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.list-scope-record-proposals", "ownerSlice": "provider-scope-discovery" },
+      { "name": "catalog.create-reference-record", "ownerSlice": "reference-data" },
+      { "name": "catalog.publish-reference-record", "ownerSlice": "reference-data" },
+      { "name": "catalog.list-scope-records", "ownerSlice": "scope-registry" },
+      { "name": "catalog.get-scope-record", "ownerSlice": "scope-registry" },
+      { "name": "catalog.get-scope-mapping-inbox", "ownerSlice": "provider-scope-mapping" },
+      { "name": "catalog.get-scope-coverage", "ownerSlice": "provider-scope-mapping" },
+      { "name": "catalog.propose-scope-mapping", "ownerSlice": "provider-scope-mapping" },
+      { "name": "catalog.review-scope-mappings", "ownerSlice": "provider-scope-mapping" },
+      { "name": "catalog.preview-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.confirm-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.get-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.cancel-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.resume-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.retry-scope-sync-unit", "ownerSlice": "scope-sync-batches" },
+      { "name": "catalog.list-source-observations", "ownerSlice": "source-observations" }
+    ],
+    "resources": []
+  },
   "agentCoverage": {
     "blueprints": { "pending": "#9238" },
     "blueprints-detail": { "pending": "#9238" },
@@ -176,17 +193,23 @@
     "reference-records": { "pending": "#9238" },
     "reference-records-detail": { "pending": "#9238" },
     "integrations": { "pending": "#9238" },
-    "provider-detail": { "pending": "#9236" },
+    "provider-detail": { "pending": "#9822" },
     "integrations-governance": { "pending": "#9238" },
     "integrations-settings": { "pending": "#9238" },
     "integrations-health": { "pending": "#9238" },
     "integrations-observation-evidence": { "pending": "#9238" },
     "source-observations-detail": { "pending": "#9238" },
-    "scope-coverage": { "pending": "#9236" },
-    "scope-coverage-detail": { "pending": "#9236" },
-    "scope-landing": { "pending": "#9236" },
-    "scope-sync-batches": { "pending": "#9236" },
-    "scope-detail": { "pending": "#9236" }
+    "scope-coverage": { "tools": ["catalog.get-scope-mapping-inbox"] },
+    "scope-coverage-detail": {
+      "tools": [
+        "catalog.get-scope-coverage",
+        "catalog.review-scope-mappings",
+        "catalog.propose-scope-mapping"
+      ]
+    },
+    "scope-landing": { "pending": "#9685" },
+    "scope-sync-batches": { "pending": "#9822" },
+    "scope-detail": { "pending": "#9822" }
   },
   "deployableContributions": [
     {
@@ -724,7 +747,6 @@
         "dimensions",
         "display-templates",
         "fields",
-        "operator-session",
         "product-contents",
         "product-measures",
         "provider-scope-discovery",
@@ -824,7 +846,7 @@
     "test-support": {
       "classification": "support",
       "purpose": "Provide reusable test fixture builders shared by Catalog source-observation tests.",
-      "expectedConsumers": ["source-observations"]
+      "expectedConsumers": ["completion-report", "source-observations"]
     },
     "routes": {
       "classification": "routes",
@@ -859,19 +881,16 @@
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /grant",
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /",
-        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:PUT /tcgplayer",
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /grant"
       ],
       "visibleDestination": {
-        "description": "No UI is built here. Callers receive the committed grant/expiry, custody outcome/revision or revoke outcome directly; Admin metadata reads those same authoritative rows, without a projection."
+        "description": "Callers receive the committed grant/expiry or revoke outcome directly; no TCGplayer credential or custody payload is stored."
       },
       "proof": {
-        "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. PUT returns its existing CAS outcome/revision only after atomic custody-plus-renewal COMMIT acknowledgement. Disconnect acknowledges irrevocable revoke before fresh metadata and fenced clear, returning only after clear COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise. Real-app tests pause COMMIT, inspect complete rows through an independent connection, and discriminate committed-but-ack-dropped from killed-before-commit effects.",
+        "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise.",
         "tests": [
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts"
+          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts"
         ]
       }
     },
@@ -892,6 +911,7 @@
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/final-notice",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/pre-confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/freeze",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/complete",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",
@@ -1213,24 +1233,6 @@
       }
     },
     {
-      "id": "catalog.tcgplayer-automation-provider-post-snapshots",
-      "owner": "catalog",
-      "risk": "internal",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "api-client:bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts:POST Hf9aa1b4b1d8d#1"
-      ],
-      "visibleDestination": {
-        "description": "The TCGplayer automation runtime consumes provider POST responses synchronously inside Catalog import/review jobs and returns the parsed provider response snapshot to the source-observation workflow without a browser projection read."
-      },
-      "proof": {
-        "authoritativeResponse": "TcgplayerAutomationDomainHttpClient.post returns the parsed provider response after retry/cooldown recovery and redacts exhausted provider diagnostics before surfacing them to operators.",
-        "tests": [
-          "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.test.ts"
-        ]
-      }
-    },
-    {
       "id": "catalog.integrations-route-action-command-snapshots",
       "owner": "catalog",
       "risk": "important",
@@ -1329,6 +1331,30 @@
         "tests": [
           "bounded-contexts/catalog/support/route-support/admin-scope-detail/scope-detail-action.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-scope-detail/scope-detail-loader.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.scope-landing-review-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "route-action:bounded-contexts/catalog/routes/admin/scope-landing.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "scope-landing",
+        "description": "Scope-home attention and general alias actions return the shared command result directly and the next loader re-reads the queue and alias read models, while scope pagination remains intact when either supplementary read is unavailable."
+      },
+      "proof": {
+        "authoritativeResponse": "The scope-home action delegates to the existing permission-guarded Catalog dispatcher; dismiss/defer/restore and alias accept/reject/revoke return committed command outcomes, and the route revalidates against the same Catalog read endpoints after submission.",
+        "tests": [
+          "bounded-contexts/catalog/tests/admin-scope-landing-route-action.test.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-page.test.tsx",
+          "bounded-contexts/catalog/support/route-support/admin-scope-landing/scope-landing-loader.test.ts",
+          "bounded-contexts/catalog/support/route-support/admin-integrations/attention-queue-command-handler.test.ts",
+          "bounded-contexts/catalog/tests/admin-integrations-route-governance.test.tsx",
+          "bounded-contexts/catalog/tests/admin-integrations-route-action.test.tsx"
         ]
       }
     }

@@ -61,6 +61,61 @@ function commitHeaders(position = "42") {
 }
 
 describe("marketplace inventory routes", () => {
+  it.each(["imr_api_next", null])("resolve-row redirects from next_needs_seller_row_id: %s", async (nextRowId) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        if (String(input).includes("/api/auth/session"))
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        return Promise.resolve(
+          jsonResponse({
+            next_needs_seller_row_id: nextRowId,
+            rows: [
+              {
+                row_id: "imr_local_wrong",
+                status: "rejected",
+                resolution_status: "unresolved",
+                product_id: null,
+                committed_at: null,
+                needs_seller: true,
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    const body = new URLSearchParams({
+      intent: "resolve-row",
+      batchId: "imb_1",
+      rowId: "imr_fixed",
+      catalogItemId: "cat_1",
+      storageLocationId: "loc_1",
+      selectedOptions: "[]",
+    });
+    const result = await inventoryImportsAction({
+      request: new Request("http://localhost/account/inventory/imports/imb_1", {
+        method: "POST",
+        body,
+      }),
+      params: { batchId: "imb_1" },
+      context: undefined,
+    } as never);
+    expect((result as Response).headers.get("Location")).toBe(
+      nextRowId ? "/account/inventory/imports/imb_1?resolveRowId=imr_api_next" : "/account/inventory/imports/imb_1",
+    );
+  });
   it("loads inventory items and locations through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -299,54 +354,80 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Bad inventory input.", intent: "create-item" });
   });
 
-  it("carries inventory item create receipts into the detail redirect", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
-        const url = String(input);
+  it.each([
+    null,
+    {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: "cert-123",
+      population: null,
+      conditionDescriptors: [],
+    },
+  ])(
+    "forwards create details as an object and carries the receipt into the detail redirect: %j",
+    async (gradedCard) => {
+      const createRequests: unknown[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
 
-        if (url.includes("/api/auth/session")) {
-          return Promise.resolve(
-            jsonResponse({
-              actor: {
-                sessionId: "ses_1",
-                tenantId: "tnt_identity",
-                userId: "usr_1",
-                accountId: "acc_1",
-                membershipId: "mbr_1",
-                roleKey: "owner",
-                permissions: ["inventory.view", "inventory.manage"],
-              },
-            }),
-          );
-        }
+          if (url.includes("/api/auth/session")) {
+            return Promise.resolve(
+              jsonResponse({
+                actor: {
+                  sessionId: "ses_1",
+                  tenantId: "tnt_identity",
+                  userId: "usr_1",
+                  accountId: "acc_1",
+                  membershipId: "mbr_1",
+                  roleKey: "owner",
+                  permissions: ["inventory.view", "inventory.manage"],
+                },
+              }),
+            );
+          }
 
-        return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")));
-      }),
-    );
+          createRequests.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")));
+        }),
+      );
 
-    const form = new URLSearchParams();
-    form.set("intent", "create-item");
-    form.set("catalogItemId", "cat_1");
-    form.set("selectedOptions", "[]");
-    form.set("storageLocationId", "loc_1");
-    form.set("totalQuantity", "3");
+      const form = new URLSearchParams();
+      form.set("intent", "create-item");
+      form.set("catalogItemId", "cat_1");
+      form.set("selectedOptions", "[]");
+      form.set("storageLocationId", "loc_1");
+      form.set("totalQuantity", "3");
+      if (gradedCard) form.set("gradedCard", JSON.stringify(gradedCard));
 
-    const response = (await inventoryAction({
-      request: new Request("http://localhost/account/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+      const response = (await inventoryAction({
+        request: new Request("http://localhost/account/inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: {},
+        context: undefined,
+      } as never)) as Response;
 
-    const location = response.headers.get("Location") ?? "";
-    expect(location).toContain("/account/inventory/items/inv_created?");
-    expect(location).not.toContain("feedbackWorkflow=");
-    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
-  });
+      const location = response.headers.get("Location") ?? "";
+      expect(location).toContain("/account/inventory/items/inv_created?");
+      expect(location).not.toContain("feedbackWorkflow=");
+      expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
+      expect(createRequests).toEqual([
+        {
+          catalogItemId: "cat_1",
+          selectedOptions: "[]",
+          storageLocationId: "loc_1",
+          totalQuantity: 3,
+          acquisitionCostAmount: null,
+          acquisitionCostCurrencyCode: null,
+          ...(gradedCard ? { gradedCard } : {}),
+        },
+      ]);
+    },
+  );
 
   it("returns to Sell List after creating inventory from a Sell List recovery", async () => {
     vi.stubGlobal(

@@ -997,6 +997,7 @@ describeDb("discovery projection row identity", () => {
       "seller_slug": "seller-uno-acc-seller-1g1h3n4",
       "seller_display_name": "Seller Uno",
       "status": "active",
+      "status_stream_version": 39,
       "updated_at": "2026-06-12T13:04:00.000Z",
       "seller_listing_availability_status": "available",
       "seller_listing_availability_reason_category": null,

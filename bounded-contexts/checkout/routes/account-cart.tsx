@@ -31,24 +31,22 @@ import {
   isPendingAccountCartAddLineHandoff,
 } from "../support/request-support/account-cart-handoffs";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
+import {
+  checkoutCartAttemptCommitSource,
+  submitCheckoutCartAttempt,
+} from "../features/command-attempts/api/attempt-submission";
+import {
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  type CheckoutCommandAttemptResolvedState,
+} from "../features/command-attempts/api/contracts";
 import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
 
 function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
-}
-
-async function writeCartCommandsInOrder(writes: readonly (() => Promise<unknown>)[]) {
-  const results: unknown[] = [];
-  for (const write of writes) {
-    results.push(await write());
-  }
-  return results;
-}
-
-async function redirectToFreshAccountCart(writeResults: readonly unknown[]) {
-  return redirect(await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(writeResults, "/account/cart"));
 }
 
 function checkoutApiErrorStatus(error: unknown) {
@@ -287,16 +285,108 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return loadCartWithPostWriteRecovery(resolvedRequest, () => api.getCart(), "account");
 }
 
-async function handleAction(intent: string, { request, formData }: FormActionContext) {
+type CartCommandBody = Parameters<ReturnType<typeof createCheckoutRequestApiClient>["submitCartCommands"]>[0];
+
+/** The one attempt state an unredirected cart action returns; success redirects to the fresh cart instead. */
+export type AccountCartAttemptActionData = Readonly<{
+  state: Exclude<CheckoutCommandAttemptResolvedState, "succeeded">;
+  intent: string;
+  attemptId: string;
+  message: string | null;
+  terminalLines: readonly Readonly<{ lineId: string | null; outcome: "conflict" | "error"; message: string | null }>[];
+}>;
+
+/**
+ * The attempt id the cart controller minted when this submission was made. A
+ * post without one (no script ran) mints exactly one here, so the request is
+ * still one attempt from the owner's view.
+ */
+function formAttemptId(formData: FormData) {
+  const presented = String(formData.get("attemptId") ?? "");
+  return isCheckoutCommandAttemptId(presented) ? presented : mintCheckoutCommandAttemptId();
+}
+
+function refusedBeforeSend(intent: string, attemptId: string, message: string) {
+  return {
+    attempt: {
+      state: "failed-safe",
+      intent,
+      attemptId,
+      message,
+      terminalLines: [],
+    } satisfies AccountCartAttemptActionData,
+  };
+}
+
+/**
+ * Sends one cart submission as one `/cart/commands` attempt and resolves it:
+ * success redirects to the fresh cart; partial, failed-safe and ambiguous
+ * return their state so the page can list terminal lines or hold the action
+ * until the user explicitly resends the same attempt.
+ */
+async function submitAccountCartCommands(
+  request: Request,
+  intent: string,
+  attemptId: string,
+  commands: CartCommandBody["commands"],
+) {
   const api = createCheckoutRequestApiClient(request);
+  const anonymousCartId = canUseAccountCart(await resolveActorFromAuthApi({ request }))
+    ? null
+    : readAnonymousCartId(request);
+  const body: CartCommandBody = { attemptId, commands };
+  const submission = await submitCheckoutCartAttempt({
+    attemptId,
+    kind: "cart.commands",
+    target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+    body,
+    send: () => (anonymousCartId ? api.submitGuestCartCommands(anonymousCartId, body) : api.submitCartCommands(body)),
+    lookup: (query) =>
+      anonymousCartId ? api.getGuestCartCommandAttempt(anonymousCartId, query) : api.getCartCommandAttempt(query),
+  });
+
+  if (submission.state === "succeeded") {
+    return redirect(
+      await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
+        [checkoutCartAttemptCommitSource(submission)].filter((source) => source !== null),
+        "/account/cart",
+      ),
+    );
+  }
+
+  return {
+    attempt: {
+      state: submission.state,
+      intent,
+      attemptId,
+      message: submission.message,
+      terminalLines: (submission.attempt?.vector ?? [])
+        .filter((line) => line.outcome !== "succeeded")
+        .map((line) => ({
+          lineId: line.lineId,
+          outcome: line.outcome as "conflict" | "error",
+          message: line.message,
+        })),
+    } satisfies AccountCartAttemptActionData,
+  };
+}
+
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const actor = await resolveActorFromAuthApi({ request });
   const anonymousCartId = readAnonymousCartId(request);
-  const useAccountCart = canUseAccountCart(actor);
+  const attemptId = formAttemptId(formData);
 
   try {
+    if (!canUseAccountCart(actor) && !anonymousCartId) {
+      return refusedBeforeSend(intent, attemptId, t("checkout.routes.accountCart.request.failed"));
+    }
+
     if (intent === "update-cart-line") {
       const lineIds = cartLineIdsFromForm(formData);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
+      if (!primaryLineId) {
+        return refusedBeforeSend(intent, attemptId, t("checkout.routes.accountCart.request.failed"));
+      }
 
       const absoluteQuantity = Number(formData.get("quantity") ?? NaN);
       const usesOptimisticCorrection =
@@ -312,78 +402,48 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           : safeEnteredQuantity + (Number.isFinite(quantityDelta) ? quantityDelta : 0),
       );
 
-      if (!useAccountCart && anonymousCartId) {
-        const results = await writeCartCommandsInOrder([
-          () =>
-            api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
-              quantity: nextQuantity,
-            }),
-          ...duplicateLineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
-        ]);
-        return await redirectToFreshAccountCart(results);
-      }
-
-      if (!useAccountCart) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      const results = await writeCartCommandsInOrder([
-        () =>
-          api.updateCartLineQuantity(primaryLineId ?? "", {
-            quantity: nextQuantity,
-          }),
-        ...duplicateLineIds.map((lineId) => () => api.removeCartLine(lineId)),
+      // Consolidation is one attempt: the primary line takes the quantity and
+      // every duplicate is removed, all or nothing.
+      return await submitAccountCartCommands(request, intent, attemptId, [
+        { type: "quantity", lineId: primaryLineId, quantity: nextQuantity },
+        ...duplicateLineIds.map((lineId) => ({ type: "remove" as const, lineId })),
       ]);
-      return await redirectToFreshAccountCart(results);
     }
 
     if (intent === "lock-preferred-listing") {
       const lineIds = cartLineIdsFromForm(formData);
       const sellerPreferenceId = String(formData.get("sellerPreferenceId") ?? "").trim();
       if (!sellerPreferenceId || lineIds.length === 0) {
-        throw new Error(t("checkout.routes.accountCart.preferred.listing.missing"));
+        return refusedBeforeSend(intent, attemptId, t("checkout.routes.accountCart.preferred.listing.missing"));
       }
 
-      const fulfillment = {
-        fulfillmentMode: "locked-listing" as const,
-        lockedListingId: sellerPreferenceId,
-        sellerPreferenceId,
-        availabilityState: "available" as const,
-      };
-
-      if (!useAccountCart && anonymousCartId) {
-        const results = await writeCartCommandsInOrder(
-          lineIds.map((lineId) => () => api.updateGuestCartLineFulfillment(anonymousCartId, lineId, fulfillment)),
-        );
-        return await redirectToFreshAccountCart(results);
-      }
-
-      if (!useAccountCart) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      const results = await writeCartCommandsInOrder(
-        lineIds.map((lineId) => () => api.updateCartLineFulfillment(lineId, fulfillment)),
+      return await submitAccountCartCommands(
+        request,
+        intent,
+        attemptId,
+        lineIds.map((lineId) => ({
+          type: "fulfillment" as const,
+          lineId,
+          fulfillmentMode: "locked-listing" as const,
+          lockedListingId: sellerPreferenceId,
+          sellerPreferenceId,
+          availabilityState: "available" as const,
+        })),
       );
-      return await redirectToFreshAccountCart(results);
     }
 
     if (intent === "remove-cart-line") {
       const lineIds = cartLineIdsFromForm(formData);
-
-      if (!useAccountCart && anonymousCartId) {
-        const results = await writeCartCommandsInOrder(
-          lineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
-        );
-        return await redirectToFreshAccountCart(results);
+      if (lineIds.length === 0) {
+        return refusedBeforeSend(intent, attemptId, t("checkout.routes.accountCart.request.failed"));
       }
 
-      if (!useAccountCart) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      const results = await writeCartCommandsInOrder(lineIds.map((lineId) => () => api.removeCartLine(lineId)));
-      return await redirectToFreshAccountCart(results);
+      return await submitAccountCartCommands(
+        request,
+        intent,
+        attemptId,
+        lineIds.map((lineId) => ({ type: "remove" as const, lineId })),
+      );
     }
 
     return null;
@@ -421,7 +481,9 @@ export default function CheckoutAccountCartRoute() {
   return (
     <CheckoutCartPage
       cartLines={data.cart?.items ?? []}
-      errorMessage={actionData?.error ?? null}
+      readiness={data.cart?.readiness ?? null}
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      attemptState={actionData && "attempt" in actionData ? actionData.attempt : null}
       recoveryState={
         cartRecovery
           ? cartRecovery.kind === "pending-fresh-write"

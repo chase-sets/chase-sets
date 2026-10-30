@@ -100,7 +100,7 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: data.itemId,
         accountId: accountIdFromAudit(event.audit),
         kind: "offline-sale",
-        quantityDelta: -data.quantity,
+        quantityDelta: null,
         holdQuantity: null,
         purpose: null,
         reason: "Offline sale",

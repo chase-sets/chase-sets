@@ -2,7 +2,7 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
-import { createHash } from "node:crypto";
+import type { BcApiModule, BcEventSubscription } from "@chase-sets/bounded-context-module";
 import {
   buildProjectionInterestIndex,
   lookupProjectionInterests,
@@ -13,9 +13,23 @@ import {
   type ProjectionWakeRelayWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-wake-relay";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
+import {
+  createWorkerHost,
+  type WorkerContextRegistry,
+  type WorkerHostRuntime,
+  type WorkerHostRuntimeProfile,
+} from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it } from "vitest";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import {
+  assertWorkerAssembly,
+  assertWorkerMembership,
+  discoverWorkerContexts,
+  loadOwnerContracts,
+  type AdmittedContext,
+  type OwnerContract,
+} from "./worker-graph-contract";
+import { syntheticConditionalWorkerExtension, syntheticWorkerExtension } from "./worker-graph-extension";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -24,15 +38,17 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
 
+const admittedContexts = discoverWorkerContexts();
+const ownerContracts = loadOwnerContracts(admittedContexts);
+
 const OPERATOR_REMOVAL = "marketplace.listing.operator-unlisted";
 const REMOVAL_CONSUMERS = [
   ["marketplace", "marketplace-listing-projection", 2],
+  ["platform-operations", "account-appeal-interest-projection", 1],
   ["platform-operations", "reported-content-queue-projection", 1],
   ["discovery", "discovery-market-projection", 3],
   ["discovery", "discovery-product-alert-notification-projection", 2],
@@ -99,6 +115,35 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("routes private account appeal lifecycle events to their same-context owner", () => {
+    const runtime = createPlatformWorkerHost();
+    const projectionName = "account-appeal-projection";
+    const eventTypes = [
+      "platform-operations.account-appeal.filed",
+      "platform-operations.account-appeal.review-started",
+      "platform-operations.account-appeal.outcome-recorded",
+      "platform-operations.account-appeal.withdrawn",
+    ];
+    const runner = runtime.subscriptionRunners.find(
+      (entry) => entry.sourceContextName === "platform-operations" && entry.projectionName === projectionName,
+    );
+    expect(runner).toMatchObject({
+      targetContextName: "platform-operations",
+      checkpointKey: `${projectionName}:platform-operations:v1`,
+      streamPrefixes: undefined,
+    });
+    expect([...(runner?.eventTypes ?? [])].sort()).toEqual([...eventTypes].sort());
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    for (const eventType of eventTypes) {
+      expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+      expect(
+        lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType }).map(
+          (entry) => `${entry.targetContextName}:${entry.projectionName}`,
+        ),
+      ).toContain(`platform-operations:${projectionName}`);
+    }
+  });
+
   it("composes forward-only listing directive delivery independently of review checkpoints and removal consumers", () => {
     const runtime = createPlatformWorkerHost();
     const eventType = "platform-operations.reported-content.listing-removal-directed";
@@ -243,27 +288,6 @@ describe("platform worker projection wake interest graph", () => {
 
   it("resolved-subscription base parity", () => {
     const runtime = createPlatformWorkerHost("public");
-    const allRawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
-      (entry.module.buildSubscriptions?.(entry.services) ?? []).map((subscription) => ({
-        targetContextName: entry.contextName,
-        subscription,
-      })),
-    );
-    const added = allRawSubscriptions.filter(
-      ({ targetContextName, subscription }) =>
-        targetContextName === "marketplace" &&
-        subscription.projectionName === "marketplace-listing-moderation-reaction",
-    );
-    expect(added).toHaveLength(1);
-    const rawSubscriptions = allRawSubscriptions.filter((entry) => !added.includes(entry));
-    const sharedNames = summarizeSharedSubscriptionNames(rawSubscriptions.map(({ subscription }) => subscription));
-    const rawCheckpointIdentities = rawSubscriptions
-      .map(
-        ({ subscription }) =>
-          `${subscription.projectionName}:${subscription.sourceContextName}:v${subscription.subscriptionVersion}`,
-      )
-      .sort();
-
     expect(runtime.subscriptionRunners).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -307,6 +331,21 @@ describe("platform worker projection wake interest graph", () => {
     expect(listingDirectiveRunners.map((runner) => runner.checkpointKey)).toEqual([
       "marketplace-listing-moderation-reaction:platform-operations:v1",
     ]);
+    const checkoutIdentityRunner = runtime.subscriptionRunners.find(
+      (runner) =>
+        runner.targetContextName === "checkout" &&
+        runner.projectionName === "checkout-seller-accounts-projection" &&
+        runner.sourceContextName === "identity",
+    );
+    expect(checkoutIdentityRunner).toMatchObject({
+      checkpointKey: "checkout-seller-accounts-projection:identity:v2",
+      subscriptionVersion: 2,
+      eventTypes: expect.arrayContaining([
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
+      ]),
+    });
     const inheritedRunners = runtime.subscriptionRunners.filter(
       (runner) => !fundingRunners.includes(runner) && !listingDirectiveRunners.includes(runner),
     );
@@ -343,72 +382,224 @@ describe("platform worker projection wake interest graph", () => {
         "catalog.reference-record.archived",
       ]),
     });
+  });
+
+  it("worker assembly covers every owner contract", () => {
+    for (const profile of ["landing", "proof", "public"] as const) {
+      verifyAssembly(workerContextRegistry, ownerContracts, admittedContexts, profile);
+    }
+  });
+
+  it("worker assembly rejects missing and misrouted members", () => {
     expect(
-      fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
-    ).toEqual({
-      count: 256,
-      sha256: "b0c7fa7bedb465d117afee5a79dd688b3bb7a1351aa1afb73a0b0407e60c5002",
-    });
-    const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
-    const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
-    expect(proofCreditRunners.map((runner) => runner.checkpointKey)).toEqual([
-      "settlement-wallet-projection:settlement:v1",
-    ]);
-    expect(
-      fingerprint(
-        inheritedRunners.map((runner) =>
-          fingerprintObject(
-            proofCreditRunners.includes(runner)
-              ? {
-                  ...withoutAddedConsumerEvents(runner),
-                  eventTypes: runner.eventTypes?.filter(
-                    (eventType) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
-                  ),
-                  handlers: Object.fromEntries(
-                    Object.entries(runner.handlers ?? {}).filter(
-                      ([eventType]) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
-                    ),
-                  ),
-                }
-              : withoutAddedConsumerEvents(runner),
+      () => verifyAssembly([...workerContextRegistry, workerContextRegistry[0]]),
+      "duplicate registration",
+    ).toThrow();
+    for (const context of admittedContexts) {
+      const registry = workerContextRegistry.filter((entry) => entry.contextName !== context.contextName);
+      expect(() => verifyAssembly(registry), context.contextName).toThrow();
+      expect(
+        () =>
+          verifyAssembly(
+            registry,
+            ownerContracts.filter((owner) => owner.contextName !== context.contextName),
+          ),
+        `${context.contextName}: registry and expectation removed together`,
+      ).toThrow();
+      expect(
+        () =>
+          verifyAssembly(
+            workerContextRegistry,
+            ownerContracts.filter((owner) => owner.contextName !== context.contextName),
+          ),
+        `${context.contextName}: missing owner contract`,
+      ).toThrow();
+    }
+
+    const changeCheckout = (change: (module: BcApiModule) => BcApiModule): WorkerContextRegistry =>
+      workerContextRegistry.map((entry) =>
+        entry.contextName === "checkout" ? { ...entry, module: change(entry.module) } : entry,
+      );
+    const changeSubscriptions = (
+      change: (subscriptions: readonly BcEventSubscription[]) => readonly BcEventSubscription[],
+    ) =>
+      changeCheckout((module) => ({
+        ...module,
+        buildSubscriptions: (services) => change(module.buildSubscriptions!(services)),
+      }));
+    const mutations: readonly [string, WorkerContextRegistry][] = [
+      ["missing subscription", changeSubscriptions((subscriptions) => subscriptions.slice(1))],
+      [
+        "missing self-subscription",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.filter((subscription) => subscription.sourceContextName !== "checkout"),
+        ),
+      ],
+      ["duplicate subscription", changeSubscriptions((subscriptions) => [...subscriptions, subscriptions[0]])],
+      [
+        "missing handler",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index
+              ? subscription
+              : { ...subscription, handlers: Object.fromEntries(Object.entries(subscription.handlers).slice(1)) },
           ),
         ),
-      ),
-    ).toEqual({
-      count: 256,
-      sha256: "bfb7ff23b9d9cedd97470416e3ef75b9e36ab9f16d3079c570b37d72c0b2fbb6",
-    });
-    expect(
-      fingerprint(
-        rawSubscriptions.map(({ targetContextName, subscription }) => ({
-          targetContextName,
-          subscription: fingerprintObject(withoutAddedConsumerEvents(subscription)),
+      ],
+      [
+        "missing event",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, eventTypes: subscription.eventTypes?.slice(1) },
+          ),
+        ),
+      ],
+      [
+        "wrong source",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, sourceContextName: "auth" },
+          ),
+        ),
+      ],
+      [
+        "wrong version",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, subscriptionVersion: subscription.subscriptionVersion + 1 },
+          ),
+        ),
+      ],
+      [
+        "missing version",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) => {
+            if (index) return subscription;
+            const malformed = { ...subscription };
+            Reflect.deleteProperty(malformed, "subscriptionVersion");
+            return malformed;
+          }),
+        ),
+      ],
+      [
+        "missing local projector",
+        changeCheckout((module) => ({
+          ...module,
+          projectionHandlerSets: (services) =>
+            module.projectionHandlerSets!(services).filter(
+              (set) => set.projectionName !== "checkout.session-projection",
+            ),
         })),
-      ),
-    ).toEqual({
-      count: 159,
-      sha256: "0a73df217e97742ca52e075f2945f4c54726c1fb4ccc4094d039905ae3df7f68",
-    });
-    expect({
-      count: rawCheckpointIdentities.length,
-      sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
-    }).toEqual({
-      count: 159,
-      sha256: "45de3093ae018317244a6d507ea2d5e81909b31057f8e4db94699a2e5f42184e",
-    });
-    expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 256,
-      sha256: "cade127fa0f6ffe997a009d9ec74b15fc7363e3486a60ebbaa57d5994e409ef5",
-    });
-    expect(sharedNames).toMatchObject({
-      distinctNames: 123,
-      distinctSharedNames: 21,
-      runnersUsingSharedNames: 57,
-    });
-    expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
-    expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
-    // One projection, two source declarations: Ordering and Payments share the name.
-    expect(sharedNames.values["platform-operations.seller-compliance-sales-projection"]).toBe(2);
+      ],
+      [
+        "missing implementation export",
+        changeCheckout((module) => {
+          const malformed = { ...module };
+          Reflect.deleteProperty(malformed, "createServices");
+          return malformed;
+        }),
+      ],
+      ["malformed context", changeCheckout((module) => ({ ...module, contextName: "synthetic-wrong-context" }))],
+    ];
+    for (const [label, registry] of mutations) expect(() => verifyAssembly(registry), label).toThrow();
+
+    const runtime = verifyAssembly();
+    const brokenAssemblies: readonly [string, WorkerHostRuntime][] = [
+      [
+        "missing checkpoint",
+        {
+          ...runtime,
+          subscriptionRunners: runtime.subscriptionRunners.map((runner, index) =>
+            index
+              ? runner
+              : (() => {
+                  const malformed = { ...runner };
+                  Reflect.deleteProperty(malformed, "checkpointKey");
+                  return malformed;
+                })(),
+          ),
+        },
+      ],
+      [
+        "duplicate runner",
+        { ...runtime, subscriptionRunners: [...runtime.subscriptionRunners, runtime.subscriptionRunners[0]] },
+      ],
+      [
+        "wrong target",
+        {
+          ...runtime,
+          subscriptionRunners: runtime.subscriptionRunners.map((runner, index) =>
+            index ? runner : { ...runner, targetContextName: "checkout" },
+          ),
+        },
+      ],
+      [
+        "missing interest edge",
+        {
+          ...runtime,
+          projectionGroups: runtime.projectionGroups.map((group, index) =>
+            index ? group : { ...group, subscriptionRunners: group.subscriptionRunners.slice(1) },
+          ),
+        },
+      ],
+      [
+        "misrouted interest edge",
+        {
+          ...runtime,
+          projectionGroups: runtime.projectionGroups.map((group, index) =>
+            index ? group : { ...group, targetContextName: "synthetic-wrong-target" },
+          ),
+        },
+      ],
+    ];
+    for (const [label, broken] of brokenAssemblies)
+      expect(() => assertWorkerAssembly(broken, admittedContexts, ownerContracts, "public"), label).toThrow();
+  });
+
+  it("owner contracts retain the previous graph coverage", () => {
+    // Before -> after: runner fingerprints -> owner.runners; declared subscription
+    // fingerprints -> owner.subscriptions; identities -> their projection/source/
+    // version fields; checkpoint keys -> owner.runners[].checkpointKey.
+    verifyOwnerCoverage(workerContextRegistry, ownerContracts, admittedContexts);
+  });
+
+  it("valid owner extension needs no global fingerprint edit", () => {
+    const extensions = [
+      ...(["all-profiles", "landing-only", "source-only"] as const).map((mode) => [
+        syntheticWorkerExtension(false, mode),
+      ]),
+      syntheticConditionalWorkerExtension(),
+    ];
+    for (const additions of extensions) {
+      const contexts = [...admittedContexts, ...additions.map((extension) => extension.context)];
+      const contracts = [...ownerContracts, ...additions.map((extension) => extension.contract)];
+      const registry = [...workerContextRegistry, ...additions.map((extension) => extension.registration)];
+      verifyOwnerCoverage(registry, contracts, contexts);
+      for (const { context } of additions) {
+        const missingRegistration = registry.filter((entry) => entry.contextName !== context.contextName);
+        const missingContract = contracts.filter((owner) => owner.contextName !== context.contextName);
+        expect(
+          () => verifyAssembly(missingRegistration, contracts, contexts),
+          `${context.contextName}: missing registration`,
+        ).toThrow();
+        expect(
+          () => verifyAssembly(missingRegistration, missingContract, contexts),
+          `${context.contextName}: missing both`,
+        ).toThrow();
+        expect(
+          () => verifyAssembly(registry, missingContract, contexts),
+          `${context.contextName}: missing contract`,
+        ).toThrow();
+      }
+    }
+
+    const extension = syntheticWorkerExtension();
+    const contexts = [...admittedContexts, extension.context];
+    const contracts = [...ownerContracts, extension.contract];
+    // An additional handler changes only the synthetic owner's literal contract.
+    const extended = syntheticWorkerExtension(true);
+    verifyAssembly([...workerContextRegistry, extended.registration], [...ownerContracts, extended.contract], contexts);
+    expect(() => verifyAssembly([...workerContextRegistry, extended.registration], contracts, contexts)).toThrow();
   });
 
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {
@@ -495,6 +686,27 @@ describe("platform worker projection wake interest graph", () => {
         enabled: false,
         optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
       });
+    }
+  });
+
+  it("assembles the conditional owner's runner only where its source is mounted", () => {
+    const extensions = syntheticConditionalWorkerExtension();
+    for (const profile of ["public", "proof", "landing"] as const) {
+      const runtime = verifyAssembly(
+        extensions.map(({ registration }) => registration),
+        extensions.map(({ contract }) => contract),
+        extensions.map(({ context }) => context),
+        profile,
+      );
+      expect(runtime.mountedContexts).toContainEqual(
+        expect.objectContaining({ contextName: "synthetic-conditional-owner", mountRole: "active" }),
+      );
+      expect(
+        runtime.subscriptionRunners
+          .filter((runner) => runner.targetContextName === "synthetic-conditional-owner")
+          .map((runner) => runner.checkpointKey),
+        `${profile}: conditional runner`,
+      ).toEqual(profile === "landing" ? ["synthetic-conditional-projection:synthetic-worker-extension:v1"] : []);
     }
   });
 
@@ -723,9 +935,12 @@ function buildPlatformWorkerProjectionWakeRelayInterestIndex(disabledProjectionK
   });
 }
 
-function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public" = "public") {
-  return createWorkerHost(workerContextRegistry, "platform-worker", {
-    pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
+function createPlatformWorkerHost(
+  runtimeProfile: WorkerHostRuntimeProfile = "public",
+  registry: WorkerContextRegistry = workerContextRegistry,
+) {
+  return createWorkerHost(registry, "platform-worker", {
+    pools: Object.fromEntries(registry.map((entry) => [entry.contextName, createUnusedPool()])),
     hostPorts: {
       capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
@@ -760,87 +975,117 @@ function createUnusedPool() {
   } as never;
 }
 
-type FingerprintRecord = Readonly<Record<string, unknown>>;
-
-function addedConsumerEventTypes(value: FingerprintRecord): readonly string[] {
-  if (value.sourceContextName !== "marketplace") return [];
-  return [
-    ...(REMOVAL_CONSUMERS.some(([, name]) => name === value.projectionName) ? [OPERATOR_REMOVAL] : []),
-    ...(OFFER_LIFECYCLE_CONSUMERS.some(([, name]) => name === value.projectionName) ? OFFER_LIFECYCLE_EVENTS : []),
-  ];
+function verifyAssembly(
+  registry: WorkerContextRegistry = workerContextRegistry,
+  contracts: readonly OwnerContract[] = ownerContracts,
+  contexts: readonly AdmittedContext[] = admittedContexts,
+  profile: WorkerHostRuntimeProfile = "public",
+) {
+  const runtime = createPlatformWorkerHost(profile, registry);
+  assertWorkerMembership(contexts, contracts, registry);
+  assertWorkerAssembly(runtime, contexts, contracts, profile);
+  return runtime;
 }
 
-function withoutAddedConsumerEvents(value: FingerprintRecord) {
-  const added = addedConsumerEventTypes(value);
-  if (added.length === 0) return value;
-  return {
-    ...value,
-    ...(Array.isArray(value.eventTypes)
-      ? { eventTypes: value.eventTypes.filter((type) => !added.includes(type)) }
-      : {}),
-    ...(isRecord(value.handlers)
-      ? { handlers: Object.fromEntries(Object.entries(value.handlers).filter(([type]) => !added.includes(type))) }
-      : {}),
-  };
-}
-
-function fingerprintObject(value: FingerprintRecord) {
-  const fieldNames = Object.keys(value)
-    .filter((fieldName) => typeof value[fieldName] !== "function")
-    .sort();
-  const handlerEventTypes = isRecord(value.handlers) ? Object.keys(value.handlers).sort() : [];
-
-  return {
-    fieldNames,
-    fields: Object.fromEntries(fieldNames.map((fieldName) => [fieldName, stableValue(value[fieldName])])),
-    handlerEventTypes,
-  };
-}
-
-function fingerprint(values: readonly unknown[]) {
-  const serialized = JSON.stringify(
-    [...values].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
-  );
-  return {
-    count: values.length,
-    sha256: sha256(serialized),
-  };
-}
-
-function summarizeSharedSubscriptionNames(subscriptions: readonly Readonly<{ subscriptionName: string }>[]) {
-  const counts = new Map<string, number>();
-  for (const subscription of subscriptions) {
-    counts.set(subscription.subscriptionName, (counts.get(subscription.subscriptionName) ?? 0) + 1);
+function verifyOwnerCoverage(
+  registry: WorkerContextRegistry,
+  contracts: readonly OwnerContract[],
+  contexts: readonly AdmittedContext[],
+) {
+  const assemblies = (["public", "proof", "landing"] as const).map((profile) => ({
+    profile,
+    runtime: verifyAssembly(registry, contracts, contexts, profile),
+  }));
+  for (const owner of contracts) {
+    const active = assemblies.some(({ runtime }) =>
+      runtime.mountedContexts.some(
+        (context) => context.contextName === owner.contextName && context.mountRole === "active",
+      ),
+    );
+    // Source-only owners have no active graph to mutate; membership and source
+    // mounting are still checked by verifyAssembly in every profile above.
+    if (!active) {
+      expect(owner.runners, `${owner.contextName}: source-only runners`).toEqual([]);
+      expect(owner.subscriptions, `${owner.contextName}: source-only subscriptions`).toEqual([]);
+      continue;
+    }
+    const changedContracts: [string, OwnerContract][] = [];
+    const runner = owner.runners[0];
+    if (runner) {
+      changedContracts.push(
+        ["runner", { ...owner, runners: owner.runners.filter((candidate) => candidate !== runner) }],
+        [
+          "checkpoint identity",
+          {
+            ...owner,
+            runners: owner.runners.map((candidate) =>
+              candidate === runner
+                ? { ...candidate, subscriptionVersion: Number(candidate.subscriptionVersion) + 1 }
+                : candidate,
+            ),
+          },
+        ],
+        [
+          "checkpoint key",
+          {
+            ...owner,
+            runners: owner.runners.map((candidate) =>
+              candidate === runner ? { ...candidate, checkpointKey: "synthetic-wrong-checkpoint" } : candidate,
+            ),
+          },
+        ],
+      );
+    }
+    for (const [field, empty] of [
+      ["eventTypes", []],
+      ["handlers", {}],
+    ] as const) {
+      const populated = owner.runners.find((candidate) => Object.keys(candidate[field] ?? {}).length > 0);
+      if (populated) {
+        changedContracts.push([
+          field,
+          {
+            ...owner,
+            runners: owner.runners.map((candidate) =>
+              candidate === populated ? { ...candidate, [field]: empty } : candidate,
+            ),
+          },
+        ]);
+      }
+    }
+    if (owner.subscriptions.length) {
+      changedContracts.push(
+        ["subscription", { ...owner, subscriptions: owner.subscriptions.slice(1) }],
+        [
+          "subscription version",
+          {
+            ...owner,
+            subscriptions: owner.subscriptions.map((subscription, index) =>
+              index
+                ? subscription
+                : { ...subscription, subscriptionVersion: Number(subscription.subscriptionVersion) + 1 },
+            ),
+          },
+        ],
+      );
+    }
+    for (const [category, changed] of changedContracts) {
+      // An active owner may have a conditional runner absent from that profile.
+      // Every baseline above is valid; each mutation must fail in at least one.
+      const rejected = assemblies.some(({ profile, runtime }) => {
+        try {
+          assertWorkerAssembly(
+            runtime,
+            contexts,
+            contracts.map((candidate) => (candidate.contextName === owner.contextName ? changed : candidate)),
+            profile,
+          );
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      expect(rejected, `${owner.contextName}: changed ${category} expectation across runtime profiles`).toBe(true);
+    }
   }
-  const sharedNames = [...counts.entries()].filter(([, count]) => count > 1);
-
-  return {
-    distinctNames: counts.size,
-    distinctSharedNames: sharedNames.length,
-    runnersUsingSharedNames: sharedNames.reduce((total, [, count]) => total + count, 0),
-    values: Object.fromEntries(sharedNames),
-  };
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableValue);
-  }
-  if (!isRecord(value)) {
-    return typeof value === "function" ? "<function>" : value;
-  }
-
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, stableValue(value[key])]),
-  );
-}
-
-function isRecord(value: unknown): value is FingerprintRecord {
-  return typeof value === "object" && value !== null;
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

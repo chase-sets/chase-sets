@@ -17,6 +17,116 @@ import {
   type CatalogPrimaryWorkbenchReadModel,
   type CatalogPrimaryWorkbenchSectionKey,
 } from "./primary-workbench-admin-contracts";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import * as outerWorkbenchFacade from "../primary-workbench-admin-contracts";
+import * as workbenchFacade from "./primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
+  CatalogPrimaryWorkbenchInstrumentationReadModel,
+  CatalogPrimaryWorkbenchActionState,
+  CatalogPrimaryWorkbenchCommandKey,
+  CatalogPrimaryWorkbenchCopyKey,
+  CatalogPrimaryWorkbenchActionContract,
+  CatalogPrimaryWorkbenchInstrumentationDimension,
+  CatalogPrimaryWorkbenchSectionContract,
+  CatalogPrimaryWorkbenchBlockerContract,
+  CatalogPrimaryWorkbenchDeploySkewMode,
+  CatalogPrimaryWorkbenchDeploySkewPolicy,
+  CatalogPrimaryWorkbenchDownstreamContract,
+  CatalogPrimaryWorkbenchDownstreamIssueKey,
+  CatalogPrimaryWorkbenchRetirementPolicy,
+  CatalogPrimaryWorkbenchContractVersion,
+  CatalogPrimaryWorkbenchProviderScopeReadModel,
+  CatalogPrimaryWorkbenchProviderTransportCategory,
+  CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchRouteContextKey,
+  CatalogPrimaryWorkbenchScopeContext,
+  CatalogPrimaryWorkbenchSourceOptionKindReadModel,
+  CatalogPrimaryWorkbenchSourceOptionPageReadModel,
+  CatalogPrimaryWorkbenchSourceOptionPageState,
+  CatalogPrimaryWorkbenchSourceOptionsReadModel,
+  CatalogPrimaryWorkbenchSourceOptionsStatus,
+  CatalogPrimaryWorkbenchImportJobsReadModel,
+  CatalogPrimaryWorkbenchCatalogSyncReadModel,
+  CatalogPrimaryWorkbenchCatalogSyncStatus,
+  CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
+  CatalogPrimaryWorkbenchSourceScopeWorksetReadModel,
+  CatalogPrimaryWorkbenchSourceScopeWorksetStatus,
+  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
+  CatalogPrimaryWorkbenchSourceScopeWorksetUnitState,
+  CatalogPrimaryWorkbenchConflictResolutionReadModel,
+  CatalogPrimaryWorkbenchConflictResolutionRow,
+  CatalogPrimaryWorkbenchConflictResolutionState,
+  CatalogPrimaryWorkbenchConflictResolutionStatus,
+  CatalogPrimaryWorkbenchMergeCandidateActionKey,
+  CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride,
+  CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel,
+  CatalogPrimaryWorkbenchMergeCandidateEditReference,
+  CatalogPrimaryWorkbenchMergeCandidateReviewReadModel,
+  CatalogPrimaryWorkbenchMergeCandidateReviewRow,
+  CatalogPrimaryWorkbenchProductContentsEvidenceLine,
+  CatalogPrimaryWorkbenchProductContentsEvidenceReview,
+  CatalogPrimaryWorkbenchProductContentsEvidenceState,
+  CatalogPrimaryWorkbenchPromotionDisposition,
+  CatalogPrimaryWorkbenchPromotionIdentityDiagnostic,
+  CatalogPrimaryWorkbenchPromotionOutcomeCountKey,
+  CatalogPrimaryWorkbenchPromotionPreviewReadModel,
+  CatalogPrimaryWorkbenchPromotionProfileSemantics,
+  CatalogPrimaryWorkbenchPromotionResultReadModel,
+  CatalogPrimaryWorkbenchPromotionScopeKind,
+  CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
+  CatalogPrimaryWorkbenchPromotionValidationReadModel,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
+  CatalogPrimaryWorkbenchSourceObservationReviewReadModel,
+  CatalogPrimaryWorkbenchSourceObservationReviewRow,
+  CatalogPrimaryWorkbenchSourceObservationRowActionKey,
+  CatalogPrimaryWorkbenchProfileAuthoringReadModel,
+  CatalogPrimaryWorkbenchProfileAuthoringStatus,
+  CatalogPrimaryWorkbenchProfileCloneDraftReadModel,
+  CatalogPrimaryWorkbenchProfileImmutableFact,
+  CatalogPrimaryWorkbenchProfileImmutableFactKey,
+  CatalogPrimaryWorkbenchProfileImportScopeControl,
+  CatalogPrimaryWorkbenchProfileLifecycleRestriction,
+  CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode,
+  CatalogPrimaryWorkbenchProfileMappingRow,
+  CatalogPrimaryWorkbenchProfileOption,
+  CatalogPrimaryWorkbenchProfileOptionQueryDetail,
+  CatalogPrimaryWorkbenchProfileOverview,
+  CatalogPrimaryWorkbenchProfileSectionField,
+  CatalogPrimaryWorkbenchProfileSectionFieldControl,
+  CatalogPrimaryWorkbenchProfileSectionGroupKey,
+  CatalogPrimaryWorkbenchProfileSectionSaveOutcome,
+  CatalogPrimaryWorkbenchProfileSectionWorkspace,
+  CatalogPrimaryWorkbenchReadinessReadModel,
+  CatalogPrimaryWorkbenchValidationEvidenceRow,
+  CatalogPrimaryWorkbenchValidationFixtureFlowStatus,
+  CatalogPrimaryWorkbenchValidationReadinessReadModel,
+  CatalogPrimaryWorkbenchValidationReadinessStatus,
+  CatalogPrimaryWorkbenchAuditEvidenceFilterKey,
+  CatalogPrimaryWorkbenchAuditEvidenceLink,
+  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
+  CatalogPrimaryWorkbenchAuditEvidenceStatus,
+  CatalogPrimaryWorkbenchAuditEvidenceTargetType,
+  CatalogPrimaryWorkbenchGovernanceControlKind,
+  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
+  CatalogPrimaryWorkbenchGovernanceControlsStatus,
+  CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey,
+  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
+  CatalogPrimaryWorkbenchHealthTriageJob,
+  CatalogPrimaryWorkbenchHealthTriageProvider,
+  CatalogPrimaryWorkbenchHealthTriageReadModel,
+  CatalogPrimaryWorkbenchHealthTriageReadModelState,
+  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
+  CatalogPrimaryWorkbenchHealthTriageStatus,
+  CatalogPrimaryWorkbenchHealthTriageUnit,
+  CatalogPrimaryWorkbenchLifecycleOperation,
+  CatalogPrimaryWorkbenchLifecycleOperationReadModel,
+  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
+  CatalogPrimaryWorkbenchLifecycleRecoveryStatus,
+} from "./primary-workbench-admin-contracts";
 
 describe("Catalog primary workbench admin contracts", () => {
   it("defines the Stage 2 import-to-promotion workbench sections in primary-path order", () => {
@@ -1491,6 +1601,135 @@ describe("Catalog primary workbench admin contracts", () => {
       ),
     ).toThrow("Primary workbench governance alert and runbook links must target approved observability.");
   });
+
+  it("workbench exported symbol and validator ownership is complete", () => {
+    const adminFiles = readdirSync(adminDirectory).filter((file) => file.startsWith("primary-workbench-"));
+    expect(adminFiles.filter((file) => file.endsWith("-implementation.ts"))).toEqual([]);
+    expect(adminFiles.sort()).toEqual(
+      [...workbenchOwners().map(ownerFile), facadeFile, "primary-workbench-admin-contracts.test.ts"].sort(),
+    );
+
+    const functionOwners = new Map<string, WorkbenchOwner[]>();
+    for (const owner of workbenchOwners()) {
+      const row = workbenchOwnerCensus[owner];
+      const source = readAdminSource(ownerFile(owner));
+      expect(source, owner).not.toMatch(/^export\s*(?:\*|\{|type\s*\{)/m);
+      expect(exportedDeclarationNames(source).sort(), owner).toEqual(
+        [...row.types, ...row.values, ...row.siblingExports].sort(),
+      );
+      for (const name of declaredFunctionNames(source)) {
+        functionOwners.set(name, [...(functionOwners.get(name) ?? []), owner]);
+      }
+    }
+    expect(Object.fromEntries(functionOwners)).toEqual(
+      Object.fromEntries(
+        workbenchOwners().flatMap((owner) =>
+          workbenchOwnerCensus[owner].functions.map((name): [string, WorkbenchOwner[]] => [name, [owner]]),
+        ),
+      ),
+    );
+    expect(functionOwners.size).toBe(27);
+
+    const facadeSource = readAdminSource(facadeFile);
+    expect(facadeSource).not.toMatch(/^export\s*\*/m);
+    expect(declaredFunctionNames(facadeSource)).toEqual([]);
+    expect(exportedDeclarationNames(facadeSource)).toEqual([]);
+    expect(
+      facadeSource
+        .replace(facadeReexportPattern, "")
+        .replace(/^\/\/.*$/gm, "")
+        .trim(),
+    ).toBe("");
+    const reexports = facadeReexports(facadeSource);
+    expect(reexports.filter((entry) => !entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(13);
+    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(107);
+    expect(
+      reexports
+        .flatMap(({ typeOnly, names, from }) => names.map((name) => `${typeOnly ? "type " : ""}${name} <- ${from}`))
+        .sort(),
+    ).toEqual(
+      workbenchOwners()
+        .flatMap((owner) => [
+          ...workbenchOwnerCensus[owner].types.map((name) => `type ${name} <- ./primary-workbench-${owner}`),
+          ...workbenchOwnerCensus[owner].values.map((name) => `${name} <- ./primary-workbench-${owner}`),
+        ])
+        .sort(),
+    );
+  });
+
+  it("workbench validator family parity and omission controls", () => {
+    const thrownMessages: Record<string, string[]> = {};
+    for (const owner of workbenchOwners()) {
+      const source = readAdminSource(ownerFile(owner));
+      for (const name of workbenchOwnerCensus[owner].functions) {
+        thrownMessages[name] = thrownMessageLiterals(functionSource(source, name));
+      }
+    }
+    expect(thrownMessages).toEqual(baselineThrownMessages);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(173);
+    expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
+
+    // The base composite omits only the optional promotion result, which the composer accepts.
+    const composite = minimalWorkbenchComposite();
+    expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(composite))).toBeNull();
+    for (const control of omittedFamilyControls) {
+      expect(ownersOfThrownMessage(control.message), control.validator).toEqual([control.validator]);
+      expect(
+        thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(control.payload(composite))),
+        control.validator,
+      ).toBe(control.message);
+    }
+
+    const composerSource = functionSource(
+      readAdminSource(ownerFile("contract-validators")),
+      "validateCatalogPrimaryWorkbenchReadModelContract",
+    );
+    const composedFamilies = new Set(
+      [...composerSource.matchAll(/\b((?:assert|validate)PrimaryWorkbench\w+)\(/g)]
+        .map((match) => match[1])
+        .filter((name) => name !== "assertPrimaryWorkbenchBlockers"),
+    );
+    expect([...composedFamilies].sort()).toEqual(omittedFamilyControls.map((control) => control.validator).sort());
+  });
+
+  it("workbench facade preserves real consumer types", () => {
+    const runtimeKeys = workbenchOwners()
+      .flatMap((owner) => workbenchOwnerCensus[owner].values)
+      .sort();
+    expect(runtimeKeys).toHaveLength(13);
+    expect(Object.keys(workbenchFacade).sort()).toEqual(runtimeKeys);
+    expect(Object.keys(outerWorkbenchFacade).sort()).toEqual(runtimeKeys);
+
+    // This file imports every public type type-only from the facade, so typecheck fails if one stops resolving.
+    expect(typeOnlyFacadeImports(readAdminSource("primary-workbench-admin-contracts.test.ts")).sort()).toEqual(
+      workbenchOwners()
+        .flatMap((owner) => workbenchOwnerCensus[owner].types)
+        .sort(),
+    );
+
+    const valueEdges: string[] = [];
+    for (const file of [...workbenchOwners().map(ownerFile), facadeFile]) {
+      const from = file === facadeFile ? "admin-contracts" : workbenchOwnerOfFile(file);
+      for (const { target, names } of workbenchValueImports(readAdminSource(file))) {
+        expect(valueImportRank[target], `${file} -> ${target}`).toBeLessThan(valueImportRank[from]);
+        if (target !== "admin-contracts") {
+          const row = workbenchOwnerCensus[target];
+          expect(
+            names.filter((name) => ![...row.values, ...row.siblingExports].includes(name)),
+            `${file} -> ${target}`,
+          ).toEqual([]);
+        }
+        valueEdges.push(`${from} -> ${target}`);
+      }
+    }
+    expect(valueEdges).toContain("shared-contracts -> contract-descriptors");
+    expect(valueEdges.filter((edge) => edge.startsWith("contract-validators -> ")).sort()).toEqual(
+      workbenchOwners()
+        .filter((owner) => valueImportRank[owner] === 1 || valueImportRank[owner] === 2)
+        .map((owner) => `contract-validators -> ${owner}`)
+        .sort(),
+    );
+  });
 });
 
 function conflictResolutionFixture(): CatalogPrimaryWorkbenchReadModel["conflictResolution"] {
@@ -2283,3 +2522,761 @@ function healthTriageFixture(): CatalogPrimaryWorkbenchReadModel["healthTriage"]
     },
   };
 }
+
+type WorkbenchOwnerCensusRow = Readonly<{
+  types: readonly string[];
+  values: readonly string[];
+  functions: readonly string[];
+  siblingExports: readonly string[];
+}>;
+
+type WorkbenchOwner =
+  | "shared-contracts"
+  | "contract-descriptors"
+  | "selection-contracts"
+  | "import-sync-contracts"
+  | "promotion-review-contracts"
+  | "profile-readiness-contracts"
+  | "lifecycle-governance-contracts"
+  | "contract-validators";
+
+type WorkbenchValueImportNode = WorkbenchOwner | "admin-contracts";
+
+// Census value-import order: descriptors, then shared, then families, then the composer, then the facade.
+const valueImportRank: Readonly<Record<WorkbenchValueImportNode, number>> = {
+  "contract-descriptors": 0,
+  "shared-contracts": 1,
+  "selection-contracts": 2,
+  "import-sync-contracts": 2,
+  "promotion-review-contracts": 2,
+  "profile-readiness-contracts": 2,
+  "lifecycle-governance-contracts": 2,
+  "contract-validators": 3,
+  "admin-contracts": 4,
+};
+
+const adminDirectory = fileURLToPath(new URL(".", import.meta.url));
+
+const facadeFile = "primary-workbench-admin-contracts.ts";
+
+const facadeReexportPattern = /^export (type )?\{([^}]*)\} from "([^"]+)";$/gm;
+
+const thrownLiteralPattern = /throw new Error\(\s*(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
+
+function workbenchOwners(): WorkbenchOwner[] {
+  return Object.keys(workbenchOwnerCensus).map(workbenchValueImportNode).filter(isWorkbenchOwner);
+}
+
+function isWorkbenchOwner(node: WorkbenchValueImportNode): node is WorkbenchOwner {
+  return node !== "admin-contracts";
+}
+
+function workbenchValueImportNode(name: string): WorkbenchValueImportNode {
+  if (!Object.hasOwn(valueImportRank, name)) {
+    throw new Error(`Unknown primary workbench module '${name}'.`);
+  }
+  return name as WorkbenchValueImportNode;
+}
+
+function ownerFile(owner: WorkbenchOwner): string {
+  return `primary-workbench-${owner}.ts`;
+}
+
+function workbenchOwnerOfFile(file: string): WorkbenchOwner {
+  const owner = workbenchValueImportNode(file.replace(/^primary-workbench-/, "").replace(/\.ts$/, ""));
+  if (!isWorkbenchOwner(owner)) {
+    throw new Error(`${file} is not a census owner module.`);
+  }
+  return owner;
+}
+
+function readAdminSource(file: string): string {
+  return readFileSync(fileURLToPath(new URL(`./${file}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
+}
+
+function specifierNames(list: string): string[] {
+  return list
+    .split(",")
+    .map((specifier) => specifier.trim())
+    .filter(Boolean);
+}
+
+function exportedDeclarationNames(source: string): string[] {
+  return [...source.matchAll(/^export (?:declare )?(?:type|interface|const|let|function|enum|class) ([\w$]+)/gm)].map(
+    (match) => match[1],
+  );
+}
+
+function declaredFunctionNames(source: string): string[] {
+  return [...source.matchAll(/^(?:export )?function ([\w$]+)/gm)].map((match) => match[1]);
+}
+
+function functionSource(source: string, name: string): string {
+  const start = source.search(new RegExp(`^(?:export )?function ${name}\\(`, "m"));
+  if (start < 0) {
+    throw new Error(`${name} is not declared in its census module.`);
+  }
+  const next = source.slice(start + 1).search(/^(?:export )?(?:type|interface|const|let|function) /m);
+  return next < 0 ? source.slice(start) : source.slice(start, start + 1 + next);
+}
+
+function thrownMessageLiterals(source: string): string[] {
+  const literals = [...source.matchAll(thrownLiteralPattern)].map((match) => match[1].slice(1, -1));
+  expect(literals).toHaveLength((source.match(/\bthrow\b/g) ?? []).length);
+  return literals;
+}
+
+function ownersOfThrownMessage(message: string): string[] {
+  return Object.entries(baselineThrownMessages)
+    .filter(([, messages]) => messages.includes(message))
+    .map(([name]) => name);
+}
+
+function thrownMessage(run: () => void): string | null {
+  try {
+    run();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function facadeReexports(source: string): { typeOnly: boolean; names: string[]; from: string }[] {
+  return [...source.matchAll(facadeReexportPattern)].map((match) => ({
+    typeOnly: Boolean(match[1]),
+    names: specifierNames(match[2]),
+    from: match[3],
+  }));
+}
+
+function typeOnlyFacadeImports(source: string): string[] {
+  return [...source.matchAll(/^import (type )?\{([^}]*)\} from "\.\/primary-workbench-admin-contracts";$/gm)].flatMap(
+    (match) =>
+      specifierNames(match[2])
+        .filter((specifier) => Boolean(match[1]) || specifier.startsWith("type "))
+        .map((specifier) => specifier.replace(/^type /, "")),
+  );
+}
+
+function workbenchValueImports(source: string): { target: WorkbenchValueImportNode; names: string[] }[] {
+  return [...source.matchAll(/^(?:import|export) \{([^}]*)\} from "\.\/primary-workbench-([a-z-]+)";$/gm)].map(
+    (match) => ({ target: workbenchValueImportNode(match[2]), names: specifierNames(match[1]) }),
+  );
+}
+
+type OmissionControl = Readonly<{
+  validator: string;
+  message: string;
+  payload: (composite: Partial<CatalogPrimaryWorkbenchReadModel>) => Partial<CatalogPrimaryWorkbenchReadModel>;
+}>;
+
+function omittedSlice(
+  validator: string,
+  slice: keyof CatalogPrimaryWorkbenchReadModel,
+  message: string,
+): OmissionControl {
+  return {
+    validator,
+    message,
+    payload: (composite) => {
+      const payload = { ...composite };
+      delete payload[slice];
+      return payload;
+    },
+  };
+}
+
+// One control per composed family: dropping that family's composer call lets its payload through. Route context
+// presence is enforced by the composer itself and the promotion result is optional, so both use a malformed slice.
+const omittedFamilyControls: readonly OmissionControl[] = [
+  {
+    validator: "validatePrimaryWorkbenchRouteContext",
+    message: "Primary workbench route context section must be a rebuilt workspace or primary section key.",
+    payload: (composite) => ({
+      ...composite,
+      routeContext: {
+        ...composite.routeContext,
+        section: "legacy-god-page",
+      } as unknown as CatalogPrimaryWorkbenchRouteContext,
+    }),
+  },
+  omittedSlice(
+    "assertPrimaryWorkbenchHealthTriage",
+    "healthTriage",
+    "Primary workbench health triage contract is required.",
+  ),
+  omittedSlice("assertPrimaryWorkbenchImportJobs", "importJobs", "Primary workbench import jobs contract is required."),
+  omittedSlice(
+    "assertPrimaryWorkbenchConflictResolution",
+    "conflictResolution",
+    "Primary workbench conflict resolution contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchSourceOptions",
+    "sourceOptions",
+    "Primary workbench source options contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchSourceScopeWorkset",
+    "sourceScopeWorkset",
+    "Primary workbench source-scope workset contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchMergeCandidateReview",
+    "mergeCandidateReview",
+    "Primary workbench merge candidate review contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchGovernanceControls",
+    "governanceControls",
+    "Primary workbench governance controls contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchAuditEvidence",
+    "auditEvidence",
+    "Primary workbench audit evidence contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchPromotionPreview",
+    "promotionPreview",
+    "Primary workbench promotion preview contract is required.",
+  ),
+  {
+    validator: "assertPrimaryWorkbenchPromotionResult",
+    message: "Primary workbench promotion results require durable outcome identity and timing.",
+    payload: (composite) => ({
+      ...composite,
+      promotionResult: { resultId: "" } as unknown as CatalogPrimaryWorkbenchPromotionResultReadModel,
+    }),
+  },
+  omittedSlice(
+    "assertPrimaryWorkbenchProfileAuthoring",
+    "profileAuthoring",
+    "Primary workbench profile authoring contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchValidationReadiness",
+    "validationReadiness",
+    "Primary workbench validation readiness contract is required.",
+  ),
+  omittedSlice(
+    "assertPrimaryWorkbenchLifecycleRecovery",
+    "lifecycleRecovery",
+    "Primary workbench lifecycle recovery contract is required.",
+  ),
+];
+
+// The smallest composite every family validator accepts: fixtures where they exist, empty collections elsewhere.
+function minimalWorkbenchComposite(): Partial<CatalogPrimaryWorkbenchReadModel> {
+  const composite = {
+    schemaVersion: catalogPrimaryWorkbenchContractVersion,
+    routeContext: {
+      section: "import-to-promotion",
+      selectedObservationIds: [],
+      sourceObservationFilters: {},
+    },
+    securityPrivacy: {
+      redactionApplied: true,
+      governedDataClasses: [],
+      unsafeEvidenceBlocked: false,
+      missingSecurityFieldsBlocker: "security-privacy-blocked",
+    },
+    deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
+    instrumentation: {
+      dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
+      redactionSafe: true,
+    },
+    healthTriage: healthTriageFixture(),
+    importJobs: { jobs: [] },
+    conflictResolution: conflictResolutionFixture(),
+    sourceOptions: {
+      status: "ready",
+      freshness: "fresh",
+      optionKinds: [],
+      pages: [],
+      summary: { declaredKinds: 0 },
+      refresh: { state: "available", blockers: [] },
+    },
+    sourceScopeWorkset: {
+      status: "ready",
+      selectedScope: { label: "No source scope selected", hasConcreteScope: false },
+      summary: { unitCount: 0 },
+      units: [],
+    },
+    mergeCandidateReview: {
+      freshness: "fresh",
+      counts: { total: 0, ready: 0, conflict: 0, stale: 0, deferred: 0, terminal: 0, blocked: 0 },
+      rows: [],
+    },
+    governanceControls: governanceControlsFixture(),
+    auditEvidence: auditEvidenceFixture(),
+    promotionPreview: {
+      blockers: [],
+      scope: { partialFailureMode: "per-observation" },
+      validation: { coverage: "not-previewed", promoteAsDraft: false },
+      outcomeCounts: { eligible: 0, blocked: 0, skipped: 0, conflicting: 0, failed: 0 },
+      executionSafeguards: {
+        idempotencyRequired: true,
+        doubleSubmitProtection: true,
+        rejectsWhenChanged: ["observations", "profile-version", "rollout-state", "permissions", "command-inputs"],
+        overlappingActionBlockers: [],
+      },
+      reviewDecisions: {
+        reject: { reasonRequired: true },
+        defer: { stateChange: "keeps-observation-in-review" },
+      },
+      profileWorkflows: {
+        reapply: { profileSemantics: "current-active-profile" },
+        replay: { profileSemantics: "original-source-profile-version" },
+      },
+    },
+    profileAuthoring: {
+      status: "missing-profile",
+      returnToPrimaryHref: "/catalog/integrations",
+      selectedProfile: null,
+      cloneDraft: {
+        commandKey: "provider-profile.clone",
+        submitHref: "/catalog/integrations",
+        state: "disabled",
+        blockers: ["missing-active-profile"],
+      },
+      sectionGroups: [],
+      sectionWorkspaces: [],
+    },
+    validationReadiness: validationReadinessFixture(),
+    lifecycleRecovery: lifecycleRecoveryFixture(),
+  };
+  return composite as unknown as Partial<CatalogPrimaryWorkbenchReadModel>;
+}
+
+// Binding #8321 owner census: public types and values per owner, its functions, and the functions it exports for siblings.
+const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensusRow>> = {
+  "shared-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchReadModel",
+      "CatalogPrimaryWorkbenchActionReadModel",
+      "CatalogPrimaryWorkbenchSecurityPrivacyReadModel",
+      "CatalogPrimaryWorkbenchInstrumentationReadModel",
+      "CatalogPrimaryWorkbenchActionState",
+      "CatalogPrimaryWorkbenchBlockerCategory",
+      "CatalogPrimaryWorkbenchCommandKey",
+      "CatalogPrimaryWorkbenchCopyKey",
+      "CatalogPrimaryWorkbenchActionContract",
+      "CatalogPrimaryWorkbenchSectionKey",
+      "CatalogPrimaryWorkbenchInstrumentationDimension",
+    ],
+    values: ["assertCatalogPrimaryWorkbenchActionState", "assertCatalogPrimaryWorkbenchBlockerCategory"],
+    functions: [
+      "assertCatalogPrimaryWorkbenchBlockerCategory",
+      "assertCatalogPrimaryWorkbenchActionState",
+      "isSafePrimaryWorkbenchReturnPath",
+      "isSafePrimaryWorkbenchObservabilityLink",
+      "assertPrimaryWorkbenchBlockers",
+    ],
+    siblingExports: [
+      "isSafePrimaryWorkbenchReturnPath",
+      "isSafePrimaryWorkbenchObservabilityLink",
+      "assertPrimaryWorkbenchBlockers",
+    ],
+  },
+  "contract-descriptors": {
+    types: [
+      "CatalogPrimaryWorkbenchSectionContract",
+      "CatalogPrimaryWorkbenchBlockerContract",
+      "CatalogPrimaryWorkbenchDeploySkewMode",
+      "CatalogPrimaryWorkbenchDeploySkewPolicy",
+      "CatalogPrimaryWorkbenchDownstreamContract",
+      "CatalogPrimaryWorkbenchDownstreamIssueKey",
+      "CatalogPrimaryWorkbenchRetirementPolicy",
+    ],
+    values: [
+      "catalogPrimaryWorkbenchSections",
+      "catalogPrimaryWorkbenchActions",
+      "catalogPrimaryWorkbenchBlockers",
+      "catalogPrimaryWorkbenchDeploySkewPolicies",
+      "catalogPrimaryWorkbenchDownstreamContracts",
+      "catalogPrimaryWorkbenchInstrumentationDimensions",
+      "catalogPrimaryWorkbenchRetirementPolicy",
+    ],
+    functions: ["section", "action", "blocker", "deploySkew", "downstream"],
+    siblingExports: [],
+  },
+  "selection-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchContractVersion",
+      "CatalogPrimaryWorkbenchProviderScopeReadModel",
+      "CatalogPrimaryWorkbenchProviderTransportCategory",
+      "CatalogPrimaryWorkbenchRouteContext",
+      "CatalogPrimaryWorkbenchRouteContextKey",
+      "CatalogPrimaryWorkbenchScopeContext",
+      "CatalogPrimaryWorkbenchSourceOptionKindReadModel",
+      "CatalogPrimaryWorkbenchSourceOptionPageReadModel",
+      "CatalogPrimaryWorkbenchSourceOptionPageState",
+      "CatalogPrimaryWorkbenchSourceOptionsReadModel",
+      "CatalogPrimaryWorkbenchSourceOptionsStatus",
+    ],
+    values: [
+      "catalogPrimaryWorkbenchContractVersion",
+      "catalogPrimaryWorkbenchRouteSections",
+      "catalogPrimaryWorkbenchProviderTransportCategories",
+    ],
+    functions: [
+      "validatePrimaryWorkbenchRouteContext",
+      "validatePrimaryWorkbenchScopeContext",
+      "assertPrimaryWorkbenchSourceOptions",
+    ],
+    siblingExports: ["validatePrimaryWorkbenchRouteContext", "assertPrimaryWorkbenchSourceOptions"],
+  },
+  "import-sync-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchImportJobsReadModel",
+      "CatalogPrimaryWorkbenchCatalogSyncReadModel",
+      "CatalogPrimaryWorkbenchCatalogSyncStatus",
+      "CatalogPrimaryWorkbenchCatalogSyncUnitReadModel",
+      "CatalogPrimaryWorkbenchSourceScopeWorksetReadModel",
+      "CatalogPrimaryWorkbenchSourceScopeWorksetStatus",
+      "CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel",
+      "CatalogPrimaryWorkbenchSourceScopeWorksetUnitState",
+    ],
+    values: [],
+    functions: ["assertPrimaryWorkbenchImportJobs", "assertPrimaryWorkbenchSourceScopeWorkset"],
+    siblingExports: ["assertPrimaryWorkbenchImportJobs", "assertPrimaryWorkbenchSourceScopeWorkset"],
+  },
+  "promotion-review-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchConflictResolutionReadModel",
+      "CatalogPrimaryWorkbenchConflictResolutionRow",
+      "CatalogPrimaryWorkbenchConflictResolutionState",
+      "CatalogPrimaryWorkbenchConflictResolutionStatus",
+      "CatalogPrimaryWorkbenchMergeCandidateActionKey",
+      "CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride",
+      "CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel",
+      "CatalogPrimaryWorkbenchMergeCandidateEditReference",
+      "CatalogPrimaryWorkbenchMergeCandidateReviewReadModel",
+      "CatalogPrimaryWorkbenchMergeCandidateReviewRow",
+      "CatalogPrimaryWorkbenchProductContentsEvidenceLine",
+      "CatalogPrimaryWorkbenchProductContentsEvidenceReview",
+      "CatalogPrimaryWorkbenchProductContentsEvidenceState",
+      "CatalogPrimaryWorkbenchPromotionDisposition",
+      "CatalogPrimaryWorkbenchPromotionIdentityDiagnostic",
+      "CatalogPrimaryWorkbenchPromotionOutcomeCountKey",
+      "CatalogPrimaryWorkbenchPromotionPreviewReadModel",
+      "CatalogPrimaryWorkbenchPromotionProfileSemantics",
+      "CatalogPrimaryWorkbenchPromotionResultReadModel",
+      "CatalogPrimaryWorkbenchPromotionScopeKind",
+      "CatalogPrimaryWorkbenchPromotionStaleProtectionKey",
+      "CatalogPrimaryWorkbenchPromotionValidationReadModel",
+      "CatalogPrimaryWorkbenchSourceObservationEvidenceDetail",
+      "CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData",
+      "CatalogPrimaryWorkbenchSourceObservationReviewReadModel",
+      "CatalogPrimaryWorkbenchSourceObservationReviewRow",
+      "CatalogPrimaryWorkbenchSourceObservationRowActionKey",
+    ],
+    values: [],
+    functions: [
+      "assertPrimaryWorkbenchPromotionResult",
+      "assertPrimaryWorkbenchConflictResolution",
+      "assertPrimaryWorkbenchPromotionPreview",
+      "assertPrimaryWorkbenchMergeCandidateReview",
+    ],
+    siblingExports: [
+      "assertPrimaryWorkbenchConflictResolution",
+      "assertPrimaryWorkbenchMergeCandidateReview",
+      "assertPrimaryWorkbenchPromotionPreview",
+      "assertPrimaryWorkbenchPromotionResult",
+    ],
+  },
+  "profile-readiness-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchProfileAuthoringReadModel",
+      "CatalogPrimaryWorkbenchProfileAuthoringStatus",
+      "CatalogPrimaryWorkbenchProfileCloneDraftReadModel",
+      "CatalogPrimaryWorkbenchProfileImmutableFact",
+      "CatalogPrimaryWorkbenchProfileImmutableFactKey",
+      "CatalogPrimaryWorkbenchProfileImportScopeControl",
+      "CatalogPrimaryWorkbenchProfileLifecycleRestriction",
+      "CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode",
+      "CatalogPrimaryWorkbenchProfileMappingRow",
+      "CatalogPrimaryWorkbenchProfileOption",
+      "CatalogPrimaryWorkbenchProfileOptionQueryDetail",
+      "CatalogPrimaryWorkbenchProfileOverview",
+      "CatalogPrimaryWorkbenchProfileSectionField",
+      "CatalogPrimaryWorkbenchProfileSectionFieldControl",
+      "CatalogPrimaryWorkbenchProfileSectionGroupKey",
+      "CatalogPrimaryWorkbenchProfileSectionSaveOutcome",
+      "CatalogPrimaryWorkbenchProfileSectionWorkspace",
+      "CatalogPrimaryWorkbenchReadinessReadModel",
+      "CatalogPrimaryWorkbenchValidationEvidenceRow",
+      "CatalogPrimaryWorkbenchValidationFixtureFlowStatus",
+      "CatalogPrimaryWorkbenchValidationReadinessReadModel",
+      "CatalogPrimaryWorkbenchValidationReadinessStatus",
+    ],
+    values: [],
+    functions: ["assertPrimaryWorkbenchProfileAuthoring", "assertPrimaryWorkbenchValidationReadiness"],
+    siblingExports: ["assertPrimaryWorkbenchProfileAuthoring", "assertPrimaryWorkbenchValidationReadiness"],
+  },
+  "lifecycle-governance-contracts": {
+    types: [
+      "CatalogPrimaryWorkbenchAuditEvidenceFilterKey",
+      "CatalogPrimaryWorkbenchAuditEvidenceLink",
+      "CatalogPrimaryWorkbenchAuditEvidenceReadModel",
+      "CatalogPrimaryWorkbenchAuditEvidenceStatus",
+      "CatalogPrimaryWorkbenchAuditEvidenceTargetType",
+      "CatalogPrimaryWorkbenchGovernanceControlKind",
+      "CatalogPrimaryWorkbenchGovernanceControlsReadModel",
+      "CatalogPrimaryWorkbenchGovernanceControlsStatus",
+      "CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey",
+      "CatalogPrimaryWorkbenchHealthTriageAuditPreview",
+      "CatalogPrimaryWorkbenchHealthTriageJob",
+      "CatalogPrimaryWorkbenchHealthTriageProvider",
+      "CatalogPrimaryWorkbenchHealthTriageReadModel",
+      "CatalogPrimaryWorkbenchHealthTriageReadModelState",
+      "CatalogPrimaryWorkbenchHealthTriageRolloutControl",
+      "CatalogPrimaryWorkbenchHealthTriageStatus",
+      "CatalogPrimaryWorkbenchHealthTriageUnit",
+      "CatalogPrimaryWorkbenchLifecycleOperation",
+      "CatalogPrimaryWorkbenchLifecycleOperationReadModel",
+      "CatalogPrimaryWorkbenchLifecycleRecoveryReadModel",
+      "CatalogPrimaryWorkbenchLifecycleRecoveryStatus",
+    ],
+    values: [],
+    functions: [
+      "assertPrimaryWorkbenchGovernanceControls",
+      "assertPrimaryWorkbenchAuditEvidence",
+      "assertPrimaryWorkbenchAuditEvidenceLink",
+      "assertPrimaryWorkbenchHealthTriage",
+      "assertPrimaryWorkbenchLifecycleRecovery",
+    ],
+    siblingExports: [
+      "assertPrimaryWorkbenchHealthTriage",
+      "assertPrimaryWorkbenchGovernanceControls",
+      "assertPrimaryWorkbenchAuditEvidence",
+      "assertPrimaryWorkbenchLifecycleRecovery",
+    ],
+  },
+  "contract-validators": {
+    types: [],
+    values: ["validateCatalogPrimaryWorkbenchReadModelContract"],
+    functions: ["validateCatalogPrimaryWorkbenchReadModelContract"],
+    siblingExports: [],
+  },
+};
+
+// Ordered thrown-message literals of every census function at ab95c339ef: 173 across 19 functions.
+const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
+  action: [],
+  assertCatalogPrimaryWorkbenchActionState: ["Unknown primary workbench action state '${value}' must fail closed."],
+  assertCatalogPrimaryWorkbenchBlockerCategory: [
+    "Unknown primary workbench blocker category '${value}' must fail closed.",
+  ],
+  assertPrimaryWorkbenchAuditEvidence: [
+    "Primary workbench audit evidence contract is required.",
+    "Primary workbench audit evidence status must be explicit.",
+    "Primary workbench audit evidence return link must target the rebuilt workbench.",
+    "Primary workbench audit evidence projection must use the canonical audit timeline query.",
+    "Primary workbench missing audit projection must be unavailable.",
+    "Primary workbench partial audit projection cannot report ready.",
+    "Primary workbench audit evidence filter '${filterKey}' is required.",
+    "Primary workbench audit evidence must not require source payload or profile snapshot access.",
+    "Primary workbench audit evidence must list forbidden evidence request patterns.",
+    "Primary workbench audit timeline rows must name event, time, category, and target.",
+    "Primary workbench audit timeline rows must expose redacted evidence links.",
+    "Primary workbench audit evidence must expose redacted summaries without legacy document workflows.",
+  ],
+  assertPrimaryWorkbenchAuditEvidenceLink: [
+    "Primary workbench audit evidence links must be named and target rebuilt workbench evidence.",
+    "Primary workbench audit evidence links must remain redaction-safe.",
+  ],
+  assertPrimaryWorkbenchBlockers: [],
+  assertPrimaryWorkbenchConflictResolution: [
+    "Primary workbench conflict resolution contract is required.",
+    "Primary workbench conflict resolution status must be explicit.",
+    "Primary workbench conflict resolution return link must target the rebuilt workbench.",
+    "Primary workbench conflict resolution audit link must target the rebuilt workbench.",
+    "Primary workbench conflict resolution rows require precedence rule evidence.",
+    "Primary workbench conflict overrides need a rebuilt backend command before becoming available.",
+    "Primary workbench conflict resolution rows must name observation, fact, and precedence rule.",
+    "Primary workbench conflict resolution row state must be explicit.",
+    "Primary workbench conflict resolution rows must show winning and losing candidate values.",
+    "Primary workbench conflict resolution rows must expose evidence paths and diagnostics.",
+  ],
+  assertPrimaryWorkbenchGovernanceControls: [
+    "Primary workbench governance controls contract is required.",
+    "Primary workbench governance controls status must be explicit.",
+    "Primary workbench governance controls return link must target the rebuilt workbench.",
+    "Primary workbench governance controls audit link must target the rebuilt workbench.",
+    "Primary workbench governance controls must expose rollout, worker, and removal evidence.",
+    "Primary workbench governance controls must name control, metric, and label.",
+    "Primary workbench governance control status must be explicit.",
+    "Primary workbench governance control evidence link must target the rebuilt workbench.",
+    "Primary workbench governance controls must cover sensitive action '${actionEntry.key}'.",
+    "Primary workbench governance RBAC matrix must provide denied-state copy.",
+    "Primary workbench governance destructive confirmation rows must be explicit.",
+    "Primary workbench governance RBAC matrix must not preserve retired route patterns.",
+    "Primary workbench governance observability signal '${signal}' is required.",
+    "Primary workbench governance observability signal status must be explicit.",
+    "Primary workbench governance observability signals require alert and runbook links.",
+    "Primary workbench governance alert and runbook links must target approved observability.",
+    "Primary workbench governance stale observability data must be degraded or unavailable.",
+    "Primary workbench governance retired compatibility evidence must be removed.",
+    "Primary workbench governance retired compatibility evidence must require complete removal.",
+    "Primary workbench governance retirement evidence must remove '${surface}'.",
+    "Primary workbench governance retirement evidence rows must be removed and linked.",
+    "Primary workbench governance controls must not preserve a compatibility holding area.",
+  ],
+  assertPrimaryWorkbenchHealthTriage: [
+    "Primary workbench health triage contract is required.",
+    "Primary workbench health triage status must be explicit.",
+    "Primary workbench health triage return link must target the rebuilt workbench.",
+    "Primary workbench health triage units must name provider, unit, owner metric, and next action.",
+    "Primary workbench health triage providers must name provider, owner metric, and next action.",
+  ],
+  assertPrimaryWorkbenchImportJobs: [
+    "Primary workbench import jobs contract is required.",
+    "Primary workbench import job results must expose redacted failure reasons.",
+    "Primary workbench import job usage counts must be non-negative integers.",
+    "Primary workbench import job failure reasons must stay redaction-safe.",
+  ],
+  assertPrimaryWorkbenchLifecycleRecovery: [
+    "Primary workbench lifecycle recovery contract is required.",
+    "Primary workbench lifecycle recovery status must be explicit.",
+    "Primary workbench lifecycle recovery return link must target the rebuilt workbench.",
+    "Primary workbench lifecycle recovery must preserve complete-removal retirement semantics.",
+    "Primary workbench lifecycle recovery must expose ${operation} evidence.",
+    "Primary workbench lifecycle recovery submit link must stay in the rebuilt workbench.",
+    "Primary workbench lifecycle recovery destructive lifecycle actions require confirmation.",
+    "Primary workbench profile retirement reference blocker must name concrete references.",
+  ],
+  assertPrimaryWorkbenchMergeCandidateReview: [
+    "Primary workbench merge candidate review contract is required.",
+    "Primary workbench merge candidate review freshness must be explicit.",
+    "Primary workbench merge candidate count '${countKey}' is required.",
+    "Primary workbench merge candidate rows must expose identity.",
+    "Primary workbench merge candidate rows must expose contributing sources.",
+    "Primary workbench ready merge candidates cannot carry promotion blockers.",
+    "Primary workbench merge candidate detail must expose proposed Catalog mapping.",
+    "Primary workbench merge candidate detail must expose source comparison and field provenance.",
+    "Primary workbench merge candidate blocking conflict count must match its resolvable conflict detail.",
+    "Primary workbench merge candidate rows must expose '${actionKey}'.",
+    "Primary workbench split/update merge candidate actions require typed command previews.",
+  ],
+  assertPrimaryWorkbenchProfileAuthoring: [
+    "Primary workbench profile authoring contract is required.",
+    "Primary workbench profile authoring status must be explicit.",
+    "Primary workbench profile authoring return link must target the rebuilt workbench.",
+    "Primary workbench profile draft command must use the rebuilt provider-profile.clone boundary.",
+    "Primary workbench profile draft submit link must target the rebuilt workbench.",
+    "Primary workbench profile authoring ready state requires a selected profile.",
+    "Primary workbench profile draft command must fail closed when profile selection is missing.",
+    "Primary workbench selected profile must preserve provider, profile, and version identity.",
+    "Primary workbench selected profile must expose immutable identity facts.",
+    "Primary workbench profile draft command must preserve source provider and version context.",
+    "Primary workbench profile authoring must expose guided section workspaces.",
+    "Primary workbench profile section ${workspace.sectionKey} must belong to a navigation group.",
+    "Primary workbench profile section ${workspace.sectionKey} must use section-scoped saves.",
+    "Primary workbench profile section ${workspace.sectionKey} submit link must stay in the rebuilt workbench.",
+    "Primary workbench profile section ${workspace.sectionKey} must expose guided controls.",
+    "Primary workbench profile section ${workspace.sectionKey} must not expose raw JSON controls.",
+    "Primary workbench profile section ${workspace.sectionKey} option-query details are required.",
+    "Primary workbench profile section ${workspace.sectionKey} import-scope controls are required.",
+    "Primary workbench profile section ${workspace.sectionKey} mapping rows are required.",
+    "Primary workbench profile section ${workspace.sectionKey} option queries must expose canonical query metadata.",
+    "Primary workbench profile section ${workspace.sectionKey} option queries must expose output mappings.",
+    "Primary workbench profile section ${workspace.sectionKey} option-query cache state must be explainable.",
+    "Primary workbench profile section ${workspace.sectionKey} import-scope controls must name the scope.",
+    "Primary workbench profile section ${workspace.sectionKey} unavailable import scopes need a reason.",
+    "Primary workbench profile section ${workspace.sectionKey} mapping rows must expose row metadata.",
+    "Primary workbench profile section ${workspace.sectionKey} mapping rows must support diagnostics and long paths.",
+    "Primary workbench profile section ${workspace.sectionKey} stale state must be explicit.",
+    "Primary workbench profile section ${workspace.sectionKey} save outcome must be explicit.",
+  ],
+  assertPrimaryWorkbenchPromotionPreview: [
+    "Primary workbench promotion preview contract is required.",
+    "Primary workbench promotion preview scope is required.",
+    "Primary workbench promotion preview must preserve per-observation partial failure scope.",
+    "Primary workbench promotion preview validation coverage must be explicit.",
+    "Primary workbench promotion preview must state the explicit promote-as-draft choice.",
+    "Primary workbench promotion outcome count '${key}' is required.",
+    "Primary workbench promotion execution safeguards must include idempotency and double-submit protection.",
+    "Primary workbench promotion execution must reject stale ${staleProtection} previews.",
+    "Primary workbench rejection decisions must require a reason.",
+    "Primary workbench defer decisions must preserve review return semantics.",
+    "Primary workbench reapply must use current active profile semantics.",
+    "Primary workbench replay must use original source profile version semantics.",
+  ],
+  assertPrimaryWorkbenchPromotionResult: [
+    "Primary workbench promotion results require durable outcome identity and timing.",
+    "Primary workbench promotion results require an explicit terminal status.",
+    "Primary workbench promotion result counts must be non-negative integers.",
+    "Primary workbench promotion result counts must reconcile to the requested count.",
+    "Primary workbench promotion results must expose redacted failure reasons.",
+    "Primary workbench promotion failure reasons must stay redaction-safe.",
+  ],
+  assertPrimaryWorkbenchSourceOptions: [
+    "Primary workbench source options contract is required.",
+    "Primary workbench source options status must be explicit.",
+    "Primary workbench source options freshness must be explicit.",
+    "Primary workbench source option kinds must expose canonical query metadata.",
+    "Primary workbench source option required parents must name the parent scope.",
+    "Primary workbench source option missing parents require diagnostic text.",
+    "Primary workbench source option pages must preserve option kind identity.",
+    "Primary workbench source option page state must be explicit.",
+    "Primary workbench source option pages must expose positive limits.",
+    "Primary workbench source option page count must match item count.",
+    "Primary workbench source option cache status must be explicit.",
+    "Primary workbench source option cache source must be explicit.",
+    "Primary workbench source option cached/live pages must include the cache key.",
+    "Primary workbench source option query links must stay on typed option routes.",
+    "Primary workbench source option refresh links must stay on typed option routes.",
+    "Primary workbench source options must expose one page state per declared option kind.",
+  ],
+  assertPrimaryWorkbenchSourceScopeWorkset: [
+    "Primary workbench source-scope workset contract is required.",
+    "Primary workbench source-scope workset status must be explicit.",
+    "Primary workbench source-scope workset must label the selected scope state.",
+    "Primary workbench source-scope workset unit summary must match unit rows.",
+    "Primary workbench source-scope workset unit rows must be unique by provider and unit.",
+    "Primary workbench source-scope workset rows must link back to the typed workbench.",
+    "Primary workbench source-scope workset row state must be explicit.",
+    "Primary workbench source-scope workset command context must preserve provider identity.",
+    "Primary workbench source-scope workset must fail closed until a source scope is selected.",
+  ],
+  assertPrimaryWorkbenchValidationReadiness: [
+    "Primary workbench validation readiness contract is required.",
+    "Primary workbench validation readiness status must be explicit.",
+    "Primary workbench validation readiness return link must target the rebuilt workbench.",
+    "Primary workbench validation readiness must expose fixture flows for the selected profile.",
+    "Primary workbench validation fixture flows must be named and explicitly statused.",
+    "Primary workbench validation dry-run evidence status must be explicit.",
+    "Primary workbench validation dry-run evidence must summarize redaction.",
+    "Primary workbench activation readiness status must be explicit.",
+    "Primary workbench activation decision must expose the rebuilt activation command.",
+    "Primary workbench activation decision must save evidence through typed profile sections.",
+    "Primary workbench activation decision status must be explicit.",
+    "Primary workbench activation decision must make ready activation actionable.",
+    "Primary workbench validation readiness must not expose raw JSON workflow copy.",
+  ],
+  blocker: [],
+  deploySkew: [],
+  downstream: [],
+  isSafePrimaryWorkbenchObservabilityLink: [],
+  isSafePrimaryWorkbenchReturnPath: [],
+  section: [],
+  validateCatalogPrimaryWorkbenchReadModelContract: [
+    "Primary workbench schema version mismatch must fail closed.",
+    "Primary workbench route context is required for context preservation.",
+    "Primary workbench security/privacy fields are required and must fail closed when missing.",
+    "Primary workbench deploy-skew policy is required.",
+    "Primary workbench deploy-skew policy is unsupported and must fail closed.",
+    "Primary workbench instrumentation must be redaction-safe.",
+  ],
+  validatePrimaryWorkbenchRouteContext: [
+    "Primary workbench route context section must be a rebuilt workspace or primary section key.",
+    "Primary workbench route context selectedObservationIds must be an array.",
+    "Primary workbench route context selectedObservationIds must be clean identifiers.",
+    "Primary workbench route context Source Observation filters are required.",
+    "Primary workbench route context filters must be clean query values.",
+    "Primary workbench returnPath must be a safe rebuilt Catalog admin path.",
+  ],
+  validatePrimaryWorkbenchScopeContext: ["Primary workbench route scope must use clean structured scope fields."],
+};

@@ -286,10 +286,18 @@ describe("launch go/no-go gate: composed evidence rows", () => {
     const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-production.yml"), "utf8");
     const variables = readFileSync(path.join(repoRoot, "infrastructure/digitalocean/platform/variables.tf"), "utf8");
     const terraform = readFileSync(path.join(repoRoot, "infrastructure/digitalocean/platform/main.tf"), "utf8");
-    const payoutRuntime = readFileSync(
-      path.join(repoRoot, "bounded-contexts/settlement/features/payouts/api/runtime.ts"),
-      "utf8",
-    );
+    const payoutRuntime = [
+      "runtime.ts",
+      "payout-primitives.ts",
+      "payout-request-lifecycle.ts",
+      "payout-provider-events.ts",
+      "payout-reconciliation.ts",
+      "payout-reconciliation-jobs.ts",
+    ]
+      .map((file) =>
+        readFileSync(path.join(repoRoot, "bounded-contexts/settlement/features/payouts/api", file), "utf8"),
+      )
+      .join("\n");
 
     expect(workflow).toContain("vars.PRODUCTION_PAYOUT_FEE_APPROVED");
     expect(workflow).toContain("vars.PRODUCTION_PAYOUT_FEE_REFERENCE");

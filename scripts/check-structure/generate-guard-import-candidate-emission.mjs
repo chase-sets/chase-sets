@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import ts from "@chase-sets/typescript-compiler-api";
 import { format } from "prettier";
 import { importerSpecifierFixture } from "./fixtures/guard-import-candidate-emission/importer-specifier-fixture.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const PINNED_SOURCE = Object.freeze({
   commit: "f78143573af96c636d97696b987a82990df23904",
@@ -25,7 +26,12 @@ function refuse(code, reachedClause) {
 }
 
 function defaultExecGit(args) {
-  return execFileSync("git", args, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  return execFileSync("git", args, {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  });
 }
 
 export function readGitObject({ sourceCommit, sourcePath, execGit = defaultExecGit, expectedBlobObjectId }) {

@@ -6,14 +6,8 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { CartLineId } from "../../../support/runtime-support/common";
-import {
-  CheckoutDomainError,
-  createCheckoutProductDescriptor,
-  type CheckoutVersionSchema,
-} from "../../../support/runtime-support/common";
 import {
   decideCheckoutCart,
   decideCheckoutCartReadAuthorityFromState,
@@ -22,13 +16,14 @@ import {
   requireCheckoutCartClaimIdentity,
   type CheckoutCartCommand,
   type CheckoutCartEvent,
-  type CheckoutSelectedListingSnapshotInput,
   type CheckoutCartState,
 } from "../domain/domain";
 import { classifyCheckoutCartSourceAuthority, type CheckoutCartSourceAuthority } from "./contracts";
 import {
   createCartReadinessSnapshot,
+  createCartReadinessRead,
   type CartReadinessDecisionInput,
+  type CartReadinessRead,
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
@@ -36,11 +31,14 @@ import {
   listAuthorizedOwnerCartLines,
   listCartLines,
   listClaimedCartOwnerKeys,
-  listOwnCartLines,
   ownerKeyCanHoldClaims,
   reconcileCheckoutCartClaim,
   type CheckoutCartLineRow,
 } from "../read-model/queries";
+import {
+  createCheckoutCartAttemptExecutor,
+  type CheckoutCartAttemptExecutor,
+} from "../../command-attempts/api/cart-attempt";
 
 /**
  * Aggregate reads for claimed-source candidates run a few at a time so that an
@@ -91,91 +89,15 @@ export type CheckoutCartRuntimeDeps = Readonly<{
 
 export type CheckoutCartServices = Readonly<{
   commandHandler: CommandHandler<CheckoutCartCommand, CheckoutCartState, CheckoutCartEvent>;
-  addLine: (
-    params: Readonly<{
-      accountId: AccountId;
-      catalogItemId: string;
-      productId: string;
-      itemTitle: string;
-      itemSubtitle: string | null;
-      itemImageUrl: string | null;
-      itemImageSrcSet?: string | null;
-      itemImageLoadingUrl?: string | null;
-      itemImageLoadingAlt?: string | null;
-      itemImageLoadingSrcSet?: string | null;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      productSummary: string | null;
-      quantity: number;
-      fulfillmentMode?: "optimize" | "locked-listing";
-      lockedListingId?: string | null;
-      sellerPreferenceId?: string | null;
-      selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ lineId: CartLineId; version: number; status: "added" | "merged" }>;
-  addLines: (
-    params: Readonly<{
-      accountId: AccountId;
-      lines: readonly {
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string;
-        itemSubtitle: string | null;
-        itemImageUrl: string | null;
-        itemImageSrcSet?: string | null;
-        itemImageLoadingUrl?: string | null;
-        itemImageLoadingAlt?: string | null;
-        itemImageLoadingSrcSet?: string | null;
-        selectedOptions: readonly { dimensionId: string; optionId: string }[];
-        productSummary: string | null;
-        quantity: number;
-        fulfillmentMode?: "optimize" | "locked-listing";
-        lockedListingId?: string | null;
-        sellerPreferenceId?: string | null;
-        selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
-      }[];
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{
-    requestedLineCount: number;
-    addedLineCount: number;
-    mergedLineCount: number;
-    failedLineCount: number;
-    lines: Array<{
-      index: number;
-      lineId: CartLineId | null;
-      status: "added" | "merged" | "failed";
-      message: string | null;
-    }>;
-  }>;
-  setLineQuantity: (
-    params: Readonly<{
-      accountId: AccountId;
-      lineId: CartLineId;
-      quantity: number;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ lineId: CartLineId; version: number }>;
-  setLineFulfillment: (
-    params: Readonly<{
-      accountId: AccountId;
-      lineId: CartLineId;
-      fulfillmentMode: "optimize" | "locked-listing";
-      lockedListingId?: string | null;
-      sellerPreferenceId?: string | null;
-      selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
-      availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ lineId: CartLineId; version: number }>;
-  removeLine: (
-    params: Readonly<{
-      accountId: AccountId;
-      lineId: CartLineId;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ lineId: CartLineId; version: number }>;
-  checkout: (accountId: AccountId, context: EventStoreContext) => Promise<{ version: number }>;
+  /**
+   * The single cart write entry point: one attempt of 1-250 line commands,
+   * decided against the authoritative cart streams and appended atomically with
+   * its completed-attempt event. Every cart-write caller supplies an attempt;
+   * there is no unkeyed write.
+   */
+  executeCartAttempt: CheckoutCartAttemptExecutor["executeCartAttempt"];
+  /** Reads one attempt by owner, kind, target and id; never writes. */
+  lookupCartAttempt: CheckoutCartAttemptExecutor["lookupCartAttempt"];
   claimCart: (
     params: Readonly<{
       sourceOwnerKey: string;
@@ -197,6 +119,12 @@ export type CheckoutCartServices = Readonly<{
       decisions?: CartReadinessDecisionInput | null;
     }>,
   ) => Promise<CartReadinessSnapshot>;
+  readCart: (
+    params: Readonly<{
+      accountId: string;
+      presentedAnonymousCartId?: string | null;
+    }>,
+  ) => Promise<{ lines: CheckoutCartLineRow[]; readiness: CartReadinessRead }>;
   listCartLines: (accountId: string, presentedAnonymousCartId?: string | null) => ReturnType<typeof listCartLines>;
   /**
    * The single post-claim read decision for one presented anonymous source,
@@ -244,22 +172,6 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     handlers: buildCheckoutCartProjectionHandlers(deps.db),
   });
 
-  async function getCatalogItemSnapshot(catalogItemId: string) {
-    const result = await deps.db.query<{
-      catalog_item_id: string;
-      language_code: string;
-      status: string;
-      product_schema: unknown;
-    }>(
-      `SELECT catalog_item_id, language_code, status, product_schema
-       FROM checkout_catalog_items
-       WHERE catalog_item_id = $1`,
-      [catalogItemId],
-    );
-
-    return result.rows[0] ?? null;
-  }
-
   /**
    * Resolves the stream that actually holds the line the acting owner can see.
    *
@@ -281,10 +193,6 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
 
     const visible = await listCartLines(deps.db, actingOwnerKey);
     return visible.find((line) => line.line_id === lineId)?.buyer_account_id ?? actingOwnerKey;
-  }
-
-  function isMissingCartLine(error: unknown) {
-    return error instanceof CheckoutDomainError && error.message === "Cart line not found.";
   }
 
   /**
@@ -394,235 +302,40 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     };
   }
 
-  const addLine: CheckoutCartServices["addLine"] = async (params, context) => {
-    const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
-    if (!catalogItem) {
-      throw new CheckoutDomainError("Catalog item not found.");
-    }
-
-    if (catalogItem.status !== "active") {
-      throw new CheckoutDomainError("Cart lines may only reference active catalog items.");
-    }
-
-    const catalogVersion = createCheckoutProductDescriptor({
-      catalogItemId: params.catalogItemId,
-      productSchema:
-        typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
-          ? (catalogItem.product_schema as CheckoutVersionSchema)
-          : null,
-      selection: params.selectedOptions,
-    });
-
-    if (params.productId.trim() !== catalogVersion.productId) {
-      throw new CheckoutDomainError("Cart line product id does not match the selected options.");
-    }
-
-    const fulfillmentMode =
-      params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim() ? "locked-listing" : "optimize";
-    const lockedListingId = params.lockedListingId?.trim() || null;
-    const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
-
-    // Own-key only: a matching line held on a claimed source stream must not
-    // turn this add into a SetCartLineQuantity against the Account stream,
-    // where that line does not exist.
-    const existingLine = (await listOwnCartLines(deps.db, params.accountId)).find(
-      (line) =>
-        line.catalog_catalog_item_id === params.catalogItemId &&
-        line.product_id === catalogVersion.productId &&
-        line.fulfillment_mode === fulfillmentMode &&
-        (line.locked_listing_id ?? null) === lockedListingId &&
-        (line.seller_preference_id ?? null) === sellerPreferenceId,
+  async function readAuthorizedCartLines(
+    params: Readonly<{
+      accountId: string;
+      presentedAnonymousCartId?: string | null;
+    }>,
+  ) {
+    const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
+    const projected = await listAuthorizedOwnerCartLines(
+      deps.db,
+      params.accountId,
+      source.authorizedClaimedOwnerKeys,
+      source.presentedAnonymousCartId,
     );
+    return {
+      lines: source.readable ? projected : [],
+      unionSource: source.presentedAnonymousCartId
+        ? {
+            accountId: params.accountId,
+            presentedAnonymousCartId: source.presentedAnonymousCartId,
+          }
+        : undefined,
+    };
+  }
 
-    if (existingLine) {
-      const result = await commandHandler({
-        streamId: `checkout.cart-${params.accountId}`,
-        command: {
-          type: "SetCartLineQuantity",
-          // The own-key probe above matched a line on this same stream, so the
-          // merge acts as its own owner and never routes across a claim.
-          actingOwnerKey: params.accountId,
-          lineId: existingLine.line_id as CartLineId,
-          quantity: existingLine.quantity + params.quantity,
-        },
-        context,
-      });
-
-      return { lineId: existingLine.line_id as CartLineId, version: result.version, status: "merged" };
-    }
-
-    const lineId = createId("cli") as CartLineId;
-    const result = await commandHandler({
-      streamId: `checkout.cart-${params.accountId}`,
-      command: {
-        type: "AddCartLine",
-        buyerAccountId: params.accountId,
-        lineId,
-        catalogItemId: params.catalogItemId,
-        productId: catalogVersion.productId,
-        itemLanguageCode: catalogItem.language_code,
-        itemTitle: params.itemTitle,
-        itemSubtitle: params.itemSubtitle,
-        itemImageUrl: params.itemImageUrl,
-        itemImageSrcSet: params.itemImageSrcSet,
-        itemImageLoadingUrl: params.itemImageLoadingUrl,
-        itemImageLoadingAlt: params.itemImageLoadingAlt,
-        itemImageLoadingSrcSet: params.itemImageLoadingSrcSet,
-        selectedOptions: catalogVersion.selection,
-        productSummary: params.productSummary,
-        quantity: params.quantity,
-        fulfillmentMode,
-        lockedListingId,
-        sellerPreferenceId,
-        selectedListingSnapshot: params.selectedListingSnapshot,
-        availabilityState: "available",
-      },
-      context,
-    });
-
-    return { lineId, version: result.version, status: "added" };
-  };
-
+  const attempts = createCheckoutCartAttemptExecutor({
+    eventStore: deps.eventStore,
+    db: deps.db,
+    loadCart: (streamId) => repository.load(streamId),
+    resolveLineSourceOwnerKey,
+  });
   return {
     commandHandler,
-    addLine,
-    addLines: async (params, context) => {
-      if (params.lines.length > 250) {
-        throw new CheckoutDomainError("Bulk cart adds are limited to 250 products.");
-      }
-
-      const lines: Array<{
-        index: number;
-        lineId: CartLineId | null;
-        status: "added" | "merged" | "failed";
-        message: string | null;
-      }> = [];
-      let addedLineCount = 0;
-      let mergedLineCount = 0;
-
-      for (const [index, line] of params.lines.entries()) {
-        try {
-          const result = await addLine(
-            {
-              accountId: params.accountId,
-              ...line,
-            },
-            context,
-          );
-          if (result.status === "merged") {
-            mergedLineCount++;
-          } else {
-            addedLineCount++;
-          }
-          lines.push({
-            index,
-            lineId: result.lineId,
-            status: result.status,
-            message: null,
-          });
-        } catch (error) {
-          if (error instanceof CheckoutDomainError && error.message === "Cart is owned by a different account.") {
-            throw error;
-          }
-          lines.push({
-            index,
-            lineId: null,
-            status: "failed",
-            message: error instanceof Error ? error.message : "Cart line could not be added.",
-          });
-        }
-      }
-
-      return {
-        requestedLineCount: params.lines.length,
-        addedLineCount,
-        mergedLineCount,
-        failedLineCount: lines.filter((line) => line.status === "failed").length,
-        lines,
-      };
-    },
-    setLineQuantity: async (params, context) => {
-      const result = await commandHandler({
-        streamId: `checkout.cart-${await resolveLineSourceOwnerKey(params.accountId, params.lineId)}`,
-        command: {
-          type: "SetCartLineQuantity",
-          actingOwnerKey: params.accountId,
-          lineId: params.lineId,
-          quantity: params.quantity,
-        },
-        context,
-      });
-
-      return { lineId: params.lineId, version: result.version };
-    },
-    setLineFulfillment: async (params, context) => {
-      const result = await commandHandler({
-        streamId: `checkout.cart-${await resolveLineSourceOwnerKey(params.accountId, params.lineId)}`,
-        command: {
-          type: "SetCartLineFulfillment",
-          actingOwnerKey: params.accountId,
-          lineId: params.lineId,
-          fulfillmentMode: params.fulfillmentMode,
-          lockedListingId: params.lockedListingId,
-          sellerPreferenceId: params.sellerPreferenceId,
-          selectedListingSnapshot: params.selectedListingSnapshot,
-          availabilityState: params.availabilityState,
-        },
-        context,
-      });
-
-      return { lineId: params.lineId, version: result.version };
-    },
-    // Removal is line-id-total across everything the acting owner owns: its own
-    // stream plus every stream it has claimed, so a line the reader can see is
-    // gone from every source it was ever readable from -- including a duplicate
-    // the union deliberately hides.
-    //
-    // Only the missing-line refusal is absorbed, and only per owner. An
-    // ownership refusal from a stream this owner does not own propagates
-    // unchanged, so a stale alias row can never be laundered into silent
-    // success. Because every owner that lacks the line is a no-op, an
-    // interrupted sweep and an outward retry converge on the same end state
-    // without a second removal event.
-    removeLine: async (params, context) => {
-      const ownerKeys = [params.accountId, ...(await listClaimedCartOwnerKeys(deps.db, params.accountId))];
-      let version: number | null = null;
-
-      for (const ownerKey of ownerKeys) {
-        try {
-          const result = await commandHandler({
-            streamId: `checkout.cart-${ownerKey}`,
-            command: {
-              type: "RemoveCartLine",
-              actingOwnerKey: params.accountId,
-              lineId: params.lineId,
-            },
-            context,
-          });
-          version ??= result.version;
-        } catch (error) {
-          if (!isMissingCartLine(error)) {
-            throw error;
-          }
-        }
-      }
-
-      // No owner held the line: nothing was appended, so there is no stream
-      // version to report.
-      return { lineId: params.lineId, version: version ?? 0 };
-    },
-    checkout: async (accountId, context) => {
-      const result = await commandHandler({
-        streamId: `checkout.cart-${accountId}`,
-        command: {
-          type: "CheckoutCart",
-          checkedOutAt: new Date().toISOString(),
-        },
-        context,
-      });
-
-      return { version: result.version };
-    },
+    executeCartAttempt: attempts.executeCartAttempt,
+    lookupCartAttempt: attempts.lookupCartAttempt,
     // Caller-inert foundation: nothing in this repository invokes claimCart.
     // Wiring a caller requires the claimed-stream mutation authority,
     // the post-claim read/session authority, and atomic
@@ -738,24 +451,12 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     // the refusal is non-enumerating in the work performed as well as in the
     // bytes returned.
     createReadinessSnapshot: async (params) => {
-      const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
-      const projected = await listAuthorizedOwnerCartLines(
-        deps.db,
-        params.accountId,
-        source.authorizedClaimedOwnerKeys,
-        source.presentedAnonymousCartId,
-      );
-      const lines = source.readable ? projected : [];
-      return createCartReadinessSnapshot(
-        lines,
-        params.decisions,
-        source.presentedAnonymousCartId
-          ? {
-              accountId: params.accountId,
-              presentedAnonymousCartId: source.presentedAnonymousCartId,
-            }
-          : undefined,
-      );
+      const { lines, unionSource } = await readAuthorizedCartLines(params);
+      return createCartReadinessSnapshot(lines, params.decisions, unionSource);
+    },
+    readCart: async (params) => {
+      const { lines, unionSource } = await readAuthorizedCartLines(params);
+      return { lines, readiness: createCartReadinessRead(lines, unionSource) };
     },
     listCartLines: (accountId, presentedAnonymousCartId) => listCartLines(deps.db, accountId, presentedAnonymousCartId),
     resolveCartSourceAuthority,

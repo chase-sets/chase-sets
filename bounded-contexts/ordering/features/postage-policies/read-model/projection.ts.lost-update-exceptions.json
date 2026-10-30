@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-f2fe7925913b453f",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/postage-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_postage_policy_pages",
+      "digest": "5c3bddd0a674c78866e2cd9a5a1e3164c82284a2ee88403cd19d28ebd2093561"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/postage-policies/read-model/projection.ts:121 directly synchronizes ordering_postage_policy_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a58f709f1566e949",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/postage-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_postage_policy_pages",
+      "digest": "9bfdb5c441784d48d0d9c64905581965973c7787e3a1efff0d20e5a2a9fbdf7f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/postage-policies/read-model/projection.ts:170 directly synchronizes ordering_postage_policy_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cdc1198522e6d10a",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/postage-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_postage_policy_pages",
+      "digest": "0c5fd317bc55d69297dd7a1a609b92cbc5a4c5c5bdacd646ed9626ff2645dde0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/postage-policies/read-model/projection.ts:213 directly synchronizes ordering_postage_policy_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
