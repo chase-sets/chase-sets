@@ -10177,7 +10177,7 @@
       "idempotency": "not-applicable",
       "dry_run": false,
       "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"limit\": {\n      \"type\": \"integer\",\n      \"description\": \"Maximum number of payouts to return.\"\n    },\n    \"offset\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of payouts to skip.\"\n    }\n  }\n}",
-      "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"items\",\n    \"total\",\n    \"count\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"items\": {\n      \"type\": \"array\",\n      \"description\": \"Payouts visible to the actor.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"description\": \"Settlement payout row.\",\n        \"additionalProperties\": true,\n        \"required\": [\n          \"payout_id\",\n          \"account_id\",\n          \"amount\",\n          \"currency_code\",\n          \"status\",\n          \"requested_at\",\n          \"updated_at\"\n        ],\n        \"properties\": {\n          \"payout_id\": {\n            \"type\": \"string\",\n            \"description\": \"Payout identifier.\"\n          },\n          \"account_id\": {\n            \"type\": \"string\",\n            \"description\": \"Account that owns the payout.\"\n          },\n          \"amount\": {\n            \"type\": \"string\",\n            \"description\": \"Payout amount.\"\n          },\n          \"currency_code\": {\n            \"type\": \"string\",\n            \"description\": \"Payout currency code.\"\n          },\n          \"status\": {\n            \"type\": \"string\",\n            \"description\": \"Payout lifecycle status.\"\n          },\n          \"requested_at\": {\n            \"type\": \"string\",\n            \"description\": \"Payout request timestamp.\"\n          },\n          \"updated_at\": {\n            \"type\": \"string\",\n            \"description\": \"Payout update timestamp.\"\n          }\n        }\n      }\n    },\n    \"total\": {\n      \"type\": \"integer\",\n      \"description\": \"Total payout count.\"\n    },\n    \"count\": {\n      \"type\": \"integer\",\n      \"description\": \"Returned payout count.\"\n    }\n  }\n}",
+      "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"items\",\n    \"total\",\n    \"count\",\n    \"completeness\",\n    \"next_payout\",\n    \"blocked_payouts\",\n    \"availability\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"items\": {\n      \"type\": \"array\",\n      \"description\": \"Payouts visible to the actor.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"description\": \"Settlement payout row.\",\n        \"additionalProperties\": true,\n        \"required\": [\n          \"payout_id\",\n          \"account_id\",\n          \"amount\",\n          \"currency_code\",\n          \"status\",\n          \"requested_at\",\n          \"updated_at\"\n        ],\n        \"properties\": {\n          \"payout_id\": {\n            \"type\": \"string\",\n            \"description\": \"Payout identifier.\"\n          },\n          \"account_id\": {\n            \"type\": \"string\",\n            \"description\": \"Account that owns the payout.\"\n          },\n          \"amount\": {\n            \"type\": \"string\",\n            \"description\": \"Payout amount.\"\n          },\n          \"currency_code\": {\n            \"type\": \"string\",\n            \"description\": \"Payout currency code.\"\n          },\n          \"status\": {\n            \"type\": \"string\",\n            \"description\": \"Payout lifecycle status.\"\n          },\n          \"requested_at\": {\n            \"type\": \"string\",\n            \"description\": \"Payout request timestamp.\"\n          },\n          \"updated_at\": {\n            \"type\": \"string\",\n            \"description\": \"Payout update timestamp.\"\n          }\n        }\n      }\n    },\n    \"total\": {\n      \"type\": \"integer\",\n      \"description\": \"Total payout count.\"\n    },\n    \"count\": {\n      \"type\": \"integer\",\n      \"description\": \"Returned payout count.\"\n    },\n    \"completeness\": {\n      \"type\": \"object\",\n      \"description\": \"Whether the payout summary is complete or capped.\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"kind\",\n        \"total\"\n      ],\n      \"properties\": {\n        \"kind\": {\n          \"type\": \"string\",\n          \"description\": \"Summary completeness state.\"\n        },\n        \"total\": {\n          \"type\": \"integer\",\n          \"description\": \"Total actionable payout count.\"\n        },\n        \"cap\": {\n          \"type\": \"integer\",\n          \"description\": \"Summary hard cap when bounded.\"\n        },\n        \"reason\": {\n          \"type\": \"string\",\n          \"description\": \"Reason the summary is bounded.\"\n        }\n      }\n    },\n    \"next_payout\": {\n      \"type\": [\n        \"object\",\n        \"null\"\n      ],\n      \"description\": \"Next requested or in-transit payout.\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"payout_id\",\n        \"amount\",\n        \"requested_amount\",\n        \"fee_amount\",\n        \"currency_code\",\n        \"estimated_arrival_at\"\n      ],\n      \"properties\": {\n        \"payout_id\": {\n          \"type\": \"string\",\n          \"description\": \"Payout identifier.\"\n        },\n        \"amount\": {\n          \"type\": \"string\",\n          \"description\": \"Net payout amount.\"\n        },\n        \"requested_amount\": {\n          \"type\": \"string\",\n          \"description\": \"Requested payout amount.\"\n        },\n        \"fee_amount\": {\n          \"type\": \"string\",\n          \"description\": \"Payout fee amount.\"\n        },\n        \"currency_code\": {\n          \"type\": \"string\",\n          \"description\": \"Payout currency code.\"\n        },\n        \"estimated_arrival_at\": {\n          \"type\": \"string\",\n          \"description\": \"Estimated arrival timestamp.\"\n        }\n      }\n    },\n    \"blocked_payouts\": {\n      \"type\": \"array\",\n      \"description\": \"Payouts requiring retry or reconciliation.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"description\": \"Blocked payout summary row.\",\n        \"additionalProperties\": false,\n        \"required\": [\n          \"payout_id\",\n          \"account_id\",\n          \"reference\",\n          \"block_reason\",\n          \"kind\",\n          \"next_action\",\n          \"observed_at\"\n        ],\n        \"properties\": {\n          \"payout_id\": {\n            \"type\": \"string\",\n            \"description\": \"Payout identifier.\"\n          },\n          \"account_id\": {\n            \"type\": \"string\",\n            \"description\": \"Account that owns the payout.\"\n          },\n          \"reference\": {\n            \"type\": \"string\",\n            \"description\": \"Human payout reference.\"\n          },\n          \"block_reason\": {\n            \"type\": \"string\",\n            \"description\": \"Provider-neutral blocked reason.\"\n          },\n          \"kind\": {\n            \"type\": \"string\",\n            \"description\": \"Blocked payout kind.\"\n          },\n          \"next_action\": {\n            \"type\": \"string\",\n            \"description\": \"Recommended next action.\"\n          },\n          \"observed_at\": {\n            \"type\": \"string\",\n            \"description\": \"Timestamp the block was observed.\"\n          }\n        }\n      }\n    },\n    \"availability\": {\n      \"type\": \"object\",\n      \"description\": \"Settlement payout availability.\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"can_request\",\n        \"unavailable_reasons\",\n        \"unavailable_reason_details\"\n      ],\n      \"properties\": {\n        \"can_request\": {\n          \"type\": \"boolean\",\n          \"description\": \"Whether the actor may request a payout.\"\n        },\n        \"unavailable_reasons\": {\n          \"type\": \"array\",\n          \"description\": \"Availability reason codes.\",\n          \"items\": {\n            \"type\": \"string\",\n            \"description\": \"Reason code.\"\n          }\n        },\n        \"unavailable_reason_details\": {\n          \"type\": \"array\",\n          \"description\": \"Availability reason details.\",\n          \"items\": {\n            \"type\": \"object\",\n            \"description\": \"Availability reason detail.\",\n            \"additionalProperties\": false,\n            \"required\": [\n              \"code\",\n              \"message\"\n            ],\n            \"properties\": {\n              \"code\": {\n                \"type\": \"string\",\n                \"description\": \"Reason code.\"\n              },\n              \"message\": {\n                \"type\": \"string\",\n                \"description\": \"Human reason message.\"\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
       "manifest": {
         "name": "settlement.list-payouts",
         "title": "List Payouts",
@@ -10213,7 +10213,11 @@
             "accountId",
             "items",
             "total",
-            "count"
+            "count",
+            "completeness",
+            "next_payout",
+            "blocked_payouts",
+            "availability"
           ],
           "properties": {
             "accountId": {
@@ -10275,6 +10279,170 @@
             "count": {
               "type": "integer",
               "description": "Returned payout count."
+            },
+            "completeness": {
+              "type": "object",
+              "description": "Whether the payout summary is complete or capped.",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "total"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "Summary completeness state."
+                },
+                "total": {
+                  "type": "integer",
+                  "description": "Total actionable payout count."
+                },
+                "cap": {
+                  "type": "integer",
+                  "description": "Summary hard cap when bounded."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Reason the summary is bounded."
+                }
+              }
+            },
+            "next_payout": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "Next requested or in-transit payout.",
+              "additionalProperties": false,
+              "required": [
+                "payout_id",
+                "amount",
+                "requested_amount",
+                "fee_amount",
+                "currency_code",
+                "estimated_arrival_at"
+              ],
+              "properties": {
+                "payout_id": {
+                  "type": "string",
+                  "description": "Payout identifier."
+                },
+                "amount": {
+                  "type": "string",
+                  "description": "Net payout amount."
+                },
+                "requested_amount": {
+                  "type": "string",
+                  "description": "Requested payout amount."
+                },
+                "fee_amount": {
+                  "type": "string",
+                  "description": "Payout fee amount."
+                },
+                "currency_code": {
+                  "type": "string",
+                  "description": "Payout currency code."
+                },
+                "estimated_arrival_at": {
+                  "type": "string",
+                  "description": "Estimated arrival timestamp."
+                }
+              }
+            },
+            "blocked_payouts": {
+              "type": "array",
+              "description": "Payouts requiring retry or reconciliation.",
+              "items": {
+                "type": "object",
+                "description": "Blocked payout summary row.",
+                "additionalProperties": false,
+                "required": [
+                  "payout_id",
+                  "account_id",
+                  "reference",
+                  "block_reason",
+                  "kind",
+                  "next_action",
+                  "observed_at"
+                ],
+                "properties": {
+                  "payout_id": {
+                    "type": "string",
+                    "description": "Payout identifier."
+                  },
+                  "account_id": {
+                    "type": "string",
+                    "description": "Account that owns the payout."
+                  },
+                  "reference": {
+                    "type": "string",
+                    "description": "Human payout reference."
+                  },
+                  "block_reason": {
+                    "type": "string",
+                    "description": "Provider-neutral blocked reason."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "description": "Blocked payout kind."
+                  },
+                  "next_action": {
+                    "type": "string",
+                    "description": "Recommended next action."
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "description": "Timestamp the block was observed."
+                  }
+                }
+              }
+            },
+            "availability": {
+              "type": "object",
+              "description": "Settlement payout availability.",
+              "additionalProperties": false,
+              "required": [
+                "can_request",
+                "unavailable_reasons",
+                "unavailable_reason_details"
+              ],
+              "properties": {
+                "can_request": {
+                  "type": "boolean",
+                  "description": "Whether the actor may request a payout."
+                },
+                "unavailable_reasons": {
+                  "type": "array",
+                  "description": "Availability reason codes.",
+                  "items": {
+                    "type": "string",
+                    "description": "Reason code."
+                  }
+                },
+                "unavailable_reason_details": {
+                  "type": "array",
+                  "description": "Availability reason details.",
+                  "items": {
+                    "type": "object",
+                    "description": "Availability reason detail.",
+                    "additionalProperties": false,
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "description": "Reason code."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human reason message."
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },
