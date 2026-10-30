@@ -77,10 +77,10 @@ describe("participant intake staging route", () => {
     });
     return { ...f, runtime, storage, app: attachmentApp(runtime, buyer) };
   }
-  async function stage(app: ReturnType<typeof attachmentApp>, override: Record<string, string> = {}) {
+  async function stage(app: ReturnType<typeof attachmentApp>, override: Record<string, string | null> = {}) {
     const form = await nativeFormData();
-    for (const [key, value] of Object.entries({ ...open, affectedLineIds: "line_a", attemptId, ...override }))
-      form.set(key, value);
+    const values = { ...open, affectedLineIds: "line_a", attemptId, ...override };
+    for (const [key, value] of Object.entries(values)) if (value !== null) form.set(key, value);
     form.append(
       "attachments",
       new File(
@@ -95,6 +95,40 @@ describe("participant intake staging route", () => {
       }),
     );
   }
+  it("stages and opens a whole-order request when multipart omits affected line ids", async () => {
+    const f = fixture();
+    const staged = await stage(f.app, { affectedLineIds: null });
+    expect(staged.status).toBe(201);
+    const attachments = (await staged.json()).attachments;
+    const body = {
+      orderId: open.orderId,
+      flowType: open.flowType,
+      intakePhotoReferences: attachments.map((item: { reference: string }) => item.reference),
+      attachmentOperationId: operationId,
+    };
+    const response = await f.app.request("/support-requests", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Idempotency-Key": attemptId,
+        "X-Support-Request-Hash": requestHash("open-support-request", body),
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ status: "opened", evidenceId: expect.stringMatching(/^sev_/) });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.affected-line-items-recorded")?.payload,
+    ).toMatchObject({
+      affectedLineItems: [
+        { lineId: "line_a", amount: "12.00", currencyCode: "usd" },
+        { lineId: "line_b", amount: "12.00", currencyCode: "usd" },
+      ],
+    });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.evidence-submitted")?.payload,
+    ).toMatchObject({ evidence: { attachments: body.intakePhotoReferences } });
+  });
   it("stages without opening, binds the complete batch to order/flow/lines/attempt and atomically opens with evidence", async () => {
     const f = fixture();
     const staged = await stage(f.app);

@@ -119,7 +119,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const open = {
       orderId: formValue(formData, "orderId"),
       flowType: formValue(formData, "flowType"),
-      affectedLineIds,
+      ...(affectedLineIds.length ? { affectedLineIds } : {}),
     };
     if (files.length > 0 && uploadedAttachmentReferences.length === 0) {
       uploadUncertain = true;

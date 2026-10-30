@@ -228,7 +228,7 @@ export type SupportRequestServices = Readonly<{
       attemptId: string;
       orderId: string;
       flowType: string;
-      affectedLineIds: readonly string[];
+      affectedLineIds: readonly string[] | null;
       operationId: string;
       actor: ResolvedActor;
       uploads: () => Promise<readonly SupportEvidenceAttachmentUpload[]>;

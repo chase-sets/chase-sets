@@ -173,11 +173,12 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       const form = await readSupportAttachmentFormData(c.req.raw);
       const attemptId = c.req.param("attemptId");
       if (form.get("attemptId") !== attemptId) throw new ParticipantAttemptError(400, "invalid-participant-attempt");
+      const affectedLineIds = form.getAll("affectedLineIds").map(String);
       const attachments = await services.stageParticipantIntakeAttachments({
         attemptId,
         orderId: String(form.get("orderId") ?? ""),
         flowType: String(form.get("flowType") ?? ""),
-        affectedLineIds: form.getAll("affectedLineIds").map(String),
+        affectedLineIds: affectedLineIds.length ? affectedLineIds : null,
         operationId,
         actor: access.actor,
         uploads: async () => {

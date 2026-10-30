@@ -56,6 +56,27 @@ describe("atomic participant intake", () => {
       canonicalParticipantRequest("open-support-request", { ...photo, intakePhotoReferences: ["invalid"] }),
     ).toThrow();
   });
+  it("opens a whole-order request when no affected line ids are supplied", async () => {
+    const f = participantFixture();
+
+    await expect(f.executeParticipant("open-support-request", openBody)).resolves.toMatchObject({ status: "opened" });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.affected-line-items-recorded")?.payload,
+    ).toMatchObject({
+      affectedLineItems: [
+        { lineId: "line_a", amount: "12.00", currencyCode: "usd" },
+        { lineId: "line_b", amount: "12.00", currencyCode: "usd" },
+      ],
+    });
+  });
+  it("rejects an explicitly empty line selection when the order has lines", async () => {
+    const f = participantFixture();
+
+    await expect(f.executeParticipant("open-support-request", { ...openBody, affectedLineIds: [] })).rejects.toThrow(
+      "Affected line items must include one or more unique line ids.",
+    );
+    expect(f.allEvents).toHaveLength(0);
+  });
   async function staged(f: ReturnType<typeof participantFixture>, scenario = "complete") {
     const id = participantOpenSupportRequestId(buyer.tenantId, buyer.accountId, attemptId);
     const context = actorContext(buyer);

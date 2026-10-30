@@ -1,7 +1,7 @@
 import { Badge, LinkText, Stack, Surface, Text } from "@chase-sets/design-system";
 import { formatMoney, t } from "@chase-sets/localization";
 import type { CustomerRemedyState, CustomerRemedyStatusProjection } from "../domain/domain";
-import type { CustomerSupportRequestListRow } from "../read-model/queries";
+import type { CustomerSupportRequestListItem } from "./contracts";
 export type { CustomerRemedyRole } from "../domain/domain";
 
 type CustomerRemedyStatusView = Readonly<{
@@ -189,7 +189,7 @@ function nextActionCopy(action: CustomerRemedyStatusProjection["nextAction"]) {
   return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.none");
 }
 
-export function CustomerRemedyStatus({ request }: Readonly<{ request: CustomerSupportRequestListRow }>) {
+export function CustomerRemedyStatus({ request }: Readonly<{ request: CustomerSupportRequestListItem }>) {
   const status = request.customerRemedyStatus;
   if (!status) return null;
   const view: CustomerRemedyStatusView = {

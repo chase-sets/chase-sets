@@ -2,7 +2,6 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { SupportDomainError } from "../../features/support-requests/domain/common";
-import type { CustomerSupportRequestListRow } from "../../features/support-requests/read-model/queries";
 import {
   hashParticipantRequest,
   parseParticipantAttempt,
@@ -41,6 +40,7 @@ export class SupportEvidenceUploadError extends Error {
   }
 }
 import type {
+  CustomerSupportRequestListItem,
   SupportFlowSummary,
   PlatformRemedyProposalPreview,
   SupportOrderLookup,
@@ -186,7 +186,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       ),
     listBuyerSupportRequests: async () =>
       parseJsonResponse<{
-        items: readonly CustomerSupportRequestListRow[];
+        items: readonly CustomerSupportRequestListItem[];
         total: number;
         count: number;
       }>(
@@ -196,7 +196,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       ),
     listSellerSupportRequests: async () =>
       parseJsonResponse<{
-        items: readonly CustomerSupportRequestListRow[];
+        items: readonly CustomerSupportRequestListItem[];
         total: number;
         count: number;
       }>(
@@ -238,7 +238,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       }>,
     ) => participantCommand("open-support-request", body, options.participantAttemptId ?? crypto.randomUUID()),
     stageParticipantIntakeAttachments: async (
-      body: Readonly<{ attemptId: string; orderId: string; flowType: string; affectedLineIds: readonly string[] }>,
+      body: Readonly<{ attemptId: string; orderId: string; flowType: string; affectedLineIds?: readonly string[] }>,
       files: readonly File[],
       operationId: string,
     ) => {
@@ -247,7 +247,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       formData.set("attemptId", body.attemptId);
       formData.set("orderId", body.orderId);
       formData.set("flowType", body.flowType);
-      body.affectedLineIds.forEach((id) => formData.append("affectedLineIds", id));
+      body.affectedLineIds?.forEach((id) => formData.append("affectedLineIds", id));
       files.forEach((file) => formData.append("attachments", file));
       const headers = new Headers(resolveHeaders(options.headers));
       headers.set(SUPPORT_ATTACHMENT_OPERATION_HEADER, operationId);

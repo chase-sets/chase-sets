@@ -26,15 +26,14 @@ import {
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { SupportFlowSummary, SupportOrderLookup } from "./contracts";
-import type { CustomerSupportRequestListRow as SupportRequestListItem } from "../read-model/queries";
+import type { CustomerSupportRequestListItem, SupportFlowSummary, SupportOrderLookup } from "./contracts";
 import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
 import { ReturnShippingStatus } from "./return-shipping-status";
 import { SupportEvidenceAttachmentInput } from "./support-evidence-attachments";
 
 type SupportRequestListPageProps = Readonly<{
-  buyerRequests: readonly SupportRequestListItem[];
-  sellerRequests: readonly SupportRequestListItem[];
+  buyerRequests: readonly CustomerSupportRequestListItem[];
+  sellerRequests: readonly CustomerSupportRequestListItem[];
   flows: readonly SupportFlowSummary[];
   actionError?: string | null;
   lookupError?: string | null;
@@ -65,7 +64,7 @@ function formatRequestDateTime(value: string | null) {
     : t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
 }
 
-function checklistSummary(request: SupportRequestListItem) {
+function checklistSummary(request: CustomerSupportRequestListItem) {
   const required = request.checklist.filter((item) => item.required);
   const satisfied = required.filter((item) => item.satisfiedAt !== null);
   return t("support.features.supportRequests.ui.supportRequestListPage.checklist.summary", {
@@ -96,8 +95,8 @@ function resolutionLabel(resolution: SupportFlowSummary["defaultResolution"]) {
 function SupportRequestTable({
   requests,
   role,
-}: Readonly<{ requests: readonly SupportRequestListItem[]; role: CustomerRemedyRole }>) {
-  const columns: DataColumn<SupportRequestListItem>[] = [
+}: Readonly<{ requests: readonly CustomerSupportRequestListItem[]; role: CustomerRemedyRole }>) {
+  const columns: DataColumn<CustomerSupportRequestListItem>[] = [
     {
       key: "reference",
       header: t("support.features.supportRequests.ui.supportRequestListPage.reference"),
