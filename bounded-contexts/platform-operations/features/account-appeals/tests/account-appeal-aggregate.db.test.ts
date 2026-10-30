@@ -78,14 +78,21 @@ type ConcurrentFilingCall = ConcurrentFilingDiagnostic["call"];
 
 function createConcurrentFilingRendezvous(diagnostics: ConcurrentFilingDiagnostic[]) {
   const arrivals = new Set<ConcurrentFilingCall>();
+  const createDeferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = () => resolvePromise();
+    });
+    return { promise, resolve };
+  };
   let releaseBoth: (() => void) | undefined;
   const bothArrived = new Promise<void>((resolve) => {
     releaseBoth = resolve;
   });
   const settled = {
-    first: Promise.withResolvers<void>(),
-    second: Promise.withResolvers<void>(),
-  } satisfies Record<ConcurrentFilingCall, PromiseWithResolvers<void>>;
+    first: createDeferred(),
+    second: createDeferred(),
+  } satisfies Record<ConcurrentFilingCall, ReturnType<typeof createDeferred>>;
 
   return {
     arrive(call: ConcurrentFilingCall): Promise<void> {
