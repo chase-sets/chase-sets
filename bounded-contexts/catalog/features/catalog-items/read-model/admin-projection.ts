@@ -64,6 +64,15 @@ type CatalogItemReferenceOverrides = Readonly<{
   externalCatalogItemReferencesByItemId: ReadonlyMap<string, readonly ExternalCatalogItemReferenceRow[]>;
 }>;
 
+type CatalogItemSourceEvent = Readonly<{ type: string; data: unknown }>;
+
+type CatalogItemSourceEventRow = Readonly<{
+  event_id: string;
+  event_type: string;
+  payload: unknown;
+  stream_version: number;
+}>;
+
 type ExternalProductReferenceRow = Readonly<{
   catalog_item_id: string;
   provider_key: string;
@@ -162,8 +171,34 @@ async function ensureCatalogItemParentForCreatedEvent(
   return itemId;
 }
 
+// Reads the item stream through its triggering event on the projection's own connection. The runtime's
+// source-history reader takes a second pool connection, which a one-connection seed pool cannot grant while
+// this application holds its only one.
+async function loadCatalogItemSourceHistory(
+  db: PgQueryable,
+  event: Readonly<{ id: string; streamId: string; streamVersion: number }>,
+): Promise<CatalogItemSourceEvent[]> {
+  const result = await db.query<CatalogItemSourceEventRow>(
+    `SELECT event_id, event_type, payload, stream_version::integer AS stream_version
+     FROM event_store_events
+     WHERE stream_id = $1
+       AND stream_version <= $2
+     ORDER BY stream_version ASC`,
+    [event.streamId, event.streamVersion],
+  );
+  const complete =
+    result.rows.length === event.streamVersion &&
+    result.rows.every((row, index) => row.stream_version === index + 1) &&
+    result.rows.at(-1)?.event_id === event.id;
+  if (!complete) {
+    throw new Error(`Source history for ${event.streamId} through event ${event.id} is incomplete.`);
+  }
+
+  return result.rows.map((row) => ({ type: row.event_type, data: row.payload }));
+}
+
 function catalogItemRowFromSourceHistory(
-  history: readonly Readonly<{ type: string; data: unknown; timing: { recordedAt: string } }>[],
+  history: readonly CatalogItemSourceEvent[],
   itemId: string,
   updatedAt: string,
 ): { item: BaseCatalogItemRow; references: CatalogItemReferenceOverrides } {
@@ -216,9 +251,7 @@ function catalogItemRowFromSourceHistory(
   };
 }
 
-function normalizeCatalogItemSourceEvent(
-  sourceEvent: Readonly<{ type: string; data: unknown; timing: { recordedAt: string } }>,
-): CatalogItemEvent {
+function normalizeCatalogItemSourceEvent(sourceEvent: CatalogItemSourceEvent): CatalogItemEvent {
   if (
     sourceEvent.type !== "catalog.catalog-item.created" &&
     sourceEvent.type !== "catalog.catalog-item.metadata-revised"
@@ -920,7 +953,6 @@ async function enqueueItemAndRefresh(
 async function enqueueItemAndRefreshFromEvent(
   db: PgQueryable,
   event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0],
-  context: Parameters<NonNullable<ProjectorHandlerMap[string]>>[1],
   reason: DisplayIdentityRecomputeReason,
   enqueue = true,
 ): Promise<void> {
@@ -930,12 +962,7 @@ async function enqueueItemAndRefreshFromEvent(
     await enqueueCatalogItemDisplayIdentityRecomputeWork(db, [itemId], reason, source);
   }
 
-  if (!context?.readSourceStreamHistory) {
-    await refreshCatalogAdminCatalogItemPagesForItems(db, [itemId]);
-    return;
-  }
-
-  const history = await context.readSourceStreamHistory();
+  const history = await loadCatalogItemSourceHistory(db, event);
   const authoritative = catalogItemRowFromSourceHistory(history, itemId, event.timing.recordedAt);
   await refreshCatalogAdminCatalogItemPagesForRows(db, [authoritative.item], authoritative.references);
 }
@@ -980,59 +1007,59 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       const itemId = await ensureCatalogItemParentForCreatedEvent(db, event);
       await enqueueItemAndRefresh(db, itemId, "catalog-item-changed", sourceFromEvent(event));
     },
-    "catalog.catalog-item.blueprint-assigned": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.blueprint-assigned": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.field-value-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.field-value-set": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.field-value-cleared": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.field-value-cleared": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.category-assigned": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.category-assigned": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.category-removed": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.category-removed": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.published": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.published": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.metadata-revised": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed");
+    "catalog.catalog-item.metadata-revised": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
-    "catalog.catalog-item.tags-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.tags-set": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.image-urls-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.image-urls-set": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.product-asset-sets-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.product-asset-sets-set": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.image-fallback-set": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.image-fallback-set": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.image-fallback-cleared": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.image-fallback-cleared": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.external-product-reference-linked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.external-product-reference-linked": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.external-catalog-item-reference-linked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.retired": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.retired": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
-    "catalog.catalog-item.archived": async (event, context) => {
-      await enqueueItemAndRefreshFromEvent(db, event, context, "catalog-item-changed", false);
+    "catalog.catalog-item.archived": async (event) => {
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
