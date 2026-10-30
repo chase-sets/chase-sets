@@ -6681,6 +6681,77 @@ pub struct Payout {
     pub last_reconciled_at: Option<String>,
 }
 
+/// The account's payouts and what Settlement makes of them (`GET /api/settlement/payouts`,
+/// `SettlementPayoutSummary`): a page of payouts, whether the summary saw every one, the payout
+/// that arrives first, the payouts held from settling, and whether a payout can be requested.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutSummary {
+    pub items: Vec<Payout>,
+    pub completeness: PayoutCompleteness,
+    pub next_payout: Option<NextPayout>,
+    pub blocked_payouts: Vec<BlockedPayout>,
+    pub availability: PayoutAvailability,
+}
+
+impl PayoutSummary {
+    /// Whether the summary covers every payout; when it does not, Settlement leaves the next payout
+    /// and the blocked ones out.
+    pub fn complete(&self) -> bool {
+        self.completeness.kind == "complete"
+    }
+}
+
+/// Whether the summary saw every payout (`PayoutSummaryCompleteness`): `complete`, or
+/// `bounded-incomplete` past Settlement's cap.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutCompleteness {
+    pub kind: String,
+    pub total: u64,
+}
+
+impl Default for PayoutCompleteness {
+    fn default() -> Self {
+        PayoutCompleteness { kind: "complete".into(), total: 0 }
+    }
+}
+
+/// The payout that arrives first, and when (`PayoutSummaryNextPayout`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct NextPayout {
+    pub payout_id: String,
+    /// What reaches the seller.
+    pub amount: String,
+    pub currency_code: String,
+    /// ISO 8601, UTC.
+    pub estimated_arrival_at: String,
+}
+
+/// A payout held from settling (`PayoutSummaryBlockedPayout`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct BlockedPayout {
+    pub payout_id: String,
+    pub reference: String,
+    /// A money status code, or the provider's words for a failure.
+    pub block_reason: String,
+    /// `failed`, `missing-provider-reference` or `stale-requested`.
+    pub kind: String,
+    /// The write that is its next step: `retry` or `run-reconciliation`.
+    pub next_action: String,
+}
+
+/// Whether a payout can be requested, and if not the money status codes that say why
+/// (`PayoutAvailability`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PayoutAvailability {
+    pub can_request: bool,
+    pub unavailable_reasons: Vec<String>,
+}
+
 /// Whether the account can be paid out (`SettlementPayoutReadinessRow`), the fields the money and
 /// payout setup pages read.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -6845,8 +6916,8 @@ pub trait MoneyCalls {
     async fn balances(&self) -> Result<Wallet, ApiError>;
     /// The wallet's movements, the API's first page, as marketplace's loader reads them.
     async fn wallet_entries(&self) -> Result<Vec<WalletEntry>, ApiError>;
-    /// The account's payouts, the API's first page, as marketplace's loader reads them.
-    async fn payouts(&self) -> Result<Vec<Payout>, ApiError>;
+    /// The account's payouts, the API's first page, with Settlement's summary of them.
+    async fn payouts(&self) -> Result<PayoutSummary, ApiError>;
     /// One of the account's payouts; `None` when it has none by `id`.
     async fn payout(&self, id: &str) -> Result<Option<Payout>, ApiError>;
     async fn payout_readiness(&self) -> Result<PayoutReadiness, ApiError>;
@@ -6884,9 +6955,8 @@ impl MoneyCalls for Caller<'_> {
         Ok(body.items)
     }
 
-    async fn payouts(&self) -> Result<Vec<Payout>, ApiError> {
-        let body: Items<Payout> = self.read(PAYOUTS, SETTLEMENT).await?;
-        Ok(body.items)
+    async fn payouts(&self) -> Result<PayoutSummary, ApiError> {
+        self.read(PAYOUTS, SETTLEMENT).await
     }
 
     async fn payout(&self, id: &str) -> Result<Option<Payout>, ApiError> {
@@ -7685,13 +7755,26 @@ pub struct ImportBatch {
     pub updated_at: String,
 }
 
-/// A batch with a page of its rows (`InventoryImportBatchDetail`).
+/// A batch with a page of its rows (`InventoryImportBatchDetail`). Inventory says whether Commit
+/// can run and how many rows it would commit.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ImportBatchDetail {
     #[serde(flatten)]
     pub batch: ImportBatch,
     #[serde(default)]
+    pub can_commit: bool,
+    #[serde(default)]
+    pub commit_ready_count: u64,
+    #[serde(default)]
     pub rows: Vec<ImportRow>,
+}
+
+/// What resolving a row answers (`InventoryImportBatchResolution`): the batch, of which the page
+/// needs only the next row that still needs the seller.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ImportResolution {
+    pub next_needs_seller_row_id: Option<String>,
 }
 
 /// A row of a batch (`InventoryImportBatchRow`), the fields the page shows.
@@ -7722,6 +7805,8 @@ pub struct ImportRow {
     pub committed_inventory_item_id: Option<String>,
     pub committed_listing_id: Option<String>,
     pub committed_at: Option<String>,
+    /// Inventory's answer to whether the row still needs the seller.
+    pub needs_seller: bool,
 }
 
 /// Where a row came from in another system (`InventoryImportExternalReference`).
@@ -7819,7 +7904,7 @@ pub trait Imports {
     async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError>;
     /// Resolve a rejected row to a catalog item, its options and a storage location: the batch
     /// as it now is, or the API's refusal (400).
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportBatchDetail, ApiError>;
+    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError>;
     /// The storage locations a row or a batch may name (`limit=100&offset=0`, not archived).
     async fn import_locations(&self) -> Result<LocationList, ApiError>;
     /// The native template or the account's inventory as CSV (`templates/native-csv`,
@@ -7855,7 +7940,7 @@ impl Imports for Caller<'_> {
         Ok(self.write(req).await?.0)
     }
 
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportBatchDetail, ApiError> {
+    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError> {
         let path = format!("{IMPORTS}/{}/rows/{}/resolve", segment(batch), segment(row));
         Ok(self.write(self.request(Method::POST, &path, INVENTORY).json(body)).await?.0)
     }

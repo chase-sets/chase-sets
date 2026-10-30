@@ -18,8 +18,8 @@ use crate::{
     api::{ImportBatch, ImportRow, segment},
     app::url,
     imports::{
-        CommitFields, FixFields, Fixing, ImportFields, ImportsScreen, MODES, SOURCES, batch_href, commit_ready, needs_seller,
-        resolve_href, unresolved,
+        CommitFields, FixFields, Fixing, ImportFields, ImportsScreen, MODES, SOURCES, batch_href, commit_ready, resolve_href,
+        unresolved,
     },
     text::{ImportsMsg, InventoryMsg, Pilot},
 };
@@ -237,7 +237,7 @@ fn UploadForm<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen) -> impl Re
 fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a crate::api::ImportBatchDetail) -> impl Render {
     let batch = &detail.batch;
     let open = unresolved(detail);
-    let ready = commit_ready(batch);
+    let ready = commit_ready(detail);
     let shown = detail.rows.len() as u64;
     let previous = (screen.offset > 0).then(|| batch_href(&batch.batch_id, screen.offset.saturating_sub(100)));
     let next = (screen.offset + shown < batch.total_count).then(|| batch_href(&batch.batch_id, screen.offset + 100));
@@ -287,7 +287,7 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
                                 row={row}
                                 batch={&batch.batch_id}
                                 offset={screen.offset}
-                                resolve={needs_seller(row, &batch.source_key)}
+                                resolve={row.needs_seller}
                             />
                         }
                     </tbody>

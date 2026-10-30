@@ -16,9 +16,9 @@ use corten::{
 
 use super::on_marketplace;
 use crate::{
-    api::{Payout, WalletAdjustment, WalletEntry},
+    api::{BlockedPayout, Payout, WalletAdjustment, WalletEntry},
     app::url,
-    money::{Blocked, MoneyInput, MoneyScreen, PayoutScreen, Place},
+    money::{MoneyInput, MoneyScreen, PayoutScreen, Place},
     text::{MoneyMsg, Pilot},
 };
 
@@ -288,8 +288,13 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
     let wallet = &screen.wallet;
     let currency = wallet.currency_code.as_str();
     let said = &screen.said;
-    let blocked_count = screen.blocked.len();
-    let blocked_words = if blocked_count == 1 {
+    let summary = &screen.summary;
+    let complete = summary.complete();
+    let incomplete = status_label(t, "payout-summary-incomplete");
+    let blocked_count = summary.blocked_payouts.len();
+    let blocked_words = if !complete {
+        incomplete.clone()
+    } else if blocked_count == 1 {
         t.page_one_needs_attention().to_owned()
     } else {
         t.page_many_need_attention(blocked_count).to_string()
@@ -316,21 +321,25 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
                 </div>
                 <div class={Figure}>
                     <dt>{t.page_next_payout()}</dt>
-                    match &screen.next_payout {
-                        Some(next) => {
-                            <dd class={Number}>{money(t, &next.amount, &next.currency_code)}</dd>
-                            <dd class={Muted}>{t.page_estimated_by(&t.date(next.arrival, DateStyle::Medium).to_string())}</dd>
-                        }
-                        None => {
-                            <dd class={Number}>{t.page_none_scheduled()}</dd>
-                            <dd class={Muted}>{t.page_request_when_ready()}</dd>
-                        }
+                    if !complete {
+                        <dd class={Number}>{&incomplete}</dd>
+                        <dd class={Muted}>{&incomplete}</dd>
+                    } else if let Some(next) = &summary.next_payout {
+                        <dd class={Number}>{money(t, &next.amount, &next.currency_code)}</dd>
+                        <dd class={Muted}>{t.page_estimated_by(&date(t, &next.estimated_arrival_at))}</dd>
+                    } else {
+                        <dd class={Number}>{t.page_none_scheduled()}</dd>
+                        <dd class={Muted}>{t.page_request_when_ready()}</dd>
                     }
                 </div>
                 <div class={Figure}>
                     <dt>{t.page_blocked()}</dt>
                     <dd class={Number}>{&blocked_words}</dd>
-                    <dd class={Muted}>{t.page_blocked_detail()}</dd>
+                    if complete {
+                        <dd class={Muted}>{t.page_blocked_detail()}</dd>
+                    } else {
+                        <dd class={Muted}>{&incomplete}</dd>
+                    }
                 </div>
             </dl>
         </section>
@@ -350,8 +359,14 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
                     <p>{checked}</p>
                 </div>
             }
+            if !complete {
+                <div class={Banner} data-tone="warning">
+                    <p class={Strong}>{t.page_payout_attention()}</p>
+                    <p>{&incomplete}</p>
+                </div>
+            }
         </div>
-        if screen.setup_incomplete {
+        if screen.setup_incomplete() {
             <section class={Section} aria-labelledby="money-setup-title">
                 <h2 id="money-setup-title" class={PartTitle}>{t.page_needs_attention()}</h2>
                 <div class={(Banner, Row)} data-tone="warning">
@@ -376,14 +391,14 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
         </section>
         <section class={Section} aria-labelledby="money-attention-title">
             <h2 id="money-attention-title" class={PartTitle}>{t.page_payout_attention()}</h2>
-            if screen.blocked.is_empty() {
+            if summary.blocked_payouts.is_empty() {
                 <div class={(Card, Empty)}>
                     <p class={Strong}>{t.page_no_blocked_payouts()}</p>
                     <p class={Muted}>{t.page_no_blocked_payouts_detail()}</p>
                 </div>
             } else {
                 <ul class={Rows}>
-                    for row in &screen.blocked {
+                    for row in &summary.blocked_payouts {
                         <BlockedRow t={t} row={row} reconcile={screen.may.reconcile} />
                     }
                 </ul>
@@ -391,11 +406,11 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
         </section>
         <section class={Section} aria-labelledby="money-timeline-title">
             <h2 id="money-timeline-title" class={PartTitle}>{t.page_payout_timeline()}</h2>
-            if screen.payouts.is_empty() {
+            if summary.items.is_empty() {
                 <p class={Muted}>{t.page_none_scheduled()}</p>
             } else {
                 <ol class={Rows}>
-                    for payout in &screen.payouts {
+                    for payout in &summary.items {
                         <PayoutRow t={t} p={p} payout={payout} />
                     }
                 </ol>
@@ -427,7 +442,8 @@ fn RequestForm<'a>(t: MoneyMsg, screen: &'a MoneyScreen) -> impl Render {
     let wallet = &screen.wallet;
     let currency = wallet.currency_code.as_str();
     let quick = &screen.quick_amounts;
-    let on = screen.can_request;
+    let availability = &screen.summary.availability;
+    let on = availability.can_request;
     let full = platform::money::cents(&quick.full_available_amount).is_some_and(|c| c > 0);
     let draft = screen.said.draft.as_ref();
     let amount = draft.map_or("", |d| d.amount.as_str());
@@ -436,8 +452,8 @@ fn RequestForm<'a>(t: MoneyMsg, screen: &'a MoneyScreen) -> impl Render {
         <form class={Form} method="post" action={url::Money::default()}>
             <input type="hidden" name={f.intent} value="preview-payout">
             <p class={Muted}>{t.page_available_to_request(&money(t, &wallet.available_balance_amount, currency))}</p>
-            if !screen.unavailable.is_empty() {
-                <Reasons t={t} reasons={screen.unavailable.iter().map(|code| status_label(t, code)).collect()} />
+            if !on && !availability.unavailable_reasons.is_empty() {
+                <Reasons t={t} reasons={availability.unavailable_reasons.iter().map(|code| status_label(t, code)).collect()} />
             }
             <label class={Field}>
                 <span class={Label}>{t.page_payout_amount()}</span>
@@ -584,20 +600,20 @@ fn FeeTerms(t: MoneyMsg) -> impl Render {
 /// A blocked payout: its reference, why, and its next step (Retry payout or Check status, for an
 /// account that may reconcile) and Contact support.
 #[component(css = MoneyPage)]
-fn BlockedRow<'a>(t: MoneyMsg, row: &'a Blocked, reconcile: bool) -> impl Render {
+fn BlockedRow<'a>(t: MoneyMsg, row: &'a BlockedPayout, reconcile: bool) -> impl Render {
     let f = MoneyInput::FIELDS;
     let tone = if row.kind == "failed" { "danger" } else { "warning" };
     html! {
         <li class={(Card, Line)} data-blocked-payout={&row.payout_id}>
             <div class={Tight}>
                 <p class={Strong}>{&row.reference}</p>
-                <p><span class={Badge} data-tone={tone}>{kind(t, row.kind)}</span></p>
+                <p><span class={Badge} data-tone={tone}>{kind(t, &row.kind)}</span></p>
                 <p class={Muted}>{status_label(t, &row.block_reason)}</p>
             </div>
             <div class={Row}>
                 if reconcile {
                     <form method="post" action={url::Money::default()}>
-                        <input type="hidden" name={f.intent} value={row.next_action}>
+                        <input type="hidden" name={f.intent} value={&row.next_action}>
                         <button type="submit" class={Button}>
                             {if row.next_action == "retry" { t.page_retry_payout() } else { t.page_check_status() }}
                         </button>

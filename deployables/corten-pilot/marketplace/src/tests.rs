@@ -443,8 +443,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "card_reader" => actor(&["orders.view"]),
             "card_none" => actor(&["orders.view", "orders.manage"]),
             // The Seller Desk's money page: `banker` may request, reconcile and set up payouts,
-            // `payout_reader` may only see them.
-            "banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
+            // `payout_reader` may only see them; `busy_banker` has more payouts than Settlement's
+            // summary reads.
+            "banker" | "busy_banker" => actor(&["payouts.view", "payouts.request", "payouts.reconcile", "payouts.setup"]),
             "payout_reader" => actor(&["payouts.view"]),
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
@@ -12085,14 +12086,17 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
 
 const MONEY: &str = "/account/desk/money";
 
-/// Settlement's reads and writes for the money page's sessions (`banker`, `payout_reader`). The wallet
-/// holds $26.83 with $106.96 pending; payout setup is ready. Three payouts: one failed, one in transit
-/// since Monday the 26th with no provider reference, one paid. The wallet's activity: a sale and the
+/// Settlement's reads and writes for the money page's sessions (`banker`, `payout_reader`,
+/// `busy_banker`). The wallet holds $26.83 with $106.96 pending; payout setup is ready. Three payouts:
+/// one failed, one in transit since Monday the 26th with no provider reference, one paid, with
+/// Settlement's summary of them: the one in transit arrives first, the other two are blocked, and
+/// only an account that may request can. `busy_banker`'s summary is past Settlement's cap, so it
+/// leaves the next payout and the blocked ones out. The wallet's activity: a sale and the
 /// adjustment `WADJ-1`, which is the only one the account has. A preview of 1.00 is refused below the
 /// minimum; Request a payout of 13.00 is refused for the policy's hold, and any other is `pyo_new`,
 /// at position 42.
 fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
-    if !matches!(session, "banker" | "payout_reader") {
+    if !matches!(session, "banker" | "payout_reader" | "busy_banker") {
         return None;
     }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
@@ -12118,12 +12122,36 @@ fn money_api(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Re
               "adjustment_display_reference": "WADJ-1" },
         ], "total": 2, "count": 2 }))
         .into_response(),
-        ("GET", "/api/settlement/payouts") => Json(json!({ "items": [
-            payout("pyo_failed", "failed", None, Some("Bank account temporarily unavailable")),
-            payout("pyo_moving", "in-transit", Some("2026-10-26T12:00:00.000Z"), None),
-            payout("pyo_paid", "completed", Some("2026-10-23T16:00:00.000Z"), None),
-        ], "total": 3, "count": 3 }))
-        .into_response(),
+        ("GET", "/api/settlement/payouts") => {
+            let complete = session != "busy_banker";
+            let blocked = |id: &str, reason: &str, kind: &str, next: &str| {
+                json!({ "payout_id": id, "account_id": "acc_seller", "reference": format!("PYO-{id}"), "block_reason": reason,
+                        "kind": kind, "next_action": next, "observed_at": "2026-10-26T12:00:00.000Z" })
+            };
+            let may = session != "payout_reader";
+            Json(json!({
+                "items": [
+                    payout("pyo_failed", "failed", None, Some("Bank account temporarily unavailable")),
+                    payout("pyo_moving", "in-transit", Some("2026-10-26T12:00:00.000Z"), None),
+                    payout("pyo_paid", "completed", Some("2026-10-23T16:00:00.000Z"), None),
+                ],
+                "total": 3, "count": 3,
+                "completeness": if complete { json!({ "kind": "complete", "total": 3 }) }
+                    else { json!({ "kind": "bounded-incomplete", "total": 251, "cap": 250, "reason": "payout-summary-cap-exceeded" }) },
+                "next_payout": if complete { json!({ "payout_id": "pyo_moving", "amount": "9.73", "requested_amount": "10.00",
+                    "fee_amount": "0.27", "currency_code": "usd", "estimated_arrival_at": "2026-10-29T12:00:00.000Z" }) } else { Value::Null },
+                "blocked_payouts": if complete { json!([
+                    blocked("pyo_failed", "Bank account temporarily unavailable", "failed", "retry"),
+                    blocked("pyo_moving", "payout-reconciliation-required", "missing-provider-reference", "run-reconciliation"),
+                ]) } else { json!([]) },
+                "availability": {
+                    "can_request": may,
+                    "unavailable_reasons": if may { json!([]) } else { json!(["payout-request-permission-required"]) },
+                    "unavailable_reason_details": [],
+                },
+            }))
+            .into_response()
+        }
         ("GET", "/api/settlement/payout-readiness") => Json(json!({
             "account_id": "acc_seller", "status": "ready", "missing_requirements": [], "provider_reference": "acct_1",
             "updated_at": "2026-10-01T00:00:00.000Z",
@@ -12431,7 +12459,7 @@ async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step(
     let (status, _, html) = pilot.send(get(MONEY, Some("banker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Money at a glance") && html.contains("$26.83") && html.contains("$106.96 pending"), "{html}");
-    // In transit since Monday the 26th: three weekdays on (chase-sets/chase-sets#10712).
+    // Settlement's next payout and blocked ones, as it answers them.
     assert!(html.contains("$9.73") && html.contains("Estimated by Oct 29, 2026"), "the next payout: {html}");
     assert!(html.contains("2 payouts need attention"), "the failed one and the one with no provider reference: {html}");
     assert!(
@@ -12455,14 +12483,26 @@ async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step(
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
     let (_, _, body) = pilot.send(req).await;
     let body: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(body["data"]["next_payout"]["estimated_arrival_at"], "2026-10-29T12:00:00.000Z", "{body}");
-    assert_eq!(body["data"]["can_request"], true, "{body}");
+    assert_eq!(body["data"]["summary"]["next_payout"]["estimated_arrival_at"], "2026-10-29T12:00:00.000Z", "{body}");
+    assert_eq!(body["data"]["summary"]["availability"]["can_request"], true, "{body}");
+    assert!(
+        !pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == "/api/settlement/payout-readiness"),
+        "the page reads availability from the payouts, not readiness"
+    );
 
     let (status, _, html) = pilot.send(get(MONEY, Some("payout_reader"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!html.contains(r#"value="retry""#) && !html.contains("Manage payout account"), "a reader's page: {html}");
     let preview = html.find("Preview payout</button>").map(|i| &html[i.saturating_sub(80)..i]).unwrap_or_default();
     assert!(preview.contains("disabled"), "a reader may not request: {preview}");
+    assert!(text(&html).contains("Request permission is required to request a"), "Settlement's reason: {html}");
+
+    // Past Settlement's cap the summary leaves out the next payout and the blocked ones, and says so.
+    let (status, _, html) = pilot.send(get(MONEY, Some("busy_banker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Payout history is incomplete"), "{shown}");
+    assert!(!shown.contains("Estimated by") && !html.contains("data-blocked-payout"), "{html}");
 
     let (status, _, _) = pilot.send(get(MONEY, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "without payouts.view");
@@ -14921,12 +14961,15 @@ async fn the_payment_methods_are_an_accounts_with_orders_view() {
 const IMPORT_BATCHES: &str = "/api/inventory/import-batches";
 const IMPORTS_SCREEN: &str = "/account/inventory/imports";
 
-/// An import batch as Inventory lists it.
+/// An import batch as Inventory reads it, saying Commit can run while accepted rows are left in an
+/// open batch.
 fn import_batch(id: &str, status: &str, total: u64, accepted: u64, rejected: u64, committed: u64) -> Value {
+    let open = matches!(status, "uploaded" | "ready-to-commit" | "partial") && accepted > committed;
     json!({
         "batch_id": id, "status": status, "source_key": "native-csv", "adapter_version": 2, "quantity_mode": "add",
         "default_storage_location_id": "loc_main", "total_count": total, "accepted_count": accepted,
         "rejected_count": rejected, "committed_count": committed, "updated_at": "2026-10-28T12:00:00.000Z",
+        "can_commit": open, "commit_ready_count": if open { accepted - committed } else { 0 },
     })
 }
 
@@ -14937,6 +14980,7 @@ fn import_row(id: &str, number: u64, status: &str, resolution: &str, product: Op
         "resolution_status": resolution, "catalog_item_id": product.map(|_| "cat_card"), "product_id": product,
         "listing_price_amount": null, "listing_price_currency_code": null, "listing_quantity_cap": null, "row_note": null,
         "validation_errors": errors, "committed_inventory_item_id": null, "committed_listing_id": null, "committed_at": null,
+        "needs_seller": status == "rejected" && (resolution == "unresolved" || product.is_none()),
     })
 }
 
@@ -14947,7 +14991,8 @@ fn import_job(id: &str, status: &str) -> Value {
 
 /// The stand-in Inventory import API. Batches: `imb_1` (3 rows: one accepted, one rejected that
 /// needs the seller, one rejected with a product, which does not), `imb_big` (150 rows, 100 a page),
-/// `imb_done` (committed, nothing to commit), `imb_gone` unknown; a read that waits for 43 is
+/// `imb_done` (committed, nothing to commit), `imb_held` (accepted rows Inventory will not commit
+/// yet), `imb_gone` unknown; a read that waits for 43 is
 /// still catching up. Jobs: `job_run` running, `job_done` finished with `imb_1` and a receipt at
 /// 42, `job_fail` failed, `job_other` another account's. A create needs its attempt and refuses
 /// rows that say `bad`; a commit needs its attempt and refuses `imb_done`.
@@ -15011,6 +15056,12 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
                 }
                 "imb_big" => import_batch("imb_big", "ready-to-commit", 150, 150, 0, 0),
                 "imb_done" => import_batch("imb_done", "committed", 1, 1, 0, 1),
+                "imb_held" => {
+                    let mut detail = import_batch("imb_held", "ready-to-commit", 2, 2, 0, 0);
+                    detail["can_commit"] = json!(false);
+                    detail["commit_ready_count"] = json!(0);
+                    detail
+                }
                 _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Import batch not found.")),
             };
             if batch == "/imb_big" {
@@ -15046,10 +15097,12 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
                 import_row("row_2", 2, "accepted", "resolved", Some("prd_2"), &[]),
                 import_row("row_3", 3, "rejected", "resolved", Some("prd_3"), &["Quantity must be a whole number."]),
             ];
-            if fix == "/imb_1/rows/row_2/resolve" {
+            let next = (fix == "/imb_1/rows/row_2/resolve").then_some("row_4");
+            if next.is_some() {
                 rows.push(import_row("row_4", 4, "rejected", "unresolved", None, &["No catalog product matches this row."]));
             }
             detail["rows"] = json!(rows);
+            detail["next_needs_seller_row_id"] = json!(next);
             committed(StatusCode::OK, "inventory", "51", detail)
         }
         ("POST", commit) if commit.ends_with("/commit") => {
@@ -15154,6 +15207,8 @@ async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
 
     let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_done"), Some("seller"))).await;
     assert!(!html.contains("/commit\""), "nothing left to commit: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_held"), Some("seller"))).await;
+    assert!(!html.contains("/commit\""), "Commit follows Inventory, not the accepted count: {html}");
 
     let (_, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_big"), Some("seller"))).await;
     assert!(html.contains(r#"href="/account/inventory/imports/imb_big?offset=100""#), "the next 100: {html}");

@@ -8,9 +8,8 @@
 //!
 //! A new import is sent once per form: the form's `SubmitKey` is the `Inventory-Mutation-Attempt`,
 //! so the same form sent again is the same job. Resolving a row is not ported yet: Resolve opens
-//! marketplace's batch page at the row. Which rows need the seller and whether a batch can commit
-//! are marketplace's web-layer rules, copied here until the batch read carries them
-//! (chase-sets/chase-sets#10763).
+//! marketplace's batch page at the row. Which rows need the seller, whether a batch can commit and
+//! the next row to resolve are Inventory's answers, read from the batch and from a resolve.
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -243,25 +242,14 @@ impl ImportsScreen {
     }
 }
 
-/// A row still needs the seller (`rowNeedsResolution`): rejected, not committed, and from a
-/// Saved List or with its product unresolved. Copied from marketplace's web layer until the batch
-/// read says so (chase-sets/chase-sets#10763).
-pub fn needs_seller(row: &ImportRow, source_key: &str) -> bool {
-    row.status == "rejected"
-        && (source_key == "saved-list" || row.resolution_status == "unresolved" || row.product_id.is_none())
-        && row.committed_at.is_none()
-}
-
-/// The rows that need the seller, in row order (`unresolvedResolutionRowIds`).
+/// The shown rows that Inventory says need the seller, in row order.
 pub fn unresolved(detail: &ImportBatchDetail) -> Vec<&ImportRow> {
-    detail.rows.iter().filter(|row| needs_seller(row, &detail.batch.source_key)).collect()
+    detail.rows.iter().filter(|row| row.needs_seller).collect()
 }
 
-/// Whether Commit is offered (`canCommit`), and how many rows it would commit. Copied from
-/// marketplace's web layer (chase-sets/chase-sets#10763).
-pub fn commit_ready(batch: &ImportBatch) -> Option<u64> {
-    let open = matches!(batch.status.as_str(), "uploaded" | "ready-to-commit" | "partial");
-    (open && batch.accepted_count > batch.committed_count).then(|| batch.accepted_count - batch.committed_count)
+/// How many rows Commit would commit, when Inventory says the batch can commit.
+pub fn commit_ready(detail: &ImportBatchDetail) -> Option<u64> {
+    detail.can_commit.then_some(detail.commit_ready_count)
 }
 
 /// The job the address names: where its finished work goes, or what it says while it runs. A job
@@ -534,8 +522,8 @@ pub(crate) async fn resolve(
     });
     let refused = match fix {
         Some(fix) => match caller.resolve_import_row(&id, &row_id, &fix).await {
-            Ok(detail) => {
-                let next = unresolved(&detail).first().map(|row| row.row_id.clone());
+            Ok(resolution) => {
+                let next = resolution.next_needs_seller_row_id;
                 let place = Place { offset: (offset > 0).then(|| offset.to_string()), resolve_row_id: next, ..Place::default() };
                 return req.redirect(&url::ImportBatch { batch: &id, place });
             }
